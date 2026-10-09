@@ -1,0 +1,40 @@
+{
+  "name": "btw-platform",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "postinstall": "node scripts/build-tokens.mjs",
+    "tokens": "node scripts/build-tokens.mjs",
+    "dev": "pnpm tokens && pnpm -r --parallel --filter './apps/*' dev",
+    "dev:web": "pnpm tokens && pnpm --filter @btw/web dev",
+    "dev:field": "pnpm tokens && pnpm --filter @btw/field dev",
+    "check": "pnpm -r --filter './apps/*' check",
+    "test": "tsx packages/api/test/workflow.e2e.ts",
+    "build": "pnpm tokens && pnpm -r --filter './apps/*' build",
+    "size": "node scripts/check-size.mjs",
+    "verify": "pnpm tokens && pnpm check && pnpm test && pnpm api:test && pnpm build && pnpm size",
+    "mockups:setup": "playwright install chromium-headless-shell",
+    "mockups": "node tools/mockups/run.mjs",
+    "mockups:gallery": "node tools/mockups/gallery.mjs",
+    "android:sync": "node scripts/android.mjs sync",
+    "android:build": "node scripts/android.mjs build",
+    "android:open": "node scripts/android.mjs open",
+    "api:dev": "docker compose up -d --wait db mail && pnpm --filter @btw/server dev",
+    "api:check": "pnpm --filter @btw/server check",
+    "api:test": "docker compose up -d --wait db mail && pnpm --filter @btw/server test",
+    "db:migrate": "docker compose up -d --wait db && pnpm --filter @btw/server db:migrate",
+    "db:seed": "pnpm --filter @btw/server db:seed",
+    "start": "node scripts/stack.mjs start",
+    "dev:all": "node scripts/stack.mjs dev",
+    "e2e": "node tests/e2e/run.mjs"
+  },
+  "engines": {
+    "node": ">=20.16"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0",
+    "sharp": "^0.35.5",
+    "tsx": "^4.23.15"
+  },
+  "packageManager": "pnpm@10.13.1"
+}

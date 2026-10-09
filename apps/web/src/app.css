@@ -1,0 +1,8 @@
+/* Web-only page helpers */
+.page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; margin-bottom: var(--space-6); }
+.page-head .crumb { margin-bottom: var(--space-1); }
+.filters { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: flex-end; margin-bottom: var(--space-4); }
+.filters .field { min-width: 160px; }
+.tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border); margin-bottom: var(--space-4); overflow-x: auto; }
+.tabs button { background: none; border: 0; border-bottom: 3px solid transparent; padding: var(--space-2) var(--space-4); font: 600 14px var(--ff-body); color: var(--text-muted); cursor: pointer; white-space: nowrap; }
+.tabs button[aria-selected='true'] { color: var(--text); border-bottom-color: var(--accent); }

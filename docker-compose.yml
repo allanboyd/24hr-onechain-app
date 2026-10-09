@@ -1,0 +1,14 @@
+# Local infrastructure for the API. Ports are offset to avoid clashing with other projects on this machine.
+name: btw
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    environment: { POSTGRES_USER: btw, POSTGRES_PASSWORD: btw, POSTGRES_DB: btw }
+    ports: ["55433:5432"]
+    volumes: [db:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U btw"], interval: 3s, retries: 20 }
+  mail:
+    image: axllent/mailpit:latest      # catches all outgoing email; inbox UI on http://localhost:18025
+    ports: ["11025:1025", "18025:8025"]
+volumes:
+  db:

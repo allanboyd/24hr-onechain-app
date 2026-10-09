@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BTW Logo Variants</title>
+<style>
+  :root { --navy: #062953; --navy950: #04152B; --dark: #08121F; --grey: #EEF1F6; --text: #0B1B33; --muted: #4A5A70; --border: #CBD3DF; --orange: #B83A00; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px 24px 64px; background: #F6F8FB; color: var(--text); font: 14px/1.45 Inter, system-ui, sans-serif; }
+  h1 { font: 800 28px/1.2 Montserrat, system-ui, sans-serif; margin: 0 0 4px; }
+  h2 { font: 700 18px/1.3 Montserrat, system-ui, sans-serif; margin: 36px 0 12px; }
+  p.lead { color: var(--muted); margin: 0 0 8px; max-width: 70ch; }
+  .tag { display: inline-block; font: 600 11px/18px Inter, sans-serif; padding: 0 6px; border-radius: 4px; background: #FFF4EC; color: var(--orange); margin-left: 6px; vertical-align: middle; }
+  .row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .cell { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #fff; }
+  .sw { height: 170px; display: grid; place-items: center; padding: 18px; }
+  .sw img { max-width: 100%; max-height: 130px; }
+  .sw.white { background: #fff; } .sw.grey { background: var(--grey); } .sw.navy { background: var(--navy); } .sw.dark { background: var(--dark); }
+  .cap { padding: 8px 10px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); }
+  .cap code { color: var(--text); }
+  .icons { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
+  .icons figure { margin: 0; text-align: center; font-size: 12px; color: var(--muted); }
+  .icons img { display: block; margin: 0 auto 6px; border-radius: 8px; box-shadow: 0 2px 6px rgba(6,41,83,.15); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 900px) { .row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+</style>
+</head>
+<body>
+<h1>BTW logo variants</h1>
+<p class="lead">Every file below is derived from the supplied logo (<code>docs/inspiration/preffered-logo.jpeg</code>) by removing the white background, cropping and recolouring. Nothing was redrawn. Variants marked <span class="tag">derived</span> change colours and need client approval (requirement Q-B3).</p>
+
+<h2>On every surface</h2>
+<div class="row">
+  <div class="cell"><div class="sw white"><img src="../../packages/ui/src/assets/brand/btw-lockup.png" alt=""></div><div class="cap">Full colour on white</div></div>
+  <div class="cell"><div class="sw grey"><img src="../../packages/ui/src/assets/brand/btw-lockup.png" alt=""></div><div class="cap">Full colour on light grey</div></div>
+  <div class="cell"><div class="sw navy"><img src="../../packages/ui/src/assets/brand/btw-lockup-reversed.png" alt=""></div><div class="cap">Reversed on navy <span class="tag">derived</span></div></div>
+  <div class="cell"><div class="sw dark"><img src="../../packages/ui/src/assets/brand/btw-lockup-reversed.png" alt=""></div><div class="cap">Reversed on dark <span class="tag">derived</span></div></div>
+</div>
+<div id="sheet"></div>
+
+<h2>App icons</h2>
+<div class="icons">
+  <figure><img src="../../packages/ui/src/assets/brand/app-icon-navy-1024.png" width="120" height="120" alt=""><code>app-icon-navy-1024.png</code></figure>
+  <figure><img src="../../packages/ui/src/assets/brand/app-icon-white-1024.png" width="120" height="120" alt=""><code>app-icon-white-1024.png</code></figure>
+  <figure><img src="../../packages/ui/src/assets/brand/android-adaptive-foreground.png" width="120" height="120" style="background:#062953;border-radius:50%" alt=""><code>android adaptive (circle mask)</code></figure>
+  <figure><img src="../../packages/ui/src/assets/brand/btw-monogram.png" height="64" style="box-shadow:none;border-radius:0" alt=""><code>btw-monogram.png</code></figure>
+  <figure><img src="../../packages/ui/src/assets/brand/favicon-192.png" width="64" height="64" alt=""><code>favicon-192</code></figure>
+  <figure><img src="../../packages/ui/src/assets/brand/favicon-48.png" width="48" height="48" alt=""><code>48</code></figure>
+  <figure><img src="../../packages/ui/src/assets/brand/favicon-32.png" width="32" height="32" alt=""><code>32</code></figure>
+  <figure><img src="../../packages/ui/src/assets/brand/favicon-16.png" width="16" height="16" alt=""><code>16</code></figure>
+</div>
+
+<h2>Splash screens</h2>
+<div class="split">
+  <div class="cell"><div class="sw white" style="height:240px"><img src="../../packages/ui/src/assets/brand/splash-light.png" style="max-height:220px" alt=""></div><div class="cap"><code>splash-light.png</code> 2732²</div></div>
+  <div class="cell"><div class="sw dark" style="height:240px"><img src="../../packages/ui/src/assets/brand/splash-dark.png" style="max-height:220px" alt=""></div><div class="cap"><code>splash-dark.png</code> 2732² <span class="tag">derived</span></div></div>
+</div>
+
+<h2>SVG (vectorised) vs PNG</h2>
+<div class="split">
+  <div class="cell"><div class="sw white"><img src="../../packages/ui/src/assets/brand/btw-lockup.png" alt=""></div><div class="cap"><code>btw-lockup.png</code> (from source)</div></div>
+  <div class="cell"><div class="sw white"><img src="../../packages/ui/src/assets/brand/btw-lockup.svg" alt=""></div><div class="cap"><code>btw-lockup.svg</code> (traced; see README for when to use it)</div></div>
+</div>
+
+<script>
+  const B = '../../packages/ui/src/assets/brand/';
+  const groups = [
+    ['Full lockup', 'lockup'], ['Lockup without tagline', 'lockup-no-tagline'],
+    ['Mark only', 'mark'], ['Horizontal (mark + wordmark)', 'horizontal'],
+  ];
+  const variants = [
+    ['', 'Full colour', ['white', 'grey'], false],
+    ['-reversed', 'Reversed (navy → white)', ['navy', 'dark'], true],
+    ['-mono-navy', 'One colour · navy', ['white', 'grey'], true],
+    ['-mono-white', 'One colour · white', ['dark', 'navy'], true],
+  ];
+  const sheet = document.getElementById('sheet');
+  for (const [title, base] of groups) {
+    const h = document.createElement('h2'); h.textContent = title; sheet.append(h);
+    const row = document.createElement('div'); row.className = 'row';
+    for (const [suf, label, surfaces, derived] of variants) for (const surf of surfaces.slice(0, 1)) {
+      const file = `btw-${base}${suf}.png`;
+      const cell = document.createElement('div'); cell.className = 'cell';
+      cell.innerHTML = `<div class="sw ${surf}"><img src="${B}${file}" alt=""></div><div class="cap">${label} on ${surf}<br><code>${file}</code>${derived ? ' <span class="tag">derived</span>' : ''}</div>`;
+      row.append(cell);
+    }
+    sheet.append(row);
+  }
+</script>
+</body>
+</html>

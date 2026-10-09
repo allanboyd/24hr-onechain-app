@@ -1,0 +1,20 @@
+{
+  "name": "@btw/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./outbox": "./src/outbox.ts",
+    "./types": "./src/types.ts",
+    "./rules": "./src/rules.ts",
+    "./http": "./src/http.ts",
+    "./mock/seed": "./src/mock/seed.ts",
+    "./mock/db": "./src/mock/db.ts",
+    "./client": "./src/client.ts",
+    "./vite": "./vite.mjs"
+  },
+  "sideEffects": [
+    "./src/outbox.ts"
+  ]
+}

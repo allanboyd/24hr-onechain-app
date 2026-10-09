@@ -1,0 +1,27 @@
+name: Android APK
+on:
+  push: { branches: [main], paths: ['apps/field/**', 'packages/**', '.github/workflows/android.yml'] }
+  pull_request: { paths: ['apps/field/**', 'packages/**'] }
+  workflow_dispatch:
+    inputs:
+      api_url: { description: 'API base URL baked into the APK (empty = built-in mock data)', required: false, default: '' }
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version-file: .nvmrc, cache: pnpm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21', cache: gradle }
+      - uses: android-actions/setup-android@v3
+      - run: pnpm install --frozen-lockfile
+      - name: Build debug APK
+        env:
+          VITE_API: ${{ inputs.api_url && 'http' || '' }}
+          VITE_API_URL: ${{ inputs.api_url }}
+        run: pnpm android:build
+      - uses: actions/upload-artifact@v4
+        with: { name: btw-field-debug-apk, path: apps/field/android/app/build/outputs/apk/debug/app-debug.apk }

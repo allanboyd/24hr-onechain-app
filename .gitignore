@@ -1,0 +1,23 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+# generated
+packages/tokens/tokens.css
+/mockups/
+# local tool state
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.env
+apps/api/var/
+apps/api/dist/
+# Android build outputs (the android/ project itself is committed)
+apps/field/android/app/build/
+apps/field/android/build/
+apps/field/android/.gradle/
+apps/field/android/local.properties
+apps/field/android/app/src/main/assets/public/
+apps/field/android/app/google-services.json
+apps/web/test/out/
+tests/e2e/out/
+tests/e2e/.build/

@@ -1,0 +1,9 @@
+{
+  "extends": "@tsconfig/svelte/tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022", "lib": ["ES2023", "DOM", "DOM.Iterable"], "module": "ESNext", "moduleResolution": "bundler", "strict": true,
+    "allowImportingTsExtensions": true, "noEmit": true, "skipLibCheck": true, "types": ["svelte"],
+    "verbatimModuleSyntax": true, "isolatedModules": true
+  },
+  "include": ["src/**/*", "../../packages/*/src/**/*"]
+}

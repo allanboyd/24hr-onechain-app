@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BTW Design System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+/* ---- Generated from tokens.json by build_preview.py — do not edit by hand ---- */
+:root{--brand-navy:#062953;--brand-orange:#FE7514;--brand-orangeDeep:#DF4901;--brand-amber:#FEA526;--s-0:0px;--s-0_5:2px;--s-1:4px;--s-2:8px;--s-3:12px;--s-4:16px;--s-5:20px;--s-6:24px;--s-8:32px;--s-10:40px;--s-12:48px;--s-16:64px;--r-none:0px;--r-sm:4px;--r-md:6px;--r-lg:10px;--r-xl:16px;--r-full:9999px;--m-fast:120ms;--m-base:200ms;--m-slow:320ms;--m-easing:cubic-bezier(0.2, 0, 0, 1);--brandRibbon:linear-gradient(90deg, #DF4901 0%, #FE7514 55%, #FEA526 100%);--ff-display:"Montserrat",system-ui,sans-serif;--ff-body:"Inter",system-ui,sans-serif;--font-display:800 36px/44px "Montserrat",system-ui,sans-serif;--font-h1:700 30px/38px "Montserrat",system-ui,sans-serif;--font-h2:700 24px/32px "Montserrat",system-ui,sans-serif;--font-h3:600 20px/28px "Montserrat",system-ui,sans-serif;--font-h4:600 17px/24px "Montserrat",system-ui,sans-serif;--font-bodyLg:400 16px/24px "Inter",system-ui,sans-serif;--font-body:400 14px/20px "Inter",system-ui,sans-serif;--font-bodySm:400 13px/18px "Inter",system-ui,sans-serif;--font-label:600 13px/16px "Inter",system-ui,sans-serif;--font-caption:400 12px/16px "Inter",system-ui,sans-serif;--font-overline:600 11px/16px "Montserrat",system-ui,sans-serif;--bg:#F6F8FB;--surface:#FFFFFF;--surfaceSunken:#EEF1F6;--surfaceRaised:#FFFFFF;--border:#CBD3DF;--borderStrong:#8593A8;--text:#0B1B33;--textMuted:#4A5A70;--textSubtle:#66768C;--textOnPrimary:#FFFFFF;--textOnAccent:#062953;--link:#0F3A6E;--primary:#062953;--primaryHover:#0F3A6E;--primarySubtle:#EEF3FA;--accent:#FE7514;--accentHover:#FF8A3D;--accentText:#B83A00;--accentSubtle:#FFF4EC;--focusRing:#DF4901;--nav:#062953;--navText:#FFFFFF;--navTextMuted:#B3C6E2;--navActiveBg:#0A3160;--navIndicator:#FE7514;--success:#15703A;--successSubtle:#E6F4EC;--info:#1D4FB8;--infoSubtle:#E8EFFC;--warning:#8A5300;--warningSubtle:#FFF4D1;--warningSolid:#E0A800;--danger:#B4231B;--dangerSubtle:#FDECEA;--dangerSolid:#B4231B;--textOnDanger:#FFFFFF;--tabActive:#062953;}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#08121F;--surface:#102037;--surfaceSunken:#0B1B33;--surfaceRaised:#172A45;--border:#33435A;--borderStrong:#5C6F8A;--text:#E8EDF5;--textMuted:#A3B1C6;--textSubtle:#8494AB;--textOnPrimary:#04152B;--textOnAccent:#04152B;--link:#8FB2E8;--primary:#FE7514;--primaryHover:#FF8A3D;--primarySubtle:#1B3358;--accent:#FE7514;--accentHover:#FF8A3D;--accentText:#FF8A3D;--accentSubtle:#2A1A10;--focusRing:#FF8A3D;--nav:#04152B;--navText:#E8EDF5;--navTextMuted:#A3B1C6;--navActiveBg:#062953;--navIndicator:#FE7514;--success:#5CCB8A;--successSubtle:#0E2A1E;--info:#7AA7F5;--infoSubtle:#12264A;--warning:#F2C14E;--warningSubtle:#2E2410;--warningSolid:#F2C14E;--danger:#FF8A80;--dangerSubtle:#3A1715;--dangerSolid:#FF8A80;--textOnDanger:#04152B;--tabActive:#FF8A3D;}}
+:root[data-theme="dark"]{--bg:#08121F;--surface:#102037;--surfaceSunken:#0B1B33;--surfaceRaised:#172A45;--border:#33435A;--borderStrong:#5C6F8A;--text:#E8EDF5;--textMuted:#A3B1C6;--textSubtle:#8494AB;--textOnPrimary:#04152B;--textOnAccent:#04152B;--link:#8FB2E8;--primary:#FE7514;--primaryHover:#FF8A3D;--primarySubtle:#1B3358;--accent:#FE7514;--accentHover:#FF8A3D;--accentText:#FF8A3D;--accentSubtle:#2A1A10;--focusRing:#FF8A3D;--nav:#04152B;--navText:#E8EDF5;--navTextMuted:#A3B1C6;--navActiveBg:#062953;--navIndicator:#FE7514;--success:#5CCB8A;--successSubtle:#0E2A1E;--info:#7AA7F5;--infoSubtle:#12264A;--warning:#F2C14E;--warningSubtle:#2E2410;--warningSolid:#F2C14E;--danger:#FF8A80;--dangerSubtle:#3A1715;--dangerSolid:#FF8A80;--textOnDanger:#04152B;--tabActive:#FF8A3D;}
+/* ---- Preview layout (uses tokens only) ---- */
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:var(--font-body);font-family:var(--ff-body);-webkit-font-smoothing:antialiased}
+.shell{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+nav.side{background:var(--nav);color:var(--navText);padding:var(--s-4) 0;position:sticky;top:0;height:100vh}
+.logo-tile{background:#FFFFFF;margin:0 var(--s-4) var(--s-6);border-radius:var(--r-md);padding:var(--s-2)}
+.logo-tile img{width:100%;display:block}
+.navsec{font:var(--font-overline);font-family:var(--ff-display);letter-spacing:.12em;text-transform:uppercase;color:var(--navTextMuted);padding:var(--s-4) var(--s-5) var(--s-2)}
+.navitem{display:flex;gap:var(--s-3);align-items:center;padding:10px var(--s-5);color:var(--navText);text-decoration:none;border-left:3px solid transparent;font-weight:500}
+.navitem.active{background:var(--navActiveBg);border-left-color:var(--navIndicator)}
+.navitem svg{width:20px;height:20px}
+main{padding:var(--s-8) var(--s-10);max-width:1180px}
+.ribbon{height:3px;background:var(--brandRibbon);border-radius:2px;margin-bottom:var(--s-6)}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s-6);gap:var(--s-4);flex-wrap:wrap}
+h1{font:var(--font-h1);font-family:var(--ff-display);margin:0}
+h2{font:var(--font-h2);font-family:var(--ff-display);margin:var(--s-10) 0 var(--s-4)}
+h3{font:var(--font-h3);font-family:var(--ff-display);margin:0 0 var(--s-3)}
+.eyebrow{display:flex;align-items:center;gap:var(--s-3);font:var(--font-overline);font-family:var(--ff-display);letter-spacing:.12em;text-transform:uppercase;color:var(--accentText);margin-top:var(--s-10)}
+.eyebrow::before,.eyebrow::after{content:"";height:2px;width:32px;background:var(--accent)}
+.eyebrow + h2{margin-top:var(--s-2)}
+.muted{color:var(--textMuted)}
+.grid{display:grid;gap:var(--s-4)}
+.g4{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--s-5)}
+.card.flag{border-left:3px solid var(--danger)}
+.kpi .ov{font:var(--font-overline);font-family:var(--ff-display);letter-spacing:.12em;text-transform:uppercase;color:var(--textMuted)}
+.kpi .v{font:var(--font-display);font-family:var(--ff-display);margin:var(--s-1) 0;font-variant-numeric:tabular-nums}
+.sw{border-radius:var(--r-md);overflow:hidden;border:1px solid var(--border);background:var(--surface)}
+.sw .c{height:64px}
+.sw .m{padding:var(--s-2) var(--s-3);font-size:12px;line-height:16px}
+.sw .m b{display:block;font-size:13px}
+.scale{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;border-radius:var(--r-md);overflow:hidden;border:1px solid var(--border)}
+.scale div{height:44px;font-size:10px;display:flex;align-items:flex-end;padding:4px;font-variant-numeric:tabular-nums}
+.btns{display:flex;flex-wrap:wrap;gap:var(--s-3);align-items:center}
+.btn{font-family:var(--ff-body);font-weight:600;font-size:14px;height:40px;padding:0 var(--s-4);border-radius:var(--r-md);border:1px solid transparent;cursor:pointer;display:inline-flex;align-items:center;gap:var(--s-2);transition:background var(--m-fast)}
+.btn:focus-visible{outline:2px solid var(--focusRing);outline-offset:2px}
+.btn svg{width:18px;height:18px}
+.btn.sm{height:32px;font-size:13px;padding:0 var(--s-3)}
+.btn.lg{height:48px;font-size:16px;padding:0 var(--s-5)}
+.primary{background:var(--primary);color:var(--textOnPrimary)}.primary:hover{background:var(--primaryHover)}
+.accent{background:var(--accent);color:var(--textOnAccent)}.accent:hover{background:var(--accentHover)}
+.secondary{background:var(--surface);color:var(--text);border-color:var(--borderStrong)}
+.ghost{background:transparent;color:var(--link)}
+.danger{background:var(--dangerSolid);color:var(--textOnDanger)}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.field input,.field select{width:100%;min-width:0}
+.field label{font:var(--font-label);font-family:var(--ff-body)}
+.field input,.field select{height:40px;border:1px solid var(--borderStrong);border-radius:var(--r-md);background:var(--surface);color:var(--text);padding:0 var(--s-3);font:var(--font-body);font-family:var(--ff-body)}
+.field input::placeholder{color:var(--textSubtle)}
+.field input:focus,.field select:focus{outline:2px solid var(--focusRing);outline-offset:1px}
+.field.num input{text-align:right;font-variant-numeric:tabular-nums}
+.field.err input{border-color:var(--danger)}
+.help{font:var(--font-caption);font-family:var(--ff-body);color:var(--textMuted)}
+.field.err .help{color:var(--danger)}
+.badge{display:inline-flex;align-items:center;gap:4px;border-radius:var(--r-sm);padding:2px 8px;font-size:12px;line-height:18px;font-weight:600;white-space:nowrap}
+.b-neutral{background:var(--surfaceSunken);color:var(--textMuted)}
+.b-info{background:var(--infoSubtle);color:var(--info)}
+.b-success{background:var(--successSubtle);color:var(--success)}
+.b-warning{background:var(--warningSubtle);color:var(--warning)}
+.b-danger{background:var(--dangerSubtle);color:var(--danger)}
+.b-strike{text-decoration:line-through}
+.badges{display:flex;flex-wrap:wrap;gap:var(--s-2);margin-bottom:var(--s-3);align-items:center}
+.badges .lbl{font:var(--font-label);font-family:var(--ff-body);color:var(--textMuted);width:120px}
+.tablewrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--r-lg);background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:640px}
+th{background:var(--surfaceSunken);font:var(--font-overline);font-family:var(--ff-display);letter-spacing:.12em;text-transform:uppercase;color:var(--textMuted);text-align:left;padding:10px var(--s-4)}
+td{padding:11px var(--s-4);border-top:1px solid var(--border);font-size:14px}
+tbody tr:hover td{background:var(--primarySubtle)}
+.n{text-align:right;font-variant-numeric:tabular-nums}
+tr.sub td{background:var(--surfaceSunken);font-weight:600}
+tr.total td{background:var(--primarySubtle);font-weight:700;border-top:2px solid var(--primary)}
+.toggle{display:flex;gap:var(--s-2)}
+.phone{width:360px;max-width:100%;border:1px solid var(--border);border-radius:24px;overflow:hidden;background:var(--bg)}
+.phone .hdr{background:var(--nav);color:var(--navText);padding:var(--s-4)}
+.phone .hdr .row{display:flex;justify-content:space-between;align-items:center}
+.phone .hdr h4{margin:0;font:var(--font-h4);font-family:var(--ff-display)}
+.phone .rb{height:3px;background:var(--brandRibbon)}
+.phone .body{padding:var(--s-4);display:flex;flex-direction:column;gap:var(--s-3)}
+.phone .tabs{display:grid;grid-template-columns:repeat(4,1fr);background:var(--surface);border-top:1px solid var(--border)}
+.phone .tab{display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0 10px;font-size:11px;color:var(--textMuted);border-top:3px solid transparent}
+.phone .tab.on{color:var(--tabActive);border-top-color:var(--navIndicator);font-weight:600}
+.phone .tab svg{width:22px;height:22px}
+.phone .btn{width:100%;justify-content:center}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:var(--r-sm);background:var(--warningSubtle);color:var(--warning)}
+.type-row{display:grid;grid-template-columns:110px 1fr;gap:var(--s-4);align-items:baseline;padding:var(--s-3) 0;border-top:1px solid var(--border)}
+.type-row code{font-size:12px;color:var(--textMuted)}
+@media (max-width:860px){.shell{grid-template-columns:1fr}nav.side{display:none}main{padding:var(--s-6) var(--s-4)}}
+</style>
+</head>
+<body>
+<div class="shell">
+<nav class="side" aria-label="Main">
+  <div class="logo-tile"><img src="../inspiration/preffered-logo.jpeg" alt="BTW Global Distributors"></div>
+  <div class="navsec">Operations</div>
+  <a class="navitem" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>Dashboard</a>
+  <a class="navitem" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Plans &amp; approvals</a>
+  <a class="navitem active" href="#" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h8"/></svg>Purchase orders</a>
+  <a class="navitem" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>Shipments</a>
+  <a class="navitem" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>Inventory</a>
+  <div class="navsec">Insight</div>
+  <a class="navitem" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 6-6"/></svg>Sales velocity</a>
+</nav>
+<main>
+  <div class="ribbon" role="presentation"></div>
+  <div class="top">
+    <div><h1>Design system</h1><div class="muted">Draft for approval · every value below is read from <code>tokens.json</code></div></div>
+    <div class="toggle" role="group" aria-label="Theme">
+      <button class="btn secondary sm" data-set="light">Light</button>
+      <button class="btn secondary sm" data-set="dark">Dark</button>
+    </div>
+  </div>
+
+  <div class="eyebrow">Colour</div>
+  <h2>Brand colours from the logo</h2>
+  <div class="grid g4">
+    <div class="sw"><div class="c" style="background:var(--brand-navy)"></div><div class="m"><b>Navy #062953</b>Primary · lettering</div></div>
+    <div class="sw"><div class="c" style="background:var(--brand-orange)"></div><div class="m"><b>Orange #FE7514</b>Accent · arrow</div></div>
+    <div class="sw"><div class="c" style="background:var(--brand-orangeDeep)"></div><div class="m"><b>Deep #DF4901</b>Focus ring · ribbon fold</div></div>
+    <div class="sw"><div class="c" style="background:var(--brand-amber)"></div><div class="m"><b>Amber #FEA526</b>Swoosh highlight</div></div>
+  </div>
+  <h3 style="margin-top:var(--s-6)">Navy</h3><div class="scale" id="sc-navy"></div>
+  <h3 style="margin-top:var(--s-4)">Orange</h3><div class="scale" id="sc-orange"></div>
+  <h3 style="margin-top:var(--s-4)">Neutral</h3><div class="scale" id="sc-neutral"></div>
+
+  <div class="eyebrow">Type</div>
+  <h2>Montserrat + Inter</h2>
+  <div class="card">
+    <div class="type-row"><code>display 36</code><div style="font:var(--font-display);font-family:var(--ff-display)">12,450 cases</div></div>
+    <div class="type-row"><code>h1 30</code><div style="font:var(--font-h1);font-family:var(--ff-display)">September '26 Order</div></div>
+    <div class="type-row"><code>h2 24</code><div style="font:var(--font-h2);font-family:var(--ff-display)">Shipment SHP-2026-0041</div></div>
+    <div class="type-row"><code>h3 20</code><div style="font:var(--font-h3);font-family:var(--ff-display)">Leg 2 · Nairobi → Mombasa</div></div>
+    <div class="type-row"><code>body 14</code><div>Kindly process and avail stock for loading. Quantities are in cases; prices per case.</div></div>
+    <div class="type-row"><code>label 13</code><div style="font:var(--font-label);font-family:var(--ff-body)">Truck registration</div></div>
+    <div class="type-row"><code>overline 11</code><div style="font:var(--font-overline);font-family:var(--ff-display);letter-spacing:.12em;text-transform:uppercase">Your global supply partner</div></div>
+  </div>
+
+  <div class="eyebrow">Components</div>
+  <h2>Buttons</h2>
+  <div class="card"><div class="btns">
+    <button class="btn primary">Submit for approval</button>
+    <button class="btn accent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Approve</button>
+    <button class="btn secondary">Save draft</button>
+    <button class="btn ghost">View history</button>
+    <button class="btn danger">Reject</button>
+    <button class="btn primary" disabled>Disabled</button>
+    <button class="btn primary sm">Small</button>
+    <button class="btn accent lg">Acknowledge delivery</button>
+  </div></div>
+
+  <h2>Inputs</h2>
+  <div class="card"><div class="grid g4">
+    <div class="field"><label for="i1">Supplier</label><select id="i1"><option>The Export Section – SBL, Mwanza</option></select><span class="help">From supplier master</span></div>
+    <div class="field"><label for="i2">Truck registration</label><input id="i2" placeholder="e.g. KDA 123B"></div>
+    <div class="field num"><label for="i3">Quantity (cases)</label><input id="i3" value="1,200"></div>
+    <div class="field num err"><label for="i4">Received (cases)</label><input id="i4" value="1,180" aria-invalid="true"><span class="help">20 short against loaded quantity</span></div>
+  </div></div>
+
+  <h2>Cards</h2>
+  <div class="grid g4">
+    <div class="card kpi"><div class="ov">Trucks in transit</div><div class="v">23</div><div class="muted">4 delayed</div></div>
+    <div class="card kpi"><div class="ov">Stock value (USD)</div><div class="v">1.84M</div><div class="muted">+6.2% vs last month</div></div>
+    <div class="card kpi"><div class="ov">Plans awaiting approval</div><div class="v">5</div><div class="muted">Oldest 2 days</div></div>
+    <div class="card kpi flag"><div class="ov">Stagnant SKUs</div><div class="v">3</div><div class="muted">Overstock flag raised</div></div>
+  </div>
+
+  <h2>Table — order lines (§7.2 layout)</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th class="n">Truck No.</th><th>Brand</th><th>Package</th><th class="n">Quantity</th><th class="n">Price</th><th class="n">Amount (USD)</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="n">1</td><td>Brand A</td><td>24 x 300 ml</td><td class="n">1,200</td><td class="n">10.50</td><td class="n">12,600.00</td><td><span class="badge b-info">In transit</span></td></tr>
+      <tr><td class="n">2</td><td>Brand A</td><td>24 x 300 ml</td><td class="n">800</td><td class="n">10.50</td><td class="n">8,400.00</td><td><span class="badge b-success">Acknowledged</span></td></tr>
+      <tr><td class="n">2</td><td>Brand B</td><td>24 x 500 ml</td><td class="n">400</td><td class="n">14.00</td><td class="n">5,600.00</td><td><span class="badge b-warning">At border</span></td></tr>
+      <tr class="sub"><td></td><td>Subtotal Brand A</td><td></td><td class="n">2,000</td><td></td><td class="n">21,000.00</td><td></td></tr>
+      <tr class="sub"><td></td><td>Subtotal Brand B</td><td></td><td class="n">400</td><td></td><td class="n">5,600.00</td><td></td></tr>
+      <tr class="total"><td></td><td>Grand total</td><td></td><td class="n">2,400</td><td></td><td class="n">26,600.00</td><td></td></tr>
+    </tbody>
+  </table></div>
+  <p class="muted" style="font-size:12px">Sample figures for layout only.</p>
+
+  <h2>Status badges</h2>
+  <div class="card">
+    <div class="badges"><span class="lbl">Approval</span><span class="badge b-neutral">Draft</span><span class="badge b-info">Submitted</span><span class="badge b-success">Approved</span><span class="badge b-warning">Returned</span><span class="badge b-danger">Rejected</span></div>
+    <div class="badges"><span class="lbl">Shipment</span><span class="badge b-neutral">Planned</span><span class="badge b-info">Loaded</span><span class="badge b-info">In transit</span><span class="badge b-warning">At border</span><span class="badge b-success">Arrived</span><span class="badge b-danger">Delayed</span><span class="badge b-neutral b-strike">Cancelled</span></div>
+    <div class="badges"><span class="lbl">Payment</span><span class="badge b-success">Paid</span><span class="badge b-warning">Part-paid</span><span class="badge b-danger">Unpaid</span></div>
+    <div class="badges"><span class="lbl">Velocity</span><span class="badge b-success">▲ Fast</span><span class="badge b-info">● Normal</span><span class="badge b-warning">▼ Slow</span><span class="badge b-danger">■ Stagnant</span></div>
+    <div class="badges"><span class="lbl">ETA / Sync</span><span class="badge b-info">Early 3h</span><span class="badge b-success">On time</span><span class="badge b-danger">Late +1d 4h</span><span class="badge b-success">Synced</span><span class="badge b-warning">Pending 3</span><span class="badge b-danger">Failed</span></div>
+  </div>
+
+  <h2>Mobile — receiver acknowledgement</h2>
+  <div class="phone">
+    <div class="hdr"><div class="row"><h4>Leg 3 · Mombasa → Juba</h4><span class="chip">● 2 pending</span></div><div class="muted" style="color:var(--navTextMuted);font-size:13px;margin-top:4px">SHP-2026-0041 · Truck KDA 123B</div></div>
+    <div class="rb"></div>
+    <div class="body">
+      <div class="card"><h3 style="font-size:17px">Brand A · 24 x 300 ml</h3>
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:var(--s-3)">
+          <div class="field num"><label>Expected</label><input value="1,200" readonly style="height:48px"></div>
+          <div class="field num"><label>Received</label><input value="1,180" style="height:48px"></div>
+          <div class="field num"><label>Damaged</label><input value="12" style="height:48px"></div>
+          <div class="field num"><label>Short</label><input value="8" readonly style="height:48px"></div>
+        </div>
+      </div>
+      <button class="btn secondary lg">Add photos</button>
+      <button class="btn accent lg">Sign &amp; acknowledge</button>
+    </div>
+    <div class="tabs">
+      <div class="tab on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>Deliveries</div>
+      <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>Stock</div>
+      <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>Alerts</div>
+      <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Me</div>
+    </div>
+  </div>
+  <div style="height:var(--s-16)"></div>
+</main>
+</div>
+<script>
+(function(){
+  var root=document.documentElement;
+  function set(t){root.setAttribute('data-theme',t);try{localStorage.setItem('btw-ds-theme',t)}catch(e){}}
+  try{var s=localStorage.getItem('btw-ds-theme');if(s)root.setAttribute('data-theme',s)}catch(e){}
+  document.querySelectorAll('[data-set]').forEach(function(b){b.addEventListener('click',function(){set(b.dataset.set)})});
+  var scales={"navy": {"50": "#EEF3FA", "100": "#D9E3F1", "200": "#B3C6E2", "300": "#8FB2E8", "400": "#5F80B3", "500": "#3A5F95", "600": "#1F4578", "700": "#0F3A6E", "800": "#0A3160", "900": "#062953", "950": "#04152B"}, "orange": {"50": "#FFF4EC", "100": "#FFE3CC", "200": "#FFC79A", "300": "#FEA526", "400": "#FF8A3D", "500": "#FE7514", "600": "#DF4901", "700": "#B83A00", "800": "#8F2D00", "900": "#5C1D00"}, "neutral": {"0": "#FFFFFF", "25": "#F6F8FB", "50": "#EEF1F6", "100": "#E2E7EF", "200": "#CBD3DF", "300": "#A3B1C6", "400": "#8593A8", "500": "#66768C", "550": "#5C6F8A", "600": "#4A5A70", "700": "#33435A", "800": "#172A45", "850": "#102037", "900": "#0B1B33", "950": "#08121F"}};
+  function lum(h){return [1,3,5].map(function(i){var c=parseInt(h.substr(i,2),16)/255;return c<=0.03928?c/12.92:Math.pow((c+0.055)/1.055,2.4)}).reduce(function(a,c,i){return a+c*[0.2126,0.7152,0.0722][i]},0)}
+  Object.keys(scales).forEach(function(k){
+    var el=document.getElementById('sc-'+k);if(!el)return;
+    Object.keys(scales[k]).forEach(function(step){
+      var hex=scales[k][step],d=document.createElement('div');
+      d.style.background=hex;d.style.color=lum(hex)>0.4?'#0B1B33':'#FFFFFF';d.title=k+'.'+step+' '+hex;d.textContent=step;el.appendChild(d)});
+  });
+})();
+</script>
+</body>
+</html>

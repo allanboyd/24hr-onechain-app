@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">BTW Field</string>
+    <string name="title_activity_main">BTW Field</string>
+    <string name="package_name">com.btwglobal.field</string>
+    <string name="custom_url_scheme">com.btwglobal.field</string>
+    <!-- @capacitor-community/background-geolocation -->
+    <string name="capacitor_background_geolocation_notification_channel_name">Trip tracking</string>
+    <string name="capacitor_background_geolocation_notification_icon">drawable/ic_stat_btw</string>
+</resources>

@@ -1,0 +1,1728 @@
+openapi: 3.1.0
+info:
+  title: BTW Supply Chain API
+  version: 0.2.0
+  description: 'Contract between the web app, the field app and the backend. Implemented by apps/api; mirrors the
+
+    client (`packages/api/src/index.ts`) and types (`packages/api/src/types.ts`) — keep names in sync.
+
+    All business rules run on the server (§12). Every write is audited with user, time and channel
+
+    (`X-Channel: web|app|sms`). Every list is filtered by the caller''s scopes (entity, loading point,
+
+    warehouse, receiving company — UA-02, §17.7).
+
+    Mobile writes carry `Idempotency-Key`; apps send `X-App-Version` and receive 426 when too old (MA-11).
+
+    '
+servers:
+- url: https://api.example.com/v1
+security:
+- bearer: []
+tags:
+- name: auth
+- name: users
+- name: masterdata
+- name: planning
+- name: po
+- name: loading
+- name: shipments
+- name: tracking
+- name: acknowledgement
+- name: field
+- name: inventory
+- name: sales
+- name: finance
+- name: analytics
+- name: notifications
+- name: sync
+- name: integrations
+- name: dev
+paths:
+  /auth/login:
+    post:
+      tags:
+      - auth
+      summary: Password (web) or PIN (app) login. Body {username,password} | {phone|username,pin}, optional deviceId/platform/appVersion
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        4XX:
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      security: []
+  /auth/refresh:
+    post:
+      tags:
+      - auth
+      summary: Rotate refresh token (reuse of an old token revokes the device session)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        4XX:
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken:
+                  type: string
+      security: []
+  /auth/logout:
+    post:
+      tags:
+      - auth
+      summary: Revoke this device’s refresh tokens
+      responses:
+        '204':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /auth/demo-users:
+    get:
+      tags:
+      - auth
+      summary: Users for demo sign-in pickers (404 in production)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      security: []
+  /auth/devices/{id}/revoke:
+    post:
+      tags:
+      - auth
+      summary: 'Remote logout of a lost device (MA-08): own device, or admin/director'
+      responses:
+        '204':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - &id001
+        $ref: '#/components/parameters/id'
+  /me:
+    get:
+      tags:
+      - auth
+      summary: Current user with roles and scopes
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /devices:
+    post:
+      tags:
+      - notifications
+      summary: Register this device’s push token + app version
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pushToken:
+                  type: string
+                platform:
+                  type: string
+                appVersion:
+                  type: string
+  /notifications:
+    get:
+      tags:
+      - notifications
+      summary: Notifications for my roles with read state
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /notifications/read:
+    post:
+      tags:
+      - notifications
+      summary: Mark read (ids) or all
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+  /ref:
+    get:
+      tags:
+      - masterdata
+      summary: Reference bundle (entities, suppliers, products, prices, providers, trucks, drivers, checkpoints with code/aliases, routes, warehouses, receiving companies, users, settings).
+        ETag / If-None-Match → 304
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefBundle'
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /masterdata/{kind}:
+    get:
+      tags:
+      - masterdata
+      summary: One list from the bundle (kebab-case kind)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - name: kind
+        in: path
+        required: true
+        schema:
+          type: string
+  /masterdata/trucks:
+    post:
+      tags:
+      - masterdata
+      summary: Add truck (planner/fleet/admin)
+      responses:
+        '201':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /masterdata/drivers:
+    post:
+      tags:
+      - masterdata
+      summary: Add driver (planner/fleet/admin)
+      responses:
+        '201':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /masterdata/providers:
+    post:
+      tags:
+      - masterdata
+      summary: Add provider (planner/fleet/admin)
+      responses:
+        '201':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /masterdata/routes/{id}:
+    patch:
+      tags:
+      - masterdata
+      summary: Update planned hours / dwell per stop (order fixed; must increase)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                stops:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/RouteStop'
+  /users:
+    get:
+      tags:
+      - users
+      summary: List users (admin/director)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+    post:
+      tags:
+      - users
+      summary: Create user with roles + scopes, optional password/PIN
+      responses:
+        '201':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /users/{id}:
+    patch:
+      tags:
+      - users
+      summary: Update roles/scopes/active (invalidates sessions)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /users/{id}/secret:
+    post:
+      tags:
+      - users
+      summary: Set PIN (4–6 digits) or password (≥8)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /users/{id}/devices:
+    get:
+      tags:
+      - users
+      summary: Devices of a user
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /plans:
+    get:
+      tags:
+      - planning
+      summary: Plans in my entity scope
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+    post:
+      tags:
+      - planning
+      summary: Create draft; ref auto-numbered per entity/year
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        4XX:
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - entityId
+              - supplierId
+              properties:
+                entityId:
+                  type: string
+                supplierId:
+                  type: string
+  /plans/{id}:
+    get:
+      tags:
+      - planning
+      summary: Plan
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+    put:
+      tags:
+      - planning
+      summary: Save draft/returned plan; 409 when locked; prices from price list unless director
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Plan'
+  /plans/{id}/submit:
+    post:
+      tags:
+      - planning
+      summary: Submit for approval (notifies directors by push + email)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /plans/{id}/decision:
+    post:
+      tags:
+      - planning
+      summary: 'Director: approve (signature required → PO + loadings) / return / reject (comment required)'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plan'
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Decision'
+  /plans/{id}/amendments:
+    post:
+      tags:
+      - planning
+      summary: Reopen approved plan as next version with reason (PL-04)
+      responses:
+        '201':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /plans/{id}/versions:
+    get:
+      tags:
+      - planning
+      summary: Approved version snapshots
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /pos:
+    get:
+      tags:
+      - po
+      summary: POs (entity scope or own loading point)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /pos/{id}:
+    get:
+      tags:
+      - po
+      summary: '{ po, plan }'
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /pos/{id}/sent:
+    post:
+      tags:
+      - po
+      summary: Record sent
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /pos/{id}/send:
+    post:
+      tags:
+      - po
+      summary: Email PDF letter to supplier export section + record sent (PO-03)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /pos/{id}/pdf:
+    get:
+      tags:
+      - po
+      summary: Typst PO letter
+      responses:
+        '200':
+          description: PDF
+          content:
+            application/pdf: {}
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /pos/{id}/letter:
+    get:
+      tags:
+      - po
+      summary: PoLetterData used for the PDF (preview)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /waiting:
+    get:
+      tags:
+      - loading
+      summary: 'Waiting list entries (scope: my loading points)'
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - name: loadingPointId
+        in: query
+        schema:
+          type: string
+  /loading-points/{id}/waiting:
+    post:
+      tags:
+      - loading
+      summary: Queue a known truck (409 if already queued)
+      responses:
+        '201':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+      - $ref: '#/components/parameters/idem'
+  /loading-points/{id}/market-trucks:
+    post:
+      tags:
+      - loading
+      summary: Register a market truck + driver and queue it (§17.4)
+      responses:
+        '201':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /waiting/{id}/move:
+    post:
+      tags:
+      - loading
+      summary: Move up (-1) / down (1)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /waiting/{id}:
+    delete:
+      tags:
+      - loading
+      summary: Remove from queue
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /loadings:
+    get:
+      tags:
+      - loading
+      summary: 'Loadings (scope: my loading points)'
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /loadings/{id}/confirm:
+    post:
+      tags:
+      - loading
+      summary: Record loading → shipment + first leg + transport cost; 422 over capacity / missing price; SMS to drivers without the app
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shipment'
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+      - $ref: '#/components/parameters/idem'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoadingConfirm'
+  /shipments:
+    get:
+      tags:
+      - shipments
+      summary: Shipments in scope (status derived; includes poRef)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /shipments/{id}:
+    get:
+      tags:
+      - shipments
+      summary: Shipment with legs
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shipment'
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /shipments/{id}/acks:
+    get:
+      tags:
+      - shipments
+      summary: Acknowledgements
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /shipments/{id}/legs:
+    post:
+      tags:
+      - shipments
+      summary: Transfer leg from where the previous leg was acknowledged (DS-02)
+      responses:
+        '201':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /legs/{id}/passes:
+    post:
+      tags:
+      - tracking
+      summary: Checkpoint arrived/departed
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Leg'
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+      - $ref: '#/components/parameters/idem'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PassEvent'
+  /legs/{id}/dispatch:
+    post:
+      tags:
+      - tracking
+      summary: Depart from origin
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Leg'
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /legs/{id}/split:
+    post:
+      tags:
+      - tracking
+      summary: Set an intermediate transfer point
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Leg'
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /legs/{id}/issues:
+    post:
+      tags:
+      - tracking
+      summary: Truck issue (§17.5)
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Leg'
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+      - $ref: '#/components/parameters/idem'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TruckIssue'
+  /legs/{id}/issues/{issueId}/fix:
+    post:
+      tags:
+      - tracking
+      summary: Mark issue fixed
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+      - name: issueId
+        in: path
+        required: true
+        schema:
+          type: string
+  /legs/{id}/acknowledgement:
+    post:
+      tags:
+      - acknowledgement
+      summary: Receiver acknowledgement; stock posts only at final warehouse; discrepancy alert; 409 if already acknowledged
+      responses:
+        '201':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+      - $ref: '#/components/parameters/idem'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AckInput'
+  /acks/{id}:
+    get:
+      tags:
+      - acknowledgement
+      summary: Acknowledgement
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /acks/{id}/pdf:
+    get:
+      tags:
+      - acknowledgement
+      summary: Acknowledgement PDF (AK-03)
+      responses:
+        '200':
+          description: PDF
+          content:
+            application/pdf: {}
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /positions:
+    post:
+      tags:
+      - tracking
+      summary: GPS pings → PostGIS geofence → passes (source geofence)
+      responses:
+        '202':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - $ref: '#/components/parameters/idem'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/Position'
+  /field/driver:
+    get:
+      tags:
+      - field
+      summary: Driver working set for the field app (offline cache)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DriverWork'
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /field/giver:
+    get:
+      tags:
+      - field
+      summary: Giver working set for the field app (offline cache)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GiverWork'
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /field/receiver:
+    get:
+      tags:
+      - field
+      summary: Receiver working set for the field app (offline cache)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiverWork'
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /stock:
+    get:
+      tags:
+      - inventory
+      summary: §7.5 rows (scope)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /stock/ledger:
+    get:
+      tags:
+      - inventory
+      summary: Last 50 movements
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - name: warehouseId
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: productId
+        in: query
+        required: true
+        schema:
+          type: string
+  /sales:
+    get:
+      tags:
+      - sales
+      summary: Last 200 sales (scope)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+    post:
+      tags:
+      - sales
+      summary: Create sale; 422 above stock unless director override
+      responses:
+        '201':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - $ref: '#/components/parameters/idem'
+  /analytics/summary:
+    get:
+      tags:
+      - analytics
+      summary: Dashboard KPIs
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /analytics/velocity:
+    get:
+      tags:
+      - analytics
+      summary: Velocity rows
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VelocityRow'
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /analytics/flags:
+    get:
+      tags:
+      - analytics
+      summary: Flags
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /analytics/thresholds:
+    put:
+      tags:
+      - analytics
+      summary: Directors adjust class thresholds (§9.2)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /finance/trips:
+    get:
+      tags:
+      - finance
+      summary: 'Per shipment: costs, payments, balance, landing cost'
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /finance/costs:
+    post:
+      tags:
+      - finance
+      summary: Add trip expense
+      responses:
+        '201':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /finance/payments:
+    post:
+      tags:
+      - finance
+      summary: Record payment; above threshold → Pending approval
+      responses:
+        '201':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /finance/payments/{id}/approve:
+    post:
+      tags:
+      - finance
+      summary: Director approves (FN-03)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /sync/batch:
+    post:
+      tags:
+      - sync
+      summary: 'Replay outbox in order; per item applied/duplicate/rejected. Ops: leg.pass, leg.issue, leg.issue.fix|issue.fix, leg.acknowledge, leg.dispatch, loading.confirm, waiting.add,
+        sale.create, positions'
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/OutboxItem'
+  /dev/reset:
+    post:
+      tags:
+      - dev
+      summary: Re-seed demo data (404 in production)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      security: []
+  /webhooks/sms:
+    post:
+      tags:
+      - integrations
+      summary: Inbound SMS (Africa’s Talking)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      security: []
+  /webhooks/ussd:
+    post:
+      tags:
+      - integrations
+      summary: USSD session step
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      security: []
+  /files:
+    post:
+      tags:
+      - integrations
+      summary: Upload {kind, name, contentType, dataBase64} → {id, url (signed), size}
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /files/{id}:
+    get:
+      tags:
+      - integrations
+      summary: Download by signed link (exp, sig)
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      security: []
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    deviceId:
+      name: deviceId
+      in: path
+      required: true
+      schema:
+        type: string
+    since:
+      name: since
+      in: query
+      schema:
+        type: string
+        format: date-time
+    cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+    status:
+      name: status
+      in: query
+      schema:
+        type: string
+    idem:
+      name: Idempotency-Key
+      in: header
+      schema:
+        type: string
+        format: uuid
+  responses:
+    Problem:
+      description: RFC 9457 problem
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    Problem:
+      type: object
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        detail:
+          type: string
+        code:
+          type: string
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        phone:
+          type: string
+        pin:
+          type: string
+        deviceId:
+          type: string
+        platform:
+          type: string
+        appVersion:
+          type: string
+    Session:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+        expiresIn:
+          type: integer
+        deviceId:
+          type: string
+    Role:
+      enum:
+      - director
+      - planner
+      - operations
+      - loader
+      - fleet
+      - receiver
+      - sales
+      - accounts
+      - driver
+      - admin
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        phone:
+          type: string
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+        entityIds:
+          type: array
+          items:
+            type: string
+        loadingPointIds:
+          type: array
+          items:
+            type: string
+        warehouseIds:
+          type: array
+          items:
+            type: string
+    RefBundle:
+      type: object
+      description: See types.ts (Entity
+      Supplier: null
+      Product: null
+      PriceListItem: null
+      Provider: null
+      Truck: null
+      Driver: null
+      Checkpoint: null
+      Route: null
+      Warehouse: null
+      ReceivingCompany): null
+    Checkpoint:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          enum:
+          - loading
+          - weighbridge
+          - town
+          - border
+          - warehouse
+        country:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        radiusM:
+          type: integer
+        code:
+          type: string
+        aliases:
+          type: array
+          items:
+            type: string
+    RouteStop:
+      type: object
+      properties:
+        checkpointId:
+          type: string
+        plannedHours:
+          type: number
+        plannedDwellHours:
+          type: number
+    PlanLine:
+      type: object
+      required:
+      - truckNo
+      - productId
+      - qty
+      - price
+      - deliveredToId
+      - routeId
+      properties:
+        id:
+          type: string
+        truckNo:
+          type: integer
+          minimum: 1
+        productId:
+          type: string
+        qty:
+          type: integer
+          minimum: 0
+        price:
+          type: number
+        amount:
+          type: number
+          readOnly: true
+        deliveredToId:
+          type: string
+        routeId:
+          type: string
+    Plan:
+      type: object
+      properties:
+        id:
+          type: string
+        ref:
+          type: string
+          readOnly: true
+          examples:
+          - BTW-PO-2026-0002
+        title:
+          type: string
+        entityId:
+          type: string
+        supplierId:
+          type: string
+        currency:
+          enum:
+          - USD
+          - KES
+        date:
+          type: string
+          format: date
+        requiredBy:
+          type: string
+          format: date
+        status:
+          enum:
+          - Draft
+          - Submitted
+          - Approved
+          - Returned
+          - Rejected
+        version:
+          type: integer
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlanLine'
+        totals:
+          type: object
+          readOnly: true
+          properties:
+            qty:
+              type: integer
+            amount:
+              type: number
+            byTruck:
+              type: array
+              items:
+                type: object
+            byProduct:
+              type: array
+              items:
+                type: object
+        history:
+          type: array
+          items:
+            type: object
+        poId:
+          type: string
+    PlanPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Plan'
+        next:
+          type: string
+    Decision:
+      type: object
+      required:
+      - action
+      properties:
+        action:
+          enum:
+          - approved
+          - returned
+          - rejected
+        comment:
+          type: string
+        signatureFileId:
+          type: string
+    WaitingEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        loadingPointId:
+          type: string
+        truckId:
+          type: string
+        driverId:
+          type: string
+        arrivedAt:
+          type: string
+          format: date-time
+        position:
+          type: integer
+        status:
+          enum:
+          - Waiting
+          - Assigned
+          - Loaded
+    LoadingConfirm:
+      type: object
+      required:
+      - truckId
+      - driverId
+      - loadedQty
+      - agreedTransport
+      properties:
+        truckId:
+          type: string
+        driverId:
+          type: string
+        loadedQty:
+          type: object
+          additionalProperties:
+            type: integer
+        agreedTransport:
+          type: number
+        transportCurrency:
+          type: string
+        documentFileIds:
+          type: array
+          items:
+            type: string
+        loadedAt:
+          type: string
+          format: date-time
+    PassEvent:
+      type: object
+      required:
+      - checkpointId
+      - kind
+      - source
+      properties:
+        checkpointId:
+          type: string
+        kind:
+          enum:
+          - arrived
+          - departed
+        source:
+          enum:
+          - driver
+          - geofence
+          - gps-provider
+          - sms
+          - office
+        at:
+          type: string
+          format: date-time
+          description: Device time; server stores both
+    TruckIssue:
+      type: object
+      properties:
+        checkpointId:
+          type: string
+        place:
+          type: string
+        reason:
+          type: string
+        at:
+          type: string
+          format: date-time
+        fixedAt:
+          type: string
+          format: date-time
+        newDueDate:
+          type: string
+          format: date-time
+    Eta:
+      type: object
+      properties:
+        state:
+          enum:
+          - Early
+          - On time
+          - Late
+        hours:
+          type: integer
+        eta:
+          type: string
+          format: date-time
+        nextCheckpointId:
+          type: string
+    Leg:
+      type: object
+      properties:
+        id:
+          type: string
+        seq:
+          type: integer
+        routeId:
+          type: string
+        fromId:
+          type: string
+        toId:
+          type: string
+        truckId:
+          type: string
+        driverId:
+          type: string
+        status:
+          enum:
+          - Planned
+          - Loaded
+          - Dispatched
+          - In transit
+          - At border
+          - Arrived
+          - Acknowledged
+          - Delayed
+          - Cancelled
+        plannedArrival:
+          type: string
+          format: date-time
+        passes:
+          type: array
+          items:
+            type: object
+            properties:
+              checkpointId:
+                type: string
+              plannedAt:
+                type: string
+              arrivedAt:
+                type: string
+              departedAt:
+                type: string
+              source:
+                type: string
+        eta:
+          $ref: '#/components/schemas/Eta'
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              productId:
+                type: string
+              loadedQty:
+                type: integer
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/TruckIssue'
+    Shipment:
+      type: object
+      properties:
+        id:
+          type: string
+        ref:
+          type: string
+        poId:
+          type: string
+        truckNo:
+          type: integer
+        receivingCompanyId:
+          type: string
+        warehouseId:
+          type: string
+        status:
+          type: string
+          description: Derived from legs (DS-05)
+        legs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Leg'
+    AckInput:
+      type: object
+      required:
+      - receiverName
+      - lines
+      properties:
+        receiverName:
+          type: string
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              productId:
+                type: string
+              expected:
+                type: integer
+              received:
+                type: integer
+              damaged:
+                type: integer
+              remarks:
+                type: string
+        signatureFileId:
+          type: string
+        photoFileIds:
+          type: array
+          items:
+            type: string
+        at:
+          type: string
+          format: date-time
+    Position:
+      type: object
+      properties:
+        truckId:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        at:
+          type: string
+          format: date-time
+        speedKmh:
+          type: number
+        accuracyM:
+          type: number
+        source:
+          enum:
+          - app
+          - gps-provider
+    StockRow:
+      type: object
+      properties:
+        warehouseId:
+          type: string
+        productId:
+          type: string
+        opening:
+          type: integer
+        received:
+          type: integer
+        transfersIn:
+          type: integer
+        transfersOut:
+          type: integer
+        damaged:
+          type: integer
+        adjustments:
+          type: integer
+        sold:
+          type: integer
+        closing:
+          type: integer
+        inTransit:
+          type: integer
+        landedCostPerCase:
+          type: number
+    VelocityRow:
+      type: object
+      properties:
+        productId:
+          type: string
+        warehouseId:
+          type: string
+        sold30:
+          type: integer
+        perDay:
+          type: number
+        index:
+          type: integer
+        cover:
+          type: integer
+        daysSinceSale:
+          type: integer
+        cls:
+          enum:
+          - Fast
+          - Normal
+          - Slow
+          - Stagnant
+        flags:
+          type: array
+          items:
+            enum:
+            - slow-moving
+            - overstock
+            - stock-out-risk
+            - dead-stock
+            - cross-compare
+    OutboxItem:
+      type: object
+      required:
+      - idempotencyKey
+      - op
+      - payload
+      - createdAt
+      properties:
+        idempotencyKey:
+          type: string
+          format: uuid
+        op:
+          enum:
+          - leg.pass
+          - leg.issue
+          - leg.issue.fix
+          - issue.fix
+          - leg.acknowledge
+          - leg.dispatch
+          - loading.confirm
+          - waiting.add
+          - sale.create
+          - positions
+        payload:
+          type: object
+        createdAt:
+          type: string
+          format: date-time
+    DriverWork:
+      type: object
+      properties:
+        driver:
+          type: object
+        trips:
+          type: array
+          items: &id002
+            type: object
+            description: 'LegView in packages/api/src/types.ts: shipment, leg, route, checkpoints, truck, driver, eta, dwell, overdue'
+    GiverWork:
+      type: object
+      properties:
+        loadingPoints:
+          type: array
+        waiting:
+          type: array
+          items:
+            $ref: '#/components/schemas/WaitingEntry'
+        toLoad:
+          type: array
+        handover:
+          type: array
+          items: *id002
+    ReceiverWork:
+      type: object
+      properties:
+        warehouses:
+          type: array
+        incoming:
+          type: array
+          items: *id002
