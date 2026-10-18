@@ -6,7 +6,7 @@ import {
   bigserial, boolean, customType, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import type {
-  AckLine, ApprovalEvent, CheckpointPass, DocumentRef, LoadingLine, PlanLine, RouteStop, SaleLine, TruckIssue,
+  AckLine, ApprovalEvent, PeriodPlanLine, CheckpointPass, DocumentRef, LoadingLine, PlanLine, PoRevisionChange, RouteStop, SaleLine, TruckIssue,
 } from '@btw/api/types';
 
 /** PostGIS geography(Point, 4326). Written with sql`ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography`. */
@@ -33,17 +33,39 @@ export const users = pgTable('users', {
   createdAt: ts('created_at').notNull().default(now()),
 });
 
-export const entities = pgTable('entities', { id: text('id').primaryKey(), code: text('code').notNull(), name: text('name').notNull(), address: text('address').notNull(), poPrefix: text('po_prefix').notNull() });
+/** The three sibling companies (tenants). Legal/contact fields are the source for letterheads; brand assets live in
+ *  packages/ui/src/assets/brand/entities/<logoKey>/. Placeholders read "… — to confirm". */
+export const entities = pgTable('entities', {
+  id: text('id').primaryKey(), code: text('code').notNull(), name: text('name').notNull(), shortName: text('short_name').notNull().default(''),
+  poPrefix: text('po_prefix').notNull(), address: text('address').array().notNull().default(sql`'{}'`), phones: text('phones').array().notNull().default(sql`'{}'`),
+  email: text('email').notNull().default(''), website: text('website'), tagline: text('tagline').notNull().default(''), footerLine: text('footer_line').notNull().default(''),
+  colors: jsonb('colors').$type<{ primary: string; accent: string; ink: string }>().notNull().default(sql`'{"primary":"#062953","accent":"#FE7514","ink":"#0B1B33"}'`),
+  logoKey: text('logo_key').notNull().default('btw'), kraPin: text('kra_pin').notNull().default('to confirm'), registrationNo: text('registration_no').notNull().default('to confirm'),
+  registeredOffice: text('registered_office').notNull().default('to confirm'), reportingCurrency: text('reporting_currency').notNull().default('USD'),
+  letterhead: jsonb('letterhead').$type<{ header: string; footer: string; watermark?: string }>().notNull().default(sql`'{"header":"","footer":""}'`),
+});
+/** Director-approved exchange rates: units of `currency` per 1 USD. avg → P&L, closing → stock/balances. */
+export const fxRates = pgTable('fx_rates', {
+  currency: text('currency').notNull(), month: text('month').notNull(), avg: doublePrecision('avg').notNull(), closing: doublePrecision('closing').notNull(),
+  byUserId: text('by_user_id'), at: ts('at').notNull().default(now()),
+}, (t) => [primaryKey({ columns: [t.currency, t.month] })]);
 export const receivingCompanies = pgTable('receiving_companies', { id: text('id').primaryKey(), name: text('name').notNull(), countries: text('countries').array().notNull() });
-export const warehouses = pgTable('warehouses', { id: text('id').primaryKey(), name: text('name').notNull(), receivingCompanyId: text('receiving_company_id').notNull(), checkpointId: text('checkpoint_id').notNull() });
+export const warehouses = pgTable('warehouses', { id: text('id').primaryKey(), name: text('name').notNull(), receivingCompanyId: text('receiving_company_id').notNull(), checkpointId: text('checkpoint_id').notNull(), country: text('country').notNull().default(''), town: text('town').notNull().default(''), active: boolean('active').notNull().default(true) });
 export const suppliers = pgTable('suppliers', { id: text('id').primaryKey(), code: text('code').notNull(), name: text('name').notNull(), city: text('city').notNull(), country: text('country').notNull(), checkpointId: text('checkpoint_id').notNull(), email: text('email').notNull() });
-export const products = pgTable('products', { id: text('id').primaryKey(), sku: text('sku').notNull().unique(), brand: text('brand').notNull(), pack: text('pack').notNull(), unitsPerCase: integer('units_per_case').notNull(), sizeMl: integer('size_ml').notNull(), supplierId: text('supplier_id').notNull() });
+export const products = pgTable('products', { id: text('id').primaryKey(), sku: text('sku').notNull().unique(), brand: text('brand').notNull(), pack: text('pack').notNull(), unitsPerCase: integer('units_per_case').notNull(), sizeMl: integer('size_ml').notNull(), supplierId: text('supplier_id').notNull(),
+  category: text('category'), packConfirmed: boolean('pack_confirmed').notNull().default(true), sheetNo: integer('sheet_no') });
 export const priceList = pgTable('price_list', {
-  productId: text('product_id').notNull(), supplierId: text('supplier_id').notNull(), price: doublePrecision('price').notNull(), currency: text('currency').notNull(), from: text('from').notNull(),
+  productId: text('product_id').notNull(), supplierId: text('supplier_id').notNull(), price: doublePrecision('price').notNull(), currency: text('currency').notNull(), from: text('from').notNull(), note: text('note'),
 }, (t) => [primaryKey({ columns: [t.productId, t.supplierId, t.from] })]);
-export const providers = pgTable('providers', { id: text('id').primaryKey(), name: text('name').notNull(), regular: boolean('regular').notNull(), phone: text('phone').notNull().default('') });
-export const trucks = pgTable('trucks', { id: text('id').primaryKey(), providerId: text('provider_id').notNull(), reg: text('reg').notNull().unique(), trailer: text('trailer').notNull(), capacityCases: integer('capacity_cases').notNull(), defaultDriverId: text('default_driver_id') });
-export const drivers = pgTable('drivers', { id: text('id').primaryKey(), name: text('name').notNull(), phone: text('phone').notNull(), licence: text('licence').notNull().default(''), providerId: text('provider_id').notNull(), hasApp: boolean('has_app').notNull().default(false) });
+/** Transport providers (docs/10): kind = company | sacco | individual | market; inactive = kept for history. */
+export const providers = pgTable('providers', { id: text('id').primaryKey(), name: text('name').notNull(), regular: boolean('regular').notNull(), phone: text('phone').notNull().default(''),
+  kind: text('kind').notNull().default('company'), contactName: text('contact_name').notNull().default(''), email: text('email').notNull().default(''), notes: text('notes').notNull().default(''),
+  active: boolean('active').notNull().default(true) });
+export const trucks = pgTable('trucks', { id: text('id').primaryKey(), providerId: text('provider_id').notNull(), reg: text('reg').notNull().unique(), trailer: text('trailer').notNull(), capacityCases: integer('capacity_cases').notNull(), defaultDriverId: text('default_driver_id'),
+  fleetNo: integer('fleet_no'), note: text('note'),
+  active: boolean('active').notNull().default(true), documents: jsonb('documents').$type<DocumentRef[]>().notNull().default(sql`'[]'`) });
+export const drivers = pgTable('drivers', { id: text('id').primaryKey(), name: text('name').notNull(), phone: text('phone').notNull(), licence: text('licence').notNull().default(''), providerId: text('provider_id').notNull(), hasApp: boolean('has_app').notNull().default(false),
+  localPhone: text('local_phone'), phoneNote: text('phone_note'), active: boolean('active').notNull().default(true) });
 
 export const checkpoints = pgTable('checkpoints', {
   id: text('id').primaryKey(), name: text('name').notNull(), kind: text('kind').notNull(), country: text('country').notNull(),
@@ -60,9 +82,25 @@ export const plans = pgTable('plans', {
   date: text('date').notNull(), requiredBy: text('required_by').notNull(), status: text('status').notNull(), version: integer('version').notNull(),
   lines: jsonb('lines').$type<PlanLine[]>().notNull(), history: jsonb('history').$type<ApprovalEvent[]>().notNull(),
   createdById: text('created_by_id').notNull(), poId: text('po_id'), updatedAt: ts('updated_at').notNull().default(now()),
-});
+  /** PO revision copies (made at loading): base plan, revision number; supersededById = the copy that replaced this one. */
+  revisionOf: text('revision_of'), revision: integer('revision'), supersededById: text('superseded_by_id'),
+}, (t) => [index('plans_entity_idx').on(t.entityId, t.status)]);
 /** PL-04: every approved version is kept; amendments create the next one. */
 export const planVersions = pgTable('plan_versions', {
+  planId: text('plan_id').notNull(), version: integer('version').notNull(), snapshot: jsonb('snapshot').notNull(), reason: text('reason'),
+  byUserId: text('by_user_id').notNull(), at: ts('at').notNull().default(now()),
+}, (t) => [primaryKey({ columns: [t.planId, t.version] })]);
+/** §8.3 PL-06..12: period plans (a month, quarter, half, year or custom range) per company; lines carry an optional monthly split.
+ *  Status 'Active' | 'Replaced' (suggestions, no approval); Active plans of a company never overlap. */
+export const periodPlans = pgTable('period_plans', {
+  id: text('id').primaryKey(), ref: text('ref').notNull().unique(), entityId: text('entity_id').notNull(), title: text('title').notNull().default(''),
+  periodKind: text('period_kind').notNull(), from: text('from').notNull(), to: text('to').notNull(), status: text('status').notNull(), version: integer('version').notNull(),
+  lines: jsonb('lines').$type<PeriodPlanLine[]>().notNull(), history: jsonb('history').$type<ApprovalEvent[]>().notNull(),
+  createdById: text('created_by_id').notNull(), copiedFromId: text('copied_from_id'), amendReason: text('amend_reason'), updatedAt: ts('updated_at').notNull().default(now()),
+  replacedById: text('replaced_by_id'),
+}, (t) => [index('period_plans_entity_idx').on(t.entityId, t.status, t.from)]);
+/** Every saved version of a period plan (edit history). */
+export const periodPlanVersions = pgTable('period_plan_versions', {
   planId: text('plan_id').notNull(), version: integer('version').notNull(), snapshot: jsonb('snapshot').notNull(), reason: text('reason'),
   byUserId: text('by_user_id').notNull(), at: ts('at').notNull().default(now()),
 }, (t) => [primaryKey({ columns: [t.planId, t.version] })]);
@@ -70,24 +108,30 @@ export const pos = pgTable('pos', {
   id: text('id').primaryKey(), ref: text('ref').notNull(), planId: text('plan_id').notNull(), entityId: text('entity_id').notNull(), supplierId: text('supplier_id').notNull(),
   currency: text('currency').notNull(), date: text('date').notNull(), title: text('title').notNull(), instruction: text('instruction').notNull(), version: integer('version').notNull(),
   sentAt: ts('sent_at'), approvedById: text('approved_by_id').notNull(), approvedAt: ts('approved_at').notNull(), signature: text('signature'),
-});
+  /** 'director' | 'issued' (approvals off) | 'revision' (made at loading) */
+  approval: text('approval').notNull().default('director'),
+  /** Revisions: base PO, number (…-rev001), changes ordered → loaded, why; written by the system for the loader. */
+  revisionOf: text('revision_of'), revision: integer('revision'), changes: jsonb('changes').$type<PoRevisionChange[]>(), revisionReason: text('revision_reason'),
+  createdBy: text('created_by'), onBehalfOfId: text('on_behalf_of_id'), supersededById: text('superseded_by_id'),
+}, (t) => [index('pos_entity_idx').on(t.entityId), index('pos_revision_idx').on(t.revisionOf)]);
 
 // ---- Loading, shipments, tracking --------------------------------------------
 export const waitingEntries = pgTable('waiting_entries', {
-  id: text('id').primaryKey(), loadingPointId: text('loading_point_id').notNull(), truckId: text('truck_id').notNull(), driverId: text('driver_id').notNull(),
+  id: text('id').primaryKey(), entityId: text('entity_id').notNull(), loadingPointId: text('loading_point_id').notNull(), truckId: text('truck_id').notNull(), driverId: text('driver_id').notNull(),
   arrivedAt: ts('arrived_at').notNull(), position: integer('position').notNull(), status: text('status').notNull(),
-});
+}, (t) => [index('waiting_entity_idx').on(t.entityId, t.loadingPointId)]);
 export const loadings = pgTable('loadings', {
-  id: text('id').primaryKey(), poId: text('po_id').notNull(), truckNo: integer('truck_no').notNull(), truckId: text('truck_id').notNull().default(''), driverId: text('driver_id').notNull().default(''),
+  id: text('id').primaryKey(), entityId: text('entity_id').notNull(), poId: text('po_id').notNull(), truckNo: integer('truck_no').notNull(), truckId: text('truck_id').notNull().default(''), driverId: text('driver_id').notNull().default(''),
   loadingPointId: text('loading_point_id').notNull(), loadedAt: ts('loaded_at'), lines: jsonb('lines').$type<LoadingLine[]>().notNull(),
   agreedTransport: doublePrecision('agreed_transport').notNull().default(0), transportCurrency: text('transport_currency').notNull().default('USD'),
   documents: jsonb('documents').$type<DocumentRef[]>().notNull().default(sql`'[]'`), status: text('status').notNull(),
-});
+}, (t) => [index('loadings_entity_idx').on(t.entityId, t.loadingPointId)]);
 export const shipments = pgTable('shipments', {
   id: text('id').primaryKey(), ref: text('ref').notNull().unique(), poId: text('po_id').notNull(), truckNo: integer('truck_no').notNull(),
   receivingCompanyId: text('receiving_company_id').notNull(), warehouseId: text('warehouse_id').notNull(), status: text('status').notNull(),
   entityId: text('entity_id').notNull(), loadingPointId: text('loading_point_id').notNull(), createdAt: ts('created_at').notNull().default(now()),
-});
+  parentShipmentId: text('parent_shipment_id'), originShipmentId: text('origin_shipment_id'), fromWarehouseId: text('from_warehouse_id'), plannedWarehouseId: text('planned_warehouse_id'),
+}, (t) => [index('shipments_entity_idx').on(t.entityId, t.createdAt)]);
 export const legs = pgTable('legs', {
   id: text('id').primaryKey(), shipmentId: text('shipment_id').notNull(), seq: integer('seq').notNull(), routeId: text('route_id').notNull(),
   fromId: text('from_id').notNull(), toId: text('to_id').notNull(), truckId: text('truck_id').notNull(), driverId: text('driver_id').notNull(),
@@ -97,10 +141,10 @@ export const legs = pgTable('legs', {
   issues: jsonb('issues').$type<TruckIssue[]>().notNull().default(sql`'[]'`),
 }, (t) => [index('legs_shipment_idx').on(t.shipmentId), index('legs_driver_idx').on(t.driverId), index('legs_to_idx').on(t.toId)]);
 export const acks = pgTable('acks', {
-  id: text('id').primaryKey(), legId: text('leg_id').notNull(), shipmentId: text('shipment_id').notNull(), warehouseId: text('warehouse_id').notNull(),
+  id: text('id').primaryKey(), entityId: text('entity_id').notNull(), legId: text('leg_id').notNull(), shipmentId: text('shipment_id').notNull(), warehouseId: text('warehouse_id').notNull(),
   receiverName: text('receiver_name').notNull(), at: ts('at').notNull(), lines: jsonb('lines').$type<AckLine[]>().notNull(), signature: text('signature'),
   photos: jsonb('photos').$type<DocumentRef[]>().notNull().default(sql`'[]'`), hasDiscrepancy: boolean('has_discrepancy').notNull(), byUserId: text('by_user_id'),
-});
+}, (t) => [index('acks_entity_idx').on(t.entityId, t.at)]);
 export const positions = pgTable('positions', {
   id: bigserial('id', { mode: 'number' }).primaryKey(), legId: text('leg_id'), truckId: text('truck_id').notNull(),
   lat: doublePrecision('lat').notNull(), lng: doublePrecision('lng').notNull(), geog: geography('geog').notNull(), at: ts('at').notNull(),
@@ -109,22 +153,27 @@ export const positions = pgTable('positions', {
 
 // ---- Inventory, sales, finance -------------------------------------------------
 export const stockMoves = pgTable('stock_moves', {
-  id: bigserial('id', { mode: 'number' }).primaryKey(), warehouseId: text('warehouse_id').notNull(), productId: text('product_id').notNull(),
+  id: bigserial('id', { mode: 'number' }).primaryKey(), entityId: text('entity_id').notNull(), warehouseId: text('warehouse_id').notNull(), productId: text('product_id').notNull(),
   kind: text('kind').notNull(), qty: integer('qty').notNull(), at: ts('at').notNull(), ref: text('ref').notNull(),
-}, (t) => [index('stock_moves_wp_idx').on(t.warehouseId, t.productId, t.at)]);
+}, (t) => [index('stock_moves_wp_idx').on(t.warehouseId, t.productId, t.at), index('stock_moves_entity_idx').on(t.entityId, t.warehouseId, t.productId)]);
 export const sales = pgTable('sales', {
-  id: text('id').primaryKey(), ref: text('ref').notNull(), at: ts('at').notNull(), warehouseId: text('warehouse_id').notNull(), customer: text('customer').notNull(),
+  id: text('id').primaryKey(), entityId: text('entity_id').notNull(), ref: text('ref').notNull(), at: ts('at').notNull(), warehouseId: text('warehouse_id').notNull(), customer: text('customer').notNull(),
   salespersonId: text('salesperson_id').notNull(), kind: text('kind').notNull(), lines: jsonb('lines').$type<SaleLine[]>().notNull(),
   currency: text('currency').notNull(), paid: doublePrecision('paid').notNull(), status: text('status').notNull(),
-}, (t) => [index('sales_wh_at_idx').on(t.warehouseId, t.at)]);
+  /** Buyer is a sibling company: eliminated from group totals. */
+  counterpartyEntityId: text('counterparty_entity_id'),
+}, (t) => [index('sales_wh_at_idx').on(t.warehouseId, t.at), index('sales_entity_idx').on(t.entityId, t.at)]);
 export const tripCosts = pgTable('trip_costs', {
-  id: text('id').primaryKey(), shipmentId: text('shipment_id').notNull(), legId: text('leg_id'), kind: text('kind').notNull(),
+  id: text('id').primaryKey(), entityId: text('entity_id').notNull(), shipmentId: text('shipment_id').notNull(), legId: text('leg_id'), kind: text('kind').notNull(),
   amount: doublePrecision('amount').notNull(), currency: text('currency').notNull(), docRef: text('doc_ref'),
-});
+  /** Approved month-average rate at entry (units per USD) and the USD amount reports use. */
+  fxRate: doublePrecision('fx_rate').notNull().default(1), amountUsd: doublePrecision('amount_usd'),
+}, (t) => [index('trip_costs_entity_idx').on(t.entityId, t.shipmentId)]);
 export const tripPayments = pgTable('trip_payments', {
-  id: text('id').primaryKey(), shipmentId: text('shipment_id').notNull(), costId: text('cost_id').notNull(), amount: doublePrecision('amount').notNull(),
+  id: text('id').primaryKey(), entityId: text('entity_id').notNull(), shipmentId: text('shipment_id').notNull(), costId: text('cost_id').notNull(), amount: doublePrecision('amount').notNull(),
   at: ts('at').notNull(), reference: text('reference').notNull(), approvedById: text('approved_by_id'), status: text('status').notNull(), receiptFileId: text('receipt_file_id'),
-});
+  fxRate: doublePrecision('fx_rate').notNull().default(1), amountUsd: doublePrecision('amount_usd'),
+}, (t) => [index('trip_payments_entity_idx').on(t.entityId, t.shipmentId)]);
 
 // ---- Platform ---------------------------------------------------------------------
 export const notifications = pgTable('notifications', {
@@ -132,11 +181,15 @@ export const notifications = pgTable('notifications', {
   forRoles: text('for_roles').array().notNull(),
   /** Set for personal notifications (e.g. "trip assigned" to one driver); forRoles is then empty. */
   forUserId: text('for_user_id'),
-});
+  /** Company the notification is about (null = everyone in scope, e.g. system notices). */
+  entityId: text('entity_id'),
+}, (t) => [index('notifications_entity_idx').on(t.entityId, t.at)]);
 export const notificationReads = pgTable('notification_reads', { notificationId: text('notification_id').notNull(), userId: text('user_id').notNull() }, (t) => [primaryKey({ columns: [t.notificationId, t.userId] })]);
 export const auditLog = pgTable('audit_log', {
   id: bigserial('id', { mode: 'number' }).primaryKey(), at: ts('at').notNull().default(now()), userId: text('user_id'), channel: text('channel').notNull(),
   method: text('method').notNull(), path: text('path').notNull(), status: integer('status').notNull(), detail: jsonb('detail'),
+  /** Active company of the request (null = Group / not company-specific). */
+  entityId: text('entity_id'),
 });
 export const idempotencyKeys = pgTable('idempotency_keys', {
   key: text('key').primaryKey(), userId: text('user_id').notNull(), op: text('op').notNull(), status: text('status').notNull(),

@@ -15,7 +15,8 @@
     "@btw/tokens": "workspace:*",
     "@btw/ui": "workspace:*",
     "@lucide/svelte": "^1.52.0",
-    "leaflet": "^1.9.4"
+    "leaflet": "^1.9.4",
+    "plotly.js-cartesian-dist-min": "^4.1.2"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.1.1",

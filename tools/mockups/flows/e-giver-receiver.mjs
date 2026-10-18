@@ -1,5 +1,5 @@
 // E — Loading point (giver) and receiver (LD-01..04, §17.4/17.5, AK-01..05, DS-02, MA-03, MA-06).
-// One browser session so the hand-over at KBL becomes the truck the receiver signs for in Kigali.
+// One browser session so the hand-over at KBL becomes the truck the receiver signs for in Gisenyi.
 import { open, finish, API_PATH, FIXTURES } from '../snap.mjs';
 import { shot, slide, sign, wait, as } from './field-helpers.mjs';
 const out = process.argv[2];
@@ -26,21 +26,24 @@ await shot(s, 'E04-field-loading-done', 'Loading point · after hand-over', 'The
 await as(s, 'u-tesfie');
 await shot(s, 'E05-field-loading-two-points', 'Loading point · two sites', 'Tesfie covers GBI Mombasa and SBL Mwanza: a switcher at the top of the sheet, nothing else changes (§17.3).');
 
-// Drive the new truck to the transfer point in Kigali (as the office + driver would)
+// Drive the new truck to the transfer point in Gisenyi (as the office + driver would) — the office sees every company's trucks
+await as(s, 'u-dir');
 await s.page.evaluate(async (API) => {
   const api = await import(API);
   const list = await api.shipments.list();
-  const sh = list.find((x) => x.legs[0].routeId === 'r-nbo-goma' && !x.legs[0].passes[0].departedAt);
+  // Prefer a truck bound for Asie's Gisenyi warehouse (the transfer point); otherwise end a Goma-bound leg there.
+  const fresh = list.filter((x) => !x.legs[0].passes[0].departedAt);
+  const sh = fresh.find((x) => x.legs[0].toId === 'cp-gisenyi-wh') ?? fresh.find((x) => x.legs[0].passes.some((p, k) => k > 0 && p.checkpointId === 'cp-gisenyi-wh')) ?? fresh[0];
   const leg = sh.legs[0];
-  await api.tracking.splitAt(leg.id, 'cp-kigali');
+  if (leg.toId !== 'cp-gisenyi-wh' && leg.passes.some((p, k) => k > 0 && p.checkpointId === 'cp-gisenyi-wh')) await api.tracking.splitAt(leg.id, 'cp-gisenyi-wh');
   await api.tracking.dispatch(leg.id, 'driver');
   const l2 = (await api.shipments.get(sh.id)).legs[0];
   for (const p of l2.passes.slice(1)) { await api.shipments.pass(leg.id, p.checkpointId, 'arrived', 'geofence'); if (p.checkpointId !== l2.toId) await api.shipments.pass(leg.id, p.checkpointId, 'departed', 'geofence'); }
 }, API_PATH);
 
-// ---- Receiver: Asie Kigali
+// ---- Receiver: Asie Gisenyi
 await as(s, 'u-asie'); await wait(s, 1000);
-await shot(s, 'E06-field-receiver-arrived', 'Receiver · truck has arrived', 'Asie sees the trucks coming to Kigali and Goma on the map; the arrived truck is the ONE card: "Receive & sign" (MA-03).');
+await shot(s, 'E06-field-receiver-arrived', 'Receiver · truck has arrived', 'Asie sees the trucks coming to Gisenyi and Goma on the map; the arrived truck is the ONE card: "Receive & sign" (MA-03).');
 await s.page.getByRole('button', { name: 'Receive & sign' }).click(); await wait(s);
 await shot(s, 'E07-field-receive-check', 'Receive · one tap when all is fine', 'Expected cases per brand; "Everything arrived OK" skips straight to signing. Most deliveries take three taps and a signature (AK-01).');
 await s.page.getByRole('button', { name: /short or damaged/ }).click(); await wait(s);
@@ -58,15 +61,22 @@ await shot(s, 'E09-field-receive-sign', 'Receive · confirm & sign', 'Summary of
 await slide(s, sheet(s)); await wait(s, 1200);
 await shot(s, 'E10-field-receive-done', 'Receiver · after signing', 'The truck leaves the list; the acknowledgement, signature and photos go to the office (queued if offline).', { keepToast: true });
 
-// Office plans the next leg Kigali → Goma; Asie sends it on
+// Office plans the next leg Gisenyi → Goma (an office action); Asie sends it on
+await as(s, 'u-dir');
 await s.page.evaluate(async (API) => {
   const api = await import(API);
   const list = await api.shipments.list();
-  const sh = list.find((x) => x.legs.length === 1 && x.legs[0].toId === 'cp-kigali' && x.legs[0].status === 'Acknowledged');
+  // A truck received at the Gisenyi warehouse (the one Asie just signed for, or one already standing there).
+  const at = (st) => list.find((x) => x.legs.length === 1 && x.legs[0].toId === 'cp-gisenyi-wh' && x.legs[0].status === st);
+  let sh = at('Acknowledged');
+  if (!sh && (sh = at('Arrived'))) { const l = sh.legs[0]; await api.shipments.acknowledge(l.id, { receiverName: 'Asie Gisenyi', lines: l.lines.map((q) => ({ productId: q.productId, expected: q.loadedQty, received: q.loadedQty, damaged: 0 })) }); }
   await api.shipments.addLeg(sh.id, 'r-kgl-goma', 't8', 'd5');
+  // Other trucks already standing at Asie's warehouses would come first on the receiver's card; receive them so the transfer shows.
+  for (const x of await api.shipments.list()) for (const l of x.legs) if (['cp-gisenyi-wh', 'cp-goma'].includes(l.toId) && l.status === 'Arrived' && l.id !== sh.legs[0].id)
+    await api.shipments.acknowledge(l.id, { receiverName: 'Asie Gisenyi', lines: l.lines.map((q) => ({ productId: q.productId, expected: q.loadedQty, received: q.loadedQty, damaged: 0 })) });
 }, API_PATH);
-await s.page.reload(); await wait(s, 1500);
-await shot(s, 'E11-field-receiver-send-on', 'Receiver · send a transfer leg on', 'At a transfer point the same person becomes the giver: the planned Kigali → Goma leg is the card (DS-02).');
+await as(s, 'u-asie'); await wait(s, 1500);
+await shot(s, 'E11-field-receiver-send-on', 'Receiver · send a transfer leg on', 'At a transfer point the same person becomes the giver: the planned Gisenyi → Goma leg is the card (DS-02).');
 await s.page.getByRole('button', { name: 'Load & hand over' }).click(); await wait(s);
 await shot(s, 'E12-field-transfer-handover', 'Transfer hand-over', 'Same hand-over sheet as at the brewery: truck, driver, the good cases carried forward from the receipt, photo, one slide.');
 await slide(s, sheet(s)); await wait(s, 1000);

@@ -6,32 +6,32 @@ const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAY
 
 export async function integrationsSuite(env: Env) {
   const c = client(env.base);
-  const T = { dir: (await c.login('dir')).accessToken, plan: (await c.login('kabonge')).accessToken, joel: (await c.login('joel')).accessToken, drv1: (await c.login('+254711000001', '1234')).accessToken };
+  const T = { dir: (await c.login('dir')).accessToken, plan: (await c.login('kabonge')).accessToken, joel: (await c.login('joel')).accessToken, drv1: (await c.login('+254702750019', '1234')).accessToken };
   const legOf = async (token: string) => (await c.req('GET', '/field/driver', { token })).body.trips[0];
 
   section('Integrations · driver SMS (Africa\'s Talking format) → tracking');
   let trip = await legOf(T.drv1);
   const nextCp = trip.checkpoints[trip.leg.passes.findIndex((p: any) => !p.arrivedAt)];
-  let r = await c.req('POST', '/dev/sms/inbound', { body: { from: '+254711000001', text: `arr ${nextCp.code.toLowerCase()} kda 123a` } });
-  ok(r.body.ok === true && new RegExp(nextCp.name.split(' ')[0], 'i').test(r.body.reply), `driver SMS "arr ${nextCp.code.toLowerCase()} kda 123a" applied: ${r.body.reply}`, r.body);
+  let r = await c.req('POST', '/dev/sms/inbound', { body: { from: '+254702750019', text: `arr ${nextCp.code.toLowerCase()} kbv 894t` } });
+  ok(r.body.ok === true && new RegExp(nextCp.name.split(' ')[0], 'i').test(r.body.reply), `driver SMS "arr ${nextCp.code.toLowerCase()} kbv 894t" applied: ${r.body.reply}`, r.body);
   trip = await legOf(T.drv1);
   ok(trip.leg.passes.find((p: any) => p.checkpointId === nextCp.id).source === 'sms', 'pass recorded with source = sms');
-  const outbox = (await c.req('GET', '/dev/sms?phone=%2B254711000001')).body as any[];
+  const outbox = (await c.req('GET', '/dev/sms?phone=%2B254702750019')).body as any[];
   ok(outbox.some((m) => m.direction === 'out' && /arrived at/i.test(m.text)), 'reply SMS sent to the driver');
-  r = await c.req('POST', '/dev/sms/inbound', { body: { from: '+254799000000', text: `DEP ${nextCp.code} KDA123A` } });
+  r = await c.req('POST', '/dev/sms/inbound', { body: { from: '+254799000000', text: `DEP ${nextCp.code} KBV894T` } });
   ok(r.body.ok === false && /not registered/i.test(r.body.reply), 'SMS from an unknown phone naming the plate is refused (spoofing)', r.body);
   trip = await legOf(T.drv1);
   ok(!trip.leg.passes.find((p: any) => p.checkpointId === nextCp.id).departedAt, '… and nothing changed on the trip');
-  r = await c.req('POST', '/dev/sms/inbound', { body: { from: '+254700000002', text: `DEP ${nextCp.code} KDA123A` } });
+  r = await c.req('POST', '/dev/sms/inbound', { body: { from: '+254700000002', text: `DEP ${nextCp.code} KBV894T` } });
   ok(r.body.ok === true, 'fleet office phone (Kabonge) may report for any truck', r.body);
-  r = await c.req('POST', '/webhooks/sms', { form: { from: '+254711000001', text: 'ISSUE KDA123A POLICE', to: '20880', date: new Date().toISOString(), id: 'at-1' } });
+  r = await c.req('POST', '/webhooks/sms', { form: { from: '+254702750019', text: 'ISSUE KBV894T POLICE', to: '20880', date: new Date().toISOString(), id: 'at-1' } });
   ok(r.status === 200 && r.body.ok === true, 'AT form-encoded webhook (ISSUE … POLICE) accepted', r.body);
   trip = await legOf(T.drv1);
   ok(trip.leg.issues.some((i: any) => /police/i.test(i.reason) && !i.fixedAt), 'issue opened from SMS');
-  r = await c.req('POST', '/webhooks/sms', { form: { from: '+254711000001', text: 'FIX KDA123A' } });
+  r = await c.req('POST', '/webhooks/sms', { form: { from: '+254702750019', text: 'FIX KBV894T' } });
   trip = await legOf(T.drv1);
   ok(r.body.ok && trip.leg.issues.every((i: any) => i.fixedAt), 'FIX closes the issue');
-  r = await c.req('POST', '/webhooks/sms', { form: { from: '+254711000001', text: 'hello?' } });
+  r = await c.req('POST', '/webhooks/sms', { form: { from: '+254702750019', text: 'hello?' } });
   ok(r.status === 200 && r.body.ok === false, 'gibberish SMS → help reply, no 500', r.body);
   expectStatus(await c.req('POST', '/webhooks/sms', { form: { text: 'ARR X' } }), 400, 'webhook without sender → 400');
 

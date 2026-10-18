@@ -1,9 +1,13 @@
 <script lang="ts">
+  import { destinationLabel } from '../lib/planning';
   import { watch } from '../lib/load.svelte';
   import ErrorState from '../components/ErrorState.svelte';
   import { analytics, inventory, lookup, ref, type Flag, type StockRow, type VelocityRow, type User } from '@btw/api';
   import { Badge, fmtNum, say, toneOf, velocityGlyph } from '@btw/ui';
   import ExportMenu from '../components/ExportMenu.svelte';
+  import PageTabs from '../components/PageTabs.svelte';
+  import { BarChart, ChartCard, Heatmap, StatTile } from '../components/charts';
+  import { currentTab, drill as openList, qp } from '../lib/tab';
   import X from '@lucide/svelte/icons/x';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
   let { user }: { params?: any; user: User } = $props();
@@ -11,7 +15,8 @@
   let rows = $state<VelocityRow[] | null>(null);
   let flags = $state<Flag[]>([]);
   let stock = $state<StockRow[]>([]);
-  let wh = $state(''); let brand = $state(''); let cls = $state('');
+  const tab = currentTab();
+  let wh = $state(qp('wh')); let brand = $state(qp('brand')); let cls = $state(qp('cls'));
   let drill = $state<{ kind: 'brand' | 'warehouse'; id: string } | null>(null);
   async function load() { [rows, flags, stock] = await Promise.all([analytics.velocity(), analytics.flags(), inventory.stock()]); }
   const w = watch(load);
@@ -68,46 +73,46 @@
 </div>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
 
-<div class="grid grid-kpi" style="margin-bottom:var(--space-4)">
+<PageTabs base="/analytics" current={tab} listLabel="Velocity table" />
+
+{#if tab === 'overview'}
+<div class="tiles" style="margin-bottom:var(--space-4)">
   {#each counts as [c, n]}
-    <button class="card kpi pick" class:on={cls === c} aria-pressed={cls === c} onclick={() => (cls = cls === c ? '' : c)}><div class="overline">{c}</div><div class="value">{n}</div><div class="delta"><Badge status={c} /> SKU × warehouse</div></button>
+    <StatTile label="{velocityGlyph[c]} {c}" value={String(n)} hint="SKU × warehouse positions" onclick={() => openList('/analytics', { cls: c })} />
   {/each}
 </div>
 
 <div class="layout">
   <div class="stack">
-    <section class="card flush">
-      <header><h3>Heatmap · brand × warehouse</h3><span class="caption">Click a brand or warehouse to drill down; click a cell to filter the table</span></header>
-      <div class="table-wrap"><table class="table heat">
-        <thead><tr><th>Brand · Package</th>{#each whs as w}<th><button class="hdr" class:on={drill?.kind === 'warehouse' && drill.id === w.id} onclick={() => (drill = { kind: 'warehouse', id: w.id })}>{w.name}</button></th>{/each}</tr></thead>
-        <tbody>
-          {#if !rows}{#each Array(4) as _}<tr><td colspan={4}><div class="skeleton"></div></td></tr>{/each}{/if}
-          {#each prods as pid}
-            <tr><td><button class="hdr row-hdr" class:on={drill?.kind === 'brand' && drill.id === pid} onclick={() => (drill = { kind: 'brand', id: pid })}>{lookup.product(pid)?.brand} <span class="caption">{lookup.product(pid)?.pack}</span></button></td>
-              {#each whs as w}
-                {@const c = cell(pid, w.id)}
-                <td>{#if c}<button class="hc tone-{toneOf(c.cls)}" class:sel={brand === pid && wh === w.id} onclick={() => { brand = pid; wh = w.id; }} aria-label="{label(pid)} at {w.name}: {c.cls}, index {c.index}%"><span aria-hidden="true">{velocityGlyph[c.cls]}</span> {c.cls} <span class="num">{c.index}%</span></button>{:else}<span class="subtle small" title="Not stocked">not stocked</span>{/if}</td>
-              {/each}
-            </tr>
-          {/each}
-        </tbody>
-      </table></div>
-    </section>
+    <ChartCard title="Velocity heatmap" subtitle="brand × warehouse · click a cell to drill into the brand" rows={() => [['Brand · Package', ...whs.map((w) => w.name)], ...prods.map((p) => [label(p), ...whs.map((w) => { const c = cell(p, w.id); return c ? `${c.cls} ${c.index}%` : ''; })])]}>
+      {#if rows}
+        <Heatmap label="Sales velocity heatmap by brand and warehouse" rows={prods.map(label)} cols={whs.map((w) => destinationLabel(w.id))}
+          classes={[{ label: 'Fast', tone: 'success' }, { label: 'Normal', tone: 'info' }, { label: 'Slow', tone: 'warning' }, { label: 'Stagnant', tone: 'danger' }]}
+          values={prods.map((p) => whs.map((w) => { const c = cell(p, w.id); return c ? ['Fast', 'Normal', 'Slow', 'Stagnant'].indexOf(c.cls) : null; }))}
+          text={prods.map((p) => whs.map((w) => { const c = cell(p, w.id); return c ? `${velocityGlyph[c.cls]} ${c.index}%` : ''; }))}
+          onselect={(r) => { const pid = prods.find((p) => label(p) === r); if (pid) drill = { kind: 'brand', id: pid }; }} />
+      {:else}<div class="skeleton" style="height:200px"></div>{/if}
+    </ChartCard>
+    <ChartCard title="Velocity index by SKU and warehouse" subtitle="100% = benchmark · highest first" rows={() => [['SKU', 'Warehouse', 'Index %', 'Class'], ...(rows ?? []).slice().sort((a, b) => b.index - a.index).map((x) => [label(x.productId), destinationLabel(x.warehouseId) ?? '', x.index, x.cls])]}>
+      {@const ranked = (rows ?? []).slice().sort((a, b) => b.index - a.index).slice(0, 12)}
+      <BarChart label="Velocity index ranking" horizontal categories={ranked.map((x) => `${label(x.productId)} — ${destinationLabel(x.warehouseId)}`)} series={[{ name: 'Index', values: ranked.map((x) => x.index) }]} format={(n) => `${n}%`}
+        onselect={(c) => { const x = ranked.find((r) => `${label(r.productId)} — ${destinationLabel(r.warehouseId)}` === c); if (x) openList('/analytics', { brand: x.productId, wh: x.warehouseId }); }} />
+    </ChartCard>
 
     {#if drill}
       <section class="card flush drill">
         <header>
           <div><div class="overline">{drill.kind === 'brand' ? 'Brand → warehouses' : 'Warehouse → brands'} (§9.4)</div>
-            <h3>{drill.kind === 'brand' ? label(drill.id) : lookup.warehouse(drill.id)?.name}</h3>
+            <h3>{drill.kind === 'brand' ? label(drill.id) : destinationLabel(drill.id)}</h3>
             <div class="caption">{drill.kind === 'brand' ? 'Where it moves and where it is stuck' : 'Brands driving and dragging this warehouse'} · {fmtNum(drillSold)} cases sold in 30 days</div></div>
-          <button class="btn btn-ghost btn-sm" onclick={() => (drill = null)} aria-label="Close drill-down"><X size={16} /></button>
+          <div class="row" style="gap:var(--space-1);flex-wrap:nowrap"><button class="btn btn-ghost btn-sm" onclick={() => openList('/analytics', drill!.kind === 'brand' ? { brand: drill!.id } : { wh: drill!.id })}>Open in table</button><button class="btn btn-ghost btn-sm" onclick={() => (drill = null)} aria-label="Close drill-down"><X size={16} /></button></div>
         </header>
         <div class="table-wrap"><table class="table">
           <thead><tr><th>{drill.kind === 'brand' ? 'Warehouse' : 'Brand · Package'}</th><th class="num">On hand</th><th class="num">Sold (30 d)</th><th class="num">Share</th><th class="num">Index</th><th class="num">Cover</th><th>Class</th><th></th></tr></thead>
           <tbody>
             {#each drillRows as x (x.productId + x.warehouseId)}
               <tr>
-                <td>{drill.kind === 'brand' ? lookup.warehouse(x.warehouseId)?.name : label(x.productId)}</td>
+                <td>{drill.kind === 'brand' ? destinationLabel(x.warehouseId) : label(x.productId)}</td>
                 <td class="num">{fmtNum(onHand(x.productId, x.warehouseId))}</td>
                 <td class="num">{fmtNum(x.sold30)}</td>
                 <td class="num"><span class="bar" style:--w="{drillSold ? (x.sold30 / drillSold) * 100 : 0}%"></span>{drillSold ? Math.round((x.sold30 / drillSold) * 100) : 0}%</td>
@@ -131,7 +136,7 @@
         {#each transfers as s}
           <li>
             <div class="small" style="font-weight:600">{label(s.pid)}</div>
-            <div class="row small" style="gap:6px;flex-wrap:wrap"><span>{lookup.warehouse(s.from.warehouseId)?.name}</span><Badge status={s.from.cls} /><ArrowRight size={14} /><span>{lookup.warehouse(s.to.warehouseId)?.name}</span><Badge status={s.to.cls} /></div>
+            <div class="row small" style="gap:6px;flex-wrap:wrap"><span>{destinationLabel(s.from.warehouseId)}</span><Badge status={s.from.cls} /><ArrowRight size={14} /><span>{destinationLabel(s.to.warehouseId)}</span><Badge status={s.to.cls} /></div>
             <div class="row between" style="width:100%"><strong class="num">{fmtNum(s.qty)} cases</strong><button class="btn btn-ghost btn-sm" onclick={() => say('Stock transfers with approval (IN-03) come in the follow-on release')}>Create transfer</button></div>
             <div class="caption">Brings both towards {TARGET_COVER} days cover</div>
           </li>
@@ -156,16 +161,17 @@
       <header><h3>Flags <span class="muted">{flags.length}</span></h3></header>
       <ul class="list">
         {#each flags as f (f.id)}
-          <li><Badge tone={flagTone(f.kind)}>{f.text}</Badge><button class="linkish small" onclick={() => (drill = { kind: 'brand', id: f.productId })}>{label(f.productId)}</button><div class="caption">{lookup.warehouse(f.warehouseId)?.name}</div></li>
+          <li><Badge tone={flagTone(f.kind)}>{f.text}</Badge><button class="linkish small" onclick={() => (drill = { kind: 'brand', id: f.productId })}>{label(f.productId)}</button><div class="caption">{destinationLabel(f.warehouseId)}</div></li>
         {:else}<li class="empty small">No flags</li>{/each}
       </ul>
     </section>
   </aside>
 </div>
 
-<div class="stack" style="margin-top:var(--space-4)">
+{:else}
+<div class="stack">
     <div class="filters" style="margin:0">
-    <label class="field"><span>Warehouse</span><select class="select" bind:value={wh}><option value="">All</option>{#each whs as w}<option value={w.id}>{w.name}</option>{/each}</select></label>
+    <label class="field"><span>Warehouse</span><select class="select" bind:value={wh}><option value="">All</option>{#each whs as w}<option value={w.id}>{destinationLabel(w.id)}</option>{/each}</select></label>
     <label class="field"><span>Brand</span><select class="select" bind:value={brand}><option value="">All</option>{#each prods as p}<option value={p}>{label(p)}</option>{/each}</select></label>
     <label class="field"><span>Class</span><select class="select" bind:value={cls}><option value="">All</option>{#each ['Fast', 'Normal', 'Slow', 'Stagnant'] as c}<option>{c}</option>{/each}</select></label>
     <label class="field"><span>Period</span><select class="select" disabled><option>Last 30 days (rolling)</option></select></label>
@@ -180,7 +186,7 @@
         {#each shown as x (x.productId + x.warehouseId)}
           <tr>
             <td><span style="white-space:nowrap">{lookup.product(x.productId)?.brand}</span> <span class="muted small" style="white-space:nowrap">{lookup.product(x.productId)?.pack}</span></td>
-            <td>{lookup.warehouse(x.warehouseId)?.name}</td>
+            <td>{destinationLabel(x.warehouseId)}</td>
             <td class="num">{fmtNum(x.sold30)}</td>
             <td class="num">{fmtNum(x.perDay, 1)}</td>
             <td class="num">{x.index}%</td>
@@ -194,21 +200,12 @@
   </section>
 </div>
 
+{/if}
+
 <style>
   .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: var(--space-4); align-items: start; }
   @media (max-width: 1100px) { .layout { grid-template-columns: minmax(0, 1fr); } }
   .page-head p { font-family: var(--ff-body); }
-  .pick { text-align: left; cursor: pointer; font: inherit; color: inherit; }
-  .pick.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-  .hc { border: 0; border-radius: var(--radius-sm); padding: 6px 10px; width: 100%; min-width: 120px; text-align: left; font: 600 13px var(--ff-body); cursor: pointer; display: flex; gap: 6px; align-items: center; }
-  .hc .num { margin-left: auto; }
-  .hc.sel { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-  .heat td { padding: 4px; }
-  .heat td:first-child { padding: var(--space-1) var(--space-2); white-space: nowrap; }
-  .hdr { background: none; border: 0; padding: 4px 6px; border-radius: var(--radius-sm); font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; text-align: left; border-bottom: 2px solid transparent; }
-  .hdr:hover { color: var(--link); background: var(--primary-subtle); }
-  .hdr.on { border-bottom-color: var(--accent); color: var(--text); }
-  .row-hdr { font-family: var(--ff-body); font-size: var(--fs-body); font-weight: 500; }
   .drill { border-top: 3px solid var(--accent); }
   .bar { display: inline-block; vertical-align: middle; width: 48px; height: 6px; margin-right: 8px; border-radius: 3px; background: linear-gradient(90deg, var(--primary) var(--w), var(--surface-sunken) var(--w)); }
   .list { list-style: none; margin: 0; padding: 0; max-height: 340px; overflow-y: auto; }

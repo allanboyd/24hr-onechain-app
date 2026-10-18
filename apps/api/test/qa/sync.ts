@@ -9,7 +9,7 @@ export async function syncSuite(env: Env) {
   const c = client(env.base);
   const T = {
     dir: (await c.login('dir')).accessToken, plan: (await c.login('kabonge')).accessToken, joel: (await c.login('+254700000003', '1234')).accessToken,
-    asie: (await c.login('+250700000007', '1234')).accessToken, drv1: (await c.login('+254711000001', '1234')).accessToken, zonas: (await c.login('+211900000008', '1234')).accessToken,
+    asie: (await c.login('+250700000007', '1234')).accessToken, drv1: (await c.login('+254702750019', '1234')).accessToken, zonas: (await c.login('+211900000008', '1234')).accessToken,
   };
   const app = { 'x-channel': 'app', 'x-app-version': '1.0.0' };
   const batch = (token: string, items: { op: string; payload: unknown; idempotencyKey?: string }[]) =>
@@ -93,7 +93,7 @@ export async function syncSuite(env: Env) {
   section('Sync · sales offline');
   const stock = ((await c.req('GET', '/stock', { token: T.zonas })).body as any[]).find((x) => x.warehouseId === 'w-juba' && x.closing > 10);
   const sk = key();
-  const sale = { op: 'sale.create', idempotencyKey: sk, payload: { input: { warehouseId: 'w-juba', customer: 'QA offline', kind: 'Cash', lines: [{ productId: stock.productId, qty: 3, price: 12 }], currency: 'USD', paid: 36, at: new Date().toISOString() } } };
+  const sale = { op: 'sale.create', idempotencyKey: sk, payload: { input: { entityId: stock.entityId, warehouseId: 'w-juba', customer: 'QA offline', kind: 'Cash', lines: [{ productId: stock.productId, qty: 3, price: 12 }], currency: 'USD', paid: 36, at: new Date().toISOString() } } };
   const twice = await Promise.all([batch(T.zonas, [sale]), batch(T.zonas, [sale])]);
   const sales = await env.sql`select count(*)::int as n from sales where customer = 'QA offline'`;
   ok(sales[0].n === 1 && twice.map((t) => t.body[0].status).sort().join() === 'applied,duplicate', 'the same offline sale sent twice concurrently is recorded once', { sales: sales[0].n, statuses: twice.map((t) => t.body[0].status) });

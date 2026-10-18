@@ -1,6 +1,6 @@
 <script lang="ts">
   // Two steps, Bolt-style: phone number → 4-digit PIN (MA-08; biometric unlock replaces the PIN in the native build).
-  import type { User } from '@btw/api';
+  import { auth, type User } from '@btw/api';
   import { haptic } from '../native';
   import { DEMO_PIN, ROLE_LABEL, fieldRole, fieldUsers, signIn } from '../lib';
   import { logoDark, logoLight } from '../brand';
@@ -13,6 +13,12 @@
   let error = $state('');
   let busy = $state(false);
   const demo = fieldUsers();
+  // Office staff (directors, planners, accounts …) sign in with the same phone + PIN and get the BTW Team app.
+  // One account per office role first (so every role is one tap away — truck planners included), then the rest.
+  const officeAll = auth.demoUsers().filter((u) => !fieldRole(u));
+  const firstOfRole = officeAll.filter((u, i) => officeAll.findIndex((x) => x.roles.join() === u.roles.join()) === i);
+  const office = [...new Set([...firstOfRole, ...officeAll.filter((u) => u.roles.includes('truck_planner')), ...officeAll])].slice(0, 10);
+  const cap = (r: string) => (r === 'truck_planner' ? 'Truck planner' : r.charAt(0).toUpperCase() + r.slice(1));
   function next(e?: Event) { e?.preventDefault(); error = ''; if (phone.replace(/\D/g, '').length < 9) { error = 'Enter your phone number'; return; } step = 'pin'; }
   async function key(d: string) {
     if (busy) return;
@@ -42,6 +48,12 @@
           {@const r = fieldRole(u)!}
           <button type="button" class="demo-row" onclick={() => { phone = u.phone; next(); }}><span class="grow"><strong>{u.name}</strong><br /><span class="caption">{ROLE_LABEL[r]}</span></span><span class="caption mono">{u.phone}</span></button>
         {/each}
+        {#if office.length}
+          <div class="overline office">Office team · BTW Team app</div>
+          {#each office as u (u.id)}
+            <button type="button" class="demo-row" onclick={() => { phone = u.phone; next(); }}><span class="grow"><strong>{u.name}</strong><br /><span class="caption">{u.roles.map(cap).join(' · ')}</span></span><span class="caption mono">{u.phone}</span></button>
+          {/each}
+        {/if}
       </div>
     </form>
   {:else}
@@ -70,6 +82,7 @@
   .demo { display: flex; flex-direction: column; gap: 2px; margin-top: var(--space-4); }
   .demo-row { display: flex; align-items: center; gap: var(--space-2); min-height: 52px; border: 0; border-bottom: 1px solid var(--border); background: none; color: var(--text); text-align: left; font: inherit; cursor: pointer; padding: 0 2px; }
   .grow { flex: 1; min-width: 0; }
+  .office { margin-top: var(--space-4); }
   .link { border: 0; background: none; color: var(--link); font: 600 inherit; cursor: pointer; text-decoration: underline; }
   .dots { display: flex; gap: 18px; margin: var(--space-2) 0; }
   .dots span { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--border-strong); }

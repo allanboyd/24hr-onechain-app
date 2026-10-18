@@ -15,6 +15,55 @@
       "when": 1791372919333,
       "tag": "0001_gorgeous_plazm",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791690693443,
+      "tag": "0002_companies",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791998287362,
+      "tag": "0003_period_plans",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792031994351,
+      "tag": "0004_client_master_data",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792032354190,
+      "tag": "0005_shipment_chain",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792032922717,
+      "tag": "0006_warehouse_active",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792299856149,
+      "tag": "0007_plans_po_revisions",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792303208244,
+      "tag": "0008_truck_planner",
+      "breakpoints": true
     }
   ]
 }

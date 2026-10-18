@@ -1,12 +1,17 @@
 <script lang="ts">
-  import { lookup, notifications, onChange, type Role } from '@btw/api';
+  import { destinationLabel } from './lib/planning';
+  import { lookup, notifications, onChange } from '@btw/api';
   import { router, Toast, say } from '@btw/ui';
   import { session, restore, signOut, expire } from './lib/session.svelte';
   import { describe } from './lib/errors';
   import { brand } from './lib/brand';
   import { API_MODE } from './lib/mode';
-  import { routes, nav, canOpen, isFieldOnly, type WebRoute } from './routes';
+  import { routes, navFor, canOpen, isFieldOnly, homeOf, type WebRoute } from './routes';
   import Login from './screens/Login.svelte';
+  import CompanySwitcher from './components/CompanySwitcher.svelte';
+  import CompanyMark from './components/CompanyMark.svelte';
+  import { company, initCompany, GROUP } from './lib/company.svelte';
+  import { companyBrand, allCompanies } from './lib/companies';
   import Bell from '@lucide/svelte/icons/bell';
   import Moon from '@lucide/svelte/icons/moon';
   import Sun from '@lucide/svelte/icons/sun';
@@ -15,6 +20,18 @@
 
   const user = $derived(session.user);
   let unread = $state(0);
+  // Active company: chosen once per signed-in user (link ?co=, saved choice, or the default for the role).
+  $effect(() => { if (user && company.user !== user.id) initCompany(user); });
+  const co = $derived(company.active && company.active !== GROUP ? companyBrand(company.active) : null);
+  // Tab icon follows the company (group → BTW icons as the default set).
+  $effect(() => {
+    const b = co ?? null; const ico = b?.favicon32 ?? brand.favicon32, any = b?.favicon ?? brand.favicon;
+    document.head.querySelectorAll('link[rel="icon"]').forEach((l) => l.remove());
+    for (const [href, attrs] of [[any, { sizes: 'any' }], [ico, { type: 'image/png', sizes: '32x32' }]] as const) {
+      if (!href) continue; const el = Object.assign(document.createElement('link'), { rel: 'icon', href });
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v); document.head.append(el);
+    }
+  });
   restore();
   // Any action that fails without its own handler: say why, and send expired sessions back to sign-in.
   $effect(() => {
@@ -33,21 +50,23 @@
   const refreshUnread = async () => { try { unread = (await notifications.list()).filter((n) => !n.read).length; } catch { /* badge only */ } };
   $effect(() => { if (user) { refreshUnread(); return onChange(refreshUnread); } });
 
+  // Roles without the dashboard start on their own home (truck planner → Truck desk).
+  $effect(() => { if (user && router.path === '/' && homeOf(user) !== '/') location.replace(`#${homeOf(user)}`); });
   const matched = $derived(router.match(routes as any) as { route: WebRoute; params: Record<string, string> } | null);
   // UA-02 / §17.7: show the user's data scope in words, not ids
   const scope = $derived.by(() => {
     if (!user) return '';
-    if (user.roles.includes('director') || user.entityIds.length === 3) return 'All entities (group view)';
     const parts = [
-      ...user.entityIds.map((id) => lookup.entity(id)?.code),
       ...user.loadingPointIds.map((id) => `${lookup.supplier(id)?.code} ${lookup.supplier(id)?.city}`),
-      ...user.warehouseIds.map((id) => lookup.warehouse(id)?.name),
+      ...user.warehouseIds.map((id) => destinationLabel(id)),
     ].filter(Boolean);
-    return parts.join(' · ') || '—';
+    return parts.join(' · ');
   });
-  const visibleNav = $derived(nav.map((g) => ({ ...g, items: g.items.filter((i) => !i.roles || i.roles.some((r: Role) => user?.roles.includes(r))) })).filter((g) => g.items.length));
+  const visibleNav = $derived(navFor(user));
   const active = (href: string) => (href === '#/' ? router.path === '/' : ('#' + router.path).startsWith(href));
-  $effect(() => { document.title = `${matched?.route.title ?? 'BTW'} · BTW Supply Chain`; navOpen = false; router.path; });
+  $effect(() => { document.title = `${matched?.route.title ?? 'BTW'} · ${co ? co.shortName : user ? 'Group' : 'BTW'} · Supply Chain`; navOpen = false; router.path; });
+  // Remount the screen when the company or the route changes, so its data reloads for the new scope.
+  const screenKey = $derived(`${company.active}|${router.path}`);
 
   function toggleTheme() {
     const dark = theme === 'dark' || (!theme && matchMedia('(prefers-color-scheme: dark)').matches);
@@ -74,7 +93,15 @@
 {:else}
   <div class="shell" class:nav-open={navOpen}>
     <div class="side-col"><aside class="side">
-      <div class="brand">{#if brand.logoOnDark}<img class="bare" src={brand.logoOnDark} alt="BTW Global Distributors" />{:else}<img src={brand.logoFull} alt="BTW Global Distributors" />{/if}</div>
+      <div class="brand" style:--co-accent={co?.colors.accent}>
+        {#if co}
+          {#if co.logoOnDark}<img class="bare" src={co.logoOnDark} alt={co.name} />
+          {:else if co.logo}<img src={co.logo} alt={co.name} />
+          {:else}<div class="wordmark" style:color="#fff"><strong>{co.shortName}</strong><span>{co.tagline}</span></div>{/if}
+        {:else}
+          <div class="groupmark"><div class="marks">{#each allCompanies() as c (c.id)}<CompanyMark entityId={c.id} size={34} />{/each}</div><strong>Group</strong><span>BTW · NUD · Kivu</span></div>
+        {/if}
+      </div>
       <nav>
         {#each visibleNav as g}
           <div class="group overline">{g.label}</div>
@@ -91,18 +118,18 @@
       <div class="ribbon"></div>
       <header class="top">
         <button class="btn btn-ghost btn-sm burger" onclick={() => (navOpen = !navOpen)} aria-label="Menu"><Menu size={20} /></button>
-        <img class="mlogo" src={brand.logoHorizontal} alt="BTW" />
-        <div class="grow scope small muted">Scope: <strong>{scope}</strong></div>
+        <CompanySwitcher {user} />
+        <div class="grow scope small muted">{#if scope}Scope: <strong>{scope}</strong>{/if}</div>
         <button class="btn btn-ghost btn-sm" onclick={toggleTheme} aria-label="Toggle theme">{#if theme === 'dark'}<Sun size={18} />{:else}<Moon size={18} />{/if}</button>
         <a class="btn btn-ghost btn-sm bell" href="#/notifications" aria-label="Notifications"><Bell size={18} />{#if unread}<span class="dotcount">{unread}</span>{/if}</a>
-        <div class="who"><div class="small" style="font-weight:600">{user.name}</div><div class="caption">{user.roles.join(' · ')}</div></div>
+        <div class="who"><div class="small" style="font-weight:600">{user.name}</div><div class="caption">{user.roles.map((r) => r.replace('_', ' ')).join(' · ')}</div></div>
         <button class="btn btn-ghost btn-sm" onclick={logout} aria-label="Sign out"><LogOut size={18} /></button>
       </header>
       <main class="content">
-        {#if matched && !canOpen(router.path, user.roles)}
-          <div class="card empty" role="alert"><h2>No access</h2><p class="small">This page isn’t available for your role ({user.roles.join(', ')}). Ask an administrator if you need it.</p><p><a class="btn btn-secondary btn-sm" href="#/">Back to dashboard</a></p></div>
+        {#if matched && !canOpen(router.path, user)}
+          <div class="card empty" role="alert"><h2>Not available for your role</h2><p class="small">This page isn’t part of your work as {user.roles.join(', ')}. Ask an administrator if you need it.</p><p><a class="btn btn-secondary btn-sm" href="#{homeOf(user)}">Back to {homeOf(user) === '/' ? 'dashboard' : 'your home page'}</a></p></div>
         {:else if matched}
-          {#key router.path}
+          {#key screenKey}
             {#if matched.route.load}
               {#await matched.route.load()}
                 <div class="stack"><div class="skeleton" style="height:36px;width:35%"></div><div class="skeleton" style="height:180px"></div></div>
@@ -133,6 +160,11 @@
   .brand { padding: var(--space-4); }
   .brand img { display: block; width: 100%; max-width: 180px; background: var(--logo-tile); border-radius: var(--radius-md); padding: 6px 10px; }
   .brand img.bare { background: none; padding: 0; border-radius: 0; }
+  .brand { border-bottom: 3px solid var(--co-accent, transparent); }
+  .wordmark, .groupmark { display: flex; flex-direction: column; gap: 2px; color: var(--nav-text); }
+  .wordmark strong, .groupmark strong { font: 800 20px/1.1 var(--ff-display); }
+  .wordmark span, .groupmark span { font-size: 11px; color: var(--nav-text-muted); }
+  .groupmark .marks { display: flex; gap: 6px; margin-bottom: 6px; }
   .boot { min-height: 100vh; display: grid; place-items: center; }
   nav { display: flex; flex-direction: column; padding: 0 var(--space-2) var(--space-4); }
   .group { color: var(--nav-text-muted); padding: var(--space-4) var(--space-3) var(--space-1); }
@@ -146,8 +178,7 @@
   .bell { position: relative; }
   .dotcount { position: absolute; top: 2px; right: 2px; background: var(--accent); color: var(--text-on-accent); border-radius: 9px; font-size: 10px; min-width: 16px; height: 16px; display: grid; place-items: center; padding: 0 4px; }
   .content { padding: var(--space-6); max-width: 1440px; width: 100%; }
-  .burger, .mlogo, .scrim { display: none; }
-  .mlogo { height: 28px; width: auto; min-width: 0; max-width: 46vw; object-fit: contain; object-position: left; flex: 0 1 auto; background: var(--logo-tile); border-radius: var(--radius-sm); padding: 2px 6px; }
+  .burger, .scrim { display: none; }
   .scrim { position: fixed; inset: 0; z-index: 40; background: rgb(4 21 43 / .5); border: 0; }
   @media (max-width: 900px) {
     .shell { grid-template-columns: minmax(0, 1fr); }
@@ -155,8 +186,7 @@
     .nav-open .side { transform: none; box-shadow: var(--elevation-3); }
     .side-col { display: contents; }
     .burger { display: inline-flex; }
-    .mlogo, .scrim { display: block; }
-    .mlogo { margin-right: auto; }
+    .scrim { display: block; }
     .who, .scope { display: none; }
     .top { padding: var(--space-2) var(--space-4); }
     .content { padding: var(--space-4); }

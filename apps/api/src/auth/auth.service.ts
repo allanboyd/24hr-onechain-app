@@ -1,3 +1,5 @@
+import { featuresFor } from '@btw/api/rules';
+import type { Role } from '@btw/api/types';
 import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import bcrypt from 'bcryptjs';
@@ -7,6 +9,7 @@ import { db, schema as t } from '../db/client';
 import { fail } from '../common/errors';
 import { iso, uid } from '../common/ids';
 import type { Principal } from './principal';
+import { accessOf } from './entity-scope';
 
 const ACCESS_TTL_S = 15 * 60;
 const REFRESH_TTL_MS = 30 * 864e5;
@@ -36,8 +39,8 @@ export type LoginInput = { username?: string; password?: string; phone?: string;
 export class AuthService {
   constructor(private jwt: JwtService) {}
 
-  toUser(u: typeof t.users.$inferSelect) {
-    return { id: u.id, name: u.name, phone: u.phone, roles: u.roles, entityIds: u.entityIds, loadingPointIds: u.loadingPointIds, warehouseIds: u.warehouseIds, username: u.username, driverId: u.driverId };
+  async toUser(u: typeof t.users.$inferSelect) {
+    return { id: u.id, name: u.name, phone: u.phone, roles: u.roles, entityIds: u.entityIds, loadingPointIds: u.loadingPointIds, warehouseIds: u.warehouseIds, username: u.username, driverId: u.driverId, features: featuresFor(u.roles as Role[]), ...(await accessOf(u)) };
   }
 
   async login(input: LoginInput) {
@@ -74,7 +77,7 @@ export class AuthService {
     const accessToken = await this.jwt.signAsync({ sub: u.id, tv: u.tokenVersion, dev: deviceId, sid }, { expiresIn: ACCESS_TTL_S });
     const refreshToken = randomBytes(32).toString('base64url');
     await db.insert(t.refreshTokens).values({ id: sid, userId: u.id, deviceId, tokenHash: hash(refreshToken), expiresAt: iso(Date.now() + REFRESH_TTL_MS) });
-    return { accessToken, refreshToken, expiresIn: ACCESS_TTL_S, deviceId, user: this.toUser(u) };
+    return { accessToken, refreshToken, expiresIn: ACCESS_TTL_S, deviceId, user: await this.toUser(u) };
   }
 
   /** Rotating refresh: the old token is revoked; reuse of a revoked token revokes the whole device session. */

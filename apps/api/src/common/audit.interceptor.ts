@@ -11,7 +11,7 @@ export class AuditInterceptor implements NestInterceptor {
     const write = (status: number) => {
       const path = String(req.url).split('?')[0];
       if (path.includes('/auth/')) return; // never log credentials
-      db.insert(t.auditLog).values({ userId: req.user?.id ?? null, channel: req.user?.channel ?? String(req.headers['x-channel'] ?? 'web'), method: req.method, path, status, detail: { idempotencyKey: req.headers['idempotency-key'] ?? null } }).catch(() => {});
+      db.insert(t.auditLog).values({ userId: req.user?.id ?? null, channel: req.user?.channel ?? String(req.headers['x-channel'] ?? 'web'), method: req.method, path, status, entityId: req.user?.activeEntityId ?? null, detail: { idempotencyKey: req.headers['idempotency-key'] ?? null } }).catch(() => {});
     };
     return next.handle().pipe(
       tap(() => write(req.method === 'POST' ? 201 : 200)),

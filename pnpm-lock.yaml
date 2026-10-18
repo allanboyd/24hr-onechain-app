@@ -187,6 +187,9 @@ importers:
       leaflet:
         specifier: ^1.9.4
         version: 1.9.4
+      plotly.js-cartesian-dist-min:
+        specifier: ^4.1.2
+        version: 4.1.2
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^5.1.1
@@ -2630,6 +2633,9 @@ packages:
   plist@3.1.1:
     resolution: {integrity: sha512-ZIfcLJC+7E7FBFnDxm9MPmt7D+DidyQ26lewieO75AdhA2ayMtsJSES0iWzqJQbcVRSrTufQoy0DR94xHue0oA==}
     engines: {node: '>=10.4.0'}
+
+  plotly.js-cartesian-dist-min@4.1.2:
+    resolution: {integrity: sha512-3UkyAT7/U8f3sOLavLnUjA6mqFmnqEe246GZhxT0J3TT9oZ0mh6SgwsL1yo/3/4xfmRSDFdGOxe+EsvT2XiE0g==}
 
   postcss@8.5.29:
     resolution: {integrity: sha512-49cGhUbXj8Qenv0iTMxA1cFBzxXoctpC9Ujd77t1WcbJIr6nF/eI7g/8MgxrYldFRuAXvja7xQRwavoW7kgrxQ==}
@@ -5083,6 +5089,8 @@ snapshots:
       '@xmldom/xmldom': 0.9.12
       base64-js: 1.5.1
       xmlbuilder: 15.1.1
+
+  plotly.js-cartesian-dist-min@4.1.2: {}
 
   postcss@8.5.29:
     dependencies:

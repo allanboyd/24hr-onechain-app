@@ -1,7 +1,7 @@
 // Aggregate persistence: rows ↔ the shared domain shapes in @btw/api/types (so the shared rules apply unchanged).
 import { asc, eq, inArray, sql } from 'drizzle-orm';
 import { db, schema as t, type Tx } from '../db/client';
-import type { Acknowledgement, Leg, Loading, Plan, PurchaseOrder, Sale, Shipment, TripCost, TripPayment, WaitingEntry } from '@btw/api/types';
+import type { Acknowledgement, Leg, Loading, PeriodPlan, Plan, PurchaseOrder, Sale, Shipment, TripCost, TripPayment, WaitingEntry } from '@btw/api/types';
 import { notFound } from '../common/errors';
 
 type Q = typeof db | Tx;
@@ -11,8 +11,22 @@ const und = <T>(x: T | null | undefined) => (x ?? undefined) as T | undefined;
 export type ShipmentRow = Shipment & { entityId: string; loadingPointId: string };
 
 export const map = {
-  plan: (r: typeof t.plans.$inferSelect): Plan => ({ ...r, poId: und(r.poId), currency: r.currency as Plan['currency'], status: r.status as Plan['status'] }) as Plan,
-  po: (r: typeof t.pos.$inferSelect): PurchaseOrder => ({ ...r, sentAt: toIso(r.sentAt), approvedAt: toIso(r.approvedAt)!, signature: und(r.signature), currency: r.currency as PurchaseOrder['currency'] }),
+  plan: (r: typeof t.plans.$inferSelect): Plan => {
+    const { revisionOf, revision, supersededById, ...x } = r;
+    return { ...x, poId: und(x.poId), currency: x.currency as Plan['currency'], status: x.status as Plan['status'], ...(revisionOf ? { revisionOf, revision: revision ?? 1 } : {}), ...(supersededById ? { supersededById } : {}) } as Plan;
+  },
+  periodPlan: (r: typeof t.periodPlans.$inferSelect): PeriodPlan => {
+    const { updatedAt: _u, copiedFromId, amendReason: _a, replacedById, ...x } = r;
+    return { ...x, periodKind: x.periodKind as PeriodPlan['periodKind'], status: x.status as PeriodPlan['status'], ...(copiedFromId ? { copiedFromId } : {}), ...(replacedById ? { replacedById } : {}) };
+  },
+  po: (r: typeof t.pos.$inferSelect): PurchaseOrder => {
+    const { revisionOf, revision, changes, revisionReason, createdBy, onBehalfOfId, supersededById, ...x } = r;
+    return {
+      ...x, sentAt: toIso(x.sentAt), approvedAt: toIso(x.approvedAt)!, signature: und(x.signature), currency: x.currency as PurchaseOrder['currency'], approval: x.approval as PurchaseOrder['approval'],
+      ...(revisionOf ? { revisionOf, revision: revision ?? 1, changes: changes ?? [], revisionReason: revisionReason ?? undefined, createdBy: (createdBy ?? 'system') as 'system', onBehalfOfId: onBehalfOfId ?? undefined } : {}),
+      ...(supersededById ? { supersededById } : {}),
+    };
+  },
   waiting: (r: typeof t.waitingEntries.$inferSelect): WaitingEntry => ({ ...r, arrivedAt: toIso(r.arrivedAt)!, status: r.status as WaitingEntry['status'] }),
   loading: (r: typeof t.loadings.$inferSelect): Loading => ({ ...r, loadedAt: toIso(r.loadedAt), status: r.status as Loading['status'], transportCurrency: r.transportCurrency as Loading['transportCurrency'] }),
   leg: (r: typeof t.legs.$inferSelect): Leg => {
@@ -20,16 +34,16 @@ export const map = {
     return { ...l, status: l.status as Leg['status'], departedAt: toIso(l.departedAt), plannedArrival: toIso(l.plannedArrival)!, lastPing: und(l.lastPing), ackId: und(l.ackId) };
   },
   ack: (r: typeof t.acks.$inferSelect): Acknowledgement => { const { byUserId: _b, ...a } = r; return { ...a, at: toIso(a.at)!, signature: und(a.signature) }; },
-  sale: (r: typeof t.sales.$inferSelect): Sale => ({ ...r, at: toIso(r.at)!, kind: r.kind as Sale['kind'], currency: r.currency as Sale['currency'], status: r.status as Sale['status'] }),
-  cost: (r: typeof t.tripCosts.$inferSelect): TripCost => ({ ...r, legId: und(r.legId), docRef: und(r.docRef), kind: r.kind as TripCost['kind'], currency: r.currency as TripCost['currency'] }),
-  payment: (r: typeof t.tripPayments.$inferSelect): TripPayment => ({ id: r.id, shipmentId: r.shipmentId, costId: r.costId, amount: r.amount, at: toIso(r.at)!, reference: r.reference, approvedById: und(r.approvedById), status: r.status as TripPayment['status'] }),
+  sale: (r: typeof t.sales.$inferSelect): Sale => ({ ...r, counterpartyEntityId: und(r.counterpartyEntityId), at: toIso(r.at)!, kind: r.kind as Sale['kind'], currency: r.currency as Sale['currency'], status: r.status as Sale['status'] }),
+  cost: (r: typeof t.tripCosts.$inferSelect): TripCost => ({ ...r, amountUsd: r.amountUsd ?? undefined, legId: und(r.legId), docRef: und(r.docRef), kind: r.kind as TripCost['kind'], currency: r.currency as TripCost['currency'] }),
+  payment: (r: typeof t.tripPayments.$inferSelect): TripPayment => ({ id: r.id, entityId: r.entityId, shipmentId: r.shipmentId, costId: r.costId, amount: r.amount, at: toIso(r.at)!, reference: r.reference, approvedById: und(r.approvedById), status: r.status as TripPayment['status'], fxRate: r.fxRate, amountUsd: r.amountUsd ?? undefined }),
 };
 
 export async function loadShipments(q: Q, ids?: string[]): Promise<ShipmentRow[]> {
   const shs = ids ? (ids.length ? await q.select().from(t.shipments).where(inArray(t.shipments.id, ids)) : []) : await q.select().from(t.shipments).orderBy(asc(t.shipments.createdAt));
   if (!shs.length) return [];
   const legs = await q.select().from(t.legs).where(inArray(t.legs.shipmentId, shs.map((s) => s.id))).orderBy(asc(t.legs.seq));
-  return shs.map((s) => ({ id: s.id, ref: s.ref, poId: s.poId, truckNo: s.truckNo, receivingCompanyId: s.receivingCompanyId, warehouseId: s.warehouseId, status: s.status as Shipment['status'], entityId: s.entityId, loadingPointId: s.loadingPointId, legs: legs.filter((l) => l.shipmentId === s.id).map(map.leg) }));
+  return shs.map((s) => ({ id: s.id, ref: s.ref, poId: s.poId, truckNo: s.truckNo, receivingCompanyId: s.receivingCompanyId, warehouseId: s.warehouseId, status: s.status as Shipment['status'], entityId: s.entityId, loadingPointId: s.loadingPointId, parentShipmentId: s.parentShipmentId, originShipmentId: s.originShipmentId, fromWarehouseId: s.fromWarehouseId, plannedWarehouseId: s.plannedWarehouseId, legs: legs.filter((l) => l.shipmentId === s.id).map(map.leg) }));
 }
 
 export async function loadShipment(q: Q, id: string, lock = false): Promise<ShipmentRow> {
@@ -44,12 +58,12 @@ export async function shipmentIdOfLeg(q: Q, legId: string) {
 }
 
 export async function saveShipment(q: Q, sh: ShipmentRow) {
-  await q.update(t.shipments).set({ status: sh.status }).where(eq(t.shipments.id, sh.id));
+  await q.update(t.shipments).set({ status: sh.status, warehouseId: sh.warehouseId, receivingCompanyId: sh.receivingCompanyId, plannedWarehouseId: sh.plannedWarehouseId ?? null }).where(eq(t.shipments.id, sh.id));
   for (const l of sh.legs) {
     const row = { id: l.id, shipmentId: sh.id, seq: l.seq, routeId: l.routeId, fromId: l.fromId, toId: l.toId, truckId: l.truckId, driverId: l.driverId, status: l.status, departedAt: l.departedAt ?? null, plannedArrival: l.plannedArrival, passes: l.passes, lastPing: l.lastPing ?? null, lines: l.lines, ackId: l.ackId ?? null, issues: l.issues };
     await q.insert(t.legs).values(row).onConflictDoUpdate({ target: t.legs.id, set: row });
   }
 }
 
-/** Strip server-only scope columns before sending a shipment out. */
-export const publicShipment = ({ entityId: _e, loadingPointId: _l, ...s }: ShipmentRow): Shipment => s;
+/** Strip server-only scope columns before sending a shipment out (the owning company stays: clients group by it). */
+export const publicShipment = ({ loadingPointId: _l, ...s }: ShipmentRow): Shipment => s;

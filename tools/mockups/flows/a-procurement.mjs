@@ -26,7 +26,7 @@ await finish(s);
 // Planner flow
 s = await open({ app: 'web', user: 'u-kabonge', outDir: out });
 const P = s.page;
-await s.go('/plans');
+await s.go('/plans?tab=list');
 await shot(s, 'A06-web-plans-list', 'Plans list (planner)', 'Status tabs with counts, search and entity filter; every plan shows trucks, cases and amount in the order currency (PL-01, PL-02).');
 await s.go('/plans/new');
 await shot(s, 'A07-web-plan-new', 'New plan — step 1', 'Pick the ordering entity (letterhead) and supplier export section; the lanes from that loading point and the reference format are shown (§7.1, §17.2, PO-02).');
@@ -45,6 +45,9 @@ await P.locator('table.lines tr').filter({ hasText: '3' }).first();
 await P.click('button:has-text("Submit for approval")'); await sleep(3500);
 await shot(s, 'A08-web-plan-editor-validation', 'Plan editor — mixed load and validation', 'Draft with 3 trucks; truck 2 is a mixed load (two brands) with its own subtotal; truck 3 is over capacity, so Submit lists what to fix (§7.2, §7.3 #3/#5, PO-05).');
 await qty(3).fill('2000'); await sleep(200);
+// Lines above the approved period plan need a reason before submitting (PO-07)
+await P.click('button:has-text("Save draft")'); await sleep(1500);
+for (const r of await P.locator('input[aria-label^="Reason for"]').all()) await r.fill('Extra stock ahead of the festive season');
 await P.click('button:has-text("Submit for approval")'); await sleep(3500);
 const planUrl = await P.evaluate(() => location.hash.slice(1));
 await shot(s, 'A09-web-plan-submitted-planner', 'Plan submitted', 'After submitting, the plan is read-only for the planner; history shows who submitted and that directors were notified (PL-02, PL-05).');
@@ -61,7 +64,7 @@ await P.mouse.up(); await sleep(200);
 await shot(s, 'A11-web-approve-sign-dialog', 'Approve & sign', 'On-screen e-signature; on confirm the date stamp is applied, the plan locks and the PO is generated with no retyping (PL-03, PO-01).', { fullPage: false });
 await P.click('dialog button:has-text("Approve & sign")'); await sleep(3500);
 await shot(s, 'A12-web-plan-approved', 'Approved plan with history', 'Locked plan with full approval history and the signature; amendments go through a new version (PL-03, PL-04).');
-await s.go('/pos', 800);
+await s.go('/pos?tab=list', 800);
 await shot(s, 'A13-web-po-list', 'Purchase orders', 'POs generated from approved plans with send status and per-truck progress: loaded, on the road, delivered (PO-01, PO-03, PO-04).');
 await P.click('table td.mono a >> nth=0'); await sleep(800);
 await shot(s, 'A14-web-po-letter', 'PO letter (screen)', 'Order letter on the entity letterhead: date, export section, Re: title/ref, instruction, truck lines with brand subtotals and total, prepared/approved, signature and date stamp (§7.1, PO-02, PO-05).');
@@ -79,7 +82,7 @@ await finish(s);
 s = await open({ app: 'web', user: 'u-admin', outDir: out });
 await s.go('/users', 900);
 await shot(s, 'A17-web-users', 'Users & devices', 'Field-app people (loading point / driver / receiver) and office staff with roles, scope (entities, loading points, warehouses), active phones and last seen (UA-01/02, §17.7).');
-await s.page.locator('tr', { hasText: 'Peter Otieno' }).first().click(); await s.page.waitForTimeout(400);
+await s.page.locator('tr', { hasText: 'Mawazi K' }).first().click(); await s.page.waitForTimeout(400);
 await shot(s, 'A18-web-user-edit', 'Edit user · devices', 'Roles and scopes per person, send a new PIN by SMS, sign a lost phone out remotely, deactivate (MA-08).', { fullPage: false });
 await s.page.keyboard.press('Escape');
 await s.page.getByRole('button', { name: 'New user' }).click(); await s.page.waitForTimeout(300);
@@ -93,3 +96,11 @@ await s.go('/integrations', 900);
 await shot(s, 'A20-web-integrations', 'Integrations', 'Which providers are live vs local stand-ins (SMS/USSD, email, push, PDF, files, routing) and an SMS check-in tester. In demo mode it explains that nothing leaves the browser.');
 await finish(s);
 
+
+// Overview tabs — A21+
+s = await open({ app: 'web', user: 'u-dir', outDir: out });
+await s.go('/plans', 3500);
+await shot(s, 'A21-web-plans-overview', 'Plans · overview', 'What waits for approval, value by status / entity / supplier, and approval turnaround by month (PL-02, §10 Procurement).');
+await s.go('/pos', 3500);
+await shot(s, 'A22-web-pos-overview', 'Purchase orders · overview', 'Truck progress per open order (to load → on the road → delivered), stage mix, value by supplier and orders per month (PO-04).');
+await finish(s);

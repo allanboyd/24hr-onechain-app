@@ -20,7 +20,7 @@ const JUNK: (string | undefined)[] = [undefined, '{}', '[]', '"x"', 'null', '42'
 export async function fuzzSuite(env: Env) {
   const c = client(env.base);
   const dir = (await c.login('dir')).accessToken;
-  const drv = (await c.login('+254711000001', '1234')).accessToken;
+  const drv = (await c.login('+254702750019', '1234')).accessToken;
   section('Fuzz · every route with junk input (no 5xx)');
   const list = routes().filter((r) => !SKIP.includes(r.path));
   const bad: string[] = [];
@@ -42,9 +42,9 @@ export async function fuzzSuite(env: Env) {
   for (const r of [...list.map((x) => ({ ...x, real: false })), ...list.filter((x) => x.path.includes(':')).map((x) => ({ ...x, real: true }))]) {
     const p = r.real ? realFor(r.path) : r.path.replace(/:[a-zA-Z]+/g, 'nope-123');
     for (const token of [dir, drv]) for (const body of r.method === 'GET' || r.method === 'DELETE' ? [undefined] : JUNK) {
-      const res = await c.req(r.method, p, { token, raw: body, headers: body === undefined ? {} : { 'content-type': 'application/json' } });
+      const res = await c.req(r.method, p, { token, raw: body, headers: body === undefined ? {} : { 'content-type': 'application/json' } }).catch((e: Error) => ({ status: 599, body: e.name }));
       n++;
-      if (res.status >= 500) bad.push(`${r.method} ${r.path} ${body ?? ''} → ${res.status}`);
+      if (res.status >= 500) bad.push(`${r.method} ${r.path} ${body ?? ''} → ${res.status === 599 ? 'no answer' : res.status}`);
       if (/insert into|select .* from|Failed query/i.test(JSON.stringify(res.body))) bad.push(`${r.method} ${r.path} leaks SQL`);
     }
   }

@@ -3,10 +3,22 @@
   import { Badge, fmtDate, fmtNum, say } from '@btw/ui';
   import Plus from '@lucide/svelte/icons/plus';
   import Upload from '@lucide/svelte/icons/upload';
+  import WarehousesTab from '../components/WarehousesTab.svelte';
+  import ProvidersTab from '../components/ProvidersTab.svelte';
+  import DriversTab from '../components/DriversTab.svelte';
+  import { can } from '../lib/features';
+  import { qp } from '../lib/tab';
+  import { untrack } from 'svelte';
+  import { CATEGORIES, categoryOf, groupProducts, packToConfirm, priceToConfirm, sourceCode, type Category } from '../lib/products';
   let { user }: { params?: any; user: User } = $props();
   const r = ref();
-  const tabs = ['Products', 'Suppliers', 'Providers & trucks', 'Drivers', 'Routes & checkpoints', 'Entities & companies'] as const;
-  let tab = $state<(typeof tabs)[number]>('Products');
+  const ALL_TABS = ['Products', 'Suppliers', 'Providers & trucks', 'Drivers', 'Warehouses', 'Routes & checkpoints', 'Entities & companies'] as const;
+  type Tab = (typeof ALL_TABS)[number];
+  const TRANSPORT: Tab[] = ['Providers & trucks', 'Drivers'];
+  // Full master data, or transport only (truck planner: providers, trucks, drivers — not products, prices or users).
+  const tabs = $derived(can(user, 'master-data') ? [...ALL_TABS] : ALL_TABS.filter((t) => TRANSPORT.includes(t)));
+  const linked = ({ providers: 'Providers & trucks', trucks: 'Providers & trucks', drivers: 'Drivers' } as Record<string, Tab>)[qp('tab')];
+  let tab = $state<Tab>(untrack(() => linked ?? (can(user, 'master-data') ? 'Products' : 'Providers & trucks')));
   let route = $state(r.routes[0].id);
   const sel = $derived(r.routes.find((x) => x.id === route)!);
   const canEdit = $derived(user.roles.some((x) => x === 'admin' || x === 'fleet' || x === 'planner'));
@@ -14,7 +26,13 @@
   const add = () => say(`Add/edit form for ${tab} comes in the next iteration (MD-*).`);
   const importXls = () => say('Excel import with a dry-run validation report comes with the backend (§13, /masterdata/{kind}/import)');
   let q = $state('');
-  const products = $derived(r.products.filter((p) => !q || `${p.sku} ${p.brand} ${p.pack}`.toLowerCase().includes(q.toLowerCase())));
+  let src = $state('');
+  let cat = $state<Category | ''>('');
+  const products = $derived(r.products.filter((p) => (!q || `${p.sku} ${p.brand} ${p.pack}`.toLowerCase().includes(q.toLowerCase())) && (!src || sourceCode(p) === src) && (!cat || categoryOf(p) === cat)));
+  const grouped = $derived(groupProducts(products));
+  const sources = $derived([...new Set(r.products.map(sourceCode))].sort());
+  const tbcPacks = $derived(r.products.filter(packToConfirm).length);
+  const priceOf = (id: string) => r.priceList.find((x) => x.productId === id);
 
   // Route timings — Kabonge / Tesfie review these seed values (plan §9 item 7). Edits are local to the prototype.
   const original = Object.fromEntries(r.routes.map((x) => [x.id, x.stops.map((st) => ({ ...st }))]));
@@ -30,11 +48,13 @@
     original[route] = stops.map((st) => ({ ...st })); timings[route] = stops.map((st) => ({ ...st }));
     say('Timings saved in this prototype — the real build versions them and recalculates ETAs (TR-04)');
   }
+  // The sheet gave a bottle size (e.g. "Chivas 1 L") but no bottles per case: show the size, flag only the case size.
+  const sizeKnown = (p: { pack: string }) => !!p.pack && !/^to confirm$/i.test(p.pack.trim()) && /\d\s*(ml|cl|l)\b/i.test(p.pack);
 </script>
 
 <div class="page-head">
-  <div><div class="overline crumb">Admin</div><h1>Master data</h1></div>
-  {#if canEdit}<div class="row"><button class="btn btn-secondary" onclick={importXls}><Upload size={16} />Import from Excel</button><button class="btn btn-primary" onclick={add}><Plus size={16} />Add</button></div>{/if}
+  <div><div class="overline crumb">Admin</div><h1>{can(user, 'master-data') ? 'Master data' : 'Transport master data'}</h1>{#if !can(user, 'master-data')}<p class="muted small">Onboard transport providers — companies, saccos, individual owners — with their trucks and drivers.</p>{/if}</div>
+  {#if canEdit && !TRANSPORT.includes(tab) && can(user, 'master-data')}<div class="row"><button class="btn btn-secondary" onclick={importXls}><Upload size={16} />Import from Excel</button><button class="btn btn-primary" onclick={add}><Plus size={16} />Add</button></div>{/if}
 </div>
 
 <div class="tabs" role="tablist">
@@ -42,36 +62,40 @@
 </div>
 
 {#if tab === 'Products'}
-  <div class="filters"><label class="field"><span>Search</span><input class="input" type="search" bind:value={q} placeholder="SKU, brand or package" /></label></div>
-  <p class="caption" style="margin:0 0 var(--space-2)">SKU = brand + package (Appendix B). One product master stops naming variations between orders (§7.3 #6, Q7).</p>
-  <div class="card flush table-wrap"><table class="table">
-    <thead><tr><th>SKU code</th><th>Brand</th><th>Package</th><th class="num">Units / case</th><th class="num">Size (ml)</th><th>Supplier</th><th class="num">Price / case</th><th>Effective from</th></tr></thead>
-    <tbody>{#each products as p}{@const pl = r.priceList.find((x) => x.productId === p.id)}
-      <tr><td class="mono small">{p.sku}</td><td>{p.brand}</td><td>{p.pack}</td><td class="num">{p.unitsPerCase}</td><td class="num">{p.sizeMl}</td><td>{lookup.supplier(p.supplierId)?.code}</td><td class="num">{pl ? `${pl.currency} ${fmtNum(pl.price, 2)}` : '—'}</td><td class="small">{pl ? fmtDate(pl.from) : '—'}</td></tr>
-    {/each}</tbody>
-  </table></div>
+  <div class="filters">
+    <label class="field"><span>Search</span><input class="input" type="search" bind:value={q} placeholder="Brand, pack or SKU" /></label>
+    <label class="field"><span>Source</span><select class="select" bind:value={src}><option value="">All sources</option>{#each sources as s}<option>{s}</option>{/each}</select></label>
+    <label class="field"><span>Category</span><select class="select" bind:value={cat}><option value="">All categories</option>{#each CATEGORIES as c}<option>{c}</option>{/each}</select></label>
+  </div>
+  <p class="caption" style="margin:0 0 var(--space-3)">{fmtNum(r.products.length)} products from the client's price list (Source.xlsx) · SKU = brand + package per source · <Badge tone="warning">pack to confirm</Badge> {tbcPacks} without a pack size · <Badge tone="warning">demo price — to confirm</Badge> the sheet has no prices yet.</p>
+  <div class="stack">
+    {#each grouped as g (g.source)}
+      <section class="card flush">
+        <header><div class="row"><h3>{g.source}</h3><span class="caption">{lookup.supplier(r.suppliers.find((s) => s.code === g.source)?.id ?? '')?.city ?? ''} · {g.categories.reduce((a, c) => a + c.products.length, 0)} products</span></div></header>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Category</th><th>Brand</th><th>Package</th><th class="num">Units / case</th><th class="num">Size (ml)</th><th>SKU code</th><th class="num">Price / case</th></tr></thead>
+          <tbody>{#each g.categories as c}{#each c.products as p, i}{@const pl = priceOf(p.id)}
+            <tr><td class="small muted">{i === 0 ? c.category : ''}</td><td>{p.brand}</td>
+              <td>{#if packToConfirm(p) && sizeKnown(p)}{p.pack.replace(/\s*—.*$/, '')} <Badge tone="warning">case size to confirm</Badge>{:else if packToConfirm(p)}<Badge tone="warning">pack to confirm</Badge>{:else}{p.pack}{/if}</td>
+              <td class="num">{packToConfirm(p) ? '—' : p.unitsPerCase}</td><td class="num">{(packToConfirm(p) && !sizeKnown(p)) || !p.sizeMl ? '—' : fmtNum(p.sizeMl)}</td>
+              <td class="mono small">{p.sku}</td>
+              <td class="num">{#if pl}{pl.currency} {fmtNum(pl.price, 2)}{#if priceToConfirm(p)}<div class="caption tbc">demo price — to confirm</div>{/if}{:else}—{/if}</td></tr>
+          {/each}{/each}</tbody>
+        </table></div>
+      </section>
+    {:else}<div class="card empty">No product matches these filters.</div>{/each}
+  </div>
 {:else if tab === 'Suppliers'}
   <div class="card flush table-wrap"><table class="table">
     <thead><tr><th>Code</th><th>Export section</th><th>City</th><th>Country</th><th>Email</th><th>Loading point</th></tr></thead>
     <tbody>{#each r.suppliers as s}<tr><td><strong>{s.code}</strong></td><td>{s.name}</td><td>{s.city}</td><td>{s.country}</td><td class="small">{s.email}</td><td class="small">{lookup.checkpoint(s.checkpointId)?.name}</td></tr>{/each}</tbody>
   </table></div>
 {:else if tab === 'Providers & trucks'}
-  <div class="stack">
-    {#each r.providers as pr}
-      <section class="card flush">
-        <header><div class="row"><h3>{pr.name}</h3><Badge tone={pr.regular ? 'success' : 'neutral'}>{pr.regular ? 'Regular' : 'Non-regular (market)'}</Badge></div><span class="small muted">{pr.phone}</span></header>
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Truck</th><th>Trailer</th><th class="num">Capacity (cases)</th><th>Default driver</th></tr></thead>
-          <tbody>{#each r.trucks.filter((t) => t.providerId === pr.id) as t}<tr><td><strong>{t.reg}</strong></td><td>{t.trailer}</td><td class="num">{fmtNum(t.capacityCases)}</td><td>{lookup.driver(t.defaultDriverId ?? '')?.name ?? '—'}</td></tr>{:else}<tr><td colspan="4" class="empty small">No trucks</td></tr>{/each}</tbody>
-        </table></div>
-      </section>
-    {/each}
-  </div>
+  <ProvidersTab {user} />
 {:else if tab === 'Drivers'}
-  <div class="card flush table-wrap"><table class="table">
-    <thead><tr><th>Name</th><th>Phone</th><th>Licence</th><th>Provider</th><th>Tracking channel</th></tr></thead>
-    <tbody>{#each r.drivers as d}<tr><td>{d.name}</td><td class="small">{d.phone}</td><td class="mono small">{d.licence}</td><td>{lookup.provider(d.providerId)?.name}</td><td>{#if d.hasApp}<Badge tone="success">Driver app</Badge>{:else}<Badge tone="warning">SMS / office updates</Badge>{/if}</td></tr>{/each}</tbody>
-  </table></div>
+  <DriversTab {user} />
+{:else if tab === 'Warehouses'}
+  <WarehousesTab {user} />
 {:else if tab === 'Routes & checkpoints'}
   <div class="layout">
     <section class="card flush">
@@ -129,6 +153,7 @@
   .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: var(--space-4); align-items: start; }
   @media (max-width: 1100px) { .layout { grid-template-columns: minmax(0, 1fr); } }
   .note { margin: var(--space-3) var(--space-5) 0; padding: var(--space-2) var(--space-3); background: var(--info-subtle); color: var(--info); border-radius: var(--radius-md); }
+  .tbc { color: var(--warning); }
   td .input { width: 88px; height: 32px; margin-left: auto; }
   .list { list-style: none; margin: 0; padding: var(--space-2); }
   .list button { width: 100%; text-align: left; background: none; border: 0; border-left: 3px solid transparent; border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); display: flex; flex-direction: column; gap: 2px; cursor: pointer; color: var(--text); font: inherit; }

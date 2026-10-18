@@ -104,7 +104,7 @@ class TestApp {}
   });
   ok(letter.subarray(0, 5).toString() === '%PDF-' && letter.length > 20_000, `PO letter PDF ${Math.round(letter.length / 1024)} KB in ${Date.now() - t0} ms`);
   const ack = await pdf.render('acknowledgement', {
-    shipmentRef: 'SHP-2026-0043', legSeq: 1, legCount: 2, truckReg: 'RAD 310E', from: 'KBL Nairobi', to: 'Asie Kigali', warehouse: 'Asie Kigali', receivingCompany: 'Asie',
+    shipmentRef: 'SHP-2026-0043', legSeq: 1, legCount: 2, truckReg: 'RAD 310E', from: 'KBL Nairobi', to: 'Asie Gisenyi', warehouse: 'Asie Gisenyi', receivingCompany: 'Asie',
     receivedAt: new Date().toISOString(), receiverName: 'J. Uwase', finalDestination: false,
     lines: [{ brand: 'Brand B Stout', pack: '24 x 500 ml', expected: 2000, received: 1994, damaged: 6, remarks: 'crushed' }], photos: [up.id],
   });

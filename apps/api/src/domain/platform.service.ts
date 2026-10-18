@@ -2,15 +2,18 @@ import { Injectable } from '@nestjs/common';
 import bcrypt from 'bcryptjs';
 import { and, arrayOverlaps, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { db, schema as t } from '../db/client';
-import type { Role, RouteStop } from '@btw/api/types';
+import { randomInt } from 'node:crypto';
+import type { DocumentRef, DriverInput, ProviderInput, Role, RouteStop, TruckInput, WarehouseInput } from '@btw/api/types';
+import { canEditTransport, checkpointCodes, countryCode, normPhone as toE164, normReg, validateDriver, validateProvider, validateRoute, validateTruck, validateWarehouse } from '@btw/api/rules';
 import { fail, forbidden, notFound } from '../common/errors';
 import { iso, uid } from '../common/ids';
 import { has, isGlobal, type Principal } from '../auth/principal';
+import { accessOf } from '../auth/entity-scope';
 import { clearLoginLock } from '../auth/auth.service';
 import { normalizePhone } from '../auth/auth.service';
 import { RefService } from './ref.service';
 
-const ROLES: Role[] = ['director', 'planner', 'operations', 'loader', 'fleet', 'receiver', 'sales', 'accounts', 'driver', 'admin'];
+const ROLES: Role[] = ['director', 'planner', 'operations', 'loader', 'fleet', 'truck_planner', 'receiver', 'sales', 'accounts', 'driver', 'admin'];
 
 /** Trimmed string or '' for any other input type. */
 const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
@@ -23,10 +26,12 @@ export class PlatformService {
   async notifications(p: Principal) {
     const mine = eq(t.notifications.forUserId, p.id);
     const where = isGlobal(p) ? or(isNull(t.notifications.forUserId), mine) : or(arrayOverlaps(t.notifications.forRoles, p.roles), mine);
-    const rows = await db.select().from(t.notifications).where(where).orderBy(desc(t.notifications.at)).limit(100);
+    // company scope: a notification about another company never shows (null = not company-specific)
+    const scoped = p.scope.length ? or(isNull(t.notifications.entityId), inArray(t.notifications.entityId, p.scope)) : isNull(t.notifications.entityId);
+    const rows = await db.select().from(t.notifications).where(and(where, scoped)).orderBy(desc(t.notifications.at)).limit(100);
     const reads = rows.length ? await db.select().from(t.notificationReads).where(and(eq(t.notificationReads.userId, p.id), inArray(t.notificationReads.notificationId, rows.map((r) => r.id)))) : [];
     const read = new Set(reads.map((r) => r.notificationId));
-    return rows.map((r) => ({ id: r.id, at: new Date(r.at).toISOString(), title: r.title, body: r.body, link: r.link ?? undefined, read: read.has(r.id), forRoles: r.forRoles as Role[] }));
+    return rows.map((r) => ({ id: r.id, at: new Date(r.at).toISOString(), title: r.title, body: r.body, link: r.link ?? undefined, read: read.has(r.id), forRoles: r.forRoles as Role[], entityId: r.entityId }));
   }
   async markRead(p: Principal, ids?: string[]) {
     const list = ids?.length ? ids : (await this.notifications(p)).map((n) => n.id);
@@ -35,7 +40,8 @@ export class PlatformService {
   }
 
   async demoUsers() {
-    return (await db.select().from(t.users).where(eq(t.users.active, true))).map((u) => ({ id: u.id, name: u.name, phone: u.phone, roles: u.roles as Role[], entityIds: u.entityIds, loadingPointIds: u.loadingPointIds, warehouseIds: u.warehouseIds }));
+    const rows = await db.select().from(t.users).where(eq(t.users.active, true));
+    return Promise.all(rows.map(async (u) => ({ id: u.id, name: u.name, phone: u.phone, roles: u.roles as Role[], entityIds: u.entityIds, loadingPointIds: u.loadingPointIds, warehouseIds: u.warehouseIds, ...(await accessOf(u)) })));
   }
 
   // ---- Devices (MA-07/08) -----------------------------------------------------------
@@ -122,24 +128,113 @@ export class PlatformService {
     this.ref.invalidate();
     return { ...r, stops };
   }
-  async addTruck(p: Principal, input: { providerId: string; reg: string; trailer: string; capacityCases: number; defaultDriverId?: string }) {
-    if (!has(p, 'planner', 'fleet') && !isGlobal(p)) forbidden();
-    const reg = text(input.reg).toUpperCase();
-    if (!reg || typeof input.providerId !== 'string') fail('Provider and registration are required');
-    if (input.capacityCases !== undefined && !(Number.isInteger(input.capacityCases) && input.capacityCases > 0)) fail('Capacity must be a whole number of cases');
-    const row = { id: uid('t'), providerId: input.providerId, reg, trailer: text(input.trailer).toUpperCase(), capacityCases: input.capacityCases || 2000, defaultDriverId: input.defaultDriverId ?? null };
-    await db.insert(t.trucks).values(row); this.ref.invalidate(); return row;
+  /** Doc 08 §3: add or edit a warehouse (admin, director). The geofence is its warehouse checkpoint (used by routes and GPS). */
+  async saveWarehouse(p: Principal, id: string | null, input: WarehouseInput) {
+    if (!has(p, 'admin', 'director')) forbidden('Only an admin or director manages warehouses');
+    const { bundle } = await this.ref.get();
+    const cur = id ? bundle.warehouses.find((w) => w.id === id) ?? notFound('Warehouse') : null;
+    const cp = cur ? bundle.checkpoints.find((c) => c.id === cur.checkpointId) : null;
+    const merged = { name: cur?.name, country: cur?.country, town: cur?.town, receivingCompanyId: cur?.receivingCompanyId, lat: cp?.lat, lng: cp?.lng, radiusM: cp?.radiusM, ...((input ?? {}) as Partial<WarehouseInput>) };
+    const errs = validateWarehouse(merged, bundle.receivingCompanies.map((r) => r.id));
+    if (errs.length) fail(errs.join('; '));
+    const w = { name: text(merged.name), country: text(merged.country), town: text(merged.town), receivingCompanyId: merged.receivingCompanyId!, active: merged.active ?? (cur as { active?: boolean } | null)?.active ?? true };
+    const point = { lat: merged.lat!, lng: merged.lng!, radiusM: merged.radiusM ?? 500 };
+    const geog = sql`ST_SetSRID(ST_MakePoint(${point.lng}, ${point.lat}), 4326)::geography` as unknown as string;
+    const row = await db.transaction(async (tx) => {
+      if (cur) {
+        await tx.update(t.checkpoints).set({ name: w.name, country: countryCode(w.country), ...point, geog }).where(eq(t.checkpoints.id, cur.checkpointId));
+        await tx.update(t.warehouses).set(w).where(eq(t.warehouses.id, cur.id));
+        return { ...cur, ...w };
+      }
+      const codes = checkpointCodes(`${w.name} ${w.town}`, 'warehouse');
+      const cpId = uid('cp-wh');
+      await tx.insert(t.checkpoints).values({ id: cpId, name: w.name, kind: 'warehouse', country: countryCode(w.country), ...point, code: codes[0], aliases: codes, geog });
+      const nw = { id: uid('w'), checkpointId: cpId, ...w };
+      await tx.insert(t.warehouses).values(nw);
+      return nw;
+    });
+    this.ref.invalidate();
+    return row;
   }
-  async addDriver(p: Principal, input: { providerId: string; name: string; phone: string; licence?: string; hasApp?: boolean }) {
-    if (!has(p, 'planner', 'fleet') && !isGlobal(p)) forbidden();
-    if (!text(input.name) || typeof input.providerId !== 'string') fail('Provider and name are required');
-    const row = { id: uid('d'), providerId: input.providerId, name: text(input.name), phone: text(input.phone) ? normalizePhone(text(input.phone)) : '', licence: text(input.licence), hasApp: input.hasApp === true };
-    await db.insert(t.drivers).values(row); this.ref.invalidate(); return row;
+  /** Doc 08 §3: a new route (pick checkpoints in order), e.g. one that ends at a new warehouse. */
+  async addRoute(p: Principal, input: { name: string; code?: string; distanceKm?: number; stops: RouteStop[] }) {
+    if (!has(p, 'planner', 'fleet', 'admin', 'director')) forbidden();
+    const { bundle } = await this.ref.get();
+    const errs = validateRoute(input ?? {}, bundle.checkpoints.map((c) => c.id));
+    if (errs.length) fail(errs.join('; '));
+    const stops = input.stops.map((s) => ({ checkpointId: s.checkpointId, plannedHours: s.plannedHours, plannedDwellHours: s.plannedDwellHours }));
+    const short = (cpId: string) => (bundle.checkpoints.find((c) => c.id === cpId)?.code ?? 'X').slice(0, 3);
+    const row = { id: uid('r'), code: text(input.code) || `${short(stops[0].checkpointId)}-${short(stops.at(-1)!.checkpointId)}`, name: text(input.name), distanceKm: Number.isInteger(input.distanceKm) && input.distanceKm! > 0 ? input.distanceKm! : 0, stops };
+    await db.insert(t.routes).values(row); this.ref.invalidate(); return row;
   }
-  async addProvider(p: Principal, input: { name: string; regular?: boolean; phone?: string }) {
-    if (!has(p, 'planner', 'fleet') && !isGlobal(p)) forbidden();
-    if (!text(input.name)) fail('Name is required');
-    const row = { id: uid('pr'), name: text(input.name), regular: input.regular !== false, phone: text(input.phone) };
-    await db.insert(t.providers).values(row); this.ref.invalidate(); return row;
+  // ---- Transport onboarding (docs/10): providers, trucks, drivers ----------------------------------------
+  private assertTransport(p: Principal) { if (!canEditTransport(p.roles)) forbidden('Only truck planners, fleet, planners, directors and admins manage transport providers'); }
+  /** Add (id null) or edit a provider: company / sacco / individual / market, contact, regular, notes; `active: false` deactivates. */
+  async saveProvider(p: Principal, id: string | null, input: Partial<ProviderInput>) {
+    this.assertTransport(p);
+    if (!input || typeof input !== 'object') fail('Send the provider details', 400, 'bad-request');
+    const all = await db.select().from(t.providers);
+    const cur = id ? all.find((x) => x.id === id) ?? notFound('Provider') : null;
+    const v = { name: cur?.name, kind: cur?.kind, regular: cur?.regular, phone: cur?.phone, contactName: cur?.contactName, email: cur?.email, notes: cur?.notes, active: cur?.active ?? true, ...input } as Partial<ProviderInput>;
+    const errs = validateProvider(v, all, id);
+    if (errs.length) fail(errs.join('; '), errs.some((e) => /already registered/.test(e)) ? 409 : 422, errs.some((e) => /already registered/.test(e)) ? 'duplicate' : undefined);
+    if (v.regular !== undefined && typeof v.regular !== 'boolean') fail('regular must be true or false', 400, 'bad-request');
+    const row = { id: cur?.id ?? uid('pr'), name: text(v.name), kind: v.kind!, regular: v.regular ?? v.kind !== 'market', phone: text(v.phone) ? toE164(v.phone) : '', contactName: text(v.contactName), email: text(v.email), notes: text(v.notes), active: v.active !== false };
+    if (cur) await db.update(t.providers).set(row).where(eq(t.providers.id, cur.id)); else await db.insert(t.providers).values(row);
+    this.ref.invalidate();
+    return row;
+  }
+  /** Add or edit a truck: unique registration, capacity (cases), default driver, optional documents; `active: false` takes it off queues. */
+  async saveTruck(p: Principal, id: string | null, input: Partial<TruckInput>) {
+    this.assertTransport(p);
+    if (!input || typeof input !== 'object') fail('Send the truck details', 400, 'bad-request');
+    const [providers, trucks, drivers] = await Promise.all([db.select({ id: t.providers.id }).from(t.providers), db.select().from(t.trucks), db.select({ id: t.drivers.id, providerId: t.drivers.providerId }).from(t.drivers)]);
+    const cur = id ? trucks.find((x) => x.id === id) ?? notFound('Truck') : null;
+    const v = { providerId: cur?.providerId, reg: cur?.reg, trailer: cur?.trailer ?? '', capacityCases: cur?.capacityCases ?? (id ? undefined : 2000), defaultDriverId: cur?.defaultDriverId ?? null, active: cur?.active ?? true, note: cur?.note ?? null, documents: cur?.documents ?? [], ...input } as Partial<TruckInput>;
+    const errs = validateTruck(v, { providers, trucks, drivers }, id);
+    if (errs.length) fail(errs.join('; '), errs.some((e) => /already registered/.test(e)) ? 409 : 422, errs.some((e) => /already registered/.test(e)) ? 'duplicate' : undefined);
+    if (v.note !== undefined && v.note !== null && typeof v.note !== 'string') fail('note must be text', 400, 'bad-request');
+    if (cur && v.active === false && cur.active) {
+      const [q] = await db.select({ id: t.waitingEntries.id }).from(t.waitingEntries).where(and(eq(t.waitingEntries.truckId, cur.id), eq(t.waitingEntries.status, 'Waiting')));
+      if (q) fail(`${cur.reg} is in a loading queue — remove it from the queue first`, 409, 'state');
+    }
+    const documents: DocumentRef[] = (v.documents ?? []).map((d) => ({ id: typeof d.id === 'string' && d.id ? d.id : uid('doc'), kind: (['delivery-note', 'invoice', 'gate-pass', 'photo', 'signature', 'receipt', 'po-pdf'] as const).includes(d.kind as never) ? d.kind : 'photo', name: text(d.name).slice(0, 200), ...(typeof d.url === 'string' ? { url: d.url } : {}) }));
+    const row = { id: cur?.id ?? uid('t'), providerId: v.providerId!, reg: normReg(v.reg), trailer: text(v.trailer).toUpperCase(), capacityCases: v.capacityCases!, defaultDriverId: v.defaultDriverId || null, fleetNo: cur?.fleetNo ?? null, note: v.note ?? null, active: v.active !== false, documents };
+    try {
+      if (cur) await db.update(t.trucks).set(row).where(eq(t.trucks.id, cur.id)); else await db.insert(t.trucks).values(row);
+    } catch (e) { if (/unique|duplicate/i.test(String((e as Error)?.message) + String((e as { cause?: Error })?.cause?.message))) fail(`${row.reg} is already registered`, 409, 'duplicate'); throw e; }
+    this.ref.invalidate();
+    return { ...row, defaultDriverId: row.defaultDriverId ?? undefined };
+  }
+  /** Add or edit a driver (unique phone). `appLogin: true` with `hasApp` gives a new driver a field-app login: a driver
+   *  user linked to this driver, with a random 4-digit PIN returned once (like a PIN reset in Users & devices). */
+  async saveDriver(p: Principal, id: string | null, input: Partial<DriverInput> & { appLogin?: boolean }) {
+    this.assertTransport(p);
+    if (!input || typeof input !== 'object') fail('Send the driver details', 400, 'bad-request');
+    const [providers, drivers] = await Promise.all([db.select({ id: t.providers.id }).from(t.providers), db.select().from(t.drivers)]);
+    const cur = id ? drivers.find((x) => x.id === id) ?? notFound('Driver') : null;
+    const v = { providerId: cur?.providerId, name: cur?.name, phone: cur?.phone, licence: cur?.licence ?? '', hasApp: cur?.hasApp ?? false, active: cur?.active ?? true, ...input };
+    const errs = validateDriver(v, { providers, drivers }, id);
+    if (errs.length) fail(errs.join('; '), errs.some((e) => /already uses/.test(e)) ? 409 : 422, errs.some((e) => /already uses/.test(e)) ? 'duplicate' : undefined);
+    if (input.appLogin !== undefined && typeof input.appLogin !== 'boolean') fail('appLogin must be true or false', 400, 'bad-request');
+    const phone = toE164(v.phone);
+    const row = { id: cur?.id ?? uid('d'), providerId: v.providerId!, name: text(v.name), phone, licence: text(v.licence), hasApp: v.hasApp === true, active: v.active !== false,
+      localPhone: cur && cur.phone === phone ? cur.localPhone : null, phoneNote: cur && cur.phone === phone ? cur.phoneNote : null };
+    const login = await db.transaction(async (tx) => {
+      if (cur) await tx.update(t.drivers).set(row).where(eq(t.drivers.id, cur.id)); else await tx.insert(t.drivers).values(row);
+      if (!(input.appLogin && row.hasApp)) return undefined;
+      const [owner] = await tx.select().from(t.users).where(eq(t.users.phone, normalizePhone(phone)));
+      if (owner && !(owner.roles as Role[]).includes('driver')) fail('This phone number belongs to an office user — use another number for the driver', 409, 'duplicate');
+      if (owner) { if (owner.driverId !== row.id) await tx.update(t.users).set({ driverId: row.id }).where(eq(t.users.id, owner.id)); return { userId: owner.id, username: owner.username }; }
+      const taken = new Set((await tx.select({ u: t.users.username }).from(t.users)).map((x) => x.u));
+      const base = (row.name.split(' ')[0].toLowerCase().replace(/[^a-z0-9.]/g, '') || 'driver').slice(0, 30);
+      let username = base; for (let n = 2; taken.has(username); n++) username = `${base}${n}`;
+      const pin = String(randomInt(1000, 10000));
+      const u = { id: uid('u'), username, name: row.name, phone: normalizePhone(phone), email: null, roles: ['driver'], entityIds: [], loadingPointIds: [], warehouseIds: [], driverId: row.id, passwordHash: null, pinHash: await bcrypt.hash(pin, 10) };
+      await tx.insert(t.users).values(u);
+      return { userId: u.id, username, pin };
+    });
+    this.ref.invalidate();
+    return { ...row, localPhone: row.localPhone ?? undefined, phoneNote: row.phoneNote ?? undefined, ...(login ? { login } : {}) };
   }
 }

@@ -36,9 +36,17 @@ export interface PdfPort {
   render(template: 'po-letter' | 'acknowledgement', data: unknown): Promise<Buffer>;
 }
 
+/** The issuing company on a letterhead: code picks the brand kit (packages/ui/src/assets/brand/entities/<code>/);
+ *  legal/contact fields come from the entities table (placeholders read "… — to confirm"). */
+export interface PdfEntity {
+  name: string; code: string; shortName?: string;
+  address?: string; addressLines?: string[]; phone?: string; phones?: string[]; email?: string; website?: string;
+  logo?: string /* data URL/file id; BTW logo used when omitted and code==='BTW' */;
+  kraPin?: string | null; registrationNo?: string | null; registeredOffice?: string | null; tagline?: string; footerLine?: string;
+}
 /** Data for templates/po-letter.typ (§7.1/§7.2). Dates ISO (rendered DD Month YYYY, EAT). Images as data: URLs or stored file ids. */
 export interface PoLetterData {
-  entity: { name: string; code: string; address?: string; phone?: string; email?: string; logo?: string /* data URL/file id; BTW logo used when omitted and code==='BTW' */ };
+  entity: PdfEntity;
   date: string;
   ref: string; title: string; version?: number;
   addressedTo: { section?: string; name: string; city: string; country: string };
@@ -48,6 +56,11 @@ export interface PoLetterData {
   preparedBy: { name: string; title?: string };
   approvedBy?: { name: string; title?: string; at: string; signature?: string /* data URL or file id */ };
   stamp?: string; // data URL or file id
+  /** 'approved' (director stamp, default) or 'issued' (config approvals.purchase_orders = false, and every revision):
+   *  the letter then says "ISSUED <date> by <name>" instead of an APPROVED stamp. */
+  mode?: 'approved' | 'issued';
+  /** A PO revised at loading: "Revision 1 of BTW-PO-2026-0002" and what changed (one line per change). */
+  revision?: { n: number; of: string; changes: string[] };
 }
 
 /** Data for templates/acknowledgement.typ (AK-03). */
@@ -57,6 +70,8 @@ export interface AckPdfData {
   receivedAt: string; receiverName: string; finalDestination: boolean;
   lines: { brand: string; pack: string; expected: number; received: number; damaged: number; remarks?: string }[];
   signature?: string; photos?: string[]; // data URLs or file ids
+  /** The company that owns the goods (the shipment's company). */
+  entity?: PdfEntity;
 }
 
 export const ROUTING = Symbol('ROUTING');

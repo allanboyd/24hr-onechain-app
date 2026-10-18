@@ -1,0 +1,77 @@
+{
+  "code": "KVD",
+  "name": "Volcanic Distributors Limited",
+  "shortName": "Kivu",
+  "colors": {
+    "primary": "#2E3092",
+    "accent": "#ED1C24",
+    "text": "#1B1C55",
+    "onPrimary": "#FFFFFF",
+    "ink": "#E81B23",
+    "inkOnDark": "#F14950"
+  },
+  "tagline": "Manufacturers \u00b7 Transporters \u00b7 Distributors \u00b7 Importers \u00b7 Exporters",
+  "footerLine": "Manufacturers \u00b7 Transporters \u00b7 Distributors \u00b7 Importers \u00b7 Exporters",
+  "address": [
+    "P.O Box 18051 - 00100 Nairobi, Kenya",
+    "Elgeyo Marakwet Road, Elgeyo Garden"
+  ],
+  "phones": [
+    "+254 707 617 460",
+    "+254 701 570 356"
+  ],
+  "email": "info@NihnaUnique.co.ke",
+  "assets": {
+    "logo": "entities/kvd/logo-480w.png",
+    "logoFull": "entities/kvd/logo.png",
+    "logoSvg": "entities/kvd/logo.svg",
+    "logoDark": "entities/kvd/logo-on-dark-480w.png",
+    "mark": "entities/kvd/mark-128.png",
+    "markDark": "entities/kvd/mark-on-dark-128.png",
+    "favicon": "entities/kvd/favicon-32.png",
+    "faviconIco": "entities/kvd/favicon.ico",
+    "letterhead": {
+      "page": "apps/api/templates/letterheads/KVD.svg",
+      "header": {
+        "svg": "apps/api/templates/letterheads/KVD-header.svg",
+        "png": "entities/kvd/letterhead-header.png",
+        "yPt": [
+          0,
+          92
+        ]
+      },
+      "footer": {
+        "svg": "apps/api/templates/letterheads/KVD-footer.svg",
+        "png": "entities/kvd/letterhead-footer.png",
+        "yPt": [
+          776,
+          842
+        ]
+      },
+      "watermark": null
+    }
+  },
+  "legal": {
+    "kraPin": null,
+    "registrationNo": null,
+    "registeredOffice": "Elgeyo Marakwet Road, Elgeyo Garden, Nairobi"
+  },
+  "derived": [
+    "logo-on-dark-480w.png",
+    "mark-on-dark.png",
+    "mark-on-dark-128.png",
+    "favicon (mark on tile)"
+  ],
+  "contrast": {
+    "primary on white": 10.75,
+    "onPrimary on primary": 10.75,
+    "accent on white (graphics \u22653)": 4.38,
+    "ink on white (text \u22654.5)": 4.55,
+    "inkOnDark on #102037 (text \u22654.5)": 4.52,
+    "text on white": 15.63
+  },
+  "notes": [
+    "Letterhead email is info@NihnaUnique.co.ke (same as NUD) \u2014 confirm with client.",
+    "Requirements call the company \"Kivu Volcanic Distributors Ltd\"; the letterhead says \"Volcanic Distributors Limited\" \u2014 confirm legal name."
+  ]
+}

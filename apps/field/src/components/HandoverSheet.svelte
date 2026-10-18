@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CompanyChip from './CompanyChip.svelte';
   import { untrack } from 'svelte';
   // Hand-over (giver → driver): used at a loading point (LD-01..04, §17.5) and when sending a transfer leg on (DS-02).
   // Truck + driver, cases per brand (prefilled), document photos, agreed transport price, then ONE slide.
@@ -10,8 +11,8 @@
   import SlideToConfirm from './SlideToConfirm.svelte';
   type Line = { key: string; productId: string; qty: number };
   type TruckOpt = { truckId: string; driverId: string; note?: string };
-  let { title, subtitle = '', trucks, lines, editable = true, askPrice = true, qtyLabel = 'ordered', onsubmit, onclose }: {
-    title: string; subtitle?: string; qtyLabel?: string; trucks: TruckOpt[]; lines: Line[]; editable?: boolean; askPrice?: boolean;
+  let { entityId, title, subtitle = '', trucks, lines, editable = true, askPrice = true, qtyLabel = 'ordered', onsubmit, onclose }: {
+    entityId?: string; title: string; subtitle?: string; qtyLabel?: string; trucks: TruckOpt[]; lines: Line[]; editable?: boolean; askPrice?: boolean;
     onsubmit: (d: { truckId: string; driverId: string; qty: Record<string, number>; price: number; photos: string[] }) => Promise<void>; onclose: () => void;
   } = $props();
   const drivers = ref().drivers;
@@ -42,6 +43,7 @@
   }
 </script>
 <Sheet modal {title} {onclose}>
+  <CompanyChip {entityId} big />
   {#if subtitle}<p class="subline">{subtitle}</p>{/if}
 
   <section class="group">

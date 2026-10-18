@@ -21,7 +21,7 @@ export class SyncService {
       case 'leg.acknowledge': return this.logistics.acknowledge(p, x.legId, x.input);
       case 'leg.dispatch': return this.logistics.dispatch(p, x.legId, x.source ?? 'office');
       case 'loading.confirm': return this.logistics.confirmLoading(p, x.id, x.input);
-      case 'waiting.add': return this.logistics.addWaiting(p, x.loadingPointId, x.truckId, x.driverId);
+      case 'waiting.add': return this.logistics.addWaiting(p, x.loadingPointId, x.truckId, x.driverId, x.entityId);
       case 'sale.create': return this.stock.createSale(p, x.input, !!x.override);
       case 'positions': return this.logistics.positions(p, x.items ?? x);
       default: throw Object.assign(new Error(`Unknown operation ${op}`), { getStatus: () => 400 });

@@ -1,4 +1,11 @@
 <script lang="ts">
+  import { destinationLabel } from '../lib/planning';
+  import { chainModel, chainOf, journeySteps, sendOn, type ChainShipment } from '../lib/journey';
+  import { router } from '@btw/ui';
+  import ArrowRight from '@lucide/svelte/icons/arrow-right';
+  import RecordFor from '../components/RecordFor.svelte';
+  import { company, GROUP } from '../lib/company.svelte';
+  const groupView = $derived(company.active === GROUP);
   import { watch } from '../lib/load.svelte';
   import ErrorState from '../components/ErrorState.svelte';
   import { lookup, ref, shipments, tracking, type Acknowledgement, type Leg, type Shipment, type User } from '@btw/api';
@@ -12,9 +19,15 @@
   let sh = $state<Shipment | null>(null);
   let acks = $state<Record<string, Acknowledgement>>({});
   let poRef = $state('');
+  let chain = $state<ChainShipment[]>([]);
+  let chainAcks = $state<Record<string, Acknowledgement>>({});
   async function load() {
     sh = await shipments.get(params.id);
     if (!sh) return;
+    const all = await shipments.list();
+    chain = chainOf(all.some((x) => x.id === sh!.id) ? all : [...all, sh], sh);
+    const others = chain.filter((c) => c.id !== sh!.id);
+    chainAcks = Object.fromEntries((await Promise.all(others.map((c) => tracking.acks(c.id)))).flat().map((a) => [a.legId, a]));
     poRef = lookup.poRef(sh.poId);
     acks = Object.fromEntries((await tracking.acks(sh.id)).map((a) => [a.legId, a]));
   }
@@ -23,7 +36,6 @@
   const office = $derived(user.roles.some((x) => ['director', 'operations', 'fleet', 'admin', 'planner'].includes(x)));
   const finalCp = $derived(sh ? lookup.warehouse(sh.warehouseId)?.checkpointId : undefined);
   const last = $derived(sh?.legs.at(-1));
-  const canAddLeg = $derived(!!last && last.status === 'Acknowledged' && last.toId !== finalCp);
 
   function nextAction(leg: Leg): { cp: string; kind: 'arrived' | 'departed'; label: string } | null {
     if (leg.status === 'Acknowledged' || leg.status === 'Cancelled') return null;
@@ -68,6 +80,12 @@
   // Routes from the transfer point; the ones reaching the shipment's final warehouse first
   const nextRoutes = $derived(last ? r.routes.filter((rt) => rt.stops[0].checkpointId === last.toId)
     .sort((x, y) => Number(y.stops.at(-1)!.checkpointId === finalCp) - Number(x.stops.at(-1)!.checkpointId === finalCp)) : []);
+  // Chain model: any warehouse that received the goods into stock can send them on (once), e.g. Gisenyi → Goma or a
+  // re-export to Juba. Older model: only an intermediate warehouse.
+  const sentOn = $derived(!!sh && chain.some((c) => c.parentShipmentId === sh!.id));
+  const canAddLeg = $derived(!!last && last.status === 'Acknowledged' && !sentOn && (chainModel()
+    ? lookup.checkpoint(last.toId)?.kind === 'warehouse' && nextRoutes.length > 0
+    : last.toId !== finalCp));
   let busyTrucks = $state<Set<string>>(new Set());
   // Cases the next leg carries (what the last leg holds); trucks that can't take it are not offered.
   const carry = $derived(last ? last.lines.reduce((a, l) => a + l.loadedQty, 0) : 0);
@@ -81,8 +99,17 @@
   }
   let legErr = $state('');
   async function addLeg() { if (!nl.routeId) { legErr = 'No route starts at this point — add one in Master data'; return; }
-    if (tooSmall(nl.truckId)) { legErr = `${lookup.truck(nl.truckId)?.reg} holds ${lookup.truck(nl.truckId)?.capacityCases} cases; this leg carries ${carry}. Pick a bigger truck.`; return; }
-    await shipments.addLeg(sh!.id, nl.routeId, nl.truckId, nl.driverId); legDlg?.close(); say('Next leg planned'); }
+    if (tooSmall(nl.truckId)) { legErr = `${lookup.truck(nl.truckId)?.reg} holds ${lookup.truck(nl.truckId)?.capacityCases} cases; this shipment carries ${carry}. Pick a bigger truck.`; return; }
+    try {
+      const id = await sendOn(sh!, nl); legDlg?.close();
+      if (id) { say('New shipment created from the warehouse'); router.go(`/shipments/${id}`); } else say('Onward move planned');
+    } catch (e) { legErr = (e as Error).message; } }
+  // Journey: every shipment (or leg) from the loading point to the final warehouse
+  const steps = $derived(sh ? journeySteps(chain.length ? chain : [sh], sh.id, (legId) => {
+    const a = acks[legId] ?? chainAcks[legId];
+    return a ? { received: a.lines.reduce((x, y) => x + y.received, 0), damaged: a.lines.reduce((x, y) => x + y.damaged, 0) } : undefined;
+  }) : []);
+  const atWarehouse = $derived(canAddLeg && last ? lookup.checkpoint(last.toId)?.name ?? '' : '');
 
   // DS-03 reconciliation
   const products = $derived(sh ? [...new Set(sh.legs.flatMap((l) => l.lines.map((x) => x.productId)))] : []);
@@ -103,13 +130,32 @@
     <div>
       <div class="overline crumb"><a href="#/shipments">Shipments</a> / Truck No. {sh.truckNo}</div>
       <h1 class="row"><span class="mono">{sh.ref}</span> <Badge status={sh.status} /></h1>
-      <div class="muted small">PO <a class="mono" href="#/pos/{sh.poId}">{poRef}</a> · Delivered to {lookup.company(sh.receivingCompanyId)?.name} · {lookup.warehouse(sh.warehouseId)?.name} · {sh.legs.length} leg{sh.legs.length > 1 ? 's' : ''}</div>
+      <div class="muted small">PO <a class="mono" href="#/pos/{sh.poId}">{poRef}</a> · Delivered to {lookup.company(sh.receivingCompanyId)?.name} · {destinationLabel(sh.warehouseId)} · {sh.legs.length} leg{sh.legs.length > 1 ? 's' : ''}</div>
     </div>
     <div class="row">
       <a class="btn btn-secondary" href="#/finance">Trip costs & landing cost</a>
-      {#if canAddLeg && office}<button class="btn btn-primary" onclick={openLeg}><Plus size={16} />Add next leg (transfer)</button>{/if}
+      {#if canAddLeg && office}<RecordFor entityId={(sh as { entityId?: string }).entityId} cue={false}><button class="btn btn-primary" onclick={openLeg}><Plus size={16} />Send on — new shipment</button></RecordFor>{/if}
     </div>
   </div>
+
+  <section class="card journey" aria-label="Journey">
+    <header><h3>Journey</h3><span class="caption">{steps.length > 1 ? `${steps.length} ${chainModel() || chain.length > 1 ? 'shipments' : 'legs'} · goods are received into stock at each warehouse, the next move is a new shipment` : 'direct to the final warehouse'}</span></header>
+    <ol class="steps">
+      <li class="end"><span class="dot"></span><div><div class="caption">Loaded at</div><strong>{steps[0]?.from}</strong></div></li>
+      {#each steps as st (st.key)}
+        <li class:current={st.current}>
+          <span class="dot"></span>
+          <div class="grow">
+            <div class="row between"><span>{#if st.current}<strong class="mono">{st.ref}</strong>{:else}<a class="mono" href="#/shipments/{st.shipmentId}">{st.ref}</a>{/if} <Badge status={st.status} /></span>
+              <span class="caption">{st.truck} · {st.driver}</span></div>
+            <div class="caption">{st.from} <ArrowRight size={12} /> {st.to} · loaded {fmtNum(st.loaded)}{#if st.received != null} · received {fmtNum(st.received)}{#if st.damaged} · {fmtNum(st.damaged)} damaged{/if}{#if st.received !== st.loaded} · <span class="loss">{fmtNum(st.received - st.loaded)}</span>{/if}{/if}</div>
+          </div>
+        </li>
+      {/each}
+      <li class="end"><span class="dot"></span><div><div class="caption">Final warehouse</div><strong>{destinationLabel(sh.warehouseId)}</strong></div></li>
+    </ol>
+    {#if atWarehouse && office}<p class="small note">Goods are in stock at <strong>{atWarehouse}</strong>. {last?.toId === finalCp ? 'To move them further (e.g. on to Goma or a re-export), send them on as a new shipment.' : 'Send them on as a new shipment when the next truck is ready.'}</p>{/if}
+  </section>
 
   <div class="stack">
     {#each sh.legs as leg (leg.id)}
@@ -139,7 +185,9 @@
         <div class="leg-grid">
           <CheckpointTimeline {leg} />
           <div class="stack">
-            {#if office && (a || leg.status !== 'Acknowledged')}
+            {#if office && (a || leg.status !== 'Acknowledged') && groupView}
+              <div class="stack-sm"><div class="overline">Office actions</div><RecordFor entityId={(sh as { entityId?: string }).entityId} cue={false}><span></span></RecordFor></div>
+            {:else if office && (a || leg.status !== 'Acknowledged')}
               <div class="stack-sm">
                 <div class="overline">Office actions</div>
                 {#if a}<button class="btn {leg.status === 'Planned' || leg.status === 'Loaded' ? 'btn-primary' : 'btn-secondary'} btn-block wrap" onclick={() => act(leg, a)}>{a.label}</button>{/if}
@@ -165,7 +213,7 @@
               <div class="card {k.hasDiscrepancy ? 'flag-warning' : ''}" style="padding:var(--space-3)">
                 <div class="row between"><span class="overline">Acknowledgement</span>{#if k.hasDiscrepancy}<Badge tone="warning">Discrepancy</Badge>{:else}<Badge tone="success">Clean</Badge>{/if}</div>
                 <div class="small">{k.receiverName} · {fmtDateTime(k.at)}</div>
-                <div class="caption">{lookup.warehouse(k.warehouseId)?.name}{k.signature ? ' · signed' : ''}{k.photos.length ? ` · ${k.photos.length} photo(s)` : ''}</div>
+                <div class="caption">{destinationLabel(k.warehouseId)}{k.signature ? ' · signed' : ''}{k.photos.length ? ` · ${k.photos.length} photo(s)` : ''}</div>
                 {#each k.lines.filter((x) => x.remarks) as x}<div class="caption">“{x.remarks}”</div>{/each}
               </div>
             {/if}
@@ -218,18 +266,30 @@
 
   <dialog class="sheet" bind:this={legDlg}>
     <div class="body stack">
-      <h3>Add next leg (transfer)</h3>
+      <h3>Send on — new shipment from {atWarehouse || 'this warehouse'}</h3>
+      <p class="small muted">The goods were received into this warehouse's stock. Sending them on creates a new shipment with its own truck, driver and route; it takes the stock out here and posts it at the next warehouse when received.</p>
       <p class="caption">Goods received at {last ? lookup.checkpoint(last.toId)?.name : ''} are reloaded onto another truck. The new leg carries forward the good quantity received.</p>
       {#if legErr}<p class="error">{legErr}</p>{/if}
       <label class="field"><span>Route</span><select class="select" bind:value={nl.routeId}>{#each nextRoutes as rt}<option value={rt.id}>{rt.name}{rt.stops.at(-1)!.checkpointId === finalCp ? ' — to final destination' : ''}</option>{:else}<option value="">No route starts here</option>{/each}</select></label>
       <label class="field"><span>Truck</span><select class="select" bind:value={nl.truckId} onchange={() => (nl.driverId = lookup.truck(nl.truckId)?.defaultDriverId ?? nl.driverId)}>{#each r.trucks as t}<option value={t.id} disabled={busyTrucks.has(t.id) || tooSmall(t.id)}>{t.reg} · {lookup.provider(t.providerId)?.name} · {t.capacityCases} cases{busyTrucks.has(t.id) ? ' (on the road)' : tooSmall(t.id) ? ' (too small)' : ''}</option>{/each}</select><span class="help">This leg carries {carry} cases.</span></label>
       <label class="field"><span>Driver</span><select class="select" bind:value={nl.driverId}>{#each r.drivers as d}<option value={d.id}>{d.name}</option>{/each}</select></label>
-      <div class="row" style="justify-content:flex-end"><button class="btn btn-ghost" onclick={() => legDlg?.close()}>Cancel</button><button class="btn btn-primary" onclick={addLeg}>Plan leg</button></div>
+      <div class="row" style="justify-content:flex-end"><button class="btn btn-ghost" onclick={() => legDlg?.close()}>Cancel</button><button class="btn btn-primary" onclick={addLeg}>Create shipment</button></div>
     </div>
   </dialog>
 {/if}
 
 <style>
+  .journey { margin-bottom: var(--space-4); }
+  .steps { list-style: none; margin: 0; padding: 0 var(--space-1); }
+  .steps li { position: relative; display: flex; gap: var(--space-3); padding: 0 0 var(--space-3) var(--space-1); }
+  .steps li::before { content: ""; position: absolute; left: 10px; top: 14px; bottom: 0; width: 2px; background: var(--border); }
+  .steps li:last-child::before { display: none; }
+  .steps .dot { width: 14px; height: 14px; margin-top: 3px; border-radius: 50%; background: var(--surface); border: 2px solid var(--border-strong); flex: none; z-index: 1; }
+  .steps li.end .dot { background: var(--primary); border-color: var(--primary); }
+  .steps li.current .dot { background: var(--accent); border-color: var(--accent); }
+  .steps li.current > .grow { background: var(--primary-subtle); border-radius: var(--radius-md); padding: var(--space-1) var(--space-2); margin: calc(-1 * var(--space-1)) 0; }
+  .loss { color: var(--danger); }
+  .note { margin: var(--space-2) 0 0; padding: var(--space-2) var(--space-3); background: var(--info-subtle); color: var(--info); border-radius: var(--radius-md); }
   .chip { border: 0; cursor: pointer; }
   .alert { display: flex; gap: var(--space-3); align-items: flex-start; padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); margin-bottom: var(--space-4); font-size: var(--fs-body); }
   .alert.danger { background: var(--danger-subtle); color: var(--danger); }

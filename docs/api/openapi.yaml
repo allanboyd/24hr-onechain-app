@@ -14,6 +14,12 @@ info:
 
     Mobile writes carry `Idempotency-Key`; apps send `X-App-Version` and receive 426 when too old (MA-11).
 
+    Companies (tenants): BTW, NUD and Kivu (KVD). `X-Entity-Id: <entity id>` picks the active company; without it (or
+    `GROUP`) a request covers every company the user may work in (`/me` → allowedEntityIds; directors/admins: all).
+    A company outside the allowed set → 403. Every list, report and write is limited to that scope; another company''s
+    record by id → 404. A new record in a multi-company scope must name its `entityId` (else 422 entity-required).
+    Amounts in reports are USD at the director-approved rates (`/settings/fx`).
+
     '
 servers:
 - url: https://api.example.com/v1
@@ -38,6 +44,8 @@ tags:
 - name: sync
 - name: integrations
 - name: dev
+- name: companies
+- name: reports
 paths:
   /auth/login:
     post:
@@ -241,6 +249,62 @@ paths:
       responses:
         '201':
           description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /masterdata/warehouses:
+    post:
+      tags:
+      - masterdata
+      summary: Add a warehouse (admin/director) — its geofence becomes a warehouse checkpoint (doc 08 §3)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WarehouseInput'
+      responses:
+        '201':
+          description: The warehouse
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /masterdata/warehouses/{id}:
+    patch:
+      tags:
+      - masterdata
+      summary: Edit or deactivate a warehouse (admin/director); any WarehouseInput field
+      parameters:
+      - *id001
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WarehouseInput'
+      responses:
+        '200':
+          description: The warehouse
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /masterdata/routes:
+    post:
+      tags:
+      - masterdata
+      summary: Add a route (planner/fleet/admin/director) — checkpoints in order, hours increasing; may end at a new warehouse
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, stops]
+              properties:
+                name: { type: string }
+                code: { type: string }
+                distanceKm: { type: integer }
+                stops:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/RouteStop'
+      responses:
+        '201':
+          description: The route
         4XX:
           $ref: '#/components/responses/Problem'
   /masterdata/routes/{id}:
@@ -449,6 +513,284 @@ paths:
           $ref: '#/components/responses/Problem'
       parameters:
       - *id001
+  /plans/{id}/plan-context:
+    get:
+      tags:
+      - planning
+      summary: "PO-06: each order line against the approved period plan (planned, ordered before, this PO, remaining, over/unplanned)"
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /period-plans:
+    get:
+      tags:
+      - planning
+      summary: "Period plans of the caller's companies (feature period-plans)"
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+    post:
+      tags:
+      - planning
+      summary: "Create a draft period plan (planner/director; Group view must name entityId)"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                entityId:
+                  type: string
+                periodKind:
+                  type: string
+                from:
+                  type: string
+                to:
+                  type: string
+                title:
+                  type: string
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PeriodPlan'
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /period-plans/overlaps:
+    post:
+      tags:
+      - planning
+      summary: "PL-12: plans of the same company and supplier overlapping in time"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PeriodPlan'
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /period-plans/{id}:
+    get:
+      tags:
+      - planning
+      summary: "Period plan"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PeriodPlan'
+        4XX:
+          $ref: '#/components/responses/Problem'
+    put:
+      tags:
+      - planning
+      summary: "Save a draft/returned period plan (lines, optional monthly split)"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PeriodPlan'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PeriodPlan'
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /period-plans/{id}/submit:
+    post:
+      tags:
+      - planning
+      summary: "Submit for director approval (validated: lines, split adds up)"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PeriodPlan'
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /period-plans/{id}/decision:
+    post:
+      tags:
+      - planning
+      summary: "Director approves (signature + stamp), returns or rejects"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                comment:
+                  type: string
+                signature:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PeriodPlan'
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /period-plans/{id}/amendments:
+    post:
+      tags:
+      - planning
+      summary: "PL-10: reopen an approved plan as the next version (reason required)"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PeriodPlan'
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /period-plans/{id}/copy:
+    post:
+      tags:
+      - planning
+      summary: "PL-11: start a new draft from this plan for another period"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  type: string
+                to:
+                  type: string
+                title:
+                  type: string
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PeriodPlan'
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /period-plans/{id}/versions:
+    get:
+      tags:
+      - planning
+      summary: "Approved version snapshots"
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /reports/planned-vs-actual:
+    get:
+      tags:
+      - reports
+      summary: "PV-01..07: planned vs actual ordered, flags, monthly running totals, plan used per brand (usedPct is a percentage)"
+      responses:
+        '200':
+          description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - name: from
+        in: query
+        schema:
+          type: string
+      - name: to
+        in: query
+        schema:
+          type: string
+      - name: entityId
+        in: query
+        schema:
+          type: string
+      - name: supplierId
+        in: query
+        schema:
+          type: string
+      - name: productId
+        in: query
+        schema:
+          type: string
+  /settings/pv-thresholds:
+    get:
+      tags:
+      - reports
+      summary: "Planned-vs-actual flag thresholds"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PvThresholds'
+        4XX:
+          $ref: '#/components/responses/Problem'
+    put:
+      tags:
+      - reports
+      summary: "Directors set thresholds (behind in (0,1], over in [1,2])"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PvThresholds'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PvThresholds'
+        4XX:
+          $ref: '#/components/responses/Problem'
   /pos:
     get:
       tags:
@@ -659,10 +1001,75 @@ paths:
     post:
       tags:
       - shipments
-      summary: Transfer leg from where the previous leg was acknowledged (DS-02)
+      deprecated: true
+      summary: Deprecated — same as send-on; returns the NEW shipment's first leg
       responses:
         '201':
           description: OK
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+  /shipments/{id}/send-on:
+    post:
+      tags:
+      - shipments
+      summary: Send goods on from the warehouse where this shipment was received, as a NEW shipment (doc 08 §2)
+      description: The route must start at that warehouse and end at an active warehouse. Lines default to the good quantity acknowledged (received − damaged). Stock leaves the warehouse now (transferOut) and posts into the next one on acknowledgement (transferIn). 422 if more than in stock.
+      responses:
+        '201':
+          description: The new shipment (parentShipmentId / originShipmentId / fromWarehouseId set)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shipment'
+        4XX:
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id001
+      - $ref: '#/components/parameters/idem'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [routeId, truckId, driverId]
+              properties:
+                routeId: { type: string }
+                truckId: { type: string }
+                driverId: { type: string }
+                lines:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      productId: { type: string }
+                      loadedQty: { type: integer }
+  /shipments/{id}/journey:
+    get:
+      tags:
+      - shipments
+      summary: The chain of shipments containing this one, origin first — loaded vs received per shipment (doc 08 §2)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    shipmentId: { type: string }
+                    ref: { type: string }
+                    status: { type: string }
+                    fromWarehouseId: { type: string, nullable: true }
+                    warehouseId: { type: string }
+                    parentShipmentId: { type: string, nullable: true }
+                    loaded: { type: integer }
+                    received: { type: integer }
+                    damaged: { type: integer }
+                    ackedAt: { type: string, format: date-time, nullable: true }
         4XX:
           $ref: '#/components/responses/Problem'
       parameters:
@@ -1077,6 +1484,82 @@ paths:
         4XX:
           $ref: '#/components/responses/Problem'
       security: []
+  /entities:
+    get:
+      tags:
+      - companies
+      summary: Company records the user may work in (legal/contact/brand fields)
+      parameters:
+      - $ref: '#/components/parameters/entityHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Entity'
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /settings/fx:
+    get:
+      tags:
+      - companies
+      summary: Approved exchange rates (units of currency per 1 USD; avg → P&L, closing → stock/balances)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FxRate'
+        4XX:
+          $ref: '#/components/responses/Problem'
+    put:
+      tags:
+      - companies
+      summary: Director approves one month's rate for a currency (upsert)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FxRate'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FxRate'
+        4XX:
+          $ref: '#/components/responses/Problem'
+  /reports/group:
+    get:
+      tags:
+      - reports
+      summary: Directors/admins only. The three companies side by side plus the consolidated total (Σ companies − intercompany),
+        league table, 13-month trend per company, all in USD. Other /reports/* endpoints take `entityId` (must be in scope).
+      parameters:
+      - name: from
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '200':
+          description: '{ range, total, byEntity: {entityId: kpis}, lessIntercompany: {revenue, cases, sales}, league[], trend[], fxBasis }.
+            KPIs: revenue, cases, cogs, grossMargin, marginPct, stockValue, stockCases, stockTurns, onTimePct, deliveries,
+            receivables, cashCollected, transportSpend, landingCostPerCase.'
+        4XX:
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     bearer:
@@ -1084,6 +1567,12 @@ components:
       scheme: bearer
       bearerFormat: JWT
   parameters:
+    entityHeader:
+      name: X-Entity-Id
+      in: header
+      description: Active company (entity id); omit or GROUP for every allowed company. Outside the allowed set → 403.
+      schema:
+        type: string
     id:
       name: id
       in: path
@@ -1204,6 +1693,101 @@ components:
           type: array
           items:
             type: string
+        allowedEntityIds:
+          type: array
+          description: Companies the user may work in (directors/admins and drivers — all).
+          items:
+            type: string
+        canGroup:
+          type: boolean
+          description: May use the Group view and /reports/group (directors, admins).
+        activeEntityId:
+          type:
+          - string
+          - 'null'
+          description: From X-Entity-Id (/me only).
+        scope:
+          type: array
+          description: Companies this request covers (/me only).
+          items:
+            type: string
+    Entity:
+      type: object
+      description: A sibling company (tenant). Placeholders read "… — to confirm".
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+          description: BTW | NUD | KVD — picks the brand kit (packages/ui/src/assets/brand/entities/<code>/).
+        name:
+          type: string
+          description: Legal name
+        shortName:
+          type: string
+          description: Trading name
+        poPrefix:
+          type: string
+        address:
+          type: array
+          items:
+            type: string
+        phones:
+          type: array
+          items:
+            type: string
+        email:
+          type: string
+        website:
+          type: string
+        tagline:
+          type: string
+        footerLine:
+          type: string
+        colors:
+          type: object
+          properties:
+            primary:
+              type: string
+            accent:
+              type: string
+            ink:
+              type: string
+        logoKey:
+          type: string
+        kraPin:
+          type: string
+        registrationNo:
+          type: string
+        registeredOffice:
+          type: string
+        reportingCurrency:
+          type: string
+        letterhead:
+          type: object
+          properties:
+            header:
+              type: string
+            footer:
+              type: string
+            watermark:
+              type: string
+    FxRate:
+      type: object
+      required: [currency, month, avg, closing]
+      properties:
+        currency:
+          type: string
+          description: KES, UGX, TZS, RWF … (not USD)
+        month:
+          type: string
+          description: YYYY-MM
+        avg:
+          type: number
+          description: Month-average rate, units per 1 USD (P&L, costs, payments)
+        closing:
+          type: number
+          description: Month-end rate, units per 1 USD (stock, balances)
     RefBundle:
       type: object
       description: See types.ts (Entity
@@ -1254,6 +1838,39 @@ components:
           type: number
         plannedDwellHours:
           type: number
+    PeriodPlanLine:
+      type: object
+      required: [supplierId, productId, cases, price, destinationId]
+      properties:
+        id: {type: string}
+        supplierId: {type: string}
+        productId: {type: string}
+        cases: {type: integer, minimum: 1}
+        price: {type: number}
+        destinationId: {type: string, description: 'Destination warehouse (e.g. w-kgl = Rwanda - Gisenyi)'}
+        months: {type: object, additionalProperties: {type: integer}, description: 'Optional split by month (YYYY-MM to cases); must add up to cases'}
+    PeriodPlan:
+      type: object
+      properties:
+        id: {type: string}
+        ref: {type: string, example: BTW-PP-2026-0001}
+        entityId: {type: string}
+        title: {type: string}
+        periodKind: {type: string, enum: [month, quarter, half, year, custom]}
+        from: {type: string, format: date}
+        to: {type: string, format: date}
+        status: {type: string, enum: [Draft, Submitted, Approved, Returned, Rejected]}
+        version: {type: integer}
+        lines: {type: array, items: {$ref: '#/components/schemas/PeriodPlanLine'}}
+        history: {type: array, items: {type: object}}
+        createdById: {type: string}
+        copiedFromId: {type: string}
+        amendReason: {type: string}
+    PvThresholds:
+      type: object
+      properties:
+        behind: {type: number, example: 0.85, description: 'Behind plan if ordered < behind x expected to date'}
+        over: {type: number, example: 1.05, description: 'Over plan if ordered > over x planned'}
     PlanLine:
       type: object
       required:
@@ -1283,6 +1900,16 @@ components:
           type: string
         routeId:
           type: string
+        periodLineId:
+          type: string
+          description: PO-06 linked period-plan line (set by the server)
+        exception:
+          type: string
+          enum: [over, unplanned]
+          readOnly: true
+        exceptionReason:
+          type: string
+          description: PO-07 required before submit when the line is over plan or unplanned
     Plan:
       type: object
       properties:
@@ -1533,11 +2160,36 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TruckIssue'
+    WarehouseInput:
+      type: object
+      properties:
+        name: { type: string }
+        country: { type: string, example: Congo }
+        town: { type: string, example: Bukavu }
+        receivingCompanyId: { type: string }
+        lat: { type: number }
+        lng: { type: number }
+        radiusM: { type: integer, default: 500 }
+        active: { type: boolean, default: true }
     Shipment:
       type: object
       properties:
         id:
           type: string
+        parentShipmentId:
+          type: string
+          nullable: true
+          description: The shipment whose received goods this one carries on (doc 08 §2)
+        originShipmentId:
+          type: string
+          nullable: true
+        fromWarehouseId:
+          type: string
+          nullable: true
+        plannedWarehouseId:
+          type: string
+          nullable: true
+          description: Original destination when the goods were received at an intermediate warehouse
         ref:
           type: string
         poId:

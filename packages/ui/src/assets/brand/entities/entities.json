@@ -1,0 +1,292 @@
+{
+  "companies": [
+    "BTW",
+    "NUD",
+    "KVD"
+  ],
+  "group": "GROUP",
+  "brands": [
+    {
+      "code": "BTW",
+      "name": "BTW Global Distributors Ltd",
+      "shortName": "BTW Global",
+      "colors": {
+        "primary": "#062953",
+        "accent": "#FE7514",
+        "text": "#0B1B33",
+        "onPrimary": "#FFFFFF",
+        "ink": "#BE570F",
+        "inkOnDark": "#FE7514"
+      },
+      "tagline": "Your global supply partner",
+      "footerLine": "People \u00b7 Products \u00b7 Partnerships \u00b7 Progress",
+      "address": [
+        "P.O Box 18051 - 00100 Nairobi, Kenya",
+        "Elgeyo Marakwet Road, Elgeyo Garden"
+      ],
+      "phones": [
+        "+254 707 617 460",
+        "+254 701 570 356"
+      ],
+      "email": "info@btwglobal.co.ke",
+      "assets": {
+        "logo": "entities/btw/logo-480w.png",
+        "logoFull": "entities/btw/logo.png",
+        "logoSvg": "entities/btw/logo.svg",
+        "logoDark": "entities/btw/logo-on-dark-480w.png",
+        "mark": "entities/btw/mark-128.png",
+        "markDark": "entities/btw/mark-on-dark-128.png",
+        "favicon": "entities/btw/favicon-32.png",
+        "faviconIco": "entities/btw/favicon.ico",
+        "letterhead": {
+          "page": "apps/api/templates/letterheads/BTW.svg",
+          "header": {
+            "svg": "apps/api/templates/letterheads/BTW-header.svg",
+            "png": "entities/btw/letterhead-header.png",
+            "yPt": [
+              0,
+              118
+            ]
+          },
+          "footer": {
+            "svg": "apps/api/templates/letterheads/BTW-footer.svg",
+            "png": "entities/btw/letterhead-footer.png",
+            "yPt": [
+              735,
+              842
+            ]
+          },
+          "watermark": {
+            "svg": "apps/api/templates/letterheads/BTW-watermark.svg",
+            "png": "entities/btw/letterhead-watermark.png",
+            "yPt": [
+              290,
+              525
+            ]
+          }
+        }
+      },
+      "legal": {
+        "kraPin": null,
+        "registrationNo": null,
+        "registeredOffice": "Elgeyo Marakwet Road, Elgeyo Garden, Nairobi"
+      },
+      "derived": [
+        "logo-on-dark-480w.png",
+        "mark-on-dark.png",
+        "mark-on-dark-128.png",
+        "favicon (mark on tile)"
+      ],
+      "contrast": {
+        "primary on white": 14.48,
+        "onPrimary on primary": 14.48,
+        "accent on white (graphics \u22653)": 2.7,
+        "ink on white (text \u22654.5)": 4.61,
+        "inkOnDark on #102037 (text \u22654.5)": 6.05,
+        "text on white": 17.23
+      },
+      "notes": []
+    },
+    {
+      "code": "NUD",
+      "name": "Nihna Unique Distributors Ltd",
+      "shortName": "Nihna Unique",
+      "colors": {
+        "primary": "#414142",
+        "accent": "#C4982B",
+        "text": "#1F1F20",
+        "onPrimary": "#FFFFFF",
+        "ink": "#91701F",
+        "inkOnDark": "#C4982B"
+      },
+      "tagline": "Distributors, Transporters & Manufacturers",
+      "footerLine": "Distributors, Transporters & Manufacturers",
+      "address": [
+        "P.O. Box 18051 - 00100 Nairobi, Kenya"
+      ],
+      "phones": [
+        "+254 707 617 460",
+        "+254 701 570 356"
+      ],
+      "email": "info@NihnaUnique.co.ke",
+      "assets": {
+        "logo": "entities/nud/logo-480w.png",
+        "logoFull": "entities/nud/logo.png",
+        "logoSvg": "entities/nud/logo.svg",
+        "logoDark": "entities/nud/logo-on-dark-480w.png",
+        "mark": "entities/nud/mark-128.png",
+        "markDark": "entities/nud/mark-on-dark-128.png",
+        "favicon": "entities/nud/favicon-32.png",
+        "faviconIco": "entities/nud/favicon.ico",
+        "letterhead": {
+          "page": "apps/api/templates/letterheads/NUD.svg",
+          "header": {
+            "svg": "apps/api/templates/letterheads/NUD-header.svg",
+            "png": "entities/nud/letterhead-header.png",
+            "yPt": [
+              0,
+              110
+            ]
+          },
+          "footer": {
+            "svg": "apps/api/templates/letterheads/NUD-footer.svg",
+            "png": "entities/nud/letterhead-footer.png",
+            "yPt": [
+              760,
+              842
+            ]
+          },
+          "watermark": null
+        }
+      },
+      "legal": {
+        "kraPin": null,
+        "registrationNo": null,
+        "registeredOffice": "Elgeyo Marakwet Road, Elgeyo Garden, Nairobi"
+      },
+      "derived": [
+        "logo-on-dark-480w.png",
+        "mark-on-dark.png",
+        "mark-on-dark-128.png",
+        "favicon (mark on tile)"
+      ],
+      "contrast": {
+        "primary on white": 10.2,
+        "onPrimary on primary": 10.2,
+        "accent on white (graphics \u22653)": 2.67,
+        "ink on white (text \u22654.5)": 4.62,
+        "inkOnDark on #102037 (text \u22654.5)": 6.13,
+        "text on white": 16.47
+      },
+      "notes": []
+    },
+    {
+      "code": "KVD",
+      "name": "Volcanic Distributors Limited",
+      "shortName": "Kivu",
+      "colors": {
+        "primary": "#2E3092",
+        "accent": "#ED1C24",
+        "text": "#1B1C55",
+        "onPrimary": "#FFFFFF",
+        "ink": "#E81B23",
+        "inkOnDark": "#F14950"
+      },
+      "tagline": "Manufacturers \u00b7 Transporters \u00b7 Distributors \u00b7 Importers \u00b7 Exporters",
+      "footerLine": "Manufacturers \u00b7 Transporters \u00b7 Distributors \u00b7 Importers \u00b7 Exporters",
+      "address": [
+        "P.O Box 18051 - 00100 Nairobi, Kenya",
+        "Elgeyo Marakwet Road, Elgeyo Garden"
+      ],
+      "phones": [
+        "+254 707 617 460",
+        "+254 701 570 356"
+      ],
+      "email": "info@NihnaUnique.co.ke",
+      "assets": {
+        "logo": "entities/kvd/logo-480w.png",
+        "logoFull": "entities/kvd/logo.png",
+        "logoSvg": "entities/kvd/logo.svg",
+        "logoDark": "entities/kvd/logo-on-dark-480w.png",
+        "mark": "entities/kvd/mark-128.png",
+        "markDark": "entities/kvd/mark-on-dark-128.png",
+        "favicon": "entities/kvd/favicon-32.png",
+        "faviconIco": "entities/kvd/favicon.ico",
+        "letterhead": {
+          "page": "apps/api/templates/letterheads/KVD.svg",
+          "header": {
+            "svg": "apps/api/templates/letterheads/KVD-header.svg",
+            "png": "entities/kvd/letterhead-header.png",
+            "yPt": [
+              0,
+              92
+            ]
+          },
+          "footer": {
+            "svg": "apps/api/templates/letterheads/KVD-footer.svg",
+            "png": "entities/kvd/letterhead-footer.png",
+            "yPt": [
+              776,
+              842
+            ]
+          },
+          "watermark": null
+        }
+      },
+      "legal": {
+        "kraPin": null,
+        "registrationNo": null,
+        "registeredOffice": "Elgeyo Marakwet Road, Elgeyo Garden, Nairobi"
+      },
+      "derived": [
+        "logo-on-dark-480w.png",
+        "mark-on-dark.png",
+        "mark-on-dark-128.png",
+        "favicon (mark on tile)"
+      ],
+      "contrast": {
+        "primary on white": 10.75,
+        "onPrimary on primary": 10.75,
+        "accent on white (graphics \u22653)": 4.38,
+        "ink on white (text \u22654.5)": 4.55,
+        "inkOnDark on #102037 (text \u22654.5)": 4.52,
+        "text on white": 15.63
+      },
+      "notes": [
+        "Letterhead email is info@NihnaUnique.co.ke (same as NUD) \u2014 confirm with client.",
+        "Requirements call the company \"Kivu Volcanic Distributors Ltd\"; the letterhead says \"Volcanic Distributors Limited\" \u2014 confirm legal name."
+      ]
+    },
+    {
+      "code": "GROUP",
+      "name": "BTW Group \u2014 all companies",
+      "shortName": "Group",
+      "colors": {
+        "primary": "#172A45",
+        "accent": "#66768C",
+        "text": "#0B1B33",
+        "onPrimary": "#FFFFFF",
+        "ink": "#66768C",
+        "inkOnDark": "#7A889B"
+      },
+      "tagline": "BTW Global \u00b7 Nihna Unique \u00b7 Kivu",
+      "footerLine": "Consolidated view of BTW Global Distributors, Nihna Unique Distributors and Volcanic Distributors (Kivu)",
+      "address": [],
+      "phones": [],
+      "email": "",
+      "assets": {
+        "logo": "entities/group/logo-480w.png",
+        "logoFull": "entities/group/logo.png",
+        "logoSvg": null,
+        "logoDark": "entities/group/logo-on-dark-480w.png",
+        "mark": "entities/group/mark-128.png",
+        "markDark": "entities/group/mark-on-dark-128.png",
+        "favicon": "entities/group/favicon-32.png",
+        "faviconIco": "entities/group/favicon.ico",
+        "letterhead": null
+      },
+      "legal": {
+        "kraPin": null,
+        "registrationNo": null,
+        "registeredOffice": null
+      },
+      "derived": [
+        "logo-on-dark-480w.png",
+        "mark-on-dark.png",
+        "mark-on-dark-128.png",
+        "all (typographic group kit)"
+      ],
+      "contrast": {
+        "primary on white": 14.45,
+        "onPrimary on primary": 14.45,
+        "accent on white (graphics \u22653)": 4.63,
+        "ink on white (text \u22654.5)": 4.63,
+        "inkOnDark on #102037 (text \u22654.5)": 4.54,
+        "text on white": 17.23
+      },
+      "notes": [
+        "Typographic group mark only (no invented logo). Ask the client whether a group logo exists."
+      ]
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CompanyChip from './CompanyChip.svelte';
   // Everything that is not the main task lives here: who I am, what is waiting to send, help, language, sign out.
   import { demo, mode, type User } from '@btw/api';
   import { outbox, type OutboxState } from '@btw/api/outbox';
@@ -17,7 +18,8 @@
 <Sheet modal title="Menu" {onclose}>
   <div class="me">
     <div class="avatar" aria-hidden="true">{user.name.slice(0, 1)}</div>
-    <div class="grow"><strong>{user.name}</strong><div class="caption">{role ? ROLE_LABEL[role] : ''} · {user.phone}</div></div>
+    <div class="grow"><strong>{user.name}</strong><div class="caption">{role ? ROLE_LABEL[role] : ''} · {user.phone}</div>
+      {#if user.entityIds.length}<div class="cos">{#each user.entityIds as id}<CompanyChip entityId={id} />{/each}</div>{/if}</div>
   </div>
 
   <section class="block">
@@ -47,6 +49,7 @@
   <div class="row between caption"><span>BTW Field {APP_VERSION}</span>{#if mode === 'mock'}<button class="link" onclick={() => { demo.reset(); say('Demo data reset'); onclose(); }}>Reset demo data</button>{/if}</div>
 </Sheet>
 <style>
+  .cos { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
   .me { display: flex; align-items: center; gap: var(--space-3); }
   .avatar { width: 48px; height: 48px; border-radius: 50%; background: var(--primary); color: var(--text-on-primary); display: grid; place-items: center; font: 700 20px var(--ff-display); }
   .block { display: flex; flex-direction: column; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--border); }

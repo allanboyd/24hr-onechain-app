@@ -1,65 +1,140 @@
 <script lang="ts">
+  // Sign-in in the style of the field app: one tap on a demo account signs straight in;
+  // the manual form stays for real accounts. Field roles are pointed to the phone app.
   import { auth, type User } from '@btw/api';
   import { describe } from '../lib/errors';
   import { session, signIn } from '../lib/session.svelte';
-  import { showDemoHelpers, API_MODE } from '../lib/mode';
-  import { brand } from '../lib/brand';
+  import { showDemoHelpers } from '../lib/mode';
   import LogIn from '@lucide/svelte/icons/log-in';
+  import ArrowRight from '@lucide/svelte/icons/arrow-right';
+  import Smartphone from '@lucide/svelte/icons/smartphone';
+  import Copy from '@lucide/svelte/icons/copy';
+  import { allCompanies, companyLabel } from '../lib/companies';
+  import { canGroup } from '../lib/company.svelte';
+  import CompanyMark from '../components/CompanyMark.svelte';
 
-  // Field-only roles sign in on the phone app; the web keeps everyone else.
-  const FIELD_ONLY = ['driver'];
-  const demo: User[] = showDemoHelpers ? auth.demoUsers().filter((u) => !u.roles.every((r) => FIELD_ONLY.includes(r))) : [];
+  const DEMO_PASSWORD = 'demo1234';
+  const FIELD = ['driver', 'loader', 'receiver'];
+  const OFFICE_ORDER = ['director', 'planner', 'fleet', 'truck_planner', 'operations', 'accounts', 'admin'];
+  const ROLE_LABEL: Record<string, string> = { director: 'Director', planner: 'Planner', fleet: 'Fleet', truck_planner: 'Truck planner', operations: 'Operations', accounts: 'Accounts', admin: 'Administrator', loader: 'Loading point', receiver: 'Receiver', sales: 'Sales', driver: 'Driver' };
+  const users: User[] = showDemoHelpers ? auth.demoUsers() : [];
+  // Office demo accounts: anyone with at least one office role, ordered by their most senior role.
+  const rank = (u: User) => Math.min(...u.roles.map((r) => (OFFICE_ORDER.indexOf(r) + 1 || 99)));
+  const office = users.filter((u) => u.roles.some((r) => !FIELD.includes(r) && r !== 'sales')).sort((a, b) => rank(a) - rank(b));
+  const field = users.filter((u) => !office.includes(u));
+  // Office demo accounts grouped by company; directors/admins (all companies) first as "Group".
+  const companies = allCompanies();
+  // Group = directors/admins and staff who work for all three; others under their (first) company.
+  const isGroupUser = (u: User) => canGroup(u) || u.entityIds.length >= companies.length;
+  const groups = $derived([
+    { id: null as string | null, title: 'Group · all three companies', users: office.filter(isGroupUser) },
+    ...companies.map((c) => ({ id: c.id as string | null, title: c.name, users: office.filter((u) => !isGroupUser(u) && u.entityIds[0] === c.id) })),
+].filter((g) => g.users.length));
+  const fieldUrl = import.meta.env.VITE_FIELD_URL || `${location.origin}${location.pathname.replace(/\/$/, '')}/app/`;
+
   let username = $state('');
   let password = $state('');
   let error = $state('');
-  let busy = $state(false);
+  let busy = $state<string | null>(null);
+  let showForm = $state(!users.length);
+  let copied = $state(false);
 
-  async function submit(e: Event) {
+  async function go(id: string, user: string, pass: string) {
+    busy = id; error = '';
+    try { await signIn(user, pass); }
+    catch (err) { const d = describe(err); error = d.kind === 'auth' || d.kind === 'rule' ? 'Wrong username or password.' : d.message; }
+    finally { busy = null; }
+  }
+  function submit(e: Event) {
     e.preventDefault();
     if (!username.trim() || !password) { error = 'Enter your username or phone number and your password.'; return; }
-    busy = true; error = '';
-    try { await signIn(username, password); }
-    catch (err) { const d = describe(err); error = d.kind === 'auth' || d.kind === 'rule' ? 'Wrong username or password.' : d.message; }
-    finally { busy = false; }
+    go('form', username, password);
   }
-  function pick(u: User) { username = u.phone; password = 'demo1234'; error = ''; }
+  async function copy() {
+    try { await navigator.clipboard.writeText(fieldUrl); copied = true; setTimeout(() => (copied = false), 1800); } catch { /* select fallback below */ }
+  }
 </script>
 
 <div class="wrap">
-  <div class="col">
-    <form class="card stack" onsubmit={submit} novalidate>
-      <img src={brand.logoFull} alt="BTW Global Distributors" class="logo" />
-      <div class="ribbon"></div>
-      <div><h2>Sign in</h2><p class="muted small">Supply chain, logistics, inventory and sales.</p></div>
-      {#if session.notice}<p class="notice small" role="status">{session.notice}</p>{/if}
-      <label class="field"><span>Username or phone</span>
-        <input class="input" id="login-user" autocomplete="username" bind:value={username} placeholder="e.g. +254700000002" aria-invalid={!!error} /></label>
-      <label class="field"><span>Password</span>
-        <input class="input" id="login-pass" type="password" autocomplete="current-password" bind:value={password} aria-invalid={!!error} /></label>
-      {#if error}<p class="error" role="alert">{error}</p>{/if}
-      <button class="btn btn-primary btn-lg btn-block" disabled={busy}><LogIn size={18} />{busy ? 'Signing in…' : 'Sign in'}</button>
-      <p class="caption">Drivers, loading-point staff and receivers use the BTW field app on their phone. Directors and admins: two-factor sign-in comes with the production release (UA-04).</p>
-    </form>
+  <main class="col">
+    <div class="logos" aria-label="Group companies">
+      {#each companies as c (c.id)}{#if c.logo}<img src={c.logo} alt={c.name} />{:else}<strong>{c.name}</strong>{/if}{/each}
+    </div>
+    <div class="ribbon"></div>
+    <div>
+      <h1>Sign in</h1>
+      <p class="muted">BTW Global · Nihna Unique · Kivu — supply chain, logistics, inventory and sales.</p>
+    </div>
+    {#if session.notice}<p class="notice small" role="status">{session.notice}</p>{/if}
+    {#if error}<p class="error" role="alert">{error}</p>{/if}
 
-    {#if demo.length}
-      <section class="card demo" aria-label="Demo accounts">
-        <div class="row between"><span class="overline">Demo accounts · {API_MODE} data</span><span class="caption">password demo1234</span></div>
-        <ul>
-          {#each demo as u (u.id)}
-            <li><button type="button" class="btn btn-ghost btn-sm" onclick={() => pick(u)}><strong>{u.name}</strong><span class="caption">{u.roles.join(' · ')}</span></button></li>
-          {/each}
-        </ul>
+    {#if office.length}
+      <section aria-labelledby="demo-h">
+        <div class="row between head"><span id="demo-h" class="overline">Try a demo account · one tap</span><span class="caption">password {DEMO_PASSWORD}</span></div>
+        {#each groups as g (g.title)}
+          <div class="ghead"><CompanyMark entityId={g.id} size={20} /><span class="small"><strong>{g.title}</strong></span></div>
+          <div class="list">
+            {#each g.users as u (u.id)}
+              <button type="button" class="acct" onclick={() => go(u.id, u.phone, DEMO_PASSWORD)} disabled={!!busy} aria-label="Sign in as {u.name}">
+                <span class="avatar" aria-hidden="true">{u.name.slice(0, 1)}</span>
+                <span class="grow"><strong>{u.name}</strong><span class="caption">{u.roles.filter((r) => !FIELD.includes(r)).map((r) => ROLE_LABEL[r] ?? r).join(' · ')}{g.id ? ` · ${u.entityIds.map((e) => companyLabel(e)).join(' + ')}${u.entityIds.length === 1 ? ' only' : ''}` : ''}</span></span>
+                {#if busy === u.id}<span class="caption">Signing in…</span>{:else}<ArrowRight size={20} />{/if}
+              </button>
+            {/each}
+          </div>
+        {/each}
       </section>
     {/if}
-  </div>
+
+    {#if showForm}
+      <form class="stack" onsubmit={submit} novalidate>
+        <label class="field"><span>Username or phone</span>
+          <input class="input big" id="login-user" autocomplete="username" bind:value={username} placeholder="+254 7xx xxx xxx" aria-invalid={!!error} /></label>
+        <label class="field"><span>Password</span>
+          <input class="input big" id="login-pass" type="password" autocomplete="current-password" bind:value={password} aria-invalid={!!error} /></label>
+        <button class="btn btn-primary btn-lg btn-block" disabled={!!busy}><LogIn size={18} />{busy === 'form' ? 'Signing in…' : 'Sign in'}</button>
+      </form>
+    {:else}
+      <button type="button" class="btn btn-secondary btn-lg btn-block" onclick={() => (showForm = true)}>Sign in with your own account</button>
+    {/if}
+
+    <section class="fieldapp" aria-labelledby="field-h">
+      <div class="row"><Smartphone size={22} /><h2 id="field-h">Drivers, loading points &amp; receivers</h2></div>
+      <p class="small muted">Field staff use the phone app: one big action per screen, works offline. Open it on a phone{field.length ? ' and tap a demo account — PIN 1234' : ''}.</p>
+      <div class="url"><code>{fieldUrl}</code><button type="button" class="btn btn-ghost btn-sm" onclick={copy} aria-label="Copy field app link"><Copy size={16} />{copied ? 'Copied' : 'Copy'}</button></div>
+      <a class="btn btn-accent btn-lg btn-block" href={fieldUrl}>Open the field app <ArrowRight size={18} /></a>
+      {#if field.length}
+        <ul class="chips" aria-label="Field demo accounts">
+          {#each field as u (u.id)}<li><span class="caption"><strong>{u.name}</strong> · {u.roles.map((r) => ROLE_LABEL[r] ?? r).join(' · ')} · <span class="mono">{u.phone}</span></span></li>{/each}
+        </ul>
+      {/if}
+    </section>
+    <p class="caption center">Two-factor sign-in for directors and admins comes with the production release.</p>
+  </main>
 </div>
 
 <style>
-  .wrap { min-height: 100vh; display: grid; place-items: center; padding: var(--space-4); background: var(--bg); }
-  .col { width: min(420px, 100%); display: flex; flex-direction: column; gap: var(--space-4); }
-  .logo { width: 220px; align-self: center; background: var(--logo-tile); border-radius: var(--radius-md); padding: 8px; }
+  .wrap { min-height: 100vh; display: grid; justify-items: center; align-items: start; padding: var(--space-8) var(--space-4); background: var(--bg); }
+  .col { width: min(460px, 100%); display: flex; flex-direction: column; gap: var(--space-5); }
+  .logos { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); align-items: center; padding: var(--space-3); background: var(--logo-tile); border-radius: var(--radius-lg); }
+  .logos img { width: 100%; height: 48px; object-fit: contain; }
+  .ghead { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-3) 0 var(--space-1); }
+  .ribbon { margin-top: calc(-1 * var(--space-2)); }
+  h1 { font-size: 32px; line-height: 38px; }
+  h2 { font-size: 16px; line-height: 22px; }
+  .head { margin-bottom: var(--space-2); }
   .notice { background: var(--info-subtle); color: var(--info); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); margin: 0; }
-  .demo ul { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; }
-  .demo .btn { width: 100%; height: auto; padding: var(--space-2); flex-direction: column; align-items: flex-start; gap: 0; color: var(--text); white-space: normal; text-align: left; }
-  @media (max-width: 420px) { .demo ul { grid-template-columns: 1fr; } }
+  .list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); overflow: hidden; }
+  .acct { display: flex; align-items: center; gap: var(--space-3); min-height: 64px; padding: var(--space-3) var(--space-4); border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+  .acct:last-child { border-bottom: 0; }
+  .acct:hover:not(:disabled) { background: var(--primary-subtle); }
+  .acct:disabled { opacity: .6; cursor: progress; }
+  .acct strong { display: block; font-size: 16px; }
+  .avatar { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--primary); color: var(--text-on-primary); font: 700 16px var(--ff-display); flex: none; }
+  .input.big { height: 52px; font-size: 16px; }
+  .fieldapp { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-5); border-radius: var(--radius-lg); background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--accent); }
+  .url { display: flex; align-items: center; gap: var(--space-2); background: var(--surface-sunken); border-radius: var(--radius-md); padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3); min-width: 0; }
+  .url code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+  .chips { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+  .center { text-align: center; }
 </style>

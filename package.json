@@ -9,7 +9,7 @@
     "dev:web": "pnpm tokens && pnpm --filter @btw/web dev",
     "dev:field": "pnpm tokens && pnpm --filter @btw/field dev",
     "check": "pnpm -r --filter './apps/*' check",
-    "test": "tsx packages/api/test/workflow.e2e.ts",
+    "test": "tsx packages/api/test/workflow.e2e.ts && tsx packages/api/test/reports.test.ts && tsx packages/api/test/plans.test.ts && tsx packages/api/test/trucks.test.ts",
     "build": "pnpm tokens && pnpm -r --filter './apps/*' build",
     "size": "node scripts/check-size.mjs",
     "verify": "pnpm tokens && pnpm check && pnpm test && pnpm api:test && pnpm build && pnpm size",
@@ -26,7 +26,8 @@
     "db:seed": "pnpm --filter @btw/server db:seed",
     "start": "node scripts/stack.mjs start",
     "dev:all": "node scripts/stack.mjs dev",
-    "e2e": "node tests/e2e/run.mjs"
+    "e2e": "node tests/e2e/run.mjs",
+    "share": "node scripts/share.mjs"
   },
   "engines": {
     "node": ">=20.16"

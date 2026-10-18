@@ -21,3 +21,4 @@ apps/field/android/app/google-services.json
 apps/web/test/out/
 tests/e2e/out/
 tests/e2e/.build/
+*:Zone.Identifier

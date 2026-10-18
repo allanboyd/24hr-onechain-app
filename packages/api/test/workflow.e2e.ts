@@ -4,21 +4,27 @@ await api.auth.login('u-kabonge', '');
 let p = await api.plans.create('e-kivu', 's-sbl');
 ok(p.ref.startsWith('KVD-PO-'), 'ref auto-numbered ' + p.ref);
 p.title = 'Test order'; p.lines = [ { ...api.plans.newLine(p, 1), qty: 1800, routeId: 'r-mwz-kgl' } ];
-p = await api.plans.save(p); p = await api.plans.submit(p.id);
+p = await api.plans.save(p);
+// approvals on (config.toml approvals.purchase_orders = true): the director approves
+api.demo.setConfig({ approvals: { purchaseOrders: true } });
+p = await api.plans.submit(p.id);
+ok(p.status === 'Submitted' && !p.poId, 'approvals on: submitted for approval');
 await api.auth.login('u-dir', '');
 p = await api.plans.decide(p.id, 'approved', '', 'sig');
 ok(p.status === 'Approved' && p.poId, 'approved → PO ' + p.poId);
+api.demo.setConfig({ approvals: { purchaseOrders: false } });
 let locked = false; try { await api.plans.save(p); } catch { locked = true; } ok(locked, 'approved plan locked');
 const ld = (await api.loading.list('s-sbl')).find((l) => l.poId === p.poId)!;
 let cap = false; try { await api.loading.confirm(ld.id, { truckId: 't6', driverId: 'd6', loadedQty: { [ld.lines[0].planLineId]: 1900 }, agreedTransport: 900, documents: [] }); } catch (e) { cap = /capacity/.test((e as Error).message); }
 ok(cap, 'truck capacity enforced (1800 max)');
 const sh = await api.loading.confirm(ld.id, { truckId: 't6', driverId: 'd6', loadedQty: { [ld.lines[0].planLineId]: 1780 }, agreedTransport: 900, documents: ['dn.jpg'] });
 ok(sh.legs[0].lines[0].loadedQty === 1780, 'shipment created with loaded qty');
+ok(api.lookup.poRef(sh.poId) === `${p.ref}-rev001`, 'loaded 1,780 of 1,800 → PO revised automatically to ' + api.lookup.poRef(sh.poId));
 const leg = sh.legs[0];
 const before = (await api.inventory.stock()).find((r) => r.warehouseId === 'w-kgl' && r.productId === 'p-e330')!;
 await api.shipments.pass(leg.id, 'cp-sbl', 'departed');
-for (const cp of ['cp-nyakanazi', 'cp-rusumo', 'cp-kayonza']) { await api.shipments.pass(leg.id, cp, 'arrived', 'geofence'); await api.shipments.pass(leg.id, cp, 'departed', 'geofence'); }
-await api.shipments.pass(leg.id, 'cp-kigali', 'arrived');
+for (const cp of ['cp-nyakanazi', 'cp-rusumo', 'cp-kayonza', 'cp-kigali']) { await api.shipments.pass(leg.id, cp, 'arrived', 'geofence'); await api.shipments.pass(leg.id, cp, 'departed', 'geofence'); }
+await api.shipments.pass(leg.id, 'cp-gisenyi-wh', 'arrived');
 let s2 = (await api.shipments.get(sh.id))!;
 ok(s2.legs[0].status === 'Arrived', 'leg arrived at destination');
 ok(['Early','On time','Late'].includes(api.shipments.eta(s2.legs[0]).state), 'ETA state ' + api.shipments.eta(s2.legs[0]).state);
@@ -33,3 +39,70 @@ let blocked = false; try { await api.sales.create({ at: new Date().toISOString()
 ok(blocked, 'sale above stock blocked (SL-02)');
 const v = await api.analytics.velocity(); ok(v.length > 0 && v.every((r) => ['Fast','Normal','Slow','Stagnant'].includes(r.cls)), `velocity rows ${v.length}`);
 const t = (await api.finance.trips()).find((x) => x.shipment.id === sh.id)!; ok(t.transport === 900 && t.landing > t.goods, 'landing cost = goods + expenses');
+
+// ---- doc 08 §2: onward move = a NEW shipment from the warehouse where the goods were received -------------------
+const st0 = (await api.inventory.stock()).filter((r) => r.entityId === sh.entityId && r.productId === 'p-e330');
+const gis0 = st0.find((r) => r.warehouseId === 'w-kgl')!.closing, goma0 = st0.find((r) => r.warehouseId === 'w-goma')?.closing ?? 0;
+let early = false; try { await api.shipments.sendOn(sh.id, { routeId: 'r-nbo-kgl', truckId: 't8', driverId: 'd5' }); } catch { early = true; }
+ok(early, 'send-on must start at the warehouse where the goods were received');
+const nx = await api.shipments.sendOn(sh.id, { routeId: 'r-kgl-goma', truckId: 't8', driverId: 'd5', lines: [{ productId: 'p-e330', loadedQty: 500 }] });
+ok(nx.id !== sh.id && nx.parentShipmentId === sh.id && nx.originShipmentId === sh.id && nx.fromWarehouseId === 'w-kgl' && nx.warehouseId === 'w-goma' && nx.ref !== sh.ref, `send-on = new shipment ${nx.ref} linked to ${sh.ref}`);
+const gis1 = (await api.inventory.stock()).find((r) => r.entityId === sh.entityId && r.warehouseId === 'w-kgl' && r.productId === 'p-e330')!.closing;
+ok(gis0 - gis1 === 500, 'stock leaves Gisenyi on dispatch (transferOut 500)');
+let over = false; try { await api.shipments.sendOn(sh.id, { routeId: 'r-kgl-goma', truckId: 't7', driverId: 'd7', lines: [{ productId: 'p-e330', loadedQty: 999999 }] }); } catch { over = true; }
+ok(over, 'send-on above stock blocked');
+const nl = nx.legs[0];
+for (const cp of ['cp-gisenyi']) { await api.shipments.pass(nl.id, cp, 'arrived', 'geofence'); await api.shipments.pass(nl.id, cp, 'departed', 'geofence'); }
+await api.shipments.pass(nl.id, 'cp-goma', 'arrived');
+await api.shipments.acknowledge(nl.id, { receiverName: 'Goma', lines: [{ productId: 'p-e330', expected: 500, received: 498, damaged: 1 }] });
+const goma1 = (await api.inventory.stock()).find((r) => r.entityId === sh.entityId && r.warehouseId === 'w-goma' && r.productId === 'p-e330')!;
+ok(goma1.closing - goma0 === 497 && goma1.transfersIn >= 498, 'stock posts into Goma on acknowledgement (transferIn 498, 1 damaged)');
+const jr = await api.shipments.journey(nx.id);
+ok(jr.length === 2 && jr[0].shipmentId === sh.id && jr[1].shipmentId === nx.id && jr[0].received === 1770 && jr[1].loaded === 500 && jr[1].received === 498, 'journey: origin → onward, loaded vs received per shipment');
+const seeded = (await api.shipments.list()).find((x) => x.parentShipmentId && x.fromWarehouseId === 'w-kgl' && x.warehouseId === 'w-goma');
+ok(!!seeded, 'demo data: Nairobi → Gisenyi then a new shipment Gisenyi → Goma');
+
+// ---- doc 08 §3: flexible warehouses (admin/director) and a route ending there ----------------------------------
+let bad = false; try { await api.masterdata.addWarehouse({ name: '', country: 'Congo', town: 'Bukavu', receivingCompanyId: 'rc-asie', lat: 0, lng: 0 }); } catch { bad = true; }
+ok(bad, 'warehouse form validated (name required)');
+const bk = await api.masterdata.addWarehouse({ name: 'Asie Bukavu', country: 'Congo', town: 'Bukavu', receivingCompanyId: 'rc-asie', lat: -2.5083, lng: 28.8608, radiusM: 400 });
+const bkCp = api.ref().checkpoints.find((c) => c.id === bk.checkpointId);
+ok(api.ref().warehouses.some((w) => w.id === bk.id) && bkCp?.kind === 'warehouse' && bkCp.country === 'CD' && bkCp.radiusM === 400, 'new warehouse + its geofence checkpoint appear in master data');
+const rt = await api.masterdata.addRoute({ name: 'Goma → Bukavu', stops: [{ checkpointId: 'cp-goma', plannedHours: 0, plannedDwellHours: 0 }, { checkpointId: bk.checkpointId, plannedHours: 6, plannedDwellHours: 0 }] });
+const nx2 = await api.shipments.sendOn(nx.id, { routeId: rt.id, truckId: 't7', driverId: 'd7', lines: [{ productId: 'p-e330', loadedQty: 100 }] });
+ok(nx2.warehouseId === bk.id && nx2.originShipmentId === sh.id && (await api.shipments.journey(nx2.id)).length === 3, 'new route ends at the new warehouse; journey has three shipments');
+await api.masterdata.updateWarehouse(bk.id, { active: false });
+ok(api.ref().warehouses.find((w) => w.id === bk.id)?.active === false, 'warehouse deactivated');
+let inactive = false; try { await api.shipments.sendOn(nx.id, { routeId: rt.id, truckId: 't7', driverId: 'd7', lines: [{ productId: 'p-e330', loadedQty: 1 }] }); } catch (e) { inactive = /not active/.test((e as Error).message); }
+ok(inactive, 'cannot send goods to an inactive warehouse');
+
+// ---- companies (tenants): active company, scoping, write checks, group --------------------------------------
+const forbidden = async (f: () => Promise<unknown>) => { try { await f(); return false; } catch (e) { return [403, 404, 422].includes((e as { status?: number }).status ?? 0) || /another company|Choose a company/.test((e as Error).message); } };
+await api.auth.login('u-btw-plan', '');
+const me = api.auth.me()!;
+ok(JSON.stringify(me.allowedEntityIds) === '["e-btw"]' && !me.canGroup && api.entities.active() === 'e-btw', 'BTW planner: one company, active by default, no group');
+ok((await api.plans.list()).every((x) => x.entityId === 'e-btw') && (await api.shipments.list()).every((x) => x.entityId === 'e-btw'), 'BTW planner sees only BTW plans and shipments');
+ok((await api.inventory.stock()).every((r) => r.entityId === 'e-btw') && (await api.sales.list()).every((r) => r.entityId === 'e-btw'), 'BTW planner sees only BTW stock and sales');
+ok(await forbidden(async () => api.configure({ entityId: 'e-nud' })), 'cannot switch to a company outside the allowed set');
+ok(await forbidden(() => api.plans.create('e-nud', 's-ubl')), 'cannot create a plan for another company');
+ok(await forbidden(() => api.reports.group()), 'group report is for directors');
+ok(await forbidden(() => api.reports.sales({ entityId: 'e-kivu' })), 'report filter outside scope refused');
+ok((await api.entities.list()).length === 1, 'entities.list = allowed companies only');
+await api.auth.login('u-dir', '');
+ok(api.auth.me()!.canGroup && api.entities.active() === null, 'director starts in Group');
+const all = await api.shipments.list();
+ok(new Set(all.map((x) => x.entityId)).size === 3, 'Group lists all three companies');
+const kv = all.find((x) => x.entityId === 'e-kivu')!;
+ok(await forbidden(() => api.sales.create({ at: new Date().toISOString(), warehouseId: 'w-kgl', customer: 'X', salespersonId: 'u-dir', kind: 'Cash', lines: [{ productId: 'p-c200', qty: 1, price: 1 }], currency: 'USD', paid: 0 })), 'Group: a new record must name its company');
+api.entities.setActive('e-nud');
+ok((await api.shipments.list()).every((x) => x.entityId === 'e-nud') && (await api.shipments.get(kv.id)) === null, 'NUD active: Kivu shipment hidden');
+const ents = await (api.configure({ entityId: null }), api.entities.list());
+ok(ents.length === 3 && ents.every((e) => e.shortName && e.colors.primary && e.kraPin.includes('to confirm') && e.letterhead.header), 'company records carry contact/brand/legal fields');
+const gr = await api.reports.group({ ...api.reports.resolvePeriod('last-30', Date.now()) });
+const sumRev = Object.values(gr.byEntity).reduce((a, k) => a + k.revenue, 0);
+ok(Math.abs(sumRev - gr.lessIntercompany.revenue - gr.total.revenue) < 0.05 && gr.lessIntercompany.sales >= 1, `group report consolidates (less intercompany ${gr.lessIntercompany.revenue})`);
+await api.auth.login('u-kvd-acc', '');
+const trips = await api.finance.trips();
+ok(trips.length > 0 && trips.every((x) => x.shipment.entityId === 'e-kivu'), 'Kivu accounts: only Kivu trips');
+const btwTrip = all.find((x) => x.entityId === 'e-btw')!;
+ok(await forbidden(() => api.finance.addCost({ entityId: 'e-btw', shipmentId: btwTrip.id, kind: 'Other', amount: 1, currency: 'USD' })), 'cannot post a cost on another company\'s trip');

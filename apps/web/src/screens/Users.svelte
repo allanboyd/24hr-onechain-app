@@ -129,7 +129,7 @@
       <div class="chips">{#each FIELD_ROLES as fr}<label class="chip" title={fr.hint}><input type="checkbox" checked={form.roles.includes(fr.role)} onchange={() => (form.roles = toggle(form.roles, fr.role) as typeof form.roles)} />{fr.label}</label>{/each}</div>
     </fieldset>
     <fieldset><legend class="label">Office roles (web app)</legend>
-      <div class="chips">{#each OFFICE_ROLES as orole}<label class="chip"><input type="checkbox" checked={form.roles.includes(orole.role)} onchange={() => (form.roles = toggle(form.roles, orole.role) as typeof form.roles)} />{orole.label}</label>{/each}</div>
+      <div class="chips">{#each OFFICE_ROLES as orole}<label class="chip" title={orole.hint}><input type="checkbox" checked={form.roles.includes(orole.role)} onchange={() => (form.roles = toggle(form.roles, orole.role) as typeof form.roles)} />{orole.label}</label>{/each}</div>
     </fieldset>
 
     <div class="scopes">

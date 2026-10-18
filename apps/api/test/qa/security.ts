@@ -10,10 +10,11 @@ export const signJwt = (payload: Record<string, unknown>, secret = JWT_SECRET, a
   return `${head}.${body}.${sig}`;
 };
 
-type Who = 'dir' | 'kabonge' | 'joel' | 'tesfie' | 'asie' | 'zonas' | 'acc' | 'admin' | 'drv1' | 'drv2' | 'anon';
+type Who = 'dir' | 'kabonge' | 'joel' | 'tesfie' | 'asie' | 'zonas' | 'acc' | 'admin' | 'drv1' | 'drv2' | 'tp' | 'anon';
 const LOGINS: Record<Exclude<Who, 'anon'>, [string, string]> = {
   dir: ['dir', 'demo1234'], kabonge: ['kabonge', 'demo1234'], joel: ['joel', 'demo1234'], tesfie: ['tesfie', 'demo1234'], asie: ['asie', 'demo1234'],
-  zonas: ['zonas', 'demo1234'], acc: ['acc', 'demo1234'], admin: ['admin', 'demo1234'], drv1: ['+254711000001', '1234'], drv2: ['+256711000002', '1234'],
+  zonas: ['zonas', 'demo1234'], acc: ['acc', 'demo1234'], admin: ['admin', 'demo1234'], drv1: ['+254702750019', '1234'], drv2: ['+256711000002', '1234'],
+  tp: ['btw-trucks', 'demo1234'], // BTW truck planner, KBL (docs/10)
 };
 
 export async function securitySuite(env: Env) {
@@ -25,7 +26,7 @@ export async function securitySuite(env: Env) {
   // Seed facts
   const shipments = (await c.req('GET', '/shipments', { token: tok.dir })).body as any[];
   const byReg = async (reg: string) => { const { body: ref } = await c.req('GET', '/ref', { token: tok.dir }); const truck = ref.trucks.find((x: any) => x.reg === reg); return shipments.find((s) => s.legs.some((l: any) => l.truckId === truck.id && !['Acknowledged'].includes(l.status))); };
-  const kda = await byReg('KDA 123A'); const uba = await byReg('UBA 789C'); const rae = await byReg('RAE 551F');
+  const kda = await byReg('KBV 894T'); const uba = await byReg('UBA 789C'); const rae = await byReg('RAE 551F');
   const kdaLeg = kda.legs.find((l: any) => l.status !== 'Acknowledged'); const ubaLeg = uba.legs.find((l: any) => l.status !== 'Acknowledged'); const raeLeg = rae.legs.find((l: any) => l.status !== 'Acknowledged');
 
   section('Security · authentication & sessions');
@@ -63,7 +64,7 @@ export async function securitySuite(env: Env) {
   expectStatus(await c.req('POST', '/auth/refresh', { body: { refreshToken: fresh.refreshToken } }), 200, 'late logout of an older session leaves the newer session alive');
 
   // remote device revoke (MA-08)
-  const phone = await c.login('+254711000001', '1234', { deviceId: 'dev-qa-phone', platform: 'android' });
+  const phone = await c.login('+254702750019', '1234', { deviceId: 'dev-qa-phone', platform: 'android' });
   expectStatus(await c.req('POST', '/auth/devices/dev-qa-phone/revoke', { token: tok.joel }), 403, "loader cannot revoke someone else's device");
   expectStatus(await c.req('POST', '/auth/devices/dev-qa-phone/revoke', { token: tok.admin }), 204, 'admin revokes a lost phone');
   const rv = await c.req('GET', '/me', { token: phone.accessToken });
@@ -96,31 +97,51 @@ export async function securitySuite(env: Env) {
   const plans = (await c.req('GET', '/plans', { token: tok.dir })).body as any[];
   const submitted = plans.find((p) => p.status === 'Submitted'); const draft = plans.find((p) => p.status === 'Draft');
   const pending = ((await c.req('GET', '/loadings', { token: tok.dir })).body as any[]).find((l) => l.status === 'Pending' && l.loadingPointId === 's-kbl');
-  const allow = (r: { status: number }) => ![401, 403].includes(r.status) && r.status < 500;
+  // another company's record answers 404 "Not found" (no existence oracle) — that is a denial too
+  const allow = (r: { status: number; body?: any }) => ![401, 403].includes(r.status) && !(r.status === 404 && r.body?.title === 'Not found') && r.status < 500;
   const matrix: { name: string; method: string; path: string; body?: unknown; allowed: Who[] }[] = [
     { name: 'list users', method: 'GET', path: '/users', allowed: ['dir', 'admin'] },
     { name: 'create user', method: 'POST', path: '/users', body: { name: 'QA Probe', phone: '+254799999999', roles: ['driver'] }, allowed: ['dir', 'admin'] },
+    // planners, directors and admins raise / issue POs (rules.PO_EDITORS)
     { name: 'create plan', method: 'POST', path: '/plans', body: { entityId: 'e-btw', supplierId: 's-kbl' }, allowed: ['dir', 'kabonge', 'admin'] },
     { name: 'edit draft plan', method: 'PUT', path: `/plans/${draft.id}`, body: { title: 'qa' }, allowed: ['dir', 'kabonge', 'admin'] },
+    { name: 'plan context of an order', method: 'GET', path: `/plans/${draft.id}/plan-context`, allowed: ['dir', 'kabonge', 'tesfie', 'acc', 'admin'] }, // the draft is Kivu's: Joel (BTW only) gets 404,
+    { name: 'list period plans', method: 'GET', path: '/period-plans', allowed: ['dir', 'kabonge', 'tesfie', 'acc', 'admin'] },
+    // period plans are suggestions saved by planners, directors and admins (no approval endpoint any more)
+    { name: 'create period plan', method: 'POST', path: '/period-plans', body: { entityId: 'e-btw', periodKind: 'month', from: '2037-05-01', to: '2037-05-31', title: 'qa', replace: true }, allowed: ['dir', 'kabonge', 'admin'] },
+    { name: 'edit period plan', method: 'PUT', path: '/period-plans/pp-btw-2', body: { title: 'qa' }, allowed: ['dir', 'kabonge', 'admin'] },
+    { name: 'planned vs actual', method: 'GET', path: '/reports/planned-vs-actual', allowed: ['dir', 'kabonge', 'acc'] },
+    { name: 'set PV thresholds', method: 'PUT', path: '/settings/pv-thresholds', body: { behind: 0.85, over: 1.05 }, allowed: ['dir'] },
+    { name: 'logistics report', method: 'GET', path: '/reports/logistics', allowed: ['dir', 'kabonge', 'tesfie', 'acc', 'tp'] },
+    { name: 'finance report', method: 'GET', path: '/reports/finance', allowed: ['dir', 'kabonge', 'tesfie', 'acc'] },
     { name: 'decide plan', method: 'POST', path: `/plans/${submitted.id}/decision`, body: { action: 'returned', comment: 'qa matrix' }, allowed: ['dir'] },
     { name: 'set velocity thresholds', method: 'PUT', path: '/analytics/thresholds', body: { fast: 120 }, allowed: ['dir'] },
-    { name: 'trip financials', method: 'GET', path: '/finance/trips', allowed: ['dir', 'acc', 'admin', 'kabonge', 'tesfie'] },
+    { name: 'trip financials', method: 'GET', path: '/finance/trips', allowed: ['dir', 'acc', 'kabonge', 'tesfie', 'tp'] },
+    { name: 'add a trip expense', method: 'POST', path: '/finance/costs', body: { shipmentId: kda.id, kind: 'Other', amount: -1, currency: 'USD' }, allowed: ['dir', 'acc', 'kabonge', 'tesfie', 'tp'] },
+    { name: 'approve a payment', method: 'POST', path: '/finance/payments/pay-nope/approve', allowed: ['dir'] },
     { name: 'record payment', method: 'POST', path: '/finance/payments', body: { shipmentId: kda.id, costId: 'none', amount: 1, reference: 'qa' }, allowed: ['dir', 'acc'] },
-    { name: 'add truck (master data)', method: 'POST', path: '/masterdata/trucks', body: {}, allowed: ['dir', 'kabonge', 'tesfie', 'admin'] },
+    { name: 'add truck (master data)', method: 'POST', path: '/masterdata/trucks', body: {}, allowed: ['dir', 'kabonge', 'tesfie', 'admin', 'tp'] },
+    { name: 'add transport provider', method: 'POST', path: '/masterdata/providers', body: { kind: 'company' }, allowed: ['dir', 'kabonge', 'tesfie', 'admin', 'tp'] },
+    { name: 'edit a driver', method: 'PATCH', path: '/masterdata/drivers/d4', body: { phone: 'x' }, allowed: ['dir', 'kabonge', 'tesfie', 'admin', 'tp'] },
     { name: 'edit route timings', method: 'PATCH', path: '/masterdata/routes/r-nbo-kgl', body: { stops: [] }, allowed: ['dir', 'kabonge', 'tesfie', 'admin'] },
-    { name: 'record loading at KBL', method: 'POST', path: `/loadings/${pending.id}/confirm`, body: { truckId: 'nope', driverId: 'd3', loadedQty: {}, agreedTransport: 1 }, allowed: ['dir', 'admin', 'kabonge', 'joel', 'tesfie'] },
+    { name: 'record loading at KBL', method: 'POST', path: `/loadings/${pending.id}/confirm`, body: { truckId: 'nope', driverId: 'd3', loadedQty: {}, agreedTransport: 1 }, allowed: ['dir', 'admin', 'kabonge', 'joel', 'tesfie', 'tp'] },
     { name: 'queue a truck at UBL', method: 'POST', path: '/loading-points/s-ubl/waiting', body: { truckId: 'nope', driverId: 'nope' }, allowed: ['dir', 'admin', 'kabonge', 'tesfie'] },
-    { name: "check in on drv1's leg", method: 'POST', path: `/legs/${kdaLeg.id}/passes`, body: { checkpointId: 'cp-nowhere', kind: 'arrived' }, allowed: ['dir', 'admin', 'kabonge', 'drv1', 'joel', 'asie'] },
-    { name: 'acknowledge a Kigali leg', method: 'POST', path: `/legs/${kdaLeg.id}/acknowledgement`, body: { receiverName: '', lines: [] }, allowed: ['dir', 'admin', 'kabonge', 'asie'] },
-    { name: 'acknowledge a Juba leg', method: 'POST', path: `/legs/${ubaLeg.id}/acknowledgement`, body: { receiverName: '', lines: [] }, allowed: ['dir', 'admin', 'kabonge', 'zonas'] },
+    { name: 'queue a truck at KBL', method: 'POST', path: '/loading-points/s-kbl/waiting', body: { truckId: 'nope', driverId: 'nope', entityId: 'e-btw' }, allowed: ['dir', 'admin', 'kabonge', 'joel', 'tp'] },
+    { name: "check in on drv1's leg", method: 'POST', path: `/legs/${kdaLeg.id}/passes`, body: { checkpointId: 'cp-nowhere', kind: 'arrived' }, allowed: ['dir', 'admin', 'kabonge', 'drv1', 'joel', 'asie', 'tp'] },
+    { name: 'acknowledge a Gisenyi leg', method: 'POST', path: `/legs/${kdaLeg.id}/acknowledgement`, body: { receiverName: '', lines: [] }, allowed: ['dir', 'admin', 'kabonge', 'asie', 'tp'] },
+    { name: 'acknowledge a Juba leg', method: 'POST', path: `/legs/${ubaLeg.id}/acknowledgement`, body: { receiverName: '', lines: [] }, allowed: ['dir', 'admin', 'kabonge', 'zonas', 'tp'] },
     { name: 'sell from Juba', method: 'POST', path: '/sales', body: { warehouseId: 'w-juba', customer: 'x', lines: [], currency: 'USD', paid: 0, kind: 'Cash', at: new Date().toISOString(), salespersonId: 'x' }, allowed: ['zonas', 'dir', 'admin'] }, // directors may record a sale (above-stock override, SL-02)
-    { name: 'PO PDF', method: 'GET', path: '/pos/po-1/pdf', allowed: ['dir', 'admin', 'kabonge', 'joel', 'acc'] },
-    { name: 'shipment detail (Juba truck)', method: 'GET', path: `/shipments/${uba.id}`, allowed: ['dir', 'admin', 'kabonge', 'joel', 'acc', 'zonas', 'drv2'] },
+    { name: 'PO PDF', method: 'GET', path: '/pos/po-1/pdf', allowed: ['dir', 'kabonge', 'joel', 'acc', 'admin'] },
+    { name: 'shipment detail (Juba truck)', method: 'GET', path: `/shipments/${uba.id}`, allowed: ['dir', 'admin', 'kabonge', 'joel', 'acc', 'zonas', 'drv2', 'tp'] },
     { name: 'stock ledger Juba', method: 'GET', path: '/stock/ledger?warehouseId=w-juba&productId=p-a300', allowed: ['dir', 'admin', 'kabonge', 'tesfie', 'acc', 'zonas'] },
     { name: 'devices of another user', method: 'GET', path: '/users/u-drv1/devices', allowed: ['dir', 'admin'] },
     { name: 'reset demo data', method: 'POST', path: '/dev/reset', allowed: ['dir', 'admin'] },
   ];
-  const everyone: Who[] = ['dir', 'kabonge', 'joel', 'tesfie', 'asie', 'zonas', 'acc', 'admin', 'drv1', 'drv2', 'anon'];
+  for (const w of ['asie', 'zonas', 'drv1'] as Who[]) {
+    const r = await c.req('GET', '/plans', { token: as(w) });
+    ok(r.status === 200 && Array.isArray(r.body) && r.body.length === 0, `${w} sees no purchase orders (empty list, no feature)`, r.status);
+  }
+  const everyone: Who[] = ['dir', 'kabonge', 'joel', 'tesfie', 'asie', 'zonas', 'acc', 'admin', 'drv1', 'drv2', 'tp', 'anon'];
   for (const m of matrix) {
     const wrong: string[] = [];
     for (const w of everyone) {
@@ -136,14 +157,21 @@ export async function securitySuite(env: Env) {
 
   section('Security · data scoping (lists)');
   const shipsOf = async (w: Who) => ((await c.req('GET', '/shipments', { token: tok[w] })).body as any[]).map((s) => s.id);
-  ok((await shipsOf('drv1')).every((id) => id === kda.id), 'driver sees only his own trips', await shipsOf('drv1'));
-  ok(!(await shipsOf('zonas')).includes(kda.id) && (await shipsOf('zonas')).includes(uba.id), 'Zonas sees Juba trucks, not Kigali ones');
+  { // every shipment a driver sees must have a leg he drove (history included), and his live trip must be there
+    const mine = (await c.req('GET', '/shipments', { token: tok.drv1 })).body as { id: string; legs: { driverId: string }[] }[];
+    const foreign = mine.filter((s) => !s.legs.some((l) => l.driverId === 'd1')).map((s) => s.id);
+    ok(!foreign.length && mine.some((s) => s.id === kda.id), 'driver sees only his own trips', foreign);
+  }
+  ok(!(await shipsOf('zonas')).includes(kda.id) && (await shipsOf('zonas')).includes(uba.id), 'Zonas sees Juba trucks, not Gisenyi ones');
   ok(!(await shipsOf('asie')).includes(uba.id), 'Asie does not see the Juba truck');
   const stockAsie = (await c.req('GET', '/stock', { token: tok.asie })).body as any[];
-  ok(stockAsie.length > 0 && stockAsie.every((r) => ['w-kgl', 'w-goma'].includes(r.warehouseId)), 'Asie stock limited to Kigali + Goma');
+  ok(stockAsie.length > 0 && stockAsie.every((r) => ['w-kgl', 'w-goma'].includes(r.warehouseId)), 'Asie stock limited to Gisenyi + Goma');
   ok(((await c.req('GET', '/stock', { token: tok.drv1 })).body as any[]).length === 0, 'driver sees no stock');
   ok(((await c.req('GET', '/sales', { token: tok.zonas })).body as any[]).every((s) => s.warehouseId === 'w-juba'), 'Zonas sees only Juba sales');
   ok(((await c.req('GET', '/waiting?loadingPointId=s-ubl', { token: tok.joel })).body as any[]).length === 0, 'KBL loader cannot read the UBL queue');
+  ok(((await c.req('GET', '/waiting', { token: tok.tp })).body as any[]).every((w) => w.loadingPointId === 's-kbl'), 'KBL truck planner reads only the KBL queue');
+  ok(((await c.req('GET', '/shipments', { token: tok.tp })).body as any[]).every((s) => s.entityId === 'e-btw'), 'BTW truck planner sees only BTW trucks');
+  ok(((await c.req('GET', '/sales', { token: tok.tp })).body as any[]).length === 0 && ((await c.req('GET', '/stock', { token: tok.tp })).body as any[]).length === 0, 'truck planner sees no sales and no stock');
   ok(((await c.req('GET', '/plans', { token: tok.drv1 })).body as any[]).length === 0, 'driver sees no plans');
   ok(((await c.req('GET', '/plans', { token: tok.joel })).body as any[]).every((p) => p.entityId === 'e-btw'), 'BTW loader sees only BTW plans');
   const note = (await c.req('GET', '/notifications', { token: tok.drv1 })).body as any[];
@@ -153,7 +181,7 @@ export async function securitySuite(env: Env) {
 
   section('Security · cross-scope writes (IDOR)');
   expectStatus(await c.req('POST', `/legs/${kdaLeg.id}/passes`, { token: tok.drv2, body: { checkpointId: kdaLeg.passes.at(-1).checkpointId, kind: 'arrived' } }), 403, "driver cannot check in on another driver's truck");
-  expectStatus(await c.req('POST', `/legs/${kdaLeg.id}/acknowledgement`, { token: tok.zonas, body: { receiverName: 'x', lines: kdaLeg.lines.map((l: any) => ({ productId: l.productId, expected: l.loadedQty, received: l.loadedQty, damaged: 0 })) } }), 403, 'Zonas cannot acknowledge a truck for Asie Kigali');
+  expectStatus(await c.req('POST', `/legs/${kdaLeg.id}/acknowledgement`, { token: tok.zonas, body: { receiverName: 'x', lines: kdaLeg.lines.map((l: any) => ({ productId: l.productId, expected: l.loadedQty, received: l.loadedQty, damaged: 0 })) } }), 403, 'Zonas cannot acknowledge a truck for Asie Gisenyi');
   expectStatus(await c.req('POST', `/legs/${kdaLeg.id}/issues`, { token: tok.drv2, body: { reason: 'x', place: 'x' } }), 403, "driver cannot log an issue on another driver's truck");
   expectStatus(await c.req('POST', '/positions', { token: tok.drv2, body: [{ legId: kdaLeg.id, lat: -1, lng: 30 }] }), 403, "driver cannot post GPS for another driver's truck");
   const sb = await c.req('POST', '/sync/batch', { token: tok.drv2, body: [{ idempotencyKey: crypto.randomUUID(), op: 'leg.pass', payload: { legId: kdaLeg.id, checkpointId: kdaLeg.passes.at(-1).checkpointId, kind: 'arrived' } }] });
@@ -206,14 +234,14 @@ export async function productionSuite(env: Env) {
     expectStatus(await c.req(m, p, { body: m === 'POST' ? {} : undefined }), 404, `${m} ${p} hidden in production`);
   const dirTok = (await c.login('dir')).accessToken;
   expectStatus(await c.req('POST', '/dev/reset', { token: dirTok }), 404, 'POST /dev/reset unavailable in production, even for a director');
-  const wh = await c.req('POST', '/webhooks/sms', { form: { from: '+254711000001', text: 'ARR MBARARA KDA123A' } });
+  const wh = await c.req('POST', '/webhooks/sms', { form: { from: '+254702750019', text: 'ARR MBARARA KBV894T' } });
   ok(wh.status === 403 || wh.status === 503, `webhook refused in production without a configured secret (${wh.status})`, wh.body);
 }
 
 export async function webhookSecretSuite(env: Env, secret: string) {
   const c = client(env.base);
   section('Security · webhook secret');
-  expectStatus(await c.req('POST', '/webhooks/sms', { form: { from: '+254711000001', text: 'ARR MBARARA KDA123A' } }), 403, 'webhook without key → 403');
-  expectStatus(await c.req('POST', '/webhooks/sms?key=wrong', { form: { from: '+254711000001', text: 'ARR MBARARA KDA123A' } }), 403, 'webhook with wrong key → 403');
-  expectStatus(await c.req('POST', `/webhooks/sms?key=${secret}`, { form: { from: '+254711000001', text: 'ARR MBARARA KDA123A' } }), 200, 'webhook with key → 200');
+  expectStatus(await c.req('POST', '/webhooks/sms', { form: { from: '+254702750019', text: 'ARR MBARARA KBV894T' } }), 403, 'webhook without key → 403');
+  expectStatus(await c.req('POST', '/webhooks/sms?key=wrong', { form: { from: '+254702750019', text: 'ARR MBARARA KBV894T' } }), 403, 'webhook with wrong key → 403');
+  expectStatus(await c.req('POST', `/webhooks/sms?key=${secret}`, { form: { from: '+254702750019', text: 'ARR MBARARA KBV894T' } }), 200, 'webhook with key → 200');
 }

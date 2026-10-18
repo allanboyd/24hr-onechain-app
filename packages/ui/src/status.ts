@@ -8,6 +8,8 @@ const map: Record<string, Tone> = {
   Fast: 'success', Normal: 'info', Slow: 'warning', Stagnant: 'danger',
   Early: 'info', 'On time': 'success', Late: 'danger',
   Synced: 'success', Waiting: 'neutral', Assigned: 'info',
+  // period plans (suggestions) and POs issued without approval / revised at loading (docs/09)
+  Active: 'success', Replaced: 'neutral', Issued: 'success', 'Ready to issue': 'info', Revised: 'neutral',
 };
 export const toneOf = (s: string): Tone => map[s] ?? 'neutral';
 export const velocityGlyph: Record<string, string> = { Fast: '▲', Normal: '●', Slow: '▼', Stagnant: '■' };

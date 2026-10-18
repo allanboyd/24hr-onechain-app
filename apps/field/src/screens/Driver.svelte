@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CompanyChip from '../components/CompanyChip.svelte';
   // Driver (MA-02, TR-01, §17.5): map + one sheet + one action. Slide to check in at the next checkpoint,
   // 5-second undo, "Problem" in two taps, border-wait timer. Geofence events from the native layer check in automatically.
   import { field, type Checkpoint, type Leg, type LegView, type User } from '@btw/api';
@@ -6,7 +7,7 @@
   import { Badge, fmtDateTime, fmtTime, hoursLabel, say, ago } from '@btw/ui';
   import { untrack } from 'svelte';
   import { startTracking, stopTracking, haptic } from '../native';
-  import { cases, since } from '../lib';
+  import { cases, destLabel, since } from '../lib';
   import MapView, { type MapPoint } from '../components/MapView.svelte';
   import Sheet from '../components/Sheet.svelte';
   import { live } from '../live';
@@ -62,7 +63,7 @@
   const idx = $derived(leg ? leg.passes.findIndex((p) => !p.departedAt) : -1);
   const pass = $derived(leg && idx >= 0 ? leg.passes[idx] : null);
   const cps = $derived(new Map<string, Checkpoint>((current?.checkpoints ?? []).map((c) => [c.id, c])));
-  const cpShort = (id?: string) => (id ? (cps.get(id)?.name ?? id).replace(/\s*\(.*\)$/, '') : '—');
+  const cpShort = (id?: string) => (id ? destLabel(id) ?? (cps.get(id)?.name ?? id).replace(/\s*\(.*\)$/, '') : '—');
   const cp = $derived(pass ? cps.get(pass.checkpointId) ?? null : null);
   const atDestination = $derived(!!leg && !!pass && pass.checkpointId === leg.toId && !!pass.arrivedAt);
   const starting = $derived(!!leg && idx === 0 && !leg.passes[0].departedAt);
@@ -170,6 +171,7 @@
   {:else}
     <div class="trip">
       <div class="grow">
+        <CompanyChip entityId={current.shipment.entityId} />
         <p class="eyebrow">{truck?.reg} · {current.route?.name}</p>
         {#if atDestination}<p class="headline">Arrived at {cpShort(leg.toId)}</p>
         {:else}<p class="headline">{starting ? 'Ready to go' : pass?.arrivedAt ? `At ${cpShort(pass.checkpointId)}` : `Next: ${cpShort(pass?.checkpointId)}`}</p>{/if}

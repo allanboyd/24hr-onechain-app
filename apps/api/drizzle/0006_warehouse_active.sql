@@ -1,0 +1,1 @@
+ALTER TABLE "warehouses" ADD COLUMN "active" boolean DEFAULT true NOT NULL;

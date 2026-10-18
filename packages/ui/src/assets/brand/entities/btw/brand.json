@@ -1,0 +1,81 @@
+{
+  "code": "BTW",
+  "name": "BTW Global Distributors Ltd",
+  "shortName": "BTW Global",
+  "colors": {
+    "primary": "#062953",
+    "accent": "#FE7514",
+    "text": "#0B1B33",
+    "onPrimary": "#FFFFFF",
+    "ink": "#BE570F",
+    "inkOnDark": "#FE7514"
+  },
+  "tagline": "Your global supply partner",
+  "footerLine": "People \u00b7 Products \u00b7 Partnerships \u00b7 Progress",
+  "address": [
+    "P.O Box 18051 - 00100 Nairobi, Kenya",
+    "Elgeyo Marakwet Road, Elgeyo Garden"
+  ],
+  "phones": [
+    "+254 707 617 460",
+    "+254 701 570 356"
+  ],
+  "email": "info@btwglobal.co.ke",
+  "assets": {
+    "logo": "entities/btw/logo-480w.png",
+    "logoFull": "entities/btw/logo.png",
+    "logoSvg": "entities/btw/logo.svg",
+    "logoDark": "entities/btw/logo-on-dark-480w.png",
+    "mark": "entities/btw/mark-128.png",
+    "markDark": "entities/btw/mark-on-dark-128.png",
+    "favicon": "entities/btw/favicon-32.png",
+    "faviconIco": "entities/btw/favicon.ico",
+    "letterhead": {
+      "page": "apps/api/templates/letterheads/BTW.svg",
+      "header": {
+        "svg": "apps/api/templates/letterheads/BTW-header.svg",
+        "png": "entities/btw/letterhead-header.png",
+        "yPt": [
+          0,
+          118
+        ]
+      },
+      "footer": {
+        "svg": "apps/api/templates/letterheads/BTW-footer.svg",
+        "png": "entities/btw/letterhead-footer.png",
+        "yPt": [
+          735,
+          842
+        ]
+      },
+      "watermark": {
+        "svg": "apps/api/templates/letterheads/BTW-watermark.svg",
+        "png": "entities/btw/letterhead-watermark.png",
+        "yPt": [
+          290,
+          525
+        ]
+      }
+    }
+  },
+  "legal": {
+    "kraPin": null,
+    "registrationNo": null,
+    "registeredOffice": "Elgeyo Marakwet Road, Elgeyo Garden, Nairobi"
+  },
+  "derived": [
+    "logo-on-dark-480w.png",
+    "mark-on-dark.png",
+    "mark-on-dark-128.png",
+    "favicon (mark on tile)"
+  ],
+  "contrast": {
+    "primary on white": 14.48,
+    "onPrimary on primary": 14.48,
+    "accent on white (graphics \u22653)": 2.7,
+    "ink on white (text \u22654.5)": 4.61,
+    "inkOnDark on #102037 (text \u22654.5)": 6.05,
+    "text on white": 17.23
+  },
+  "notes": []
+}

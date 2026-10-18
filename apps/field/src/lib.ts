@@ -32,7 +32,10 @@ export const fieldUsers = () => auth.demoUsers().filter((u) => fieldRole(u));
 export function driverFor(u: User) { return ref().drivers.find((d) => normPhone(d.phone) === normPhone(u.phone)); }
 export const cpName = (id?: string) => (id ? lookup.checkpoint(id)?.name ?? id : '—');
 /** Short, human checkpoint name for big UI: "Malaba border (KE/UG)" → "Malaba border". */
-export const cpShort = (id?: string) => cpName(id).replace(/\s*\(.*\)$/, '');
+/** Destination warehouses read "Country – Town" (docs/07 §D), e.g. "Rwanda – Gisenyi". */
+export const destLabel = (checkpointId?: string) => { const w = checkpointId ? ref().warehouses.find((x) => x.checkpointId === checkpointId) : undefined; return w?.country && w?.town ? `${w.country} – ${w.town}` : null; };
+export const warehouseLabel = (warehouseId?: string) => { const w = warehouseId ? lookup.warehouse(warehouseId) : undefined; return w ? (w.country && w.town ? `${w.country} – ${w.town}` : w.name) : '—'; };
+export const cpShort = (id?: string) => destLabel(id) ?? cpName(id).replace(/\s*\(.*\)$/, '');
 /** SMS fallback code: "Malaba border (KE/UG)" → "MALABA". */
 export const cpCode = (id?: string) => cpName(id).split(/[\s/(]/)[0].toUpperCase();
 export const cases = (n: number) => `${new Intl.NumberFormat('en-US').format(n)} cases`;

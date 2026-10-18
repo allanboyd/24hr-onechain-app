@@ -13,7 +13,9 @@ export const FIXTURES = path.join(REPO, 'tools/mockups/fixtures');
 export const API_PATH = '/@fs' + REPO.replaceAll('\\', '/') + '/packages/api/src/index.ts';
 const BASE = { web: process.env.WEB_URL ?? 'http://localhost:5173/', field: process.env.FIELD_URL ?? 'http://localhost:5174/' };
 
-export async function open({ app, user, theme = 'light', width, height, outDir, reset = true }) {
+/** `company`: the web app's active company for this user — an entity id, or 'group' (directors/admins). Defaults to BTW so
+ *  single-company flows keep working; flow H passes 'group' to show the group view. */
+export async function open({ app, user, theme = 'light', width, height, outDir, reset = true, company = 'e-btw' }) {
   width ??= app === 'web' ? 1440 : 390; height ??= app === 'web' ? 900 : 844;
   mkdirSync(outDir, { recursive: true });
   const browser = await chromium.launch();
@@ -23,7 +25,12 @@ export async function open({ app, user, theme = 'light', width, height, outDir, 
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   await page.goto(BASE[app]);
-  await page.evaluate(({ u, theme, reset }) => { if (reset) localStorage.clear(); if (u) localStorage.setItem('btw-user', u); localStorage.setItem('btw-theme', theme); }, { u: user, theme, reset });
+  await page.evaluate(({ u, theme, reset, company }) => {
+    if (reset) localStorage.clear(); if (u) localStorage.setItem('btw-user', u); localStorage.setItem('btw-theme', theme);
+    // Flows switch users mid-run (e.g. to the director), so set the preference for every demo user; apps ignore it where not allowed.
+    const ids = ['u-dir', 'u-admin', 'u-kabonge', 'u-acc', 'u-joel', 'u-eric', 'u-moses', 'u-tesfie', 'u-asie', 'u-zonas', 'u-btw-plan', 'u-btw-acc', 'u-nud-plan', 'u-nud-acc', 'u-kvd-plan', 'u-kvd-acc', 'u-drv1', 'u-drv2'];
+    if (company) for (const id of ids) { localStorage.setItem(`btw-company:${id}`, company); if (company !== 'group') localStorage.setItem(`btw-entity:${id}`, company); }
+  }, { u: user, theme, reset, company });
   await page.reload(); await page.waitForTimeout(400);
   const s = { app, user, theme, page, browser, outDir, errors, entries: [] };
   s.go = async (p, wait = 600) => { await page.evaluate((x) => (location.hash = x), p); await page.waitForTimeout(wait); };

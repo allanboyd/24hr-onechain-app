@@ -3,6 +3,7 @@ import { and, arrayOverlaps, eq, isNotNull, isNull, inArray } from 'drizzle-orm'
 import { db, schema as t, type Tx } from '../db/client';
 import { uid, iso } from '../common/ids';
 import { MAIL, PUSH, SMS, type MailPort, type PushPort, type SmsPort } from '../integrations/ports';
+import { entityAccess, withTruckPlanner } from '@btw/api/rules';
 import type { Role } from '@btw/api/types';
 
 /** NT-01: in-app row for the roles, then best-effort delivery (push to their devices, email to office roles). */
@@ -11,16 +12,20 @@ export class NotifyService {
   private log = new Logger('Notify');
   constructor(@Inject(PUSH) private push: PushPort, @Inject(MAIL) private mail: MailPort, @Inject(SMS) private sms: SmsPort) {}
 
-  async notify(q: typeof db | Tx, title: string, body: string, link: string | undefined, forRoles: Role[], opts: { email?: boolean } = {}) {
+  /** `entityId`: the company the event belongs to — only users of that company see and receive it. */
+  async notify(q: typeof db | Tx, title: string, body: string, link: string | undefined, forRoles0: Role[], opts: { email?: boolean; entityId?: string | null } = {}) {
     const id = uid('n');
-    await q.insert(t.notifications).values({ id, at: iso(), title, body, link: link ?? null, forRoles });
-    setImmediate(() => this.deliver(title, body, link, forRoles, opts.email ?? false).catch((e) => this.log.warn(`delivery failed: ${e?.message ?? e}`)));
+    const forRoles = withTruckPlanner(forRoles0); // fleet follow-up news also reaches truck planners
+    await q.insert(t.notifications).values({ id, at: iso(), title, body, link: link ?? null, forRoles, entityId: opts.entityId ?? null });
+    setImmediate(() => this.deliver(title, body, link, forRoles, opts.email ?? false, opts.entityId ?? null).catch((e) => this.log.warn(`delivery failed: ${e?.message ?? e}`)));
     return id;
   }
 
-  private async deliver(title: string, body: string, link: string | undefined, forRoles: Role[], email: boolean) {
+  private async deliver(title: string, body: string, link: string | undefined, forRoles: Role[], email: boolean, entityId: string | null) {
     const roles = [...new Set<Role>([...forRoles, 'director'])];
-    const users = await db.select().from(t.users).where(arrayOverlaps(t.users.roles, roles));
+    const all = (await db.select({ id: t.entities.id }).from(t.entities)).map((e) => e.id);
+    const users = (await db.select().from(t.users).where(arrayOverlaps(t.users.roles, roles)))
+      .filter((u) => !entityId || entityAccess({ roles: u.roles as Role[], entityIds: u.entityIds }, all).allowedEntityIds.includes(entityId));
     if (!users.length) return;
     const devs = await db.select().from(t.devices).where(and(inArray(t.devices.userId, users.map((u) => u.id)), isNotNull(t.devices.pushToken), isNull(t.devices.revokedAt)));
     if (devs.length) {
@@ -28,7 +33,7 @@ export class NotifyService {
       if (res.failed?.length) await db.update(t.devices).set({ pushToken: null }).where(inArray(t.devices.pushToken, res.failed)); // unregistered tokens
     }
     if (email) {
-      const to = users.filter((u) => u.email && u.roles.some((r) => ['director', 'planner', 'operations', 'fleet', 'accounts'].includes(r))).map((u) => u.email!);
+      const to = users.filter((u) => u.email && u.roles.some((r) => ['director', 'planner', 'operations', 'fleet', 'truck_planner', 'accounts'].includes(r))).map((u) => u.email!);
       if (to.length) await this.mail.send({ to, subject: title, text: `${body}${link ? `\n\nOpen: ${link}` : ''}` });
     }
   }

@@ -2,9 +2,10 @@ import { ArgumentsHost, Catch, type ExceptionFilter, HttpException } from '@nest
 
 /** Domain error → RFC 9457 problem. 422 = business rule, 409 = state conflict, 404, 403. */
 export class DomainError extends HttpException {
-  constructor(message: string, status = 422, code = 'rule') { super({ type: `https://btw.local/problems/${code}`, title: message, detail: message, code, status }, status); }
+  constructor(message: string, status = 422, code = 'rule', extra?: Record<string, unknown>) { super({ type: `https://btw.local/problems/${code}`, title: message, detail: message, code, status, ...(extra ?? {}) }, status); }
 }
-export const fail = (message: string, status = 422, code = 'rule'): never => { throw new DomainError(message, status, code); };
+/** `extra` adds fields to the problem body (e.g. `conflicts` on a period-plan overlap). */
+export const fail = (message: string, status = 422, code = 'rule', extra?: Record<string, unknown>): never => { throw new DomainError(message, status, code, extra); };
 export const notFound = (what: string): never => fail(`${what} not found`, 404, 'not-found');
 export const forbidden = (msg = 'Not allowed for your role or scope'): never => fail(msg, 403, 'forbidden');
 

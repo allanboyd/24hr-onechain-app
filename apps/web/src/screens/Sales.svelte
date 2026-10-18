@@ -1,4 +1,9 @@
 <script lang="ts">
+  import { destinationLabel } from '../lib/planning';
+  import CompanyCell from '../components/CompanyCell.svelte';
+  import RecordFor from '../components/RecordFor.svelte';
+  import { scopeEntity } from '../lib/company.svelte';
+  import { companyLabel } from '../lib/companies';
   import { watch } from '../lib/load.svelte';
   import ErrorState from '../components/ErrorState.svelte';
   import { amount, inventory, lookup, ref, sales, type Sale, type StockRow, type User } from '@btw/api';
@@ -6,17 +11,21 @@
   import Plus from '@lucide/svelte/icons/plus';
   import Trash from '@lucide/svelte/icons/trash-2';
   import ExportMenu from '../components/ExportMenu.svelte';
+  import PageTabs from '../components/PageTabs.svelte';
+  import SalesOverview from '../components/overview/SalesOverview.svelte';
+  import { currentTab, qp } from '../lib/tab';
   let { user }: { params?: any; user: User } = $props();
+  const tab = currentTab();
   const r = ref();
   const scoped = $derived(user.roles.includes('director') || !user.warehouseIds.length ? null : user.warehouseIds);
   const warehouses = $derived(r.warehouses.filter((w) => !scoped || scoped.includes(w.id)));
 
   let list = $state<Sale[] | null>(null);
   let stock = $state<StockRow[]>([]);
-  let fWh = $state('');
-  let fStatus = $state('');
-  let fKind = $state('');
-  let fCust = $state('');
+  let fWh = $state(qp('wh'));
+  let fStatus = $state(qp('status'));
+  let fKind = $state(qp('kind'));
+  let fCust = $state(qp('cust'));
   async function load() { [list, stock] = await Promise.all([sales.list(), inventory.stock()]); }
   const w = watch(load);
   const rows = $derived((list ?? []).filter((s) => (!scoped || scoped.includes(s.warehouseId)) && (!fWh || s.warehouseId === fWh) && (!fStatus || s.status === fStatus) && (!fKind || s.kind === fKind) && (!fCust || s.customer.toLowerCase().includes(fCust.toLowerCase()))));
@@ -63,8 +72,8 @@
     if (!ls.length) { error = 'Enter a quantity on at least one line'; return; }
     busy = true;
     try {
-      const s = await sales.create({ at: new Date().toISOString(), warehouseId: wh, customer, salespersonId: user.id, kind, lines: $state.snapshot(ls), currency: 'USD', paid }, override);
-      dialog?.close(); say(`Sale ${s.ref} recorded — stock reduced`);
+      const s = await sales.create({ entityId: scopeEntity() ?? '', at: new Date().toISOString(), warehouseId: wh, customer, salespersonId: user.id, kind, lines: $state.snapshot(ls), currency: 'USD', paid }, override);
+      dialog?.close(); say(`Sale ${s.ref} recorded for ${companyLabel(s.entityId)} — stock reduced`);
     } catch (err) { error = (err as Error).message; }
     busy = false;
   }
@@ -72,9 +81,14 @@
 
 <div class="page-head">
   <div><div class="overline crumb">Stock & sales</div><h1>Sales</h1></div>
-  <div class="row"><ExportMenu name="sales" rows={exportRows} /><button class="btn btn-primary" onclick={openNew}><Plus size={16} />New sale</button></div>
+  <div class="row"><ExportMenu name="sales" rows={exportRows} /><RecordFor what="a sale"><button class="btn btn-primary" onclick={openNew}><Plus size={16} />New sale</button></RecordFor></div>
 </div>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
+<PageTabs base="/sales" current={tab} listLabel="Sales list" />
+
+{#if tab === 'overview'}
+  <SalesOverview warehouseId={scoped?.length === 1 ? scoped[0] : undefined} />
+{:else}
 
 <div class="grid grid-kpi" style="margin-bottom:var(--space-4)">
   <div class="card kpi"><div class="overline">Sales · 30 days (USD)</div><div class="value">{fmtNum(kpi.val)}</div><div class="delta">{fmtNum(kpi.count)} sales</div></div>
@@ -86,7 +100,7 @@
 <div class="layout">
   <div>
     <div class="filters">
-      <label class="field"><span>Warehouse</span><select class="select" bind:value={fWh}><option value="">All</option>{#each warehouses as w}<option value={w.id}>{w.name}</option>{/each}</select></label>
+      <label class="field"><span>Warehouse</span><select class="select" bind:value={fWh}><option value="">All</option>{#each warehouses as w}<option value={w.id}>{destinationLabel(w.id)}</option>{/each}</select></label>
       <label class="field"><span>Payment</span><select class="select" bind:value={fStatus}><option value="">All</option><option>Paid</option><option>Part-paid</option><option>Unpaid</option></select></label>
       <label class="field"><span>Type</span><select class="select" bind:value={fKind}><option value="">All</option><option>Cash</option><option>Credit</option><option>Batch</option></select></label>
       <label class="field"><span>Customer</span><input class="input" type="search" bind:value={fCust} placeholder="Search customer" /></label>
@@ -94,14 +108,15 @@
     </div>
     <div class="card flush table-wrap">
       <table class="table">
-        <thead><tr><th>Sale No.</th><th>Date</th><th>Warehouse</th><th>Customer</th><th>Type</th><th>Brand · Package</th><th class="num">Qty</th><th class="num">Amount (USD)</th><th class="num">Paid</th><th>Status</th></tr></thead>
+        <thead><tr><CompanyCell head /><th>Sale No.</th><th>Date</th><th>Warehouse</th><th>Customer</th><th>Type</th><th>Brand · Package</th><th class="num">Qty</th><th class="num">Amount (USD)</th><th class="num">Paid</th><th>Status</th></tr></thead>
         <tbody>
           {#if !list}{#each Array(5) as _}<tr><td colspan="10"><div class="skeleton"></div></td></tr>{/each}{/if}
           {#each rows.slice(0, 100) as s (s.id)}
             <tr>
+              <CompanyCell entityId={s.entityId} />
               <td class="mono small" style="white-space:nowrap">{s.ref}</td>
               <td class="small" style="white-space:nowrap">{fmtDateTime(s.at)}</td>
-              <td class="small">{lookup.warehouse(s.warehouseId)?.name}</td>
+              <td class="small">{destinationLabel(s.warehouseId)}</td>
               <td>{s.customer}</td>
               <td><Badge tone={s.kind === 'Credit' ? 'warning' : s.kind === 'Batch' ? 'info' : 'neutral'}>{s.kind}</Badge></td>
               <td class="small">{#each s.lines as l}<div style="white-space:nowrap">{lookup.product(l.productId)?.brand}</div><div class="caption">{lookup.product(l.productId)?.pack}</div>{/each}</td>
@@ -125,11 +140,13 @@
   </aside>
 </div>
 
+{/if}
+
 <dialog class="sheet" bind:this={dialog} style="width:min(720px,calc(100vw - 32px))">
   <form class="body stack" onsubmit={save}>
     <h3>New sale</h3>
     <div class="form-grid">
-      <label class="field"><span>Warehouse</span><select class="select" bind:value={wh} onchange={changeWh}>{#each warehouses as w}<option value={w.id}>{w.name}</option>{/each}</select></label>
+      <label class="field"><span>Warehouse</span><select class="select" bind:value={wh} onchange={changeWh}>{#each warehouses as w}<option value={w.id}>{destinationLabel(w.id)}</option>{/each}</select></label>
       <label class="field"><span>Customer</span><input class="input" bind:value={customer} list="customers" /></label>
       <label class="field"><span>Type</span><select class="select" bind:value={kind}><option>Cash</option><option>Credit</option><option>Batch</option></select></label>
     </div>

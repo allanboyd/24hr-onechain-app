@@ -1,4 +1,5 @@
 <script lang="ts">
+  import RecordFor from '../components/RecordFor.svelte';
   import { amount, lookup, pos, type Plan, type PurchaseOrder, type User } from '@btw/api';
   import { Badge, fmtDate, fmtDateTime, fmtNum, say } from '@btw/ui';
   import Printer from '@lucide/svelte/icons/printer';
@@ -7,10 +8,11 @@
   import { watch, attempt } from '../lib/load.svelte';
   import { describe } from '../lib/errors';
   import { poServer, isNotAvailable } from '../lib/admin';
-  import { brand } from '../lib/brand';
+  import { companyBrand } from '../lib/companies';
   import ErrorState from '../components/ErrorState.svelte';
+  import { revTag } from '../lib/orders';
   let { params, user }: { params: { id: string }; user: User } = $props();
-  let data = $state<{ po: PurchaseOrder; plan: Plan } | null | undefined>(undefined);
+  let data = $state<{ po: PurchaseOrder; plan: Plan; revisions?: PurchaseOrder[] } | null | undefined>(undefined);
   const w = watch(async () => { data = await pos.get(params.id); });
 
   const lines = $derived(data ? [...data.plan.lines].sort((a, b) => a.truckNo - b.truckNo) : []);
@@ -26,9 +28,19 @@
   const totalQty = $derived(lines.reduce((a, l) => a + l.qty, 0));
   const totalAmt = $derived(lines.reduce((a, l) => a + amount(l.qty, l.price), 0));
   const entity = $derived(data ? lookup.entity(data.po.entityId) : undefined);
+  // Issuing company's letterhead (docs/06 §5): header/footer bands traced from docs/inspiration/*.pdf.
+  const co = $derived(data ? companyBrand(data.po.entityId) : null);
   const supplier = $derived(data ? lookup.supplier(data.po.supplierId) : undefined);
   const prepared = $derived(data ? lookup.user(data.plan.createdById) : undefined);
   const approver = $derived(data ? lookup.user(data.po.approvedById) : undefined);
+  // Issued without director approval (config.toml) or revised at loading: "ISSUED <date> by <name>" instead of the APPROVED stamp.
+  const issued = $derived(data?.po.approval === 'issued' || data?.po.approval === 'revision');
+  const chain = $derived(data?.revisions ?? []);
+  const base = $derived(chain[0]);
+  const latest = $derived(chain.find((x) => !x.supersededById));
+  const pname = (id?: string) => { const p = id ? lookup.product(id) : undefined; return p ? `${p.brand} ${p.pack}` : '—'; };
+  /** The order line an alternative stands in for (a missing line is no longer on this revision: take it from the changes). */
+  const replaced = (lineId?: string) => pname(data?.plan.lines.find((l) => l.id === lineId)?.productId ?? data?.po.changes?.find((c) => c.planLineId === lineId)?.productId);
 
   let busy = $state<'' | 'pdf' | 'send'>('');
   let actionError = $state('');
@@ -67,28 +79,55 @@
       <button class="btn btn-secondary" onclick={downloadPdf} disabled={busy === 'pdf'}><Download size={16} />{busy === 'pdf' ? 'Preparing…' : 'Download PDF'}</button>
       <button class="btn btn-secondary" onclick={() => window.print()}><Printer size={16} />Print</button>
       {#if !data.po.sentAt && user.roles.some((r) => ['planner', 'operations', 'director'].includes(r))}
-        <button class="btn btn-primary" onclick={send} disabled={busy === 'send'}><Send size={16} />{poServer.available ? 'Email to supplier' : 'Mark as sent to supplier'}</button>
+        <RecordFor entityId={data.po.entityId} cue={false}><button class="btn btn-primary" onclick={send} disabled={busy === 'send'}><Send size={16} />{poServer.available ? 'Email to supplier' : 'Mark as sent to supplier'}</button></RecordFor>
       {/if}
     </div>
   </div>
   {#if actionError}<p class="error no-print" role="alert">{actionError}</p>{/if}
+  {#if data.po.supersededById && latest}
+    <div class="card flag-warning note no-print" role="status">Superseded by <a class="mono" href="#/pos/{latest.id}">{latest.ref}</a> — revised at loading. This version is kept for reference.</div>
+  {/if}
+  {#if chain.length > 1}
+    <section class="card note no-print" aria-labelledby="rev-h">
+      <h3 id="rev-h">{data.po.revisionOf ? 'Revised at loading' : 'Revisions made at loading'}</h3>
+      <nav class="chain" aria-label="Revisions">
+        {#each chain as c, i (c.id)}
+          {#if i}<span aria-hidden="true">→</span>{/if}
+          {#if c.id === data.po.id}<strong class="mono" aria-current="page">{c.revision ? revTag(c.revision) : 'original'} · {c.ref}</strong>
+          {:else}<a class="mono" href="#/pos/{c.id}">{c.revision ? revTag(c.revision) : 'original'}</a>{/if}
+        {/each}
+      </nav>
+      {#if data.po.revisionOf}
+        {#if data.po.revisionReason}<p class="small">{data.po.revisionReason}</p>{/if}
+        <ul class="small">
+          {#each data.po.changes ?? [] as c}
+            <li>{#if c.kind === 'alternative'}Truck {c.truckNo} · <strong>+{fmtNum(c.loaded)} {pname(c.productId)}</strong> (alternative{#if c.replacesPlanLineId} for {replaced(c.replacesPlanLineId)}{/if})
+              {:else}Truck {c.truckNo} · {pname(c.productId)}: ordered {fmtNum(c.ordered)} → loaded {fmtNum(c.loaded)}{#if c.kind === 'missing'} <Badge tone="warning">missing</Badge>{/if}{/if}</li>
+          {/each}
+        </ul>
+        <p class="caption">Written automatically when the truck was loaded{#if data.po.onBehalfOfId} (recorded by {lookup.user(data.po.onBehalfOfId)?.name ?? 'the loader'}){/if}; no approval needed. Shipments, stock and reports use the latest revision.</p>
+      {/if}
+    </section>
+  {/if}
   <ErrorState error={w.error} onretry={w.retry} compact />
 
-  <article class="letter card">
-    <header class="lh">
-      {#if entity?.code === 'BTW'}
-        <img src={brand.logoFull} alt={entity?.name} class="logo" />
-      {:else}
-        <div class="lh-text"><div class="lh-name">{entity?.name}</div><div class="caption">Letterhead and logo pending from client (Q-B2)</div></div>
-      {/if}
-      <div class="lh-addr small">{entity?.name}<br />{entity?.address}</div>
-    </header>
-    <div class="ribbon"></div>
+  <article class="letter card" style:--co-ink={co?.colors.ink} style:--co-accent={co?.colors.accent}>
+    {#if co?.letterhead.watermark}<img class="wm" src={co.letterhead.watermark} alt="" aria-hidden="true" />{/if}
+    {#if co?.letterhead.header}
+      <img class="lh-band" src={co.letterhead.header} alt="{co.name} letterhead" />
+    {:else}
+      <header class="lh">
+        {#if co?.logo}<img src={co.logo} alt={co.name} class="logo" />{:else}<div class="lh-name">{co?.name ?? entity?.name}</div>{/if}
+        <div class="lh-addr small">{#each co?.address ?? [] as line}{line}<br />{/each}{co?.phones.join(' · ')}<br />{co?.email}</div>
+      </header>
+    {/if}
+    <div class="legal caption">{co?.legal?.legalName ?? co?.name} · KRA PIN {co?.legal?.kraPin ?? 'to confirm'} · Reg. No. {co?.legal?.registrationNo ?? 'to confirm'}</div>
 
     <div class="meta">
       <div>{fmtDate(data.po.date)}</div>
       <div class="to">The Export Section – {supplier?.code},<br />{supplier?.city}, {supplier?.country}</div>
       <div class="re"><strong>Re: {data.po.title || 'Order'} / <span class="mono">{data.po.ref}</span></strong></div>
+      {#if data.po.revisionOf && base}<div class="small"><strong>Revision {data.po.revision} of <span class="mono">{base.ref}</span></strong> — revised at loading; replaces the earlier version.</div>{/if}
       <p>{data.po.instruction}</p>
     </div>
 
@@ -112,23 +151,45 @@
         <div>{prepared?.name}</div>
         <div class="caption">Operations officer</div>
       </div>
+      {#if issued}
+        <div>
+          <div class="overline">Issued by</div>
+          <div>{approver?.name}{#if data.po.approval === 'revision'} (at loading){/if}</div>
+        </div>
+        <div class="stamp issued">
+          <div class="overline">{co?.shortName ?? entity?.code}</div>
+          <div class="small" style="font-weight:700">ISSUED {fmtDate(data.po.approvedAt).toUpperCase()}</div>
+          <div class="caption">by {approver?.name ?? '—'}</div>
+        </div>
+      {:else}
       <div>
         <div class="overline">Approved by</div>
         {#if data.po.signature?.startsWith('data:')}<img class="sig" src={data.po.signature} alt="Signature" />{:else}<div class="sig-ph">{approver?.name}</div>{/if}
         <div>{approver?.name}</div>
       </div>
       <div class="stamp">
-        <div class="overline">{entity?.code}</div>
+        <div class="overline">{co?.shortName ?? entity?.code}</div>
         <div class="small" style="font-weight:700">APPROVED</div>
         <div class="caption">{fmtDate(data.po.approvedAt)}</div>
         <div class="caption">v{data.po.version}</div>
       </div>
+      {/if}
     </footer>
+    {#if co?.letterhead.footer}<img class="lf-band" src={co.letterhead.footer} alt="" aria-hidden="true" />
+    {:else}<div class="lf small">{co?.footerLine}</div>{/if}
   </article>
 {/if}
 
 <style>
-  .letter { max-width: 860px; margin: 0 auto; padding: var(--space-8); display: flex; flex-direction: column; gap: var(--space-5); }
+  /* A letter is paper: always a white A4-proportioned sheet with dark ink, in light and dark mode. */
+  .letter { position: relative; overflow: hidden; max-width: 860px; min-height: calc(860px * 1.414); margin: 0 auto; padding: 0 var(--space-8) var(--space-8); display: flex; flex-direction: column; gap: var(--space-5);
+    background: #fff; color: #1b2433; border-color: #d5dbe5; --text: #1b2433; --text-muted: #4a5568; --text-subtle: #5f6b7a; --border: #d5dbe5; --surface: #fff; --surface-sunken: #f2f4f7; --primary-subtle: #f2f4f7; --primary: #1b2433; }
+  .lh-band { width: calc(100% + 2 * var(--space-8)); margin: 0 calc(-1 * var(--space-8)); display: block; }
+  .lf-band { width: calc(100% + 2 * var(--space-8)); margin: auto calc(-1 * var(--space-8)) calc(-1 * var(--space-8)); display: block; }
+  .lf { margin-top: auto; text-align: center; color: var(--co-ink, #4a5568); border-top: 2px solid var(--co-accent, #ccc); padding-top: var(--space-2); }
+  .wm { position: absolute; inset: 30% 10% auto; width: 80%; opacity: .08; pointer-events: none; }
+  .legal { color: #5f6b7a; margin-top: calc(-1 * var(--space-3)); }
+  .lh { padding-top: var(--space-8); }
   .lh { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); }
   .logo { width: 220px; background: var(--logo-tile); /* logo always on a white tile (Q-B3) */ }
   .lh-name { font-family: var(--ff-display); font-size: var(--fs-h3); font-weight: 800; color: var(--primary); }
@@ -138,14 +199,19 @@
   .sign { display: grid; grid-template-columns: 1fr 1fr auto; gap: var(--space-6); align-items: end; margin-top: var(--space-4); }
   .sig { height: 64px; max-width: 200px; display: block; }
   .sig-ph { font-family: var(--ff-display); font-style: italic; font-size: var(--fs-h3); color: var(--link); height: 64px; display: flex; align-items: flex-end; }
-  .stamp { border: 2px solid var(--accent-text); color: var(--accent-text); border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4); text-align: center; transform: rotate(-4deg); }
-  .stamp .overline, .stamp .caption { color: var(--accent-text); }
+  .stamp { border: 2px solid var(--co-ink, var(--accent-text)); color: var(--co-ink, var(--accent-text)); border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4); text-align: center; transform: rotate(-4deg); }
+  .stamp .overline, .stamp .caption { color: var(--co-ink, var(--accent-text)); }
+  .stamp.issued { transform: none; }
+  .note { margin-bottom: var(--space-4); padding: var(--space-3) var(--space-5); }
+  .note ul { margin: var(--space-2) 0; padding-left: var(--space-5); }
+  .chain { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-top: var(--space-2); }
   @media print {
     @page { size: A4; margin: 18mm 16mm; }
     :global(.side), :global(.top), :global(.ribbon:not(.letter .ribbon)), .no-print { display: none !important; }
     :global(.shell) { display: block !important; }
     :global(.content) { padding: 0 !important; }
     :global(body) { background: var(--surface) !important; }
-    .letter { border: 0; padding: 0; max-width: none; }
+    .letter { border: 0; padding: 0 0 0; max-width: none; min-height: 0; box-shadow: none; }
+    .lh-band, .lf-band { width: 100%; margin-left: 0; margin-right: 0; }
   }
 </style>

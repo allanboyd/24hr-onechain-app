@@ -6,4 +6,7 @@ export const FLOWS = [
   { key: 'D', file: 'd-driver.mjs', app: 'mobile', title: 'Driver app', blurb: 'Map-first, one action: slide to check in at the next checkpoint, undo, report a problem, offline queue.' },
   { key: 'E', file: 'e-giver-receiver.mjs', app: 'mobile', title: 'Loading point & receiver', blurb: 'Hand the truck over at the loading point; receive and sign at Asie/Zonas; send a transfer leg on.' },
   { key: 'F', file: 'f-brand.mjs', app: 'web', title: 'Brand & logo variants', blurb: 'Logo variations for designs, app icons and splash screens. Derived colourways need client approval.' },
+  { key: 'G', file: 'g-reports.mjs', app: 'web', title: 'Dashboard, reports & planning', blurb: 'Director command view; sales, quarterly, logistics, inventory, planning and finance reports; plan or check a period.' },
+  { key: 'H', file: 'h-companies.mjs', app: 'web', title: 'Three companies & group view', blurb: 'BTW Global, Nihna Unique and Kivu: company switcher, per-company branding and letterheads, read-only group view with consolidated reports.' },
+  { key: 'I', file: 'i-planning.mjs', app: 'web', title: 'Period planning & planned vs actual', blurb: 'Period plans with monthly split, approval and amendments; purchase orders checked against the plan; planned vs actual; role-restricted views.' },
 ];

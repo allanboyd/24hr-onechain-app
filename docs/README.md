@@ -12,3 +12,10 @@
 | `03-mvp-plan.md` | Research findings, stack decision, architecture, checkpoint tracking design, offline sync, MVP scope and milestones | Proposal, waiting for sign-off (§9) |
 | `api/openapi.yaml` | API contract (draft) the backend implements and the apps call | Draft |
 | `../apps/web`, `../apps/field` | Clickable prototype: every workflow screen, mock data, no backend | See root `README.md` |
+| `09-plans-po-revisions.md` | Period plans as suggestions (Active / Replaced, no overlaps), PO approval switch in `apps/api/config.toml`, loading allowance and automatic PO revisions | Built (demo) |
+| `10-truck-planner-role.md` | Truck planner role: features, onboarding providers/trucks/drivers, queues, Truck desk, demo logins | Built (demo) |
+| `presentation/build_pptx.py` → `BTW-Platform-Overview.pptx` | Client presentation (`python3 docs/presentation/build_pptx.py`) | Updated 18 Oct 2026 |
+| `architecture/` → `BTW-Platform-Architecture.html/.pdf/.docx` | Architecture & processes pack, 9 pages (`python3 build.py`, `node pdf.mjs`, `python3 build_docx.py`) | v1.1, 18 Oct 2026 |
+
+**Settings:** business switches (PO approval, loading allowance ±%, alternatives, revision suffix) live in `apps/api/config.toml` — see `09-plans-po-revisions.md` §2.
+**Demo logins added 18 Oct:** truck planners `btw-trucks` (+254700000017) and `trucks` (+254700000018), web password `demo1234`. Office staff can also sign in on the phone at `/app/` with their phone number and PIN `1234` (team PWA).

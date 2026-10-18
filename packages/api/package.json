@@ -12,7 +12,9 @@
     "./mock/seed": "./src/mock/seed.ts",
     "./mock/db": "./src/mock/db.ts",
     "./client": "./src/client.ts",
-    "./vite": "./vite.mjs"
+    "./vite": "./vite.mjs",
+    "./reports": "./src/reports.ts",
+    "./trucks": "./src/trucks.ts"
   },
   "sideEffects": [
     "./src/outbox.ts"

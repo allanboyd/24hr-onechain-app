@@ -10,7 +10,7 @@ const ROOT = new URL('..', import.meta.url).pathname;
 const sh = (cmd, opts = {}) => execSync(cmd, { cwd: ROOT, stdio: 'inherit', ...opts });
 const out = (cmd) => execSync(cmd, { cwd: ROOT, encoding: 'utf8' }).trim();
 const step = (s) => console.log(`\n▸ ${s}`);
-const httpEnv = (url) => ({ ...process.env, VITE_API: 'http', VITE_API_URL: url });
+const httpEnv = (url, extra = {}) => ({ ...process.env, VITE_API: 'http', VITE_API_URL: url, VITE_DEMO: process.env.VITE_DEMO ?? '1', ...extra });
 
 step('Database + email inbox (docker compose)');
 sh('docker compose up -d --wait db mail');
@@ -53,7 +53,7 @@ if (mode === 'start') {
 } else {
   step('API (watch) + web + field (hot reload, live API)');
   run('api', 'pnpm', ['--filter', '@btw/server', 'dev'], { ...process.env, SERVE_APPS: '0' });
-  run('web', 'pnpm', ['--filter', '@btw/web', 'exec', 'vite', '--port', '5173', '--strictPort'], httpEnv('/v1'));
+  run('web', 'pnpm', ['--filter', '@btw/web', 'exec', 'vite', '--port', '5173', '--strictPort'], httpEnv('/v1', { VITE_FIELD_URL: 'http://localhost:5174/' }));
   run('field', 'pnpm', ['--filter', '@btw/field', 'exec', 'vite', '--port', '5174', '--strictPort'], httpEnv('/v1'));
   setTimeout(() => console.log(`
   Web http://localhost:5173 · Field http://localhost:5174 · API http://localhost:3101/v1 · Inbox http://localhost:18025`), 6000);

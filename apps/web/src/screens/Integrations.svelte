@@ -21,12 +21,12 @@
   const unavailable = $derived(!!w.error && isNotAvailable(w.error));
 
   const drivers = r.drivers;
-  let from = $state(drivers[0]?.phone ?? '+254711000001');
-  let text = $state('ARR MALABA KDA123A');
+  let from = $state(drivers[0]?.phone ?? '+254702750019');
+  let text = $state('ARR MALABA KBV894T');
   let reply = $state('');
   let sendError = $state('');
   let sending = $state(false);
-  const examples = ['ARR MALABA KDA123A', 'DEP MALABA KDA123A', 'FIX KDA123A', 'OFF KDA123A'];
+  const examples = ['ARR MALABA KBV894T', 'DEP MALABA KBV894T', 'FIX KBV894T', 'OFF KBV894T'];
   async function send(e: Event) {
     e.preventDefault(); sending = true; reply = ''; sendError = '';
     try { const r = await integrations.smsInbound(from, text); reply = r.reply || (r.ok ? 'Accepted.' : 'Not applied.'); w.retry(); }

@@ -1,18 +1,24 @@
 <script lang="ts">
+  import { destinationLabel } from '../lib/planning';
+  import CompanyCell from '../components/CompanyCell.svelte';
   import { watch } from '../lib/load.svelte';
   import ErrorState from '../components/ErrorState.svelte';
   import { analytics, inventory, lookup, ref, type StockRow, type User, type VelocityRow } from '@btw/api';
   import { Badge, fmtDateTime, fmtMoney, fmtNum } from '@btw/ui';
   import ExportMenu from '../components/ExportMenu.svelte';
+  import PageTabs from '../components/PageTabs.svelte';
+  import InventoryOverview from '../components/overview/InventoryOverview.svelte';
+  import { currentTab, qp } from '../lib/tab';
   let { user }: { params?: any; user: User } = $props();
   const r = ref();
   const scoped = $derived(user.roles.includes('director') || !user.warehouseIds.length ? null : user.warehouseIds);
   const warehouses = $derived(r.warehouses.filter((w) => !scoped || scoped.includes(w.id)));
   let rows = $state<StockRow[] | null>(null);
   let vel = $state<VelocityRow[]>([]);
-  let wh = $state('');
-  let q = $state('');
-  let level = $state('');
+  const tab = currentTab();
+  let wh = $state(qp('wh'));
+  let q = $state(qp('q'));
+  let level = $state(qp('level'));
   let ledger = $state<Awaited<ReturnType<typeof inventory.ledger>>>([]);
   let sel = $state<StockRow | null>(null);
   let dialog = $state<HTMLDialogElement>();
@@ -44,7 +50,13 @@
   <ExportMenu name="inventory" rows={exportRows} />
 </div>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
+<PageTabs base="/inventory" current={tab} listLabel="Stock list" />
 
+{#if tab === 'overview'}
+  {#if !rows}<div class="tiles">{#each Array(4) as _}<div class="card"><div class="skeleton" style="height:56px"></div></div>{/each}</div>
+  {:else if !rows.length}<div class="card empty">No stock recorded yet.</div>
+  {:else}<InventoryOverview rows={rows.filter((x) => !scoped || scoped.includes(x.warehouseId))} {vel} {levelOf} {cover} thresholds={t} />{/if}
+{:else}
 <div class="grid grid-kpi" style="margin-bottom:var(--space-4)">
   <div class="card kpi"><div class="overline">Closing stock</div><div class="value">{fmtNum(sum('closing'))}</div><div class="delta">cases on hand</div></div>
   <div class="card kpi"><div class="overline">In transit</div><div class="value">{fmtNum(sum('inTransit'))}</div><div class="delta">loaded, not yet acknowledged</div></div>
@@ -53,7 +65,7 @@
 </div>
 
 <div class="filters">
-  <label class="field"><span>Warehouse</span><select class="select" bind:value={wh}><option value="">All{scoped ? ' (my warehouses)' : ''}</option>{#each warehouses as w}<option value={w.id}>{w.name}</option>{/each}</select></label>
+  <label class="field"><span>Warehouse</span><select class="select" bind:value={wh}><option value="">All{scoped ? ' (my warehouses)' : ''}</option>{#each warehouses as w}<option value={w.id}>{destinationLabel(w.id)}</option>{/each}</select></label>
   <label class="field"><span>Stock level</span><select class="select" bind:value={level}><option value="">All</option><option>Low</option><option>Overstock</option><option>Out of stock</option><option>OK</option></select></label>
   <label class="field"><span>Search SKU</span><input class="input" type="search" bind:value={q} placeholder="Brand, package or SKU code" /></label>
   {#if wh || level || q}<button class="btn btn-ghost" onclick={() => { wh = ''; level = ''; q = ''; }}>Clear</button>{/if}
@@ -61,13 +73,14 @@
 
 <div class="card flush table-wrap">
   <table class="table">
-    <thead><tr><th>Warehouse</th><th>Brand · Package</th>{#each cols as [, l]}<th class="num">{l}</th>{/each}<th class="num">In transit</th><th class="num">Cover</th><th>Level</th><th class="num">Landed / case (USD)</th><th class="num">Value (USD)</th></tr></thead>
+    <thead><tr><CompanyCell head /><th>Warehouse</th><th>Brand · Package</th>{#each cols as [, l]}<th class="num">{l}</th>{/each}<th class="num">In transit</th><th class="num">Cover</th><th>Level</th><th class="num">Landed / case (USD)</th><th class="num">Value (USD)</th></tr></thead>
     <tbody>
       {#if !rows}{#each Array(4) as _}<tr><td colspan="15"><div class="skeleton"></div></td></tr>{/each}{/if}
       {#each shown as x (x.warehouseId + x.productId)}
         {@const lv = levelOf(x)}
         <tr class="clickable" onclick={() => open(x)} tabindex="0" onkeydown={(e) => e.key === 'Enter' && open(x)}>
-          <td>{lookup.warehouse(x.warehouseId)?.name}</td>
+          <CompanyCell entityId={x.entityId} />
+          <td>{destinationLabel(x.warehouseId)}</td>
           <td><span style="white-space:nowrap">{lookup.product(x.productId)?.brand}</span> <span class="muted small" style="white-space:nowrap">{lookup.product(x.productId)?.pack}</span></td>
           {#each cols as [k]}<td class="num" class:accent-text={k === 'damaged' && x.damaged > 0} style:font-weight={k === 'closing' ? 700 : null}>{fmtNum(x[k] as number)}</td>{/each}
           <td class="num muted">{x.inTransit ? fmtNum(x.inTransit) : '—'}</td>
@@ -84,11 +97,12 @@
   </table>
 </div>
 <p class="caption" style="margin-top:var(--space-2)">Click a row for the stock ledger (IN-02). Cover = closing stock ÷ average daily sales (30 days). Transfers and stock take (IN-03/04) arrive in the follow-on release.</p>
+{/if}
 
 <dialog class="sheet" bind:this={dialog} style="width:min(720px,calc(100vw - 32px))">
   <div class="body stack">
     {#if sel}
-      <div class="row between"><div><div class="overline">Stock ledger (IN-02)</div><h3>{lookup.product(sel.productId)?.brand} · {lookup.product(sel.productId)?.pack}</h3><div class="muted small">{lookup.warehouse(sel.warehouseId)?.name} · closing {fmtNum(sel.closing)} cases · {fmtNum(sel.inTransit)} in transit</div></div><button class="btn btn-ghost" onclick={() => dialog?.close()}>Close</button></div>
+      <div class="row between"><div><div class="overline">Stock ledger (IN-02)</div><h3>{lookup.product(sel.productId)?.brand} · {lookup.product(sel.productId)?.pack}</h3><div class="muted small">{destinationLabel(sel.warehouseId)} · closing {fmtNum(sel.closing)} cases · {fmtNum(sel.inTransit)} in transit</div></div><button class="btn btn-ghost" onclick={() => dialog?.close()}>Close</button></div>
       <div class="table-wrap" style="max-height:60vh;overflow:auto"><table class="table">
         <thead><tr><th>Date</th><th>Movement</th><th>Reference</th><th class="num">Cases</th></tr></thead>
         <tbody>

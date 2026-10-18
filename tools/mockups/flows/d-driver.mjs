@@ -6,7 +6,7 @@ const out = process.argv[2];
 // Sign in: phone → PIN
 let s = await open({ app: 'field', user: '', outDir: out });
 await shot(s, 'D01-field-login-phone', 'Sign in · phone number', 'Bolt-style two-step sign-in: phone number first; demo accounts listed (PIN 1234). Native build adds biometric unlock (MA-08).');
-await s.page.getByRole('button', { name: /Peter Otieno/ }).click(); await wait(s);
+await s.page.getByRole('button', { name: /Mawazi K/ }).click(); await wait(s);
 for (const d of ['1', '2', '3']) await s.page.getByRole('button', { name: d, exact: true }).click();
 await shot(s, 'D02-field-login-pin', 'Sign in · 4-digit PIN', 'Big PIN pad, one-handed. Wrong PIN shakes and clears; the role decides which single screen opens next.');
 await s.page.getByRole('button', { name: '4', exact: true }).click(); await wait(s, 2500);

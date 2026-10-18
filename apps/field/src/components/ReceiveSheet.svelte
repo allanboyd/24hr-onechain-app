@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CompanyChip from './CompanyChip.svelte';
   import { untrack } from 'svelte';
   // Receive (AK-01..05, MA-03): one tap when everything is fine; otherwise adjust per brand. Then photo, name, signature, slide.
   import { lookup, type Leg, type User } from '@btw/api';
@@ -10,7 +11,7 @@
   import SlideToConfirm from './SlideToConfirm.svelte';
   import CheckCircle from '@lucide/svelte/icons/circle-check';
   type Line = { productId: string; expected: number; received: number; damaged: number; remarks: string };
-  let { leg, user, isFinal, onsubmit, onclose }: { leg: Leg; user: User; isFinal: boolean; onsubmit: (d: { lines: Line[]; receiverName: string; signature: string; photos: string[] }) => Promise<void>; onclose: () => void } = $props();
+  let { entityId, leg, user, isFinal, onsubmit, onclose }: { entityId?: string; leg: Leg; user: User; isFinal: boolean; onsubmit: (d: { lines: Line[]; receiverName: string; signature: string; photos: string[] }) => Promise<void>; onclose: () => void } = $props();
   let step = $state<'check' | 'adjust' | 'sign'>('check');
   let lines = $state<Line[]>(untrack(() => leg.lines.map((l) => ({ productId: l.productId, expected: l.loadedQty, received: l.loadedQty, damaged: 0, remarks: '' }))));
   let photos = $state<string[]>([]);
@@ -35,6 +36,7 @@
   }
 </script>
 <Sheet modal title={step === 'sign' ? 'Confirm & sign' : `Receive ${truck?.reg}`} {onclose}>
+  <CompanyChip {entityId} big />
   {#if step === 'check'}
     <p class="subline">{cases(expected)} expected at {cpShort(leg.toId)}. Count them, then:</p>
     <ul class="cargo">{#each lines as l}{@const p = lookup.product(l.productId)}<li><span>{p?.brand} <span class="caption">{p?.pack}</span></span><strong>{l.expected}</strong></li>{/each}</ul>
@@ -57,7 +59,7 @@
     <div class="summary" class:issue>
       <strong>{cases(good)} in good condition</strong>
       <span class="caption">{issue ? `${expected - good} short or damaged — the office will get a discrepancy report` : 'Matches what was loaded'}</span>
-      <span class="caption">{isFinal ? 'Goes into stock now' : 'Transfer point: goods continue on the next truck'}</span>
+      <span class="caption">{isFinal ? 'Goes into stock now' : 'Goes into stock here · sent on later as a new shipment'}</span>
     </div>
     {#if !issue}<label class="field"><span>Photo (optional)</span><PhotoInput bind:names={photos} label="Add photo" /></label>{/if}
     <label class="field"><span>Your name</span><input class="input" bind:value={name} autocomplete="name" placeholder={user.name} /></label>

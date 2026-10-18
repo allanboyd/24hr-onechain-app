@@ -1,12 +1,16 @@
 <script lang="ts">
+  import RecordFor from '../components/RecordFor.svelte';
   import { watch } from '../lib/load.svelte';
   import ErrorState from '../components/ErrorState.svelte';
   import { amount, lookup, plans, ref, type Plan, type PlanLine, type User } from '@btw/api';
-  import { Badge, SignaturePad, fmtDate, fmtDateTime, fmtMoney, fmtNum, say } from '@btw/ui';
+  import { Badge, SignaturePad, fmtDate, fmtDateTime, fmtMoney, fmtNum, router, say } from '@btw/ui';
+  import { labelTone, planLabel, poApprovals } from '../lib/orders';
   import Trash from '@lucide/svelte/icons/trash-2';
   import Plus from '@lucide/svelte/icons/plus';
   import Layers from '@lucide/svelte/icons/layers';
   import CircleAlert from '@lucide/svelte/icons/circle-alert';
+  import { planContext, type LineContext } from '../lib/planning';
+  import ProductPicker from '../components/ProductPicker.svelte';
   let { params, user }: { params: { id: string }; user: User } = $props();
 
   const r = ref();
@@ -21,8 +25,11 @@
 
   const w = watch(async () => { if (!dirty) plan = await plans.get(params.id); });
 
-  const editable = $derived(!!plan && (plan.status === 'Draft' || plan.status === 'Returned') && user.roles.includes('planner'));
-  const canDecide = $derived(!!plan && plan.status === 'Submitted' && user.roles.includes('director'));
+  // config.toml [approvals] purchase_orders: true = director approves; false = the planner issues the PO directly
+  const approvals = poApprovals();
+  const editor = $derived(user.roles.some((r) => r === 'planner' || r === 'director' || r === 'admin'));
+  const editable = $derived(!!plan && (plan.status === 'Draft' || plan.status === 'Returned' || (!approvals && plan.status === 'Submitted')) && editor);
+  const canDecide = $derived(approvals && !!plan && plan.status === 'Submitted' && user.roles.includes('director'));
   const supplier = $derived(plan ? lookup.supplier(plan.supplierId) : undefined);
   const products = $derived(plan ? r.products.filter((p) => p.supplierId === plan!.supplierId) : []);
   // Only routes that start at this supplier's loading point (§17.2 lanes)
@@ -53,6 +60,39 @@
     return out;
   });
   const span = $derived(editable ? 3 : 2);
+
+  // PO-06..08: every line against the approved period plan. The server stamps the plan link on save;
+  // "this PO" and the over-plan check follow the unsaved edits live.
+  type XLine = PlanLine & { exceptionReason?: string };
+  let ctx = $state<LineContext[]>([]);
+  async function loadCtx() { if (plan?.id) ctx = await planContext(plan.id).catch(() => []); }
+  $effect(() => { if (plan?.id && !dirty) loadCtx(); });
+  /** One row per brand · package: planned, ordered on other POs, this PO, remaining after it, and the mark. */
+  const vsPlan = $derived.by(() => {
+    const m = new Map<string, { productId: string; planRef?: string; planned: number; before: number; thisPo: number; remaining: number; known: boolean; exception?: 'over' | 'unplanned'; reason: string }>();
+    for (const l of plan?.lines ?? []) {
+      const c = ctx.find((x) => x.lineId === l.id) ?? ctx.find((x) => plan!.lines.find((y) => y.id === x.lineId)?.productId === l.productId);
+      const row = m.get(l.productId) ?? { productId: l.productId, planRef: c?.periodPlanRef, planned: c?.planned ?? 0, before: 0, thisPo: 0, remaining: 0, known: !!c, reason: '' };
+      if (c && !m.has(l.productId)) {
+        // orderedBefore on the first line of a product = cases on other POs (later lines also include earlier lines of this PO)
+        const first = ctx.filter((x) => plan!.lines.find((y) => y.id === x.lineId)?.productId === l.productId).sort((a, b) => a.orderedBefore - b.orderedBefore)[0];
+        row.before = first?.orderedBefore ?? 0;
+      }
+      row.thisPo += l.qty;
+      if ((l as XLine).exceptionReason) row.reason = (l as XLine).exceptionReason!;
+      m.set(l.productId, row);
+    }
+    for (const r of m.values()) {
+      r.remaining = r.planned - r.before - r.thisPo;
+      r.exception = !r.known ? undefined : !r.planned ? 'unplanned' : r.remaining < 0 ? 'over' : undefined;
+    }
+    return [...m.values()];
+  });
+  const exceptions = $derived(vsPlan.filter((r) => r.exception));
+  function setReason(productId: string, reason: string) {
+    for (const l of plan!.lines) if (l.productId === productId) (l as XLine).exceptionReason = reason;
+    dirty = true;
+  }
   const lastComment = $derived(plan?.history.findLast((h) => h.action === 'returned' || h.action === 'rejected'));
 
   // Delivered-to follows the route's destination warehouse (§17.7); planner can still change it.
@@ -78,15 +118,22 @@
   function changeProduct(l: PlanLine) { l.price = lookup.price(l.productId); dirty = true; }
   function changeRoute(l: PlanLine) { l.deliveredToId = companyForRoute(l.routeId) ?? l.deliveredToId; dirty = true; }
   async function save(quiet = false) {
-    try { plan = await plans.save($state.snapshot(plan!) as Plan); dirty = false; if (!quiet) say('Draft saved'); return true; }
+    try { plan = await plans.save($state.snapshot(plan!) as Plan); dirty = false; await loadCtx(); if (!quiet) say('Draft saved'); return true; }
     catch (e) { say((e as Error).message); return false; }
   }
+  /** Approvals on: send to the director. Off: issue the PO at once and open it. The period plan never blocks either. */
   async function submit() {
     tried = true;
-    if (problems.length) return say('Fix the highlighted items before submitting');
-    try { if (dirty && !(await save(true))) return; plan = await plans.submit(plan!.id); say('Submitted — directors have been notified (PL-05)'); }
+    if (problems.length) return say(`Fix the highlighted items before ${approvals ? 'submitting' : 'issuing'}`);
+    try {
+      if (dirty && !(await save(true))) return;
+      plan = await plans.submit(plan!.id);
+      if (!approvals && plan.poId) { say(`Purchase order ${plan.ref} issued`); router.go(`/pos/${plan.poId}`); }
+      else say('Submitted — directors have been notified (PL-05)');
+    }
     catch (e) { say((e as Error).message); }
   }
+  const HISTORY: Record<string, string> = { issued: 'Issued (no approval needed)', revised: 'Revised at loading', submitted: 'Submitted', approved: 'Approved', returned: 'Returned', rejected: 'Rejected', amended: 'Amended' };
   function openDecision(d: typeof decision) { decision = d; comment = ''; signature = ''; dialog?.showModal(); }
   async function decide() {
     if (decision === 'approved' && !signature) return say('Signature required to approve (PL-03)');
@@ -101,25 +148,27 @@
 {:else if plan === undefined}
   <div class="stack"><div class="skeleton" style="height:40px;width:40%"></div><div class="skeleton" style="height:160px"></div><div class="skeleton" style="height:240px"></div></div>
 {:else if plan === null}
-  <div class="empty"><h2>Plan not found</h2><a href="#/plans">Back to plans</a></div>
+  <div class="empty"><h2>Purchase order draft not found</h2><a href="#/plans">Back to PO drafts</a></div>
 {:else}
   <div class="page-head">
     <div>
-      <div class="overline crumb"><a href="#/plans">Plans</a> / {lookup.entity(plan.entityId)?.code}</div>
-      <h1 class="row"><span class="mono">{plan.ref}</span> <Badge status={plan.status} />{#if plan.version > 1}<Badge tone="neutral">v{plan.version}</Badge>{/if}</h1>
+      <div class="overline crumb"><a href="#/plans">PO drafts</a> / {lookup.entity(plan.entityId)?.code}</div>
+      <h1 class="row"><span class="mono">{plan.ref}</span> <Badge tone={labelTone(planLabel(plan))}>{planLabel(plan)}</Badge>{#if plan.version > 1}<Badge tone="neutral">v{plan.version}</Badge>{/if}</h1>
     </div>
     <div class="row">
       {#if editable}
         <button class="btn btn-secondary" onclick={() => save()} disabled={!dirty}>{dirty ? 'Save draft' : 'Saved'}</button>
-        <button class="btn btn-primary" onclick={submit}>Submit for approval</button>
+        <RecordFor entityId={plan.entityId} cue={false}><button class="btn btn-primary" onclick={submit}>{approvals ? 'Submit for approval' : 'Issue purchase order'}</button></RecordFor>
       {/if}
       {#if canDecide}
-        <button class="btn btn-secondary" onclick={() => openDecision('returned')}>Return</button>
-        <button class="btn btn-danger" onclick={() => openDecision('rejected')}>Reject</button>
-        <button class="btn btn-accent" onclick={() => openDecision('approved')}>Approve & sign</button>
+        <RecordFor entityId={plan.entityId} cue={false}>
+          <button class="btn btn-secondary" onclick={() => openDecision('returned')}>Return</button>
+          <button class="btn btn-danger" onclick={() => openDecision('rejected')}>Reject</button>
+          <button class="btn btn-accent" onclick={() => openDecision('approved')}>Approve & sign</button>
+        </RecordFor>
       {/if}
       {#if plan.poId}
-        <button class="btn btn-secondary" onclick={() => say('Amendment = new version with reason + director approval; v1 stays in history (PL-04) — next iteration')}>Amend</button>
+        {#if !plan.supersededById}<button class="btn btn-secondary" onclick={() => say('Amendment = new version with reason + director approval; v1 stays in history (PL-04) — next iteration')}>Amend</button>{/if}
         <a class="btn btn-primary" href="#/pos/{plan.poId}">View purchase order</a>
       {/if}
     </div>
@@ -131,12 +180,14 @@
       {#if lastComment.comment}<div>“{lastComment.comment}”</div>{/if}
     </div>
   {/if}
-  {#if plan.status === 'Approved'}
-    <div class="card flag-info note small">Approved plans are locked (PL-03). Changes go through a versioned amendment with a reason and director approval (PL-04).</div>
+  {#if plan.supersededById}
+    <div class="card flag-info note small">This order was revised at loading — the latest revision is the PO in force. <a href="#/pos/{plan.poId}">Open the purchase order</a> to see the revisions.</div>
+  {:else if plan.status === 'Approved'}
+    <div class="card flag-info note small">{planLabel(plan)} orders are locked (PL-03). Changes go through a versioned amendment with a reason{approvals ? ' and director approval' : ''} (PL-04).</div>
   {/if}
   {#if tried && problems.length}
     <div class="card flag-danger note" role="alert">
-      <div class="row" style="gap:var(--space-2)"><CircleAlert size={18} /><strong>Before submitting</strong></div>
+      <div class="row" style="gap:var(--space-2)"><CircleAlert size={18} /><strong>Before {approvals ? 'submitting' : 'issuing'}</strong></div>
       <ul>{#each problems as p}<li>{p}</li>{/each}</ul>
     </div>
   {/if}
@@ -184,7 +235,7 @@
           {#each lines as l, i (l.id)}
             <tr class:first={i === 0}>
               <td class="num">{#if i === 0}<strong>{no}</strong>{/if}</td>
-              <td>{#if editable}<select class="select" aria-label="Brand and package, truck {no}" bind:value={l.productId} onchange={() => changeProduct(l)}>{#each products as p}<option value={p.id}>{p.brand} · {p.pack}</option>{/each}</select>
+              <td>{#if editable}<ProductPicker products={products} bind:value={l.productId} label="Brand and package, truck {no}" onchange={() => changeProduct(l)} />
                 {:else}{lookup.product(l.productId)?.brand} · {lookup.product(l.productId)?.pack}{/if}</td>
               <td>{#if editable}<select class="select" aria-label="Route, truck {no}" bind:value={l.routeId} onchange={() => changeRoute(l)}>{#each routes as rt}<option value={rt.id}>{rt.name}</option>{/each}</select>
                 {:else}<span class="small">{lookup.route(l.routeId)?.name}</span><div class="caption">→ {lookup.company(l.deliveredToId)?.name}</div>{/if}</td>
@@ -214,20 +265,44 @@
     {#if editable}<p class="caption foot">Prices come from the supplier price list (MD-04) and can only be changed by permitted users. Amount = quantity × price and is never typed.</p>{/if}
   </section>
 
+  <section class="card flush" style="margin-top:var(--space-4)" aria-labelledby="vsplan-h">
+    <header><div><h3 id="vsplan-h">Against the period plan</h3><div class="caption">For information only — the period plan is a suggestion and never blocks this order. Planned, already ordered on other POs, this PO and what remains (PO-06); an optional note can explain lines over plan or not in the plan.</div></div>
+      {#if exceptions.length}<Badge tone="info">{exceptions.length} outside the plan</Badge>{:else if vsPlan.length}<Badge tone="success">Within plan</Badge>{/if}</header>
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>Brand · Package</th><th>Period plan</th><th class="num">Planned</th><th class="num">Already ordered</th><th class="num">This PO</th><th class="num">Remaining</th><th>Mark</th><th>Note (optional)</th></tr></thead>
+      <tbody>
+        {#each vsPlan as r (r.productId)}
+          <tr>
+            <td>{lookup.product(r.productId)?.brand} · {lookup.product(r.productId)?.pack}</td>
+            <td class="small">{#if r.planRef}<span class="mono">{r.planRef}</span>{:else}<span class="muted">none</span>{/if}</td>
+            <td class="num">{r.planned ? fmtNum(r.planned) : '—'}</td>
+            <td class="num">{r.planned ? fmtNum(r.before) : '—'}</td>
+            <td class="num"><strong>{fmtNum(r.thisPo)}</strong></td>
+            <td class="num" class:neg={r.remaining < 0}>{r.planned ? fmtNum(r.remaining) : '—'}</td>
+            <td>{#if !r.known}<span class="caption">Save to check</span>{:else if r.exception === 'over'}<Badge tone="danger">Over plan</Badge>{:else if r.exception === 'unplanned'}<Badge tone="info">Unplanned</Badge>{:else}<Badge tone="success">On plan</Badge>{/if}</td>
+            <td>{#if r.exception}
+              {#if editable}<input class="input reason" aria-label="Reason for {lookup.product(r.productId)?.brand}" value={r.reason} oninput={(e) => setReason(r.productId, (e.target as HTMLInputElement).value)} placeholder="Optional note" />
+              {:else}<span class="small">{r.reason || '—'}</span>{/if}{/if}</td>
+          </tr>
+        {:else}<tr><td colspan="8" class="empty small">Add lines to compare them with the period plan.</td></tr>{/each}
+      </tbody>
+    </table></div>
+  </section>
+
   <section class="card" style="margin-top:var(--space-4)">
-    <div class="overline" style="margin-bottom:var(--space-3)">Approval history</div>
+    <div class="overline" style="margin-bottom:var(--space-3)">{approvals ? 'Approval history' : 'History'}</div>
     <ol class="timeline">
       <li class="done"><span class="dot"></span><div><div style="font-weight:600">Created</div><div class="caption">{lookup.user(plan.createdById)?.name} · {fmtDate(plan.date)}</div></div><span></span></li>
       {#each plan.history as h}
         <li class="done"><span class="dot"></span><div>
-          <div style="font-weight:600;text-transform:capitalize">{h.action}</div>
+          <div style="font-weight:600">{HISTORY[h.action] ?? h.action}</div>
           <div class="caption">{lookup.user(h.byUserId)?.name} · {fmtDateTime(h.at)}</div>
           {#if h.comment}<div class="small">“{h.comment}”</div>{/if}
           {#if h.signature}<div class="sigrow">{#if h.signature.startsWith('data:')}<img src={h.signature} alt="Signature of {lookup.user(h.byUserId)?.name}" />{/if}<span class="caption">E-signature and date stamp applied</span></div>{/if}
         </div><span></span></li>
       {/each}
-      {#if plan.status === 'Draft'}<li><span class="dot"></span><div><div style="font-weight:600">Waiting for submission</div><div class="caption">Directors are notified when you submit</div></div><span></span></li>{/if}
-      {#if plan.status === 'Submitted'}<li class="here"><span class="dot"></span><div><div style="font-weight:600">Waiting for director decision</div><div class="caption">Approve, return or reject — on web or in the app</div></div><span></span></li>{/if}
+      {#if plan.status === 'Draft'}<li><span class="dot"></span><div><div style="font-weight:600">{approvals ? 'Waiting for submission' : 'Not yet issued'}</div><div class="caption">{approvals ? 'Directors are notified when you submit' : 'Issue the purchase order when the lines are ready'}</div></div><span></span></li>{/if}
+      {#if approvals && plan.status === 'Submitted'}<li class="here"><span class="dot"></span><div><div style="font-weight:600">Waiting for director decision</div><div class="caption">Approve, return or reject — on web or in the app</div></div><span></span></li>{/if}
     </ol>
   </section>
 
@@ -235,6 +310,12 @@
     <div class="body stack">
       <h3 id="dec-title">{decision === 'approved' ? 'Approve & sign' : decision === 'returned' ? 'Return to planner' : 'Reject plan'}</h3>
       <p class="muted small"><span class="mono">{plan.ref}</span> · {plan.title} · {trucks.length} trucks · {fmtNum(totalQty)} cases · <strong>{fmtMoney(totalAmt, plan.currency)}</strong></p>
+      {#if exceptions.length}
+        <div class="card flag-warning marks" role="note">
+          <strong>Against the period plan</strong>
+          <ul>{#each exceptions as r}<li><Badge tone={r.exception === 'over' ? 'danger' : 'info'}>{r.exception === 'over' ? 'Over plan' : 'Unplanned'}</Badge> {lookup.product(r.productId)?.brand} · {lookup.product(r.productId)?.pack}: {fmtNum(r.thisPo)} cases{#if r.exception === 'over'} ({fmtNum(-r.remaining)} above the plan){/if} — “{r.reason || 'no reason given'}”</li>{/each}</ul>
+        </div>
+      {:else if vsPlan.length}<p class="small"><Badge tone="success">Within plan</Badge> Every line is covered by the approved period plan.</p>{/if}
       {#if decision === 'approved'}
         <SignaturePad bind:value={signature} />
         <p class="caption">Your signature and today's date stamp go on the purchase order. The plan is then locked and the PO is generated (PL-03, PO-01).</p>
@@ -255,6 +336,9 @@
   .lines:not(.editing) th { white-space: normal; }
   .ro { min-height: var(--control-md); display: flex; align-items: center; }
   .note { margin-bottom: var(--space-4); padding: var(--space-3) var(--space-5); }
+  .reason { min-width: 200px; }
+  .neg { color: var(--danger); font-weight: 600; }
+  .marks { padding: var(--space-3) var(--space-4); } .marks ul { margin: var(--space-2) 0 0; padding-left: var(--space-4); display: flex; flex-direction: column; gap: var(--space-1); }
   .note ul { margin: var(--space-2) 0 0; padding-left: var(--space-5); }
   .lines.editing .select { min-width: 100px; }
   .lines.editing td:nth-child(2) .select { min-width: 190px; }

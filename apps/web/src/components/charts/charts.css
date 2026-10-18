@@ -1,0 +1,48 @@
+/* Chart kit palette. Categorical order validated with the dataviz validator against the app surfaces
+   (light #FFFFFF, dark #102037): all hard gates pass; slots 3–5 sit below 3:1 in light mode, so every
+   chart ships its "view data" table and selective direct labels (relief rule). Never cycle past 8 —
+   fold extra categories into "Other". */
+:root {
+  --viz-1: #2a5fa8; --viz-2: #e0601c; --viz-3: #1baf7a; --viz-4: #eda100;
+  --viz-5: #e87ba4; --viz-6: #008300; --viz-7: #4a3aa7; --viz-8: #e34948;
+  --viz-other: #8593a8;
+  --viz-grid: #e2e7ef; --viz-axis: #a3b1c6;
+  /* sequential (magnitude): one hue, light → dark */
+  --seq-1: #e8eff9; --seq-2: #cde2fb; --seq-3: #9ec5f4; --seq-4: #6da7ec; --seq-5: #3987e5; --seq-6: #256abf; --seq-7: #184f95;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500;
+    --viz-5: #d55181; --viz-6: #1a9a1a; --viz-7: #9085e9; --viz-8: #e66767;
+    --viz-other: #66768c; --viz-grid: #1b2e4a; --viz-axis: #33435a;
+    --seq-1: #15294a; --seq-2: #184f95; --seq-3: #1c5cab; --seq-4: #256abf; --seq-5: #2a78d6; --seq-6: #5598e7; --seq-7: #9ec5f4;
+  }
+}
+:root[data-theme="dark"] {
+  --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500;
+  --viz-5: #d55181; --viz-6: #1a9a1a; --viz-7: #9085e9; --viz-8: #e66767;
+  --viz-other: #66768c; --viz-grid: #1b2e4a; --viz-axis: #33435a;
+  --seq-1: #15294a; --seq-2: #184f95; --seq-3: #1c5cab; --seq-4: #256abf; --seq-5: #2a78d6; --seq-6: #5598e7; --seq-7: #9ec5f4;
+}
+
+/* shared chart chrome */
+.viz { position: relative; width: 100%; min-width: 0; }
+.viz svg { display: block; overflow: visible; }
+.viz text { font-family: var(--ff-body); font-size: 11px; fill: var(--text-muted); font-variant-numeric: tabular-nums; }
+.viz .grid line { stroke: var(--viz-grid); stroke-width: 1; shape-rendering: crispEdges; }
+.viz .base { stroke: var(--viz-axis); stroke-width: 1; shape-rendering: crispEdges; }
+.viz:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-sm); }
+.viz-tip { position: absolute; z-index: 20; pointer-events: none; background: var(--surface-raised); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--elevation-2); padding: 6px 8px; font-size: 12px; line-height: 1.35; min-width: 120px; transform: translate(-50%, calc(-100% - 10px)); white-space: nowrap; }
+.viz-tip .t { color: var(--text-muted); font-size: 11px; margin-bottom: 2px; }
+.viz-tip .r { display: flex; align-items: center; gap: 6px; }
+.viz-tip .r b { font-variant-numeric: tabular-nums; }
+.viz-tip .r span { color: var(--text-muted); }
+.viz-key { display: inline-block; width: 12px; height: 3px; border-radius: 2px; flex: none; }
+.viz-key.rect { width: 10px; height: 10px; border-radius: 2px; }
+.viz-key.dash { background: none !important; border-top: 2px dashed currentColor; height: 0; }
+@media (forced-colors: active) { .viz .mark { forced-color-adjust: none; } }
+/* page layout helpers for overview tabs */
+.charts-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); margin-top: var(--space-4); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--space-3); }
+@media (max-width: 1100px) { .charts-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 480px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

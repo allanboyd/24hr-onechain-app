@@ -41,9 +41,11 @@ export const FIELD_ROLES: { role: Role; label: string; hint: string }[] = [
   { role: 'driver', label: 'Driver', hint: 'Checks in at checkpoints on the field app' },
   { role: 'receiver', label: 'Receiver', hint: 'Counts and signs for deliveries at a warehouse' },
 ];
-export const OFFICE_ROLES: { role: Role; label: string }[] = [
+export const OFFICE_ROLES: { role: Role; label: string; hint?: string }[] = [
   { role: 'director', label: 'Director' }, { role: 'planner', label: 'Planner' }, { role: 'operations', label: 'Operations' },
-  { role: 'fleet', label: 'Fleet follow-up' }, { role: 'accounts', label: 'Accounts' }, { role: 'sales', label: 'Sales' }, { role: 'admin', label: 'Administrator' },
+  { role: 'fleet', label: 'Fleet follow-up' },
+  { role: 'truck_planner', label: 'Truck planner', hint: 'Onboards transport providers and trucks, runs the loading queues, follows trucks and their costs' },
+  { role: 'accounts', label: 'Accounts' }, { role: 'sales', label: 'Sales' }, { role: 'admin', label: 'Administrator' },
 ];
 
 // ---------------- integrations (dev endpoints, non-production servers only) ----------------
@@ -66,7 +68,7 @@ export const integrations = {
       return { name: LABEL[k] ?? k, mode: standIn ? 'stand-in' : 'real', detail: v.replace(/^stand-?in:\s*/i, ''), inspectUrl };
     });
   },
-  /** Simulate a driver texting the shortcode (e.g. "ARR MALABA KDA123A"). */
+  /** Simulate a driver texting the shortcode (e.g. "ARR MALABA KBV894T"). */
   smsInbound: (from: string, text: string) => dev<{ reply?: string; ok?: boolean }>('/sms/inbound', { method: 'POST', body: JSON.stringify({ from, text }) }),
   async smsLog(): Promise<{ phone: string; text: string; at: string; direction: 'in' | 'out' }[]> { return (await dev<any[]>('/sms')).slice(0, 10); },
 };

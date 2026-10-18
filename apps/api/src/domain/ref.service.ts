@@ -3,8 +3,10 @@ import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { db, refDb, schema as t } from '../db/client';
 import { config } from '../config/config';
-import type { Checkpoint, RouteStop } from '@btw/api/types';
+import { appConfig } from '../config/app-config';
+import type { Checkpoint, ProviderKind, RouteStop } from '@btw/api/types';
 import { defaultThresholds, type Thresholds } from '@btw/api/rules';
+import { toEntity } from './companies';
 
 type RefBundle = Awaited<ReturnType<RefService['loadBundle']>>;
 
@@ -24,9 +26,12 @@ export class RefService {
     const settings = await refDb.select().from(t.settings);
     const s = Object.fromEntries(settings.map((x) => [x.key, x.value]));
     return {
-      entities, receivingCompanies, warehouses, suppliers, products, priceList, providers,
+      entities: entities.map(toEntity).sort((a, b) => a.id.localeCompare(b.id)), receivingCompanies, warehouses, suppliers, products, priceList,
+      providers: providers.map((x) => ({ ...x, kind: x.kind as ProviderKind })),
       trucks: trucks.map((x) => ({ ...x, defaultDriverId: x.defaultDriverId ?? undefined })), drivers,
       checkpoints: checkpoints as (Checkpoint & { code: string; aliases: string[] })[], routes, users,
+      /** config.toml business settings (approvals, loading allowance, revision numbering). */
+      config: appConfig,
       settings: { thresholds: (s.thresholds as Thresholds) ?? defaultThresholds, paymentApprovalThreshold: Number(s.paymentApprovalThreshold ?? 500), minAppVersion: String(s.minAppVersion ?? '0.0.0'), noCheckinGraceHours: Number(s.noCheckinGraceHours ?? 3) },
     };
   }

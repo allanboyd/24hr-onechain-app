@@ -1,14 +1,21 @@
 <script lang="ts">
+  import { destinationLabel } from '../lib/planning';
+  import CompanyCell from '../components/CompanyCell.svelte';
   import { watch } from '../lib/load.svelte';
   import ErrorState from '../components/ErrorState.svelte';
   // TR-02: list of active and closed shipments with position, next checkpoint and ETA.
   import { lookup, ref, shipments, tracking, type Leg, type Shipment, type User } from '@btw/api';
   import { Badge, ago, fmtDateTime, hoursLabel, router } from '@btw/ui';
   import Clock from '@lucide/svelte/icons/clock';
+  import PageTabs from '../components/PageTabs.svelte';
+  import ShipmentsOverview from '../components/overview/ShipmentsOverview.svelte';
+  import { currentTab, qp } from '../lib/tab';
+  import { chainOf, fromLabel } from '../lib/journey';
   let { user }: { user: User } = $props();
+  const tab = currentTab();
   const r = ref();
   let list = $state<Shipment[] | null>(null);
-  let chip = $state<'active' | 'all' | 'Delayed' | 'At border' | 'no-checkin' | 'Acknowledged'>('active');
+  let chip = $state<'active' | 'all' | 'Delayed' | 'At border' | 'no-checkin' | 'Acknowledged'>((qp('chip') || 'active') as 'active');
   let route = $state(''); let company = $state('');
   async function load() { list = await shipments.list(); }
   const w = watch(load);
@@ -50,6 +57,12 @@
   <a class="btn btn-secondary" href="#/tracking">Map view</a>
 </div>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
+<PageTabs base="/shipments" current={tab} listLabel="Shipment list" />
+
+{#if tab === 'overview'}
+  {#if !list}<div class="tiles">{#each Array(4) as _}<div class="card"><div class="skeleton" style="height:56px"></div></div>{/each}</div>
+  {:else}<ShipmentsOverview list={scoped} />{/if}
+{:else}
 
 <div class="chips" role="tablist" aria-label="Quick filters">
   {#each chips as c}
@@ -63,17 +76,20 @@
 
 <div class="card flush table-wrap wide-only">
   <table class="table">
-    <thead><tr><th>Shipment</th><th>Truck</th><th>Route · leg</th><th>Last check-in</th><th>Next checkpoint</th><th>Status</th><th>ETA</th></tr></thead>
+    <thead><tr><CompanyCell head /><th>Shipment</th><th>From</th><th>Truck</th><th>Route · leg</th><th>Last check-in</th><th>Next checkpoint</th><th>Status</th><th>ETA</th></tr></thead>
     <tbody>
-      {#if !list}{#each Array(3) as _}<tr><td colspan="7"><div class="skeleton"></div></td></tr>{/each}{/if}
+      {#if !list}{#each Array(3) as _}<tr><td colspan="9"><div class="skeleton"></div></td></tr>{/each}{/if}
       {#each rows as sh (sh.id)}
         {@const leg = activeLeg(sh)}
         {@const eta = shipments.eta(leg)}
         {@const w = where(leg)}
         {@const dw = tracking.dwell(leg)}
         {@const od = tracking.overdue(leg)}
-        <tr class="clickable" onclick={() => router.go(`/shipments/${sh.id}`)}>
-          <td><a class="mono" href="#/shipments/{sh.id}">{sh.ref}</a><div class="caption">PO <span class="mono">{lookup.poRef(sh.poId)}</span> · Truck {sh.truckNo}</div><div class="caption">→ {lookup.company(sh.receivingCompanyId)?.name} · {lookup.warehouse(sh.warehouseId)?.name}</div></td>
+        {@const chain = chainOf(list ?? [], sh)}
+        <tr class="clickable" onclick={() => router.go(`/shipments/${sh.id}`)}><CompanyCell entityId={(sh as { entityId?: string }).entityId} />
+          <td><a class="mono" href="#/shipments/{sh.id}">{sh.ref}</a><div class="caption">PO <span class="mono">{lookup.poRef(sh.poId)}</span> · Truck {sh.truckNo}</div><div class="caption">→ {lookup.company(sh.receivingCompanyId)?.name} · {destinationLabel(sh.warehouseId)}</div>
+            {#if chain.length > 1}<Badge tone="info">Shipment {chain.findIndex((c) => c.id === sh.id) + 1} of {chain.length}</Badge>{/if}</td>
+          <td class="small">{fromLabel(sh)}</td>
           <td><strong class="nowrap">{lookup.truck(leg.truckId)?.reg}</strong><div class="caption">{lookup.driver(leg.driverId)?.name}</div></td>
           <td class="small">{lookup.route(leg.routeId)?.name}<div class="caption">Leg {leg.seq} of {sh.legs.length}</div></td>
           <td class="small">{w.cur}<div class="caption">{w.last}</div>
@@ -82,7 +98,7 @@
           <td><Badge status={sh.status} /></td>
           <td>{#if sh.status !== 'Acknowledged'}<Badge status={eta.state}>{eta.state}{eta.state !== 'On time' ? ` ${hoursLabel(eta.hours)}` : ''}</Badge><div class="caption nowrap">{fmtDateTime(eta.eta)}</div>{:else}<span class="caption">Delivered</span>{/if}</td>
         </tr>
-      {:else}{#if list}<tr><td colspan="7" class="empty">No shipments match these filters. <button class="btn btn-ghost btn-sm" onclick={() => { chip = 'all'; route = ''; company = ''; }}>Clear filters</button></td></tr>{/if}{/each}
+      {:else}{#if list}<tr><td colspan="9" class="empty">No shipments match these filters. <button class="btn btn-ghost btn-sm" onclick={() => { chip = 'all'; route = ''; company = ''; }}>Clear filters</button></td></tr>{/if}{/each}
     </tbody>
   </table>
 </div>
@@ -106,6 +122,8 @@
     </a></li>
   {:else}{#if list}<li class="empty">No shipments match</li>{/if}{/each}
 </ul>
+
+{/if}
 
 <style>
   .chips { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-4); }

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import CompanyCell from '../components/CompanyCell.svelte';
+  import RecordFor from '../components/RecordFor.svelte';
   import { watch } from '../lib/load.svelte';
   import ErrorState from '../components/ErrorState.svelte';
   import { finance, lookup, type CostKind, type User } from '@btw/api';
@@ -6,7 +8,11 @@
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import ExportMenu from '../components/ExportMenu.svelte';
+  import PageTabs from '../components/PageTabs.svelte';
+  import FinanceOverview from '../components/overview/FinanceOverview.svelte';
+  import { currentTab, qp } from '../lib/tab';
   let { user }: { params?: any; user: User } = $props();
+  const tab = currentTab();
   type Trip = Awaited<ReturnType<typeof finance.trips>>[number];
   let trips = $state<Trip[] | null>(null);
   let open = $state<string | null>(null);
@@ -53,7 +59,7 @@
   }
   async function saveCost(e: Event) {
     e.preventDefault(); if (cAmount <= 0) return say('Enter an amount');
-    await finance.addCost({ shipmentId: cur!.shipment.id, kind: cKind, amount: cAmount, currency: 'USD', docRef: cDoc || undefined }); costDlg?.close(); say('Expense added to landing cost');
+    await finance.addCost({ entityId: (cur!.shipment as { entityId?: string }).entityId ?? '', shipmentId: cur!.shipment.id, kind: cKind, amount: cAmount, currency: 'USD', docRef: cDoc || undefined }); costDlg?.close(); say('Expense added to landing cost');
   }
 </script>
 
@@ -62,6 +68,12 @@
   <div class="row"><p class="muted small" style="max-width:440px;margin:0">Agreed transport price is captured at loading (§17.5). Payments above USD {THRESHOLD} need director approval (FN-03; threshold set by directors).</p><ExportMenu name="trip-financials" rows={exportRows} /></div>
 </div>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
+<PageTabs base="/finance" current={tab} listLabel="Trips" />
+
+{#if tab === 'overview'}
+  {#if !trips}<div class="tiles">{#each Array(4) as _}<div class="card"><div class="skeleton" style="height:56px"></div></div>{/each}</div>
+  {:else}<FinanceOverview {trips} />{/if}
+{:else}
 
 <div class="grid grid-kpi" style="margin-bottom:var(--space-4)">
   <div class="card kpi"><div class="overline">Agreed transport</div><div class="value">{fmtMoney(totals.transport)}</div></div>
@@ -72,14 +84,14 @@
 
 <div class="card flush table-wrap">
   <table class="table">
-    <thead><tr><th></th><th>Shipment</th><th>Truck · Provider</th><th>Route</th><th class="num">Agreed (USD)</th><th class="num">Paid</th><th class="num">Balance</th><th>Payment</th><th>Follow-up</th><th class="num">Landing cost / case (USD)</th></tr></thead>
+    <thead><tr><th></th><CompanyCell head /><th>Shipment</th><th>Truck · Provider</th><th>Route</th><th class="num">Agreed (USD)</th><th class="num">Paid</th><th class="num">Balance</th><th>Payment</th><th>Follow-up</th><th class="num">Landing cost / case (USD)</th></tr></thead>
     <tbody>
       {#if !trips}<tr><td colspan="10"><div class="skeleton"></div></td></tr>{/if}
       {#each trips ?? [] as t (t.shipment.id)}
         {@const leg = t.shipment.legs[0]}
         {@const truck = lookup.truck(leg.truckId)}
         <tr class="clickable" onclick={() => (open = open === t.shipment.id ? null : t.shipment.id)}>
-          <td>{#if open === t.shipment.id}<ChevronDown size={16} />{:else}<ChevronRight size={16} />{/if}</td>
+          <td>{#if open === t.shipment.id}<ChevronDown size={16} />{:else}<ChevronRight size={16} />{/if}</td><CompanyCell entityId={(t.shipment as { entityId?: string }).entityId} />
           <td><span class="mono" style="white-space:nowrap">{t.shipment.ref}</span><div class="caption" style="white-space:nowrap">Truck {t.shipment.truckNo} · {t.shipment.legs.length} leg{t.shipment.legs.length > 1 ? 's' : ''}</div></td>
           <td>{truck?.reg}<div class="caption">{lookup.provider(truck?.providerId ?? '')?.name}</div></td>
           <td class="small">{lookup.route(leg.routeId)?.name}</td>
@@ -108,7 +120,7 @@
                   <tbody>
                     {#each t.payments as p}
                       <tr><td class="small">{fmtDateTime(p.at)}</td><td class="mono small" style="white-space:nowrap">{p.reference}</td><td class="num">{fmtNum(p.amount, 2)}</td>
-                        <td>{#if p.status === 'Pending approval' && canApprove}<button class="btn btn-accent btn-sm" onclick={() => approve(p.id)}>Approve</button>{:else}<Badge status={p.status} />{/if}</td></tr>
+                        <td>{#if p.status === 'Pending approval' && canApprove}<RecordFor entityId={(t.shipment as { entityId?: string }).entityId} cue={false}><button class="btn btn-accent btn-sm" onclick={() => approve(p.id)}>Approve</button></RecordFor>{:else}<Badge status={p.status} />{/if}</td></tr>
                     {:else}<tr><td class="empty small">No payments yet</td></tr>{/each}
                   </tbody>
                 </table>
@@ -137,6 +149,8 @@
     <tbody>{#each byProvider as [pid, v]}<tr><td>{lookup.provider(pid)?.name ?? '—'} {#if lookup.provider(pid) && !lookup.provider(pid)!.regular}<span class="caption">market</span>{/if}</td><td class="num">{v.trips}</td><td class="num">{fmtNum(v.agreed, 2)}</td><td class="num">{fmtNum(v.paid, 2)}</td><td class="num" class:accent-text={v.agreed - v.paid > 0}>{fmtNum(v.agreed - v.paid, 2)}</td></tr>{/each}</tbody>
   </table></div>
 </section>
+
+{/if}
 
 <dialog class="sheet" bind:this={payDlg}>
   <form class="body stack" onsubmit={savePay}>

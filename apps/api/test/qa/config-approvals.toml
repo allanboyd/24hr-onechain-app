@@ -1,0 +1,8 @@
+# QA fixture: today's director approval flow, a tighter loading allowance, no alternatives.
+[approvals]
+purchase_orders = true
+
+[loading]
+allowance_pct = 5
+allow_alternatives = false
+revision_suffix = "-rev"

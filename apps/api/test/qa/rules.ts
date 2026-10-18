@@ -8,10 +8,13 @@ export async function rulesSuite(env: Env) {
   const c = client(env.base);
   const T = {
     dir: (await c.login('dir')).accessToken, plan: (await c.login('kabonge')).accessToken, joel: (await c.login('joel')).accessToken,
-    asie: (await c.login('asie')).accessToken, acc: (await c.login('acc')).accessToken, drv1: (await c.login('+254711000001', '1234')).accessToken,
+    asie: (await c.login('asie')).accessToken, acc: (await c.login('acc')).accessToken, drv1: (await c.login('+254702750019', '1234')).accessToken,
   };
   const year = new Date().getFullYear();
   const ref = (await c.req('GET', '/ref', { token: T.dir })).body;
+
+  section('Rules · config.toml injected (CONFIG_FILE: director approval on, ±5 %, no alternatives)');
+  ok(ref.config?.approvals?.purchaseOrders === true && ref.config.loading.allowancePct === 5 && ref.config.loading.allowAlternatives === false, 'GET /ref carries the config file values', ref.config);
 
   section('Rules · plans, approval, PO numbering (PL-*, PO-*)');
   const newPlan = async (entityId: string, supplierId: string) => (await c.req('POST', '/plans', { token: T.plan, body: { entityId, supplierId } })).body;
@@ -55,53 +58,66 @@ export async function rulesSuite(env: Env) {
   ok(loadings.length === 1 && loadings[0].lines.length === 2, 'one loading per truck, mixed-load truck has 2 lines', loadings);
   const ld = loadings[0];
   const qty = (o: number, p: number) => ({ [ld.lines[0].planLineId]: o, [ld.lines[1].planLineId]: p });
-  const truck = ref.trucks.find((x: any) => x.reg === 'KDB 456B');
+  const truck = ref.trucks.find((x: any) => x.reg === 'SSD 879T');
   expectStatus(await c.req('POST', `/loadings/${ld.id}/confirm`, { token: T.joel, body: { truckId: truck.id, driverId: 'd3', loadedQty: qty(1500, 900), agreedTransport: 1500 } }), 422, `over capacity (2,400 > ${truck.capacityCases}) refused`);
   expectStatus(await c.req('POST', `/loadings/${ld.id}/confirm`, { token: T.joel, body: { truckId: truck.id, driverId: 'd3', loadedQty: qty(1000, 900), agreedTransport: 0 } }), 422, 'agreed transport price required');
+  r = await c.req('POST', `/loadings/${ld.id}/confirm`, { token: T.joel, body: { truckId: truck.id, driverId: 'd3', loadedQty: qty(1000, 800), agreedTransport: 1500 } });
+  ok(r.status === 422 && /Below the 5% loading allowance/.test(r.body.title), 'config allowance (±5 %) enforced: 1,800 of 1,900 refused', r.body);
+  r = await c.req('POST', `/loadings/${ld.id}/confirm`, { token: T.joel, body: { truckId: truck.id, driverId: 'd3', loadedQty: qty(1000, 880), agreedTransport: 1500, alternatives: [{ productId: 'p-a300', qty: 10 }] } });
+  ok(r.status === 422 && /switched off/.test(r.body.title), 'alternatives refused when allow_alternatives = false', r.body);
   r = await c.req('POST', `/loadings/${ld.id}/confirm`, { token: T.joel, body: { truckId: truck.id, driverId: 'd3', loadedQty: qty(1000, 880), agreedTransport: 1500, documents: ['dn.jpg'] } });
+  ok(r.status === 201 && r.body.poId !== poId && /-rev001$/.test((await c.req('GET', `/pos/${r.body.poId}`, { token: T.plan })).body.po.ref), 'a variance at loading revises the director-approved PO automatically (no approval needed)', r.body.poId);
   ok(r.status === 201 && r.body.legs[0].lines.find((l: any) => l.productId === 'p-b500').loadedQty === 880, 'loaded qty (with variance) recorded on the leg (LD-02)', r.body);
   const sh = r.body; const leg1 = sh.legs[0];
   expectStatus(await c.req('POST', `/loadings/${ld.id}/confirm`, { token: T.joel, body: { truckId: truck.id, driverId: 'd3', loadedQty: qty(10, 10), agreedTransport: 1 } }), 409, 'cannot load the same truck line twice');
   const queue = (await c.req('GET', '/waiting?loadingPointId=s-kbl', { token: T.joel })).body as any[];
   ok(!queue.some((w) => w.truckId === truck.id && w.status === 'Waiting'), 'loaded truck leaves the waiting list');
 
-  section('Rules · multi-leg, acknowledgement, stock (DS-02/03, AK-*, IN-*)');
-  const stockAt = async (wh: string, pid: string) => ((await c.req('GET', '/stock', { token: T.dir })).body as any[]).find((x) => x.warehouseId === wh && x.productId === pid) ?? { received: 0, closing: 0, inTransit: 0 };
+  section('Rules · onward shipment, acknowledgement, stock (doc 08 §2, AK-*, IN-*)');
+  const stockAt = async (wh: string, pid: string, entityId: string = sh.entityId) => ((await c.req('GET', '/stock', { token: T.dir })).body as any[]).find((x) => x.entityId === entityId && x.warehouseId === wh && x.productId === pid) ?? { received: 0, closing: 0, inTransit: 0, transfersIn: 0, transfersOut: 0 };
   const kglBefore = await stockAt('w-kgl', 'p-a300'); const gomaBefore = await stockAt('w-goma', 'p-a300');
   ok(gomaBefore.inTransit >= 1000, 'in-transit stock shows at the final warehouse before arrival (IN-01)', gomaBefore);
-  expectStatus(await c.req('POST', `/legs/${leg1.id}/split`, { token: T.plan, body: { checkpointId: 'cp-kigali' } }), 200, 'planner sets Kigali as transfer point');
+  expectStatus(await c.req('POST', `/legs/${leg1.id}/split`, { token: T.plan, body: { checkpointId: 'cp-gisenyi-wh' } }), 200, 'planner makes the Gisenyi warehouse the first destination');
   await c.req('POST', `/legs/${leg1.id}/dispatch`, { token: T.joel, body: {} });
   const lines1 = [{ productId: 'p-a300', expected: 1, received: 990, damaged: 4, remarks: '10 short' }, { productId: 'p-b500', expected: 1, received: 880, damaged: 0 }];
   r = await c.req('POST', `/legs/${leg1.id}/acknowledgement`, { token: T.asie, body: { receiverName: 'QA Uwase', lines: lines1, signature: SIG } });
-  ok(r.status === 201 && r.body.isFinal === false && r.body.lines[0].expected === 1000, 'intermediate acknowledgement: not final, expected taken from the loading (not the client)', r.body);
-  ok((await stockAt('w-kgl', 'p-a300')).received === kglBefore.received, 'no stock posted at the transfer point (Q-P1)');
+  ok(r.status === 201 && r.body.isFinal === false && r.body.lines[0].expected === 1000, 'acknowledgement short of the planned destination; expected taken from the loading (not the client)', r.body);
+  const kglMid = await stockAt('w-kgl', 'p-a300');
+  ok(kglMid.received - kglBefore.received === 990 && kglMid.closing - kglBefore.closing === 986, 'goods post into Gisenyi stock on acknowledgement: +990 received, 4 damaged (doc 08 §2)', { kglBefore, kglMid });
+  const first = (await c.req('GET', `/shipments/${sh.id}`, { token: T.dir })).body;
+  ok(first.status === 'Acknowledged' && first.warehouseId === 'w-kgl' && first.plannedWarehouseId === 'w-goma', 'first shipment ends at Gisenyi (planned Goma kept)', first);
   const notes = (await c.req('GET', '/notifications', { token: T.dir })).body as any[];
   ok(notes.some((x) => x.title === 'Delivery discrepancy' && x.body.includes(sh.ref)), 'discrepancy alert raised (AK-04)');
   expectStatus(await c.req('POST', `/legs/${leg1.id}/acknowledgement`, { token: T.asie, body: { receiverName: 'again', lines: lines1 } }), 409, 'cannot acknowledge twice');
   const t8 = ref.trucks.find((x: any) => x.reg === 'RAE 551F') ?? ref.trucks[0];
-  r = await c.req('POST', `/shipments/${sh.id}/legs`, { token: T.asie, body: { routeId: 'r-kgl-goma', truckId: t8.id, driverId: 'd5' } });
-  const leg2 = r.body;
-  ok(r.status === 201 && leg2.lines.find((l: any) => l.productId === 'p-a300').loadedQty === 986, 'transfer leg carries the GOOD quantity received (990 − 4 damaged)', leg2.lines);
-  expectStatus(await c.req('POST', `/shipments/${sh.id}/legs`, { token: T.asie, body: { routeId: 'r-nbo-kgl', truckId: t8.id, driverId: 'd5' } }), 409, 'a second leg cannot be added before this one is acknowledged');
+  expectStatus(await c.req('POST', `/shipments/${sh.id}/send-on`, { token: T.asie, body: { routeId: 'r-nbo-kgl', truckId: t8.id, driverId: 'd5' } }), 422, 'onward route must start at the warehouse where the goods were received');
+  expectStatus(await c.req('POST', `/shipments/${sh.id}/send-on`, { token: T.asie, body: { routeId: 'r-kgl-goma', truckId: t8.id, driverId: 'd5', lines: [{ productId: 'p-a300', loadedQty: 10_000_000 }] } }), 422, 'cannot send on more than is in stock');
+  r = await c.req('POST', `/shipments/${sh.id}/send-on`, { token: T.asie, body: { routeId: 'r-kgl-goma', truckId: t8.id, driverId: 'd5' } });
+  const sh2 = r.body; const leg2 = sh2?.legs?.[0];
+  ok(r.status === 201 && sh2.id !== sh.id && sh2.ref !== sh.ref && sh2.parentShipmentId === sh.id && sh2.originShipmentId === sh.id && sh2.fromWarehouseId === 'w-kgl' && sh2.warehouseId === 'w-goma', 'send-on creates a NEW shipment linked to the first (doc 08 §2)', sh2);
+  ok(leg2?.lines.find((l: any) => l.productId === 'p-a300').loadedQty === 986, 'onward shipment carries the GOOD quantity received (990 − 4 damaged)', leg2?.lines);
+  ok((await stockAt('w-kgl', 'p-a300')).closing === kglMid.closing - 986, 'stock leaves Gisenyi at dispatch (transfer out 986)');
   await c.req('POST', `/legs/${leg2.id}/dispatch`, { token: T.asie, body: {} });
   await c.req('POST', `/legs/${leg2.id}/passes`, { token: T.dir, body: { checkpointId: 'cp-goma', kind: 'arrived' } });
   r = await c.req('POST', `/legs/${leg2.id}/acknowledgement`, { token: T.asie, body: { receiverName: 'QA Goma', lines: [{ productId: 'p-a300', expected: 0, received: 986, damaged: 1 }, { productId: 'p-b500', expected: 0, received: 880, damaged: 0 }], signature: SIG } });
   ok(r.status === 201 && r.body.isFinal === true, 'final acknowledgement at Goma', r.body);
   const gomaAfter = await stockAt('w-goma', 'p-a300');
-  ok(gomaAfter.received - gomaBefore.received === 986 && gomaAfter.closing - gomaBefore.closing === 985, 'stock posts only on final acknowledgement: +986 received, 1 damaged (AK-05)', { gomaBefore, gomaAfter });
-  const final = (await c.req('GET', `/shipments/${sh.id}`, { token: T.dir })).body;
-  ok(final.status === 'Acknowledged', 'shipment status derived from legs = Acknowledged (DS-05)', final.status);
+  ok(gomaAfter.transfersIn - (gomaBefore.transfersIn ?? 0) === 986 && gomaAfter.closing - gomaBefore.closing === 985, 'stock posts into Goma on acknowledgement: +986 transfer in, 1 damaged (AK-05)', { gomaBefore, gomaAfter });
+  const final = (await c.req('GET', `/shipments/${sh2.id}`, { token: T.dir })).body;
+  ok(final.status === 'Acknowledged', 'onward shipment status derived = Acknowledged (DS-05)', final.status);
+  const jr = (await c.req('GET', `/shipments/${sh2.id}/journey`, { token: T.dir })).body as any[];
+  ok(Array.isArray(jr) && jr.length === 2 && jr[0].shipmentId === sh.id && jr[0].received === 1870 && jr[1].loaded === 1866 && jr[1].received === 1866, 'journey: loaded vs received per shipment, origin first', jr);
   const ackPdf = await c.req('GET', `/acks/${r.body.id}/pdf`, { token: T.asie });
   ok(ackPdf.status === 200 && String(ackPdf.body).startsWith('%PDF'), 'acknowledgement PDF (AK-03)', { status: ackPdf.status, head: typeof ackPdf.body === 'string' ? ackPdf.body.slice(0, 60) : ackPdf.body });
 
   section('Rules · sales & stock limits (SL-02)');
-  const kgl = await stockAt('w-kgl', 'p-e330');
-  const sale = (qty: number, override = false) => ({ warehouseId: 'w-kgl', customer: 'QA', kind: 'Cash', lines: [{ productId: 'p-e330', qty, price: 20 }], currency: 'USD', paid: 0, at: new Date().toISOString(), override });
+  const kgl = await stockAt('w-kgl', 'p-e330', 'e-kivu');
+  const sale = (qty: number, override = false) => ({ entityId: 'e-kivu', warehouseId: 'w-kgl', customer: 'QA', kind: 'Cash', lines: [{ productId: 'p-e330', qty, price: 20 }], currency: 'USD', paid: 0, at: new Date().toISOString(), override });
   expectStatus(await c.req('POST', '/sales', { token: T.asie, body: sale(kgl.closing + 1) }), 422, `sale above stock (${kgl.closing}) blocked`);
   expectStatus(await c.req('POST', '/sales', { token: T.asie, body: sale(kgl.closing + 1, true) }), 403, 'only a director may override');
   r = await c.req('POST', '/sales', { token: T.dir, body: sale(kgl.closing + 1, true) });
   ok(r.status === 201, 'director override records the sale', r.body);
-  ok((await stockAt('w-kgl', 'p-e330')).closing === -1, 'stock goes negative only through the audited override', (await stockAt('w-kgl', 'p-e330')).closing);
+  ok((await stockAt('w-kgl', 'p-e330', 'e-kivu')).closing === -1, 'stock goes negative only through the audited override', (await stockAt('w-kgl', 'p-e330', 'e-kivu')).closing);
   r = await c.req('POST', '/sales', { token: T.asie, body: { ...sale(1), lines: [{ productId: 'p-e330', qty: 1, price: 20 }], paid: 0 } });
   ok(r.status === 422, 'with stock at −1, even 1 case is blocked', r.body);
 

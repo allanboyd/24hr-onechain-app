@@ -9,7 +9,7 @@ import {
 export const PH = {
   director: '+254700000001', planner: '+254700000002', joel: '+254700000003', tesfie: '+254700000006',
   asie: '+250700000007', zonas: '+211900000008', accounts: '+254700000009', admin: '+254700000010',
-  peter: '+254711000001', hassan: '+254711000003', moses: '+211911000007', said: '+255711000006',
+  peter: '+254702750019', hassan: '+254701811686', moses: '+211911000007', said: '+255711000006',
 };
 const text = async (page) => (await page.locator('body').innerText()).replace(/\s+/g, ' ');
 const legOf = async (token, legId) => { for (const s of await apiGet(token, '/shipments')) { const l = s.legs.find((x) => x.id === legId); if (l) return { s, l }; } return null; };
@@ -154,7 +154,7 @@ export async function fullChain(ctx) {
   startJourney('1 · Full chain: plan → approval → PO → hand-over → trip (offline, problem, undo) → receipt');
   const admin = ctx.admin ?? (ctx.admin = await person('admin'));
   if (!(await admin.page.locator('aside.side').count())) await webSignIn(admin, PH.admin);
-  await step('admin onboards driver Hassan Ali (phone in the KBL queue)', admin, async () => { ctx.hassanPin = await createFieldUser(admin, { name: 'Hassan Ali', phone: PH.hassan }); await admin.page.locator('dialog[open] button:has-text("Cancel")').click().catch(() => {}); return `PIN ${ctx.hassanPin}`; });
+  await step('admin onboards driver Kanyike E (phone in the KBL queue)', admin, async () => { ctx.hassanPin = await createFieldUser(admin, { name: 'Kanyike E', phone: PH.hassan }); await admin.page.locator('dialog[open] button:has-text("Cancel")').click().catch(() => {}); return `PIN ${ctx.hassanPin}`; });
 
   // Planner → director
   const planner = await person('planner'); await webSignIn(planner, PH.planner);
@@ -214,13 +214,13 @@ export async function fullChain(ctx) {
   const joel = await person('joel-phone', { kind: 'field' });
   await step('Joel (KBL) sees the new PO truck and Hassan’s truck at the head of the queue', joel, async () => {
     await fieldSignIn(joel, PH.joel);
-    const t = await text(joel.page); must(t.includes(poRef), `next order is not ${poRef}: ${t.slice(0, 160)}`); must(/KDB 456B/.test(t), 'KDB 456B not first in queue');
+    const t = await text(joel.page); must(t.includes(poRef), `next order is not ${poRef}: ${t.slice(0, 160)}`); must(/SSD 879T/.test(t), 'SSD 879T not first in queue');
   });
   await step('Joel loads and hands over with a document photo and the agreed price', joel, async () => {
     const page = joel.page;
     await page.click('button:has-text("Load this truck")'); await sleep(600);
     const sheet = page.locator('section.sheet.modal');
-    must(/Hassan Ali/.test(await sheet.locator('select').inputValue().then(async (v) => (await sheet.locator(`select option[value="${v}"]`).innerText()))), 'driver is not Hassan');
+    must(/Kanyike E/.test(await sheet.locator('select').inputValue().then(async (v) => (await sheet.locator(`select option[value="${v}"]`).innerText()))), 'driver is not Hassan');
     const vals = await sheet.locator('.stepper input').evaluateAll((els) => els.map((e) => +e.value));
     must(vals.join() === '1200,600', `prefilled ${vals}`);
     await sheet.locator('input[type=file]').setInputFiles(PHOTO); await sleep(300);
@@ -305,7 +305,7 @@ export async function fullChain(ctx) {
   await step('Asie receives with damage, photo and signature', asie, async () => {
     const page = asie.page;
     await fieldSignIn(asie, PH.asie);
-    must(/KDB 456B is here/.test(await text(page)), 'arrived truck not shown first');
+    must(/SSD 879T is here/.test(await text(page)), 'arrived truck not shown first');
     await page.click('button:has-text("Receive & sign")'); await sleep(500);
     await page.click('button:has-text("Something is short or damaged")'); await sleep(300);
     const dmg = page.locator('input[aria-label$="damaged"]').first(); await dmg.fill('6'); await dmg.press('Tab');
@@ -348,7 +348,7 @@ export async function transferLeg(ctx) {
   startJourney('2 · Transfer leg: Nairobi → Kigali (unload, reload) → Goma, two drivers');
   const admin = ctx.admin ?? (ctx.admin = await person('admin'));
   if (!(await admin.page.locator('aside.side').count())) await webSignIn(admin, PH.admin);
-  if (!ctx.hassanPin) ctx.hassanPin = await createFieldUser(admin, { name: 'Hassan Ali', phone: PH.hassan });
+  if (!ctx.hassanPin) ctx.hassanPin = await createFieldUser(admin, { name: 'Kanyike E', phone: PH.hassan });
   if (!ctx.saidPin) ctx.saidPin = await createFieldUser(admin, { name: 'Said Juma', phone: PH.said });
   await admin.page.locator('dialog[open] button:has-text("Cancel")').click().catch(() => {});
   const token = await apiToken({ username: 'dir', password: PASS });
@@ -361,7 +361,7 @@ export async function transferLeg(ctx) {
     must(/truck 4/i.test(await text(page)), `next order is not truck 4: ${(await text(page)).slice(0, 160)}`);
     await page.click('button:has-text("Load this truck")'); await sleep(600);
     const sheet = page.locator('section.sheet.modal');
-    await sheet.locator('select').selectOption({ label: 'Hassan Ali' });
+    await sheet.locator('select').selectOption({ label: 'Kanyike E' });
     await sheet.locator('input[placeholder="e.g. 1650"]').fill('1500');
     await slide(page, sheet); await sleep(2500);
     must(/handed over/.test(await toast(page)), `toast: ${await toast(page)}`);

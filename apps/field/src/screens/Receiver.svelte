@@ -1,10 +1,12 @@
 <script lang="ts">
+  import CompanyChip from '../components/CompanyChip.svelte';
+  import CompanyDot from '../components/CompanyDot.svelte';
   // Receiver (Asie / Zonas, MA-03, AK-*): map of trucks coming to my warehouse(s) and ONE card —
   // an arrived truck to receive first, else a transfer to send on (DS-02), else the next truck on its way.
   import { field, lookup, type Leg, type LegView, type User } from '@btw/api';
   import { outbox, type OutboxState } from '@btw/api/outbox';
   import { Badge, fmtDateTime, hoursLabel, say } from '@btw/ui';
-  import { cases, cpShort, legPosition } from '../lib';
+  import { cases, cpShort, legPosition, warehouseLabel } from '../lib';
   import { haptic } from '../native';
   import MapView, { type MapPoint, type MapTruck } from '../components/MapView.svelte';
   import Sheet from '../components/Sheet.svelte';
@@ -56,8 +58,9 @@
   async function receive(d: { lines: { productId: string; expected: number; received: number; damaged: number; remarks: string }[]; receiverName: string; signature: string; photos: string[] }) {
     if (!receiving) return;
     const r = await outbox.send('leg.acknowledge', { legId: receiving.leg.id, input: { receiverName: d.receiverName, lines: d.lines, signature: d.signature, photos: d.photos } });
+    const final = isFinal(receiving); const at = cpShort(receiving.leg.toId);
     receiving = null; haptic('success');
-    say(r.queued ? 'Signed — saved on the phone, sends when there is signal' : 'Delivery received — thank you');
+    say(r.queued ? 'Signed — saved on the phone, sends when there is signal' : final ? 'Delivery received — thank you' : `Received into stock at ${at} — send it on as a new shipment when the truck is ready`);
   }
   async function sendOn() {
     if (!sending) return;
@@ -69,7 +72,7 @@
 </script>
 
 <MapView {points} {trucks} padBottom={sheetH} />
-<TopBar onmenu={() => (menu = true)} title={user.warehouseIds.map((w) => lookup.warehouse(w)?.name).join(' · ')} />
+<TopBar onmenu={() => (menu = true)} title={user.warehouseIds.map((w) => warehouseLabel(w)).join(' · ')} />
 
 <Sheet bind:el={sheetEl}>
   {#if !incomingAll}
@@ -77,20 +80,21 @@
   {:else if !focus}
     <p class="eyebrow">Nothing on the way</p>
     <p class="headline">No trucks coming</p>
-    <p class="subline">When a truck is loaded for {user.warehouseIds.map((w) => lookup.warehouse(w)?.name).join(' or ')}, you'll see it here with its arrival time.</p>
+    <p class="subline">When a truck is loaded for {user.warehouseIds.map((w) => warehouseLabel(w)).join(' or ')}, you'll see it here with its arrival time.</p>
   {:else}
     {@const { shipment, leg } = focus.item}
     {@const eta = focus.item.eta}
     {@const t = focus.item.truck}
+    <CompanyChip entityId={shipment.entityId} />
     {#if focus.kind === 'receive'}
       <p class="eyebrow">Arrived at {cpShort(leg.toId)}</p>
       <p class="headline">{t?.reg} is here</p>
       <p class="subline">{cases(total(leg))} · {focus.item.driver?.name} · {shipment.ref}</p>
       <button class="btn btn-accent btn-lg btn-block" onclick={() => (receiving = focus.item)}>Receive & sign</button>
     {:else if focus.kind === 'send'}
-      <p class="eyebrow">Send on · {focus.item.route?.name}</p>
+      <p class="eyebrow">New shipment from {cpShort(leg.fromId)} · {focus.item.route?.name}</p>
       <p class="headline">{t?.reg} to {cpShort(leg.toId)}</p>
-      <p class="subline">{cases(total(leg))} · {focus.item.driver?.name} · {shipment.ref} leg {leg.seq}</p>
+      <p class="subline">{cases(total(leg))} from stock · {focus.item.driver?.name} · {shipment.ref}</p>
       <button class="btn btn-accent btn-lg btn-block" onclick={() => (sending = focus.item)}>Load & hand over</button>
     {:else}
       <p class="eyebrow">Next truck · {focus.item.route?.name}</p>
@@ -105,7 +109,7 @@
       <ul class="others">
         {#each others.slice(0, 3) as o (o.leg.id)}
           {@const e = o.eta}
-          <li><button onclick={() => (receiving = o)}><span class="grow"><strong>{o.truck?.reg}</strong> <span class="caption">· {cases(total(o.leg))}</span></span><span class="caption">{arrivedNow(o.leg) ? 'Arrived' : fmtDateTime(e.eta)}</span><ChevronRight size={18} /></button></li>
+          <li><button onclick={() => (receiving = o)}><CompanyDot entityId={o.shipment.entityId} /><span class="grow"><strong>{o.truck?.reg}</strong> <span class="caption">· {cases(total(o.leg))}</span></span><span class="caption">{arrivedNow(o.leg) ? 'Arrived' : fmtDateTime(e.eta)}</span><ChevronRight size={18} /></button></li>
         {/each}
       </ul>
     {/if}
@@ -113,10 +117,10 @@
 </Sheet>
 
 {#if receiving}
-  <ReceiveSheet leg={receiving.leg} {user} isFinal={isFinal(receiving)} onsubmit={receive} onclose={() => (receiving = null)} />
+  <ReceiveSheet entityId={receiving.shipment.entityId} leg={receiving.leg} {user} isFinal={isFinal(receiving)} onsubmit={receive} onclose={() => (receiving = null)} />
 {/if}
 {#if sending}
-  <HandoverSheet title="Hand over" subtitle="{sending.shipment.ref} leg {sending.leg.seq} · {sending.route?.name}"
+  <HandoverSheet entityId={sending.shipment.entityId} title="Hand over" subtitle="New shipment {sending.shipment.ref} · {sending.route?.name}"
     trucks={[{ truckId: sending.leg.truckId, driverId: sending.leg.driverId }]}
     lines={sending.leg.lines.map((l, i) => ({ key: String(i), productId: l.productId, qty: l.loadedQty }))}
     editable={false} askPrice={false} qtyLabel="good on receipt" onsubmit={sendOn} onclose={() => (sending = null)} />

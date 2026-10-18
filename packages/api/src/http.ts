@@ -2,10 +2,13 @@
 // Synchronous helpers (ref, lookup, auth.me, shipments.eta, tracking.dwell/overdue) read a cache that
 // ready() / sign-in fill from GET /ref, so screens work unchanged. Writes throw Error(problem.title).
 import * as R from './rules';
+import * as RP from './reports';
 import type {
-  AckLine, Acknowledgement, CheckpointPass, Device, DriverWork, Flag, GiverWork, ID, Leg, Loading, Notification, Plan, PlanLine,
+  AckLine, Acknowledgement, CheckpointPass, Device, DriverWork, Entity, Flag, FxRate, GiverWork, ID, JourneyStep, Leg, Loading, Notification, PeriodKind, PeriodPlan, Plan, PlanLine,
+  PlanLineContext, PvThresholds,
   PurchaseOrder, ReceiverWork, Role, RouteStop, Sale, Shipment, StockRow, StoredFile, SyncResult, TripCost, TripPayment,
-  TruckIssue, User, UserAdmin, VelocityRow, WaitingEntry,
+  Route, TruckIssue, User, UserAdmin, VelocityRow, WaitingEntry, Warehouse, WarehouseInput,
+  DriverInput, Provider, ProviderInput, SavedDriver, Truck, TruckInput,
 } from './types';
 import type * as Mock from './mock-client';
 
@@ -17,8 +20,16 @@ let BASE = env.VITE_API_URL ?? 'http://localhost:3101/v1';
 let CHANNEL: 'web' | 'app' = (env.VITE_CHANNEL as 'web' | 'app') ?? 'web';
 let APP_VERSION = env.VITE_APP_VERSION ?? '';
 export const mode = 'http' as const;
-export function configure(o: { channel?: 'web' | 'app'; appVersion?: string; baseUrl?: string }) {
+/** Channel/app version/base URL, and the active company (`entityId`, null = Group / all allowed companies).
+ *  The company is persisted per user and sent as `X-Entity-Id` on every request. */
+export function configure(o: { channel?: 'web' | 'app'; appVersion?: string; baseUrl?: string; entityId?: ID | null }) {
   if (o.channel) CHANNEL = o.channel; if (o.appVersion) APP_VERSION = o.appVersion; if (o.baseUrl) BASE = o.baseUrl.replace(/\/$/, '');
+  if (!('entityId' in o)) return;
+  const id = o.entityId ?? null; const u = session?.user;
+  if (id && u && !(u.allowedEntityIds ?? []).includes(id)) throw new ApiError('That belongs to another company', 403);
+  activeEntity = id;
+  if (u) write(entityKey(u.id), id);
+  emit();
 }
 
 // ---- storage ------------------------------------------------------------------------------
@@ -30,6 +41,17 @@ let bundle: RefBundle | null = read<RefBundle>('btw-ref-cache');
 let demoList: User[] = [];
 const poRefs = new Map<string, string>();
 const thresholds: R.Thresholds = { ...(bundle?.settings?.thresholds ?? R.defaultThresholds) };
+// Active company (tenant). Single-company users always work in their one company.
+let activeEntity: ID | null = null;
+const entityKey = (userId: ID) => `btw-entity:${userId}`;
+function restoreEntity() {
+  activeEntity = null;
+  const u = session?.user; if (!u) return;
+  const allowed = u.allowedEntityIds ?? [];
+  const v = read<ID>(entityKey(u.id)); if (v && allowed.includes(v)) activeEntity = v;
+  if (!activeEntity && allowed.length === 1) activeEntity = allowed[0];
+}
+restoreEntity();
 
 // ---- change feed + session expiry -------------------------------------------------------------
 const subs = new Set<() => void>();
@@ -38,36 +60,39 @@ const emit = () => subs.forEach((f) => f());
 const expiredSubs = new Set<() => void>();
 
 // ---- transport ----------------------------------------------------------------------------------
-export class ApiError extends Error { constructor(message: string, public status: number, public code?: string) { super(message); } }
+/** `conflicts`: on a period-plan overlap (409 'overlap') the Active plans already covering the period. */
+export class ApiError extends Error { conflicts?: import('./types').PeriodPlanConflict[]; constructor(message: string, public status: number, public code?: string, extra?: { conflicts?: import('./types').PeriodPlanConflict[] }) { super(message); if (extra?.conflicts) this.conflicts = extra.conflicts; } }
 let refreshing: Promise<boolean> | null = null;
 async function refresh(): Promise<boolean> {
   if (!session?.refreshToken) return false;
   refreshing ??= (async () => {
     try {
-      const r = await fetch(`${BASE}/auth/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ refreshToken: session!.refreshToken }) });
+      const r = await fetch(`${BASE}/auth/refresh`, { method: 'POST', headers: { 'content-type': 'application/json', 'ngrok-skip-browser-warning': '1' }, body: JSON.stringify({ refreshToken: session!.refreshToken }) });
       if (!r.ok) return false;
       const s = await r.json() as Session; session = { ...s, user: s.user }; write('btw-session', session); return true;
     } catch { return false; } finally { setTimeout(() => (refreshing = null), 0); }
   })();
   return refreshing;
 }
-function expire() { session = null; write('btw-session', null); expiredSubs.forEach((f) => f()); emit(); }
+function expire() { session = null; activeEntity = null; write('btw-session', null); expiredSubs.forEach((f) => f()); emit(); }
 
 async function call<T>(method: string, path: string, body?: unknown, opts: { idem?: string; blob?: boolean; retry?: boolean } = {}): Promise<T> {
-  const headers: Record<string, string> = { 'x-channel': CHANNEL };
+  // ngrok's free tier shows a browser warning page unless this header is present (harmless elsewhere).
+  const headers: Record<string, string> = { 'x-channel': CHANNEL, 'ngrok-skip-browser-warning': '1' };
   if (body !== undefined) headers['content-type'] = 'application/json';
   if (APP_VERSION) headers['x-app-version'] = APP_VERSION;
   if (session) headers.authorization = `Bearer ${session.accessToken}`;
   if (opts.idem) headers['idempotency-key'] = opts.idem;
+  if (activeEntity && session) headers['x-entity-id'] = activeEntity;
   const res = await fetch(`${BASE}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   if (res.status === 401 && session && opts.retry !== false && !path.startsWith('/auth/')) {
     if (await refresh()) return call<T>(method, path, body, { ...opts, retry: false });
     expire();
   }
   if (!res.ok) {
-    let title = `${res.status} ${res.statusText}`; let code: string | undefined;
-    try { const p = await res.json(); title = p.title ?? p.message ?? title; code = p.code; } catch { /* not JSON */ }
-    throw new ApiError(title, res.status, code);
+    let title = `${res.status} ${res.statusText}`; let code: string | undefined; let conflicts: import('./types').PeriodPlanConflict[] | undefined;
+    try { const p = await res.json(); title = p.title ?? p.message ?? title; code = p.code; conflicts = Array.isArray(p.conflicts) ? p.conflicts : undefined; } catch { /* not JSON */ }
+    throw new ApiError(title, res.status, code, { conflicts });
   }
   if (opts.blob) return (await res.blob()) as T;
   if (res.status === 204) return undefined as T;
@@ -89,7 +114,7 @@ async function loadRef() {
 /** Call once before rendering: validates the stored session and loads reference data (cached for offline). */
 export async function ready() {
   if (session) {
-    try { const me = await get<User>('/me'); session = { ...session, user: { ...session.user, ...me } }; write('btw-session', session); await loadRef(); }
+    try { const me = await get<User>('/me'); session = { ...session, user: { ...session.user, ...me } }; write('btw-session', session); restoreEntity(); await loadRef(); }
     catch (e) { if (e instanceof TypeError) return; /* offline: keep cached session + ref */ if (e instanceof ApiError && e.status === 401) expire(); }
   } else {
     try { demoList = await get<User[]>('/auth/demo-users'); } catch { demoList = []; }
@@ -103,7 +128,7 @@ async function signIn(input: { username?: string; password?: string; phone?: str
   const deviceId = CHANNEL === 'app' ? session?.deviceId ?? read<Session>('btw-last-device')?.deviceId : undefined;
   const s = await call<Session>('POST', '/auth/login', { ...input, deviceId, platform: CHANNEL, appVersion: APP_VERSION || undefined });
   session = s; write('btw-session', s); write('btw-last-device', { deviceId: s.deviceId });
-  await loadRef(); emit();
+  restoreEntity(); await loadRef(); emit();
   return s.user;
 }
 export const auth = {
@@ -114,7 +139,7 @@ export const auth = {
   signIn,
   /** Signs out locally at once; the returned promise settles when the server has ended this session (≤ 5 s). */
   logout(): Promise<void> {
-    const s = session; session = null; write('btw-session', null); emit();
+    const s = session; session = null; activeEntity = null; write('btw-session', null); emit();
     if (!s) return Promise.resolve();
     const headers: Record<string, string> = { 'content-type': 'application/json', 'x-channel': CHANNEL, authorization: `Bearer ${s.accessToken}` };
     return fetch(`${BASE}/auth/logout`, { method: 'POST', headers, body: '{}', signal: AbortSignal.timeout?.(5000) }).then(() => undefined, () => undefined);
@@ -125,8 +150,8 @@ export const auth = {
 };
 
 // ---- reference data (sync, from cache) --------------------------------------------------------
-const empty = { entities: [], suppliers: [], products: [], priceList: [], providers: [], trucks: [], drivers: [], checkpoints: [], routes: [], warehouses: [], receivingCompanies: [], users: [] };
-export function ref(): RefBundle { return bundle ?? (empty as unknown as RefBundle); }
+const empty = { config: R.defaultConfig, entities: [], suppliers: [], products: [], priceList: [], providers: [], trucks: [], drivers: [], checkpoints: [], routes: [], warehouses: [], receivingCompanies: [], users: [] };
+export function ref(): RefBundle { if (bundle && !bundle.config) bundle.config = structuredClone(R.defaultConfig); /* older server / cache */ return bundle ?? (empty as unknown as RefBundle); }
 const stopsOf = (routeId: ID): RouteStop[] => ref().routes.find((r) => r.id === routeId)?.stops ?? [];
 export const lookup = {
   product: (id: ID) => ref().products.find((p) => p.id === id),
@@ -162,10 +187,25 @@ export const plans = {
   decide: (id: ID, action: 'approved' | 'returned' | 'rejected', comment?: string, signature?: string) => mutate(post<Plan>(`/plans/${id}/decision`, { action, comment, signature })),
   amend: (id: ID, reason: string) => mutate(post<Plan>(`/plans/${id}/amendments`, { reason })),
   versions: (id: ID) => get<{ version: number; snapshot: Plan; reason: string | null; at: string }[]>(`/plans/${id}/versions`),
+  /** PO-06: each line against the approved period plan — planned, ordered before, this PO, remaining, over/unplanned. */
+  planContext: (planId: ID) => get<PlanLineContext[]>(`/plans/${planId}/plan-context`),
+};
+/** §8.3 PL-06..PL-12: period plans per company (Group view reads only). */
+export const periodPlans = {
+  /** Active plans; `{ all: true }` also lists Replaced ones. */
+  list: (opts: { all?: boolean } = {}) => get<PeriodPlan[]>(`/period-plans${opts.all ? '?all=1' : ''}`),
+  get: (id: ID) => orNull(get<PeriodPlan>(`/period-plans/${id}`)),
+  /** Plans are suggestions (Active at once). An overlap → ApiError 409 with `conflicts`, unless `replace: true`. */
+  create: (input: { entityId?: ID; periodKind: PeriodKind; from: string; to: string; title: string; lines?: import('./types').PeriodPlanLine[]; replace?: boolean }) => mutate(post<PeriodPlan>('/period-plans', input)),
+  save: (plan: PeriodPlan, opts: { replace?: boolean } = {}) => mutate(call<PeriodPlan>('PUT', `/period-plans/${plan.id}`, { ...plan, ...(opts.replace ? { replace: true } : {}) })),
+  copy: (fromId: ID, to: { from: string; to: string; title?: string; replace?: boolean }) => mutate(post<PeriodPlan>(`/period-plans/${fromId}/copy`, to)),
+  overlaps: (plan: Pick<PeriodPlan, 'id' | 'entityId' | 'from' | 'to'>) => post<PeriodPlan[]>('/period-plans/overlaps', plan),
+  versions: (id: ID) => get<{ version: number; snapshot: PeriodPlan; reason: string | null; at: string }[]>(`/period-plans/${id}/versions`),
 };
 export const pos = {
   async list() { const r = await get<PurchaseOrder[]>('/pos'); r.forEach((p) => poRefs.set(p.id, p.ref)); return r; },
-  async get(id: ID) { const r = await orNull(get<{ po: PurchaseOrder; plan: Plan }>(`/pos/${id}`)); if (r) poRefs.set(r.po.id, r.po.ref); return r; },
+  /** `revisions`: the whole chain of a PO revised at loading (original first), else empty. */
+  async get(id: ID) { const r = await orNull(get<{ po: PurchaseOrder; plan: Plan; revisions: PurchaseOrder[] }>(`/pos/${id}`)); if (r) { poRefs.set(r.po.id, r.po.ref); (r.revisions ?? []).forEach((x) => poRefs.set(x.id, x.ref)); } return r; },
   markSent: (id: ID) => mutate(post<PurchaseOrder>(`/pos/${id}/sent`)),
   send: (id: ID) => mutate(post<PurchaseOrder>(`/pos/${id}/send`)),
   /** Server-rendered PO letter (Typst). */
@@ -173,9 +213,9 @@ export const pos = {
 };
 export const loading = {
   waiting: (loadingPointId?: ID) => get<WaitingEntry[]>(`/waiting${loadingPointId ? `?loadingPointId=${loadingPointId}` : ''}`),
-  addWaiting: (loadingPointId: ID, truckId: ID, driverId: ID) => mutate(post<WaitingEntry>(`/loading-points/${loadingPointId}/waiting`, { truckId, driverId }, key())),
+  addWaiting: (loadingPointId: ID, truckId: ID, driverId: ID, entityId?: ID) => mutate(post<WaitingEntry>(`/loading-points/${loadingPointId}/waiting`, { truckId, driverId, entityId }, key())),
   list: (loadingPointId?: ID) => get<Loading[]>(`/loadings${loadingPointId ? `?loadingPointId=${loadingPointId}` : ''}`),
-  confirm: (id: ID, input: { truckId: ID; driverId: ID; loadedQty: Record<ID, number>; agreedTransport: number; documents: string[]; loadedAt?: string }) => mutate(post<Shipment>(`/loadings/${id}/confirm`, input, key()).then(async (s) => { await loadRef(); return s; })),
+  confirm: (id: ID, input: { truckId: ID; driverId: ID; loadedQty: Record<ID, number>; agreedTransport: number; documents: string[]; loadedAt?: string; alternatives?: import('./types').LoadingAlternative[] }) => mutate(post<Shipment>(`/loadings/${id}/confirm`, input, key()).then(async (s) => { await loadRef(); return s; })),
 };
 export const shipments = {
   async list() { return (await get<(Shipment & { poRef?: string })[]>('/shipments')).map(remember); },
@@ -190,7 +230,11 @@ export const shipments = {
   issue: (legId: ID, issue: Omit<TruckIssue, 'id'>) => mutate(post<Leg>(`/legs/${legId}/issues`, issue, key())),
   fixIssue: (legId: ID, issueId: ID) => mutate(post<Leg>(`/legs/${legId}/issues/${issueId}/fix`)),
   acknowledge: (legId: ID, input: { receiverName: string; lines: AckLine[]; signature?: string; photos?: string[] }) => mutate(post<Acknowledgement>(`/legs/${legId}/acknowledgement`, input, key())),
+  /** Doc 08 §2: onward move from the warehouse where the shipment was received = a NEW shipment. */
+  sendOn: (fromShipmentId: ID, input: { routeId: ID; truckId: ID; driverId: ID; lines?: Leg['lines'] }) => mutate(post<Shipment>(`/shipments/${fromShipmentId}/send-on`, input, key())),
+  /** @deprecated use sendOn — returns the new shipment's first leg. */
   addLeg: (shipmentId: ID, routeId: ID, truckId: ID, driverId: ID) => mutate(post<Leg>(`/shipments/${shipmentId}/legs`, { routeId, truckId, driverId })),
+  journey: (id: ID) => get<JourneyStep[]>(`/shipments/${id}/journey`),
   ack: (id: ID) => orNull(get<Acknowledgement>(`/acks/${id}`)),
   undoPass: (legId: ID, checkpointId: ID, kind: 'arrived' | 'departed') => mutate(post<Leg>(`/legs/${legId}/passes/${checkpointId}/undo`, { kind }, key())),
   ackPdf: (ackId: ID) => call<Blob>('GET', `/acks/${ackId}/pdf`, undefined, { blob: true }),
@@ -201,7 +245,7 @@ export const inventory = {
 };
 export const sales = {
   list: (warehouseId?: ID) => get<Sale[]>(`/sales${warehouseId ? `?warehouseId=${warehouseId}` : ''}`),
-  create: (input: Omit<Sale, 'id' | 'ref' | 'status'>, override = false) => mutate(post<Sale>('/sales', { ...input, override }, key())),
+  create: (input: Omit<Sale, 'id' | 'ref' | 'status' | 'entityId'> & { entityId?: ID }, override = false) => mutate(post<Sale>('/sales', { ...input, override }, key())),
 };
 type Trip = { shipment: Shipment; costs: TripCost[]; payments: TripPayment[]; transport: number; paid: number; balance: number; goods: number; expenses: number; landing: number; cases: number; perCase: number };
 export const finance = {
@@ -223,10 +267,17 @@ export const notifications = {
   readAll: () => mutate(post<boolean>('/notifications/read', {})),
   markRead: (id: ID) => mutate(post<boolean>('/notifications/read', { ids: [id] })),
 };
-export const demo = { reset() { post('/dev/reset').then(async () => { await loadRef(); emit(); }).catch(() => {}); } };
+export const demo = {
+  reset() { post('/dev/reset').then(async () => { await loadRef(); emit(); }).catch(() => {}); },
+  /** The server reads config.toml at startup; nothing to change from a client. */
+  setConfig(_c: unknown) { /* no-op over HTTP */ },
+};
 export const queue = {
   move: (entryId: ID, dir: -1 | 1) => mutate(post<WaitingEntry>(`/waiting/${entryId}/move`, { dir })),
-  remove: (entryId: ID) => mutate(call<boolean>('DELETE', `/waiting/${entryId}`)),
+  /** Put a waiting truck at `position` (1 = next to load); the loader is notified. */
+  moveTo: (entryId: ID, position: number) => mutate(post<WaitingEntry>(`/waiting/${entryId}/move`, { position })),
+  /** Take a truck out of the queue; the reason is shown to the loader and kept in the audit log. */
+  remove: (entryId: ID, reason?: string) => mutate(call<boolean>('DELETE', `/waiting/${entryId}`, reason ? { reason } : undefined)),
   async addMarketTruck(loadingPointId: ID, input: { company: string; reg: string; trailer: string; capacityCases: number; driverName: string; driverPhone: string }) {
     const r = await post<{ truck: { id: ID; providerId: ID; reg: string; trailer: string; capacityCases: number; defaultDriverId?: ID }; driver: { id: ID; name: string; phone: string; licence: string; providerId: ID; hasApp: boolean }; entry: WaitingEntry }>(`/loading-points/${loadingPointId}/market-trucks`, input);
     await loadRef(); emit(); return r;
@@ -247,10 +298,19 @@ export const field = {
 };
 const withRef = async <T>(p: Promise<T>) => { const r = await p; await loadRef(); emit(); return r; };
 export const masterdata = {
+  addWarehouse: (input: WarehouseInput) => withRef(post<Warehouse>('/masterdata/warehouses', input)),
+  updateWarehouse: (id: ID, input: Partial<WarehouseInput>) => withRef(call<Warehouse>('PATCH', `/masterdata/warehouses/${id}`, input)),
+  saveWarehouse: (id: ID | null, input: Partial<WarehouseInput>) => (id ? masterdata.updateWarehouse(id, input) : masterdata.addWarehouse(input as WarehouseInput)),
+  addRoute: (input: { name: string; code?: string; distanceKm?: number; stops: RouteStop[] }) => withRef(post<Route>('/masterdata/routes', input)),
   updateRouteStops: (routeId: ID, stops: RouteStop[]) => withRef(call<unknown>('PATCH', `/masterdata/routes/${routeId}`, { stops })),
-  addTruck: (input: { providerId: ID; reg: string; trailer: string; capacityCases: number; defaultDriverId?: ID }) => withRef(post<unknown>('/masterdata/trucks', input)),
-  addDriver: (input: { providerId: ID; name: string; phone: string; licence?: string; hasApp?: boolean }) => withRef(post<unknown>('/masterdata/drivers', input)),
-  addProvider: (input: { name: string; regular?: boolean; phone?: string }) => withRef(post<unknown>('/masterdata/providers', input)),
+  addTruck: (input: TruckInput) => withRef(post<Truck>('/masterdata/trucks', input)),
+  addDriver: (input: DriverInput & { appLogin?: boolean }) => withRef(post<SavedDriver>('/masterdata/drivers', input)),
+  addProvider: (input: Partial<ProviderInput> & { name: string }) => withRef(post<Provider>('/masterdata/providers', input)),
+  /** Transport onboarding (docs/10): add (id null) or edit; `active: false` deactivates (kept for history). */
+  saveProvider: (id: ID | null, input: Partial<ProviderInput>) => withRef(id ? call<Provider>('PATCH', `/masterdata/providers/${id}`, input) : post<Provider>('/masterdata/providers', input)),
+  saveTruck: (id: ID | null, input: Partial<TruckInput>) => withRef(id ? call<Truck>('PATCH', `/masterdata/trucks/${id}`, input) : post<Truck>('/masterdata/trucks', input)),
+  /** `appLogin: true` with `hasApp` gives a new driver a field-app login; the PIN comes back once in `login.pin`. */
+  saveDriver: (id: ID | null, input: Partial<DriverInput> & { appLogin?: boolean }) => withRef(id ? call<SavedDriver>('PATCH', `/masterdata/drivers/${id}`, input) : post<SavedDriver>('/masterdata/drivers', input)),
 };
 export const users = {
   list: () => get<UserAdmin[]>('/users'),
@@ -269,4 +329,41 @@ export const files = {
 export const sync = {
   // Screens reload on change events; synced writes must emit like direct ones (else the driver sheet goes stale).
   batch: (items: { idempotencyKey: string; op: string; payload: unknown }[]) => mutate(post<SyncResult[]>('/sync/batch', items)),
+};
+
+// ---- Reports (computed server-side with packages/api/src/reports.ts) ------------------------------
+const qs = (o: object) => { const p = Object.entries(o).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`); return p.length ? `?${p.join('&')}` : ''; };
+export const reports = {
+  resolvePeriod: RP.resolvePeriod,
+  quarterOf: RP.quarterOf,
+  dashboard: (f: { entityId?: ID } = {}) => get<RP.DashboardReport>(`/reports/dashboard${qs(f)}`),
+  sales: (f: RP.ReportFilter & { groupBy?: RP.GroupBy } = {}) => get<RP.SalesReport>(`/reports/sales${qs(f)}`),
+  quarterly: (quarter?: string, f: RP.ReportFilter = {}) => get<RP.QuarterlyReport>(`/reports/quarterly${qs({ ...f, quarter })}`),
+  logistics: (f: RP.ReportFilter = {}) => get<RP.LogisticsReport>(`/reports/logistics${qs(f)}`),
+  inventory: (f: RP.ReportFilter = {}) => get<RP.InventoryReport>(`/reports/inventory${qs(f)}`),
+  planning: (f: RP.ReportFilter & { horizonDays?: number } = {}) => get<RP.PlanningReport>(`/reports/planning${qs(f)}`),
+  finance: (f: RP.ReportFilter = {}) => get<RP.FinanceReport>(`/reports/finance${qs(f)}`),
+  periodPlan: (f: RP.ReportFilter = {}) => get<RP.PeriodForecast>(`/reports/period-plan${qs(f)}`),
+  captureCheck: (f: RP.ReportFilter = {}) => get<RP.CaptureCheck>(`/reports/capture-check${qs(f)}`),
+  /** Directors: companies side by side + consolidated total (Σ companies − intercompany). Uses all allowed companies. */
+  /** §8.14 PV-01..07: planned vs ordered for approved period plans (Group: + byEntity). */
+  plannedVsActual: (f: RP.PvFilter = {}) => get<RP.PlannedVsActual>(`/reports/planned-vs-actual${qs(f)}`),
+  group: (f: RP.ReportFilter = {}) => get<RP.GroupReport>(`/reports/group${qs(f)}`),
+};
+
+// ---- Companies & settings ------------------------------------------------------------------------------
+export const entities = {
+  /** Company records the user may work in (legal/contact/brand fields). `ref().entities` has all three for lookups. */
+  list: () => get<Entity[]>('/entities'),
+  /** Active company id, or null for Group / all allowed companies. */
+  active: (): ID | null => activeEntity,
+  setActive: (id: ID | null) => configure({ entityId: id }),
+};
+export const settings = {
+  fx: () => get<FxRate[]>('/settings/fx'),
+  /** Directors approve exchange rates (units of currency per 1 USD) for a month. */
+  setFx: (rate: FxRate) => mutate(call<FxRate>('PUT', '/settings/fx', rate)),
+  /** §8.14: planned-vs-actual flag thresholds (directors change them). */
+  pvThresholds: () => get<PvThresholds>('/settings/pv-thresholds'),
+  setPvThresholds: (t: Partial<PvThresholds>) => mutate(call<PvThresholds>('PUT', '/settings/pv-thresholds', t)),
 };

@@ -1,0 +1,62 @@
+/* BTW Team (office PWA) — card UI on the shared tokens. Everything is scoped under .team so the field screens are untouched. */
+.team {
+  --t-radius: 20px;
+  --t-radius-sm: 14px;
+  --t-gap: 12px;
+  --t-pad: 16px;
+  --t-bar: 56px;
+  --t-nav: 68px;
+  --t-accent: var(--co-accent, var(--accent));
+  --t-brand: var(--co-primary, var(--primary));
+  --t-shadow: 0 1px 2px rgb(6 41 83 / .05), 0 10px 28px -16px rgb(6 41 83 / .28);
+  --t-press: scale(.975);
+  --t-card: var(--surface);
+  --t-line: color-mix(in srgb, var(--border) 70%, transparent);
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+}
+:root[data-theme='dark'] .team { --t-shadow: 0 1px 0 rgb(255 255 255 / .03) inset, 0 12px 28px -18px rgb(0 0 0 / .8); --t-brand: var(--co-accent, var(--accent)); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .team { --t-shadow: 0 1px 0 rgb(255 255 255 / .03) inset, 0 12px 28px -18px rgb(0 0 0 / .8); --t-brand: var(--co-accent, var(--accent)); } }
+
+.team .t-page { padding: calc(env(safe-area-inset-top) + var(--t-bar) + 12px) var(--t-pad) calc(env(safe-area-inset-bottom) + var(--t-nav) + 28px); max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+.team .t-card { background: var(--t-card); border-radius: var(--t-radius); box-shadow: var(--t-shadow); border: 1px solid var(--t-line); padding: 16px; }
+.team .t-card.flush { padding: 0; overflow: hidden; }
+.team .t-title { font: 700 13px/18px var(--ff-display); letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); margin: 4px 2px 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.team .t-title a, .team .t-title button { font: 600 14px var(--ff-body); text-transform: none; letter-spacing: 0; color: var(--link); background: none; border: 0; padding: 6px 0; cursor: pointer; text-decoration: none; min-height: 32px; }
+.team .t-h1 { font: 800 26px/32px var(--ff-display); margin: 0; letter-spacing: -.01em; }
+.team .t-sub { color: var(--text-muted); font-size: 15px; margin: 2px 0 0; }
+.team .t-list { display: flex; flex-direction: column; gap: 10px; }
+.team .t-item { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; color: inherit; text-decoration: none; background: var(--t-card); border: 1px solid var(--t-line); border-radius: var(--t-radius-sm); padding: 14px; box-shadow: var(--t-shadow); cursor: pointer; font: inherit; transition: transform var(--motion-fast) var(--motion-easing), background var(--motion-fast); -webkit-tap-highlight-color: transparent; }
+.team .t-item:active, .team .t-press:active { transform: var(--t-press); }
+.team .t-item .t-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.team .t-item .t-line1 { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px; min-width: 0; }
+.team .t-item .t-line1 > .t-ellipsis { min-width: 0; }
+.team .t-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team .t-meta { color: var(--text-muted); font-size: 14px; line-height: 20px; }
+.team .t-amount { font: 700 16px var(--ff-display); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.team .t-chev { color: var(--text-subtle); flex: none; }
+.team .t-row { display: flex; align-items: center; gap: 10px; }
+.team .t-row.between { justify-content: space-between; }
+.team .t-kv { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; font-size: 15px; }
+.team .t-kv dt { color: var(--text-muted); }
+.team .t-kv dd { margin: 0; text-align: right; font-weight: 600; min-width: 0; font-variant-numeric: tabular-nums; }
+.team .t-search { position: relative; }
+.team .t-search input { width: 100%; height: 48px; border-radius: 14px; border: 1px solid var(--t-line); background: var(--t-card); color: var(--text); padding: 0 14px 0 44px; font: 16px var(--ff-body); box-shadow: var(--t-shadow); }
+.team .t-search input:focus { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.team .t-search svg { position: absolute; left: 14px; top: 14px; color: var(--text-subtle); pointer-events: none; }
+.team .t-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.team .t-actions > .btn { flex: 1 1 140px; border-radius: 14px; white-space: nowrap; padding: 0 12px; font-size: 16px; }
+.team .btn { border-radius: 14px; }
+.team .t-hint { font-size: 14px; color: var(--text-muted); background: var(--surface-sunken); border-radius: 12px; padding: 10px 12px; display: flex; gap: 8px; align-items: flex-start; }
+.team .t-hint svg { flex: none; margin-top: 2px; }
+.team .t-fab { position: fixed; right: 16px; bottom: calc(env(safe-area-inset-bottom) + var(--t-nav) + 16px); z-index: 25; height: 56px; padding: 0 20px 0 16px; border-radius: 18px; border: 0; display: inline-flex; align-items: center; gap: 8px; font: 700 16px var(--ff-display); background: var(--t-accent); color: #fff; box-shadow: 0 12px 24px -8px color-mix(in srgb, var(--t-accent) 70%, transparent); cursor: pointer; transition: transform var(--motion-fast); text-decoration: none; }
+.team .t-fab:active { transform: var(--t-press); }
+.team .t-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; display: inline-block; }
+.team .t-icon { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; flex: none; background: var(--surface-sunken); color: var(--text); }
+.team .t-split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.team .t-fade { animation: t-in 260ms var(--motion-easing); }
+/* opacity only: a transform would make fixed children (map, FAB, sheets) position against the page while it animates */
+@keyframes t-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .team *, .team *::before, .team *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; } }
+@media (min-width: 720px) { .team .t-page { padding-left: 24px; padding-right: 24px; } }

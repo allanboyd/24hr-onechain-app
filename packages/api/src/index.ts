@@ -10,5 +10,6 @@ export { amount } from './rules';
 export const mode: 'mock' | 'http' = impl.mode;
 export const {
   ready, configure, onChange, auth, ref, lookup, plans, pos, loading, shipments, inventory, sales, finance, analytics,
-  notifications, demo, queue, tracking, field, masterdata, users, devices, files, sync,
+  notifications, demo, queue, tracking, field, masterdata, users, devices, files, sync, reports, entities, settings, periodPlans,
 } = impl;
+export type * from './reports';

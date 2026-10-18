@@ -1,0 +1,51 @@
+{
+  "code": "GROUP",
+  "name": "BTW Group \u2014 all companies",
+  "shortName": "Group",
+  "colors": {
+    "primary": "#172A45",
+    "accent": "#66768C",
+    "text": "#0B1B33",
+    "onPrimary": "#FFFFFF",
+    "ink": "#66768C",
+    "inkOnDark": "#7A889B"
+  },
+  "tagline": "BTW Global \u00b7 Nihna Unique \u00b7 Kivu",
+  "footerLine": "Consolidated view of BTW Global Distributors, Nihna Unique Distributors and Volcanic Distributors (Kivu)",
+  "address": [],
+  "phones": [],
+  "email": "",
+  "assets": {
+    "logo": "entities/group/logo-480w.png",
+    "logoFull": "entities/group/logo.png",
+    "logoSvg": null,
+    "logoDark": "entities/group/logo-on-dark-480w.png",
+    "mark": "entities/group/mark-128.png",
+    "markDark": "entities/group/mark-on-dark-128.png",
+    "favicon": "entities/group/favicon-32.png",
+    "faviconIco": "entities/group/favicon.ico",
+    "letterhead": null
+  },
+  "legal": {
+    "kraPin": null,
+    "registrationNo": null,
+    "registeredOffice": null
+  },
+  "derived": [
+    "logo-on-dark-480w.png",
+    "mark-on-dark.png",
+    "mark-on-dark-128.png",
+    "all (typographic group kit)"
+  ],
+  "contrast": {
+    "primary on white": 14.45,
+    "onPrimary on primary": 14.45,
+    "accent on white (graphics \u22653)": 4.63,
+    "ink on white (text \u22654.5)": 4.63,
+    "inkOnDark on #102037 (text \u22654.5)": 4.54,
+    "text on white": 17.23
+  },
+  "notes": [
+    "Typographic group mark only (no invented logo). Ask the client whether a group logo exists."
+  ]
+}

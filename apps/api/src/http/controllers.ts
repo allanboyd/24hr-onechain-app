@@ -7,17 +7,24 @@ import { AuthService, type LoginInput } from '../auth/auth.service';
 import { once } from '../common/idempotency';
 import { fail, forbidden } from '../common/errors';
 import { config } from '../config/config';
-import { db } from '../db/client';
+import { db, schema } from '../db/client';
+import { fxRates, loadEntities } from '../domain/companies';
+import { invalidateEntities } from '../auth/entity-scope';
 import { seedDemo } from '../db/seed';
 import { PDF, type PdfPort } from '../integrations/ports';
 import { FinanceService } from '../domain/finance.service';
 import { LogisticsService, type AckInput, type ConfirmLoadingInput } from '../domain/logistics.service';
+import { PeriodPlansService } from '../domain/period-plans.service';
 import { PlanningService } from '../domain/planning.service';
 import { PlatformService } from '../domain/platform.service';
 import { RefService } from '../domain/ref.service';
 import { StockService } from '../domain/stock.service';
 import { SyncService, type SyncItem } from '../domain/sync.service';
-import type { CheckpointPass, Plan, RouteStop, Sale, TripCost, TruckIssue } from '@btw/api/types';
+import { ReportsService } from '../domain/reports.service';
+import * as RP from '@btw/api/reports';
+import type { CheckpointPass, DriverInput, Leg, ProviderInput, TruckInput, WarehouseInput, PeriodPlan, Plan, RouteStop, Sale, TripCost, TruckIssue } from '@btw/api/types';
+import { defaultPvThresholds, featuresFor } from '@btw/api/rules';
+import { eq } from 'drizzle-orm';
 
 type Idem = string | undefined;
 const sendPdf = (res: FastifyReply, name: string, pdf: Buffer) => res.header('Content-Type', 'application/pdf').header('Content-Disposition', `inline; filename="${name}.pdf"`).send(pdf);
@@ -44,10 +51,37 @@ export class AuthController {
 @Controller()
 export class MeController {
   constructor(private platform: PlatformService) {}
-  @Get('me') me(@Me() p: Principal) { const { channel: _c, ...u } = p; return u; }
+  @Get('me') me(@Me() p: Principal) { const { channel: _c, ...u } = p; return { ...u, features: featuresFor(p.roles) }; }
   @Post('devices') @HttpCode(200) device(@Me() p: Principal, @Body() b: { pushToken?: string; platform?: string; appVersion?: string }) { return this.platform.registerDevice(p, b ?? {}); }
   @Get('notifications') notifications(@Me() p: Principal) { return this.platform.notifications(p); }
   @Post('notifications/read') @HttpCode(200) read(@Me() p: Principal, @Body() b: { ids?: string[] }) { return this.platform.markRead(p, b?.ids); }
+}
+
+/** Companies (tenants) and director-approved exchange rates. */
+@Controller()
+export class CompaniesController {
+  /** Company records the user may work in (legal/contact/brand fields); `GET /ref` has all three for lookups. */
+  @Get('entities') async list(@Me() p: Principal) { return (await loadEntities()).filter((e) => p.allowedEntityIds.includes(e.id)); }
+  @Get('settings/fx') fx() { return fxRates(); }
+  /** PV-05: planned-vs-actual flag thresholds (behind = share of expected-to-date, over = share of plan). */
+  @Get('settings/pv-thresholds') async pv() { const [r] = await db.select().from(schema.settings).where(eq(schema.settings.key, 'pvThresholds')); return (r?.value as typeof defaultPvThresholds) ?? defaultPvThresholds; }
+  @Put('settings/pv-thresholds') async setPv(@Me() p: Principal, @Body() b: { behind?: number; over?: number }) {
+    if (!p.roles.includes('director')) forbidden('Only directors change the planned-vs-actual thresholds');
+    const behind = Number(b?.behind), over = Number(b?.over);
+    if (!(behind > 0 && behind <= 1) || !(over >= 1 && over <= 2)) fail('Behind must be above 0 and at most 1; over between 1 and 2', 400, 'bad-request');
+    const value = { behind, over };
+    await db.insert(schema.settings).values({ key: 'pvThresholds', value }).onConflictDoUpdate({ target: schema.settings.key, set: { value } });
+    return value;
+  }
+  /** Directors approve a month's rate: units of currency per 1 USD (avg → P&L, closing → stock/balances). */
+  @Put('settings/fx') async setFx(@Me() p: Principal, @Body() b: { currency?: string; month?: string; avg?: number; closing?: number }) {
+    if (!p.roles.includes('director')) forbidden('Only directors approve exchange rates');
+    const currency = typeof b?.currency === 'string' ? b.currency.toUpperCase() : '';
+    if (!/^[A-Z]{3}$/.test(currency) || currency === 'USD' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(String(b?.month)) || !(Number(b?.avg) > 0) || !(Number(b?.closing) > 0)) fail('Give a month (YYYY-MM), a currency other than USD and rates above zero', 400, 'bad-request');
+    const row = { currency, month: String(b.month), avg: Number(b.avg), closing: Number(b.closing), byUserId: p.id, at: new Date().toISOString() };
+    await db.insert(schema.fxRates).values(row).onConflictDoUpdate({ target: [schema.fxRates.currency, schema.fxRates.month], set: { avg: row.avg, closing: row.closing, byUserId: p.id, at: row.at } });
+    return { currency, month: row.month, avg: row.avg, closing: row.closing };
+  }
 }
 
 @Controller()
@@ -64,9 +98,16 @@ export class RefController {
     const key = kind.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
     return b[key] ?? fail(`Unknown master data kind ${kind}`, 404, 'not-found');
   }
-  @Post('masterdata/trucks') addTruck(@Me() p: Principal, @Body() b: Parameters<PlatformService['addTruck']>[1]) { return this.platform.addTruck(p, b); }
-  @Post('masterdata/drivers') addDriver(@Me() p: Principal, @Body() b: Parameters<PlatformService['addDriver']>[1]) { return this.platform.addDriver(p, b); }
-  @Post('masterdata/providers') addProvider(@Me() p: Principal, @Body() b: Parameters<PlatformService['addProvider']>[1]) { return this.platform.addProvider(p, b); }
+  // Transport onboarding (docs/10): truck planners, fleet, planners, directors, admins
+  @Post('masterdata/trucks') addTruck(@Me() p: Principal, @Body() b: Partial<TruckInput>) { return this.platform.saveTruck(p, null, b ?? {}); }
+  @Patch('masterdata/trucks/:id') editTruck(@Me() p: Principal, @Param('id') id: string, @Body() b: Partial<TruckInput>) { return this.platform.saveTruck(p, id, b ?? {}); }
+  @Post('masterdata/drivers') addDriver(@Me() p: Principal, @Body() b: Partial<DriverInput> & { appLogin?: boolean }) { return this.platform.saveDriver(p, null, b ?? {}); }
+  @Patch('masterdata/drivers/:id') editDriver(@Me() p: Principal, @Param('id') id: string, @Body() b: Partial<DriverInput> & { appLogin?: boolean }) { return this.platform.saveDriver(p, id, b ?? {}); }
+  @Post('masterdata/providers') addProvider(@Me() p: Principal, @Body() b: Partial<ProviderInput>) { return this.platform.saveProvider(p, null, { kind: (b as { regular?: boolean })?.regular === false ? 'market' : 'company', ...(b ?? {}) }); }
+  @Patch('masterdata/providers/:id') editProvider(@Me() p: Principal, @Param('id') id: string, @Body() b: Partial<ProviderInput>) { return this.platform.saveProvider(p, id, b ?? {}); }
+  @Post('masterdata/routes') addRoute(@Me() p: Principal, @Body() b: Parameters<PlatformService['addRoute']>[1]) { return this.platform.addRoute(p, b); }
+  @Post('masterdata/warehouses') addWarehouse(@Me() p: Principal, @Body() b: WarehouseInput) { return this.platform.saveWarehouse(p, null, b); }
+  @Patch('masterdata/warehouses/:id') editWarehouse(@Me() p: Principal, @Param('id') id: string, @Body() b: Partial<WarehouseInput>) { return this.platform.saveWarehouse(p, id, b as WarehouseInput); }
   @Patch('masterdata/routes/:id') route(@Me() p: Principal, @Param('id') id: string, @Body() b: { stops: RouteStop[] }) { return this.platform.updateRouteStops(p, id, b?.stops ?? []); }
 }
 
@@ -92,6 +133,7 @@ export class PlanningController {
   @Post('plans/:id/decision') @HttpCode(200) decide(@Me() p: Principal, @Param('id') id: string, @Body() b: { action: 'approved' | 'returned' | 'rejected'; comment?: string; signature?: string }) { return this.planning.decide(p, id, b?.action, b?.comment, b?.signature); }
   @Post('plans/:id/amendments') amend(@Me() p: Principal, @Param('id') id: string, @Body() b: { reason: string }) { return this.planning.amend(p, id, b?.reason); }
   @Get('plans/:id/versions') versions(@Me() p: Principal, @Param('id') id: string) { return this.planning.versions(p, id); }
+  @Get('plans/:id/plan-context') planContext(@Me() p: Principal, @Param('id') id: string) { return this.planning.planContext(p, id); }
   @Get('pos') pos(@Me() p: Principal) { return this.planning.listPos(p); }
   @Get('pos/:id') po(@Me() p: Principal, @Param('id') id: string) { return this.planning.getPo(p, id); }
   @Post('pos/:id/sent') @HttpCode(200) sent(@Me() p: Principal, @Param('id') id: string) { return this.planning.markSent(p, id); }
@@ -100,14 +142,31 @@ export class PlanningController {
   @Get('pos/:id/letter') letter(@Me() p: Principal, @Param('id') id: string) { return this.planning.poLetterData(p, id); }
 }
 
+/** Period plans (§8.3 PL-06…12): what each company plans to buy over a month / quarter / half / year / custom period. */
+// Period plans are suggestions: no submit / decision / amendments (removed) — a save is final, with edit history.
+@Controller('period-plans')
+export class PeriodPlansController {
+  constructor(private plans: PeriodPlansService) {}
+  /** Active plans; `?all=1` also lists Replaced ones (kept for history). */
+  @Get() list(@Me() p: Principal, @Query('all') all?: string) { return this.plans.list(p, all === '1' || all === 'true'); }
+  @Post() create(@Me() p: Principal, @Body() b: Parameters<PeriodPlansService['create']>[1]) { return this.plans.create(p, b ?? {}); }
+  @Post('overlaps') @HttpCode(200) overlaps(@Me() p: Principal, @Body() b: Partial<PeriodPlan>) { return this.plans.overlaps(p, b ?? {}); }
+  @Get(':id') get(@Me() p: Principal, @Param('id') id: string) { return this.plans.get(p, id); }
+  @Put(':id') save(@Me() p: Principal, @Param('id') id: string, @Body() b: Partial<PeriodPlan>) { return this.plans.save(p, id, b ?? {}); }
+  @Post(':id/copy') copy(@Me() p: Principal, @Param('id') id: string, @Body() b: { from?: string; to?: string; title?: string; replace?: boolean }) { return this.plans.copy(p, id, b ?? {}); }
+  @Get(':id/versions') versions(@Me() p: Principal, @Param('id') id: string) { return this.plans.versions(p, id); }
+}
+
 @Controller()
 export class LoadingController {
   constructor(private logistics: LogisticsService) {}
   @Get('waiting') waiting(@Me() p: Principal, @Query('loadingPointId') lp?: string) { return this.logistics.waiting(p, lp); }
-  @Post('loading-points/:id/waiting') add(@Me() p: Principal, @Param('id') lp: string, @Body() b: { truckId: string; driverId: string }, @Headers('idempotency-key') k: Idem) { return once(k, p.id, 'waiting.add', () => this.logistics.addWaiting(p, lp, b?.truckId, b?.driverId)).then((r) => r.result); }
+  @Post('loading-points/:id/waiting') add(@Me() p: Principal, @Param('id') lp: string, @Body() b: { truckId: string; driverId: string; entityId?: string }, @Headers('idempotency-key') k: Idem) { return once(k, p.id, 'waiting.add', () => this.logistics.addWaiting(p, lp, b?.truckId, b?.driverId, typeof b?.entityId === 'string' ? b.entityId : undefined)).then((r) => r.result); }
   @Post('loading-points/:id/market-trucks') market(@Me() p: Principal, @Param('id') lp: string, @Body() b: Parameters<LogisticsService['addMarketTruck']>[2]) { return this.logistics.addMarketTruck(p, lp, b); }
-  @Post('waiting/:id/move') @HttpCode(200) move(@Me() p: Principal, @Param('id') id: string, @Body() b: { dir: -1 | 1 }) { return this.logistics.moveWaiting(p, id, b?.dir === -1 ? -1 : 1); }
-  @Delete('waiting/:id') remove(@Me() p: Principal, @Param('id') id: string) { return this.logistics.removeWaiting(p, id); }
+  /** `{ dir: -1 | 1 }` one place up/down, or `{ position }` (1 = next to load). */
+  @Post('waiting/:id/move') @HttpCode(200) move(@Me() p: Principal, @Param('id') id: string, @Body() b: { dir?: -1 | 1; position?: number }) { return this.logistics.moveWaiting(p, id, b?.dir === -1 ? -1 : 1, b?.position === undefined ? undefined : Number(b.position)); }
+  /** Optional reason (body `{ reason }` or `?reason=`) — shown to the loader, kept in the audit log. */
+  @Delete('waiting/:id') remove(@Me() p: Principal, @Param('id') id: string, @Body() b: { reason?: string } | undefined, @Query('reason') qr?: string) { return this.logistics.removeWaiting(p, id, (b as { reason?: unknown } | undefined)?.reason ?? qr); }
   @Get('loadings') loadings(@Me() p: Principal, @Query('loadingPointId') lp?: string) { return this.logistics.loadings(p, lp); }
   @Post('loadings/:id/confirm') confirm(@Me() p: Principal, @Param('id') id: string, @Body() b: ConfirmLoadingInput, @Headers('idempotency-key') k: Idem) { return once(k, p.id, 'loading.confirm', () => this.logistics.confirmLoading(p, id, b)).then((r) => r.result); }
 }
@@ -118,6 +177,8 @@ export class ShipmentsController {
   @Get('shipments') list(@Me() p: Principal) { return this.logistics.list(p); }
   @Get('shipments/:id') get(@Me() p: Principal, @Param('id') id: string) { return this.logistics.get(p, id); }
   @Get('shipments/:id/acks') acks(@Me() p: Principal, @Param('id') id: string) { return this.logistics.acks(p, id); }
+  @Get('shipments/:id/journey') journey(@Me() p: Principal, @Param('id') id: string) { return this.logistics.journey(p, id); }
+  @Post('shipments/:id/send-on') sendOn(@Me() p: Principal, @Param('id') id: string, @Body() b: { routeId: string; truckId: string; driverId: string; lines?: Leg['lines'] }, @Headers('idempotency-key') k: Idem) { return once(k, p.id, 'shipment.sendOn', () => this.logistics.sendOn(p, id, b)).then((r) => r.result); }
   @Post('shipments/:id/legs') addLeg(@Me() p: Principal, @Param('id') id: string, @Body() b: { routeId: string; truckId: string; driverId: string }) { return this.logistics.addLeg(p, id, b?.routeId, b?.truckId, b?.driverId); }
   @Post('legs/:id/passes') @HttpCode(200) pass(@Me() p: Principal, @Param('id') id: string, @Body() b: { checkpointId: string; kind: 'arrived' | 'departed'; source?: CheckpointPass['source']; at?: string }, @Headers('idempotency-key') k: Idem) {
     return once(k, p.id, 'leg.pass', () => this.logistics.pass(p, id, b?.checkpointId, b?.kind, b?.source ?? (p.channel === 'app' ? 'driver' : 'office'), b?.at ? Date.parse(b.at) : Date.now())).then((r) => r.result);
@@ -146,7 +207,7 @@ export class StockController {
   @Get('stock') rows(@Me() p: Principal) { return this.stock.stock(p); }
   @Get('stock/ledger') ledger(@Me() p: Principal, @Query('warehouseId') w: string, @Query('productId') pr: string) { return this.stock.ledger(p, w, pr); }
   @Get('sales') sales(@Me() p: Principal, @Query('warehouseId') w?: string) { return this.stock.sales(p, w); }
-  @Post('sales') create(@Me() p: Principal, @Body() b: Omit<Sale, 'id' | 'ref' | 'status'> & { override?: boolean }, @Headers('idempotency-key') k: Idem) { const { override, ...input } = b ?? ({} as never); return once(k, p.id, 'sale.create', () => this.stock.createSale(p, input, !!override)).then((r) => r.result); }
+  @Post('sales') create(@Me() p: Principal, @Body() b: Omit<Sale, 'id' | 'ref' | 'status' | 'entityId'> & { entityId?: string; override?: boolean }, @Headers('idempotency-key') k: Idem) { const { override, ...input } = b ?? ({} as never); return once(k, p.id, 'sale.create', () => this.stock.createSale(p, input, !!override)).then((r) => r.result); }
   @Get('analytics/summary') summary(@Me() p: Principal) { return this.stock.summary(p); }
   @Get('analytics/velocity') velocity(@Me() p: Principal) { return this.stock.velocity(p); }
   @Get('analytics/flags') flags(@Me() p: Principal) { return this.stock.flags(p); }
@@ -181,6 +242,40 @@ export class DevResetController {
     if (process.env.NODE_ENV === 'production') fail('Not available', 404, 'not-found');
     if (!isGlobal(p)) forbidden('Only a director or administrator can reset the demo data');
     void req; void config;
-    const r = await seedDemo(db); this.ref.invalidate(); return r;
+    const r = await seedDemo(db); this.ref.invalidate(); invalidateEntities(); return r;
   }
+}
+
+/** Reports & planning: every endpoint returns a pure function of the caller's data scope (see @btw/api/reports). */
+type RQ = { from?: string; to?: string; warehouseId?: string; productId?: string; entityId?: string };
+const filter = (q: RQ, report?: string): RP.ReportFilter & { report?: string } => {
+  const ok = (x?: string) => (x && !Number.isNaN(Date.parse(x)) ? new Date(x).toISOString() : undefined);
+  return { from: ok(q?.from), to: ok(q?.to), warehouseId: q?.warehouseId || undefined, productId: q?.productId || undefined, entityId: q?.entityId || undefined, report };
+};
+@Controller('reports')
+export class ReportsController {
+  constructor(private reports: ReportsService) {}
+  @Get('dashboard') async dashboard(@Me() p: Principal, @Query() q: RQ) { const f = filter(q, 'dashboard'); return RP.dashboardReport(await this.reports.data(p, f), { entityId: f.entityId }); }
+  @Get('sales') async sales(@Me() p: Principal, @Query() q: RQ & { groupBy?: string }) {
+    const g = ['day', 'week', 'month', 'quarter'].includes(q?.groupBy ?? '') ? (q.groupBy as RP.GroupBy) : undefined;
+    return RP.salesReport(await this.reports.data(p, filter(q, 'sales')), { ...filter(q), groupBy: g });
+  }
+  @Get('quarterly') async quarterly(@Me() p: Principal, @Query() q: RQ & { quarter?: string }) {
+    if (q?.quarter && !/^\d{4}-Q[1-4]$/.test(q.quarter)) fail('Quarter must look like 2026-Q3', 400, 'bad-request');
+    return RP.quarterlyReport(await this.reports.data(p, filter(q, 'quarterly')), q?.quarter, filter(q));
+  }
+  @Get('logistics') async logistics(@Me() p: Principal, @Query() q: RQ) { return RP.logisticsReport(await this.reports.data(p, filter(q, 'logistics')), filter(q)); }
+  @Get('inventory') async inventory(@Me() p: Principal, @Query() q: RQ) { return RP.inventoryReport(await this.reports.data(p, filter(q, 'inventory')), filter(q)); }
+  @Get('planning') async planning(@Me() p: Principal, @Query() q: RQ & { horizonDays?: string }) {
+    const h = Number(q?.horizonDays); return RP.planningReport(await this.reports.data(p, filter(q, 'planning')), { ...filter(q), horizonDays: Number.isFinite(h) && h > 0 ? Math.min(h, 365) : undefined });
+  }
+  @Get('finance') async finance(@Me() p: Principal, @Query() q: RQ) { return RP.financeReport(await this.reports.data(p, filter(q, 'finance')), filter(q)); }
+  @Get('period-plan') async periodPlan(@Me() p: Principal, @Query() q: RQ) { return RP.periodPlan(await this.reports.data(p, filter(q, 'period-plan')), filter(q)); }
+  /** Directors: the three companies side by side + consolidated total (Σ companies − intercompany), all in USD. */
+  @Get('group') async group(@Me() p: Principal, @Query() q: RQ) { return RP.groupReport(await this.reports.data(p, { group: true }), filter(q)); }
+  /** PV-01…07: planned vs actual ordered per plan line, flags, monthly running totals, plan used per brand. */
+  @Get('planned-vs-actual') async plannedVsActual(@Me() p: Principal, @Query() q: RQ & { supplierId?: string }) {
+    return RP.plannedVsActual(await this.reports.data(p, filter(q, 'planned-vs-actual')), { ...filter(q), supplierId: q?.supplierId || undefined });
+  }
+  @Get('capture-check') async captureCheck(@Me() p: Principal, @Query() q: RQ) { return RP.captureCheck(await this.reports.data(p, filter(q, 'capture-check')), filter(q)); }
 }

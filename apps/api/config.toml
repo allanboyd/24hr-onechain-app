@@ -1,0 +1,12 @@
+# BTW platform — business settings read by the API at startup (restart the API after a change).
+# Another file can be used with the environment variable CONFIG_FILE=/path/to/config.toml.
+# If this file is missing, the defaults shown here apply. The apps receive these values in GET /v1/ref as `config`.
+
+[approvals]
+purchase_orders = false     # true = a director must approve (and sign) a PO before it is issued
+                            # false = the planner's "Issue purchase order" creates the PO at once
+
+[loading]
+allowance_pct = 10          # how far a truck's loaded total may differ from the PO (± %) before the office must step in
+allow_alternatives = true   # the loader may load substitute products (same supplier) when an item is missing
+revision_suffix = "-rev"    # a PO changed at loading becomes PO-001 → PO-001-rev001, PO-001-rev002, …

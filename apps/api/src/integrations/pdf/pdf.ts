@@ -27,6 +27,36 @@ export function brandLogo(root = repoRoot()): string {
   return path.join(root, 'docs/inspiration/preffered-logo.jpeg');
 }
 
+/** Company brand kit (packages/ui/src/assets/brand/entities/<code>/brand.json, built by docs/brand/build_entities.py). */
+const brandCache = new Map<string, any>();
+export function brandFor(code: string | undefined, root = repoRoot()): any | null {
+  if (!code) return null;
+  const key = code.toUpperCase();
+  if (!brandCache.has(key)) {
+    const f = path.join(root, 'packages/ui/src/assets/brand/entities', key.toLowerCase(), 'brand.json');
+    brandCache.set(key, existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : null);
+  }
+  return brandCache.get(key);
+}
+type Legal = { kraPin?: string | null; registrationNo?: string | null; registeredOffice?: string | null };
+/** Letterhead for the issuing company: its own header / footer / watermark artwork + colours + legal identifiers.
+ *  Values on the entity record (agent C's data) win over the brand kit; missing identifiers render as "to confirm". */
+export function letterhead(code: string | undefined, entity: Legal & { name?: string } = {}, root = repoRoot()) {
+  const b = brandFor(code, root);
+  const L = b?.assets?.letterhead;
+  if (!b || !L?.header || !L?.footer) return null;
+  const templates = path.join(root, 'apps/api/templates');
+  const part = (p: { svg: string; yPt: [number, number] } | null) =>
+    p && existsSync(path.join(root, p.svg)) ? { path: '/' + path.relative(templates, path.join(root, p.svg)).split(path.sep).join('/'), y0: p.yPt[0], y1: p.yPt[1] } : null;
+  const header = part(L.header), footer = part(L.footer);
+  if (!header || !footer) return null;
+  const pick = (k: keyof Legal) => (entity[k] ?? b.legal?.[k] ?? null) || null;
+  return {
+    code: b.code, name: entity.name ?? b.name, colors: b.colors, header, footer, watermark: part(L.watermark),
+    legal: { kraPin: pick('kraPin'), registrationNo: pick('registrationNo'), registeredOffice: pick('registeredOffice') },
+  };
+}
+
 export class TypstPdf implements PdfPort {
   private readonly templates: string;
   private compiler: NodeCompiler | null = null;
@@ -90,6 +120,7 @@ export class TypstPdf implements PdfPort {
     const total = { qty: lines.reduce((a, l) => a + l.qty, 0), amt: lines.reduce((a, l) => a + Math.round(l.qty * l.price * 100) / 100, 0) };
     const logo = d.entity.logo ?? (d.entity.code === 'BTW' ? brandLogo() : null);
     return {
+      lh: letterhead(d.entity.code, d.entity as Legal & { name: string }),
       entity: { name: d.entity.name, address: d.entity.address ?? null, phone: d.entity.phone ?? null, email: d.entity.email ?? null },
       logo: await this.img(c, 'logo', logo),
       date: fmtDate(d.date), ref: d.ref, title: d.title, version: d.version && d.version > 1 ? d.version : null,
@@ -101,6 +132,8 @@ export class TypstPdf implements PdfPort {
       truckCount: new Set(lines.map((l) => l.truckNo)).size, totalQty: num(total.qty), totalAmount: num(total.amt, 2),
       preparedBy: { name: d.preparedBy.name, title: d.preparedBy.title ?? null },
       approvedBy: d.approvedBy ? { name: d.approvedBy.name, title: d.approvedBy.title ?? null, at: fmtDate(d.approvedBy.at) } : null,
+      mode: d.mode ?? 'approved',
+      revision: d.revision ? { n: d.revision.n, of: d.revision.of, changes: d.revision.changes } : null,
       signature: await this.img(c, 'signature', d.approvedBy?.signature),
       stamp: await this.img(c, 'stamp', d.stamp),
     };
@@ -111,7 +144,10 @@ export class TypstPdf implements PdfPort {
     const t = d.lines.reduce((a, l) => ({ e: a.e + l.expected, r: a.r + l.received, d: a.d + l.damaged }), { e: 0, r: 0, d: 0 });
     const photos: string[] = [];
     for (const [i, p] of (d.photos ?? []).slice(0, 6).entries()) { const x = await this.img(c, `photo-${i}`, p); if (x) photos.push(x); }
+    // The shipment's company (agent C adds `entity` to AckPdfData); BTW until it is provided.
+    const ent = ((d as unknown as { entity?: Legal & { code?: string; name?: string } }).entity) ?? {};
     return {
+      lh: letterhead(ent.code ?? (d as unknown as { entityCode?: string }).entityCode ?? 'BTW', ent),
       ...d, receivedAt: fmtDateTime(d.receivedAt), driverName: d.driverName ?? null, logo: await this.img(c, 'logo', brandLogo()),
       rows, totals: { expected: num(t.e), received: num(t.r), damaged: num(t.d), diff: t.r - t.e === 0 ? '0' : (t.r - t.e > 0 ? '+' : '−') + num(Math.abs(t.r - t.e)) },
       discrepancy: d.lines.some((l) => l.received !== l.expected || l.damaged > 0),
