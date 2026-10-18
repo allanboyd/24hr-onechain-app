@@ -35,9 +35,37 @@ allow_alternatives = true   # loader may load substitute products from the same 
 revision_suffix = "-rev"    # PO-001 → PO-001-rev001, -rev002, …
 ```
 
-## Run (Node 20.16+, pnpm 10, Docker)
+## Run with Docker only (no Node needed)
+```bash
+docker compose up -d --build      # or: pnpm docker:up — builds the image, starts db + email + app
+                                  # → http://localhost:3101  (/ web · /app/ phone app · /v1 API) · inbox http://localhost:18025
+docker compose logs -f app        # pnpm docker:logs
+SEED=reset docker compose up -d --force-recreate app   # fresh demo data (pnpm docker:reset)
+docker compose down               # stop (data is kept in the `db` volume; add -v to wipe it)
+```
+Options (env vars or a `.env` file next to `docker-compose.yml`): `APP_PORT` (host port, default 3101), `PUBLIC_URL`,
+`JWT_SECRET`, `NODE_ENV=production` (hides demo sign-in and dev tools), `SEED=if-empty|reset|never`, `VITE_DEMO=0` (build
+without the one-tap demo accounts), and the integration keys from `apps/api/.env.example` (`AT_API_KEY`, `FCM_SERVICE_ACCOUNT`, …).
+`apps/api/config.toml` is mounted into the container — edit it and run `docker compose restart app`.
+
+## Run per folder (Node 20.16+, pnpm 10 via `corepack enable`)
+Install once from the repo root: `pnpm install`. Then, inside each folder, `pnpm <script>` (or `npm run <script>`):
+
+| Folder | Script | What it does |
+|---|---|---|
+| `apps/api` | `bootstrap` | start Postgres + email (Docker), migrate, seed demo data if empty |
+| | `dev` / `start` | API on http://localhost:3101 (watch / once) — also serves built web + field apps |
+| | `db:migrate`, `db:reset`, `db:seed:if-empty`, `db:up` | database helpers |
+| | `test`, `test:qa` | API e2e and QA suites |
+| `apps/web` | `dev` | office web app on :5173 with the in-browser mock (no API needed) |
+| | `dev:live` / `build:live` | same, against the API on :3101 (proxied `/v1`) |
+| `apps/field` | `dev` | field + team phone app on :5174 with the mock |
+| | `dev:live` / `build:live` | same, against the API |
+
+## Run everything from the root (Node 20.16+, pnpm 10, Docker)
 ```bash
 pnpm install
+pnpm bootstrap         # database + email in Docker, migrations, demo data
 pnpm start             # everything on ONE address: http://localhost:3101
                        #   /  office web app · /app/  field app · /brand/  logo variants · /v1  API · email inbox :18025
 pnpm start --reset     # same, with fresh demo data

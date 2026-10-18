@@ -13,7 +13,11 @@
     "db:seed": "node -r @swc-node/register src/db/seed.ts",
     "test": "tsx test/api.e2e.ts",
     "test:integrations": "node -r @swc-node/register test/integrations.e2e.ts",
-    "test:qa": "tsx test/qa.e2e.ts"
+    "test:qa": "tsx test/qa.e2e.ts",
+    "db:up": "docker compose -f ../../docker-compose.yml up -d --wait db mail",
+    "db:seed:if-empty": "node -r @swc-node/register src/db/seed-if-empty.ts",
+    "db:reset": "node -r @swc-node/register src/db/seed.ts",
+    "bootstrap": "pnpm db:up && pnpm db:migrate && pnpm db:seed:if-empty"
   },
   "dependencies": {
     "@btw/api": "workspace:*",

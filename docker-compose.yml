@@ -1,4 +1,7 @@
-# Local infrastructure for the API. Ports are offset to avoid clashing with other projects on this machine.
+# BTW platform.
+#   Whole app in Docker:    docker compose up -d --build      (or: pnpm docker:up)  → http://localhost:3101
+#   Local development:      pnpm dev:all / pnpm start use only `db` and `mail` from here and run the apps with Node.
+# Ports are offset to avoid clashing with other projects on this machine.
 name: btw
 services:
   db:
@@ -10,5 +13,33 @@ services:
   mail:
     image: axllent/mailpit:latest      # catches all outgoing email; inbox UI on http://localhost:18025
     ports: ["11025:1025", "18025:8025"]
+  app:
+    build:
+      context: .
+      args: { VITE_DEMO: "${VITE_DEMO:-1}" }   # 0 = hide the one-tap demo accounts
+    image: btw-platform:latest
+    depends_on:
+      db: { condition: service_healthy }
+      mail: { condition: service_started }
+    ports: ["${APP_PORT:-3101}:3101"]
+    environment:
+      DATABASE_URL: postgres://btw:btw@db:5432/btw
+      SMTP_URL: smtp://mail:1025
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3101}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      NODE_ENV: ${NODE_ENV:-development}   # development keeps demo sign-in + /v1/dev tools; production hides them
+      SEED: ${SEED:-if-empty}             # if-empty | reset | never
+      CONFIG_FILE: /app/config/config.toml
+      # Optional integrations — empty keys use the local stand-ins (see apps/api/.env.example)
+      AT_USERNAME: ${AT_USERNAME:-sandbox}
+      AT_API_KEY: ${AT_API_KEY:-}
+      AT_SHORTCODE: ${AT_SHORTCODE:-}
+      FCM_SERVICE_ACCOUNT: ${FCM_SERVICE_ACCOUNT:-}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+    volumes:
+      - files:/app/apps/api/var                          # photos, signatures, PDFs
+      - ./apps/api/config.toml:/app/config/config.toml:ro  # business switches; restart `app` after editing
+    restart: unless-stopped
 volumes:
   db:
+  files:

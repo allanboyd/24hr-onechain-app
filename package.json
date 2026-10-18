@@ -27,7 +27,12 @@
     "start": "node scripts/stack.mjs start",
     "dev:all": "node scripts/stack.mjs dev",
     "e2e": "node tests/e2e/run.mjs",
-    "share": "node scripts/share.mjs"
+    "share": "node scripts/share.mjs",
+    "bootstrap": "docker compose up -d --wait db mail && pnpm --filter @btw/server db:migrate && pnpm --filter @btw/server db:seed:if-empty",
+    "docker:up": "docker compose up -d --build --wait",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f app",
+    "docker:reset": "SEED=reset docker compose up -d --force-recreate --wait app"
   },
   "engines": {
     "node": ">=20.16"
