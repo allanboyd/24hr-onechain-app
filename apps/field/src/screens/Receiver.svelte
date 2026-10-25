@@ -64,6 +64,8 @@
   const focus = $derived<{ kind: 'receive' | 'send' | 'coming'; item: Item } | null>(
     arrived ? { kind: 'receive', item: arrived } : toSend[0] ? { kind: 'send', item: toSend[0] } : incoming[0] ? { kind: 'coming', item: incoming[0] } : null);
   const others = $derived(incoming.filter((i) => i !== focus?.item));
+  // Trucks waiting to be loaded here (send-on legs, Asie's re-exports) stay reachable while an arrival waits to be signed.
+  const toLoadMore = $derived(toSend.filter((i) => i !== focus?.item));
   const myCps = $derived(user.warehouseIds.map((w) => lookup.warehouse(w)?.checkpointId).filter(Boolean) as string[]);
   const points = $derived<MapPoint[]>(myCps.map((id) => { const c = lookup.checkpoint(id)!; return { id, lat: c.lat, lng: c.lng, label: cpShort(id), state: 'place' as const }; }));
   const trucks = $derived<MapTruck[]>(incoming.map((v) => ({ id: v.leg.id, ...legPosition(v.leg), label: v.truck?.reg ?? '', late: v.eta.state === 'Late' })));
@@ -128,6 +130,14 @@
       <p class="subline">Arrives {fmtDateTime(eta.eta)} · {cases(total(leg))}</p>
       <button class="btn btn-secondary btn-lg btn-block" onclick={() => (receiving = focus.item)}>It's here — receive now</button>
     {/if}
+    {#if toLoadMore.length}
+      <p class="eyebrow list-head">Ready to load here</p>
+      <ul class="others">
+        {#each toLoadMore.slice(0, 2) as o (o.leg.id)}
+          <li><button onclick={() => (sending = o)}><CompanyDot entityId={o.shipment.entityId} /><span class="grow"><strong>{o.truck?.reg}</strong> <span class="caption">to {cpShort(o.leg.toId)} · {cases(total(o.leg))}</span></span><span class="caption load">Load & hand over</span><ChevronRight size={18} /></button></li>
+        {/each}
+      </ul>
+    {/if}
     {#if others.length}
       <ul class="others">
         {#each others.slice(0, 2) as o (o.leg.id)}
@@ -158,6 +168,8 @@
   .tools { display: flex; gap: var(--space-2); margin-bottom: var(--space-2); }
   .tools button { flex: 1; min-height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-sunken); color: var(--text); font: 600 14px var(--ff-body); cursor: pointer; }
   .grow { flex: 1; min-width: 0; }
+  .list-head { margin: var(--space-3) 0 0; }
+  .load { color: var(--accent-text, var(--accent)); font-weight: 600; }
   .others { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
   .others button { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: 52px; border: 0; border-bottom: 1px solid var(--border); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; padding: 0; }
 </style>
