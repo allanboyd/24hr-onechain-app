@@ -9,7 +9,11 @@ import type {
   PurchaseOrder, ReceiverWork, Role, RouteStop, Sale, Shipment, StockRow, StoredFile, SyncResult, TripCost, TripPayment,
   Route, TruckIssue, User, UserAdmin, VelocityRow, WaitingEntry, Warehouse, WarehouseInput,
   DriverInput, Provider, ProviderInput, SavedDriver, Truck, TruckInput,
+  AuditFilter, AuditPage, Currency, EntityInput, Product, ProductInput, ReceivingCompany, ReceivingCompanyInput, Supplier, SupplierInput, UserPair,
+  ExpenseFilter, ReexportInput, ReexportLoadInput, ReexportOrder, SellingPrice, SellingPriceInput, StockAdjustInput, StockAdjustment, TransportFeeRow,
+  WarehouseExpense, WarehouseExpenseInput, WarehouseStockRow,
 } from './types';
+import type { PerfFilter, PerformanceReport } from './performance';
 import type * as Mock from './mock-client';
 
 type RefBundle = ReturnType<typeof Mock.ref> & { settings?: { thresholds: R.Thresholds; paymentApprovalThreshold: number; minAppVersion: string; noCheckinGraceHours: number } };
@@ -215,7 +219,8 @@ export const loading = {
   waiting: (loadingPointId?: ID) => get<WaitingEntry[]>(`/waiting${loadingPointId ? `?loadingPointId=${loadingPointId}` : ''}`),
   addWaiting: (loadingPointId: ID, truckId: ID, driverId: ID, entityId?: ID) => mutate(post<WaitingEntry>(`/loading-points/${loadingPointId}/waiting`, { truckId, driverId, entityId }, key())),
   list: (loadingPointId?: ID) => get<Loading[]>(`/loadings${loadingPointId ? `?loadingPointId=${loadingPointId}` : ''}`),
-  confirm: (id: ID, input: { truckId: ID; driverId: ID; loadedQty: Record<ID, number>; agreedTransport: number; documents: string[]; loadedAt?: string; alternatives?: import('./types').LoadingAlternative[] }) => mutate(post<Shipment>(`/loadings/${id}/confirm`, input, key()).then(async (s) => { await loadRef(); return s; })),
+  /** docs/12 A-04: no price at hand-over; `agreedTransport` is taken only from the truck follow-up officer (else ignored). */
+  confirm: (id: ID, input: { truckId: ID; driverId: ID; loadedQty: Record<ID, number>; agreedTransport?: number | null; transportCurrency?: string; documents: string[]; loadedAt?: string; alternatives?: import('./types').LoadingAlternative[] }) => mutate(post<Shipment>(`/loadings/${id}/confirm`, input, key()).then(async (s) => { await loadRef(); return s; })),
 };
 export const shipments = {
   async list() { return (await get<(Shipment & { poRef?: string })[]>('/shipments')).map(remember); },
@@ -247,12 +252,16 @@ export const sales = {
   list: (warehouseId?: ID) => get<Sale[]>(`/sales${warehouseId ? `?warehouseId=${warehouseId}` : ''}`),
   create: (input: Omit<Sale, 'id' | 'ref' | 'status' | 'entityId'> & { entityId?: ID }, override = false) => mutate(post<Sale>('/sales', { ...input, override }, key())),
 };
-type Trip = { shipment: Shipment; costs: TripCost[]; payments: TripPayment[]; transport: number; paid: number; balance: number; goods: number; expenses: number; landing: number; cases: number; perCase: number };
+type Trip = { shipment: Shipment; costs: TripCost[]; payments: TripPayment[]; transport: number; paid: number; balance: number; goods: number; expenses: number; landing: number; cases: number; perCase: number; /** false = agreed transport price not recorded yet */ agreedRecorded: boolean };
 export const finance = {
   trips: () => get<Trip[]>('/finance/trips'),
+  /** docs/12 A-04: record (or correct, while unpaid) the agreed transport price of a loaded truck. */
+  setAgreedPrice: (shipmentId: ID, input: { amount: number; currency?: Currency; docRef?: string }) => mutate(post<TripCost>(`/shipments/${shipmentId}/agreed-price`, input)),
   addCost: (c: Omit<TripCost, 'id'>) => mutate(post<TripCost>('/finance/costs', c)),
   pay: (shipmentId: ID, costId: ID, amount: number, reference: string, _threshold?: number) => mutate(post<TripPayment>('/finance/payments', { shipmentId, costId, amount, reference })),
   approve: (paymentId: ID) => mutate(post<TripPayment>(`/finance/payments/${paymentId}/approve`)),
+  /** docs/14 B-04: transport fee per trip — paid / part paid / unpaid against references, age since loading. */
+  fees: () => get<TransportFeeRow[]>('/finance/fees'),
 };
 type Summary = Awaited<ReturnType<typeof Mock.analytics.summary>>;
 export const analytics = {
@@ -311,11 +320,20 @@ export const masterdata = {
   saveTruck: (id: ID | null, input: Partial<TruckInput>) => withRef(id ? call<Truck>('PATCH', `/masterdata/trucks/${id}`, input) : post<Truck>('/masterdata/trucks', input)),
   /** `appLogin: true` with `hasApp` gives a new driver a field-app login; the PIN comes back once in `login.pin`. */
   saveDriver: (id: ID | null, input: Partial<DriverInput> & { appLogin?: boolean }) => withRef(id ? call<SavedDriver>('PATCH', `/masterdata/drivers/${id}`, input) : post<SavedDriver>('/masterdata/drivers', input)),
+  // docs/12 A-05: static data — companies, suppliers, goods, receiving companies (Kabonge, directors)
+  saveEntity: (id: ID | null, input: Partial<EntityInput>) => withRef(id ? call<Entity>('PATCH', `/masterdata/entities/${id}`, input) : post<Entity>('/masterdata/entities', input)),
+  saveSupplier: (id: ID | null, input: Partial<SupplierInput>) => withRef(id ? call<Supplier>('PATCH', `/masterdata/suppliers/${id}`, input) : post<Supplier>('/masterdata/suppliers', input)),
+  saveProduct: (id: ID | null, input: Partial<ProductInput>) => withRef(id ? call<Product>('PATCH', `/masterdata/products/${id}`, input) : post<Product>('/masterdata/products', input)),
+  saveReceivingCompany: (id: ID | null, input: Partial<ReceivingCompanyInput>) => withRef(id ? call<ReceivingCompany>('PATCH', `/masterdata/receiving-companies/${id}`, input) : post<ReceivingCompany>('/masterdata/receiving-companies', input)),
+};
+/** docs/12 A-07: the audit log (directors). */
+export const audit = {
+  list: (f: AuditFilter = {}) => get<AuditPage>(`/audit${qs(f as Record<string, string | number | undefined>)}`),
 };
 export const users = {
   list: () => get<UserAdmin[]>('/users'),
-  create: (input: { name: string; phone: string; username?: string; email?: string; roles: Role[]; entityIds?: ID[]; loadingPointIds?: ID[]; warehouseIds?: ID[]; password?: string; pin?: string }) => withRef(post<UserAdmin>('/users', input)),
-  update: (id: ID, input: Partial<Pick<UserAdmin, 'name' | 'email' | 'roles' | 'entityIds' | 'loadingPointIds' | 'warehouseIds' | 'active'>>) => withRef(call<UserAdmin>('PATCH', `/users/${id}`, input)),
+  create: (input: { name: string; phone: string; username?: string; email?: string; roles: Role[]; entityIds?: ID[]; loadingPointIds?: ID[]; warehouseIds?: ID[]; pairs?: UserPair[]; routeIds?: ID[]; password?: string; pin?: string }) => withRef(post<UserAdmin>('/users', input)),
+  update: (id: ID, input: Partial<Pick<UserAdmin, 'name' | 'email' | 'roles' | 'entityIds' | 'loadingPointIds' | 'warehouseIds' | 'pairs' | 'routeIds' | 'active'>>) => withRef(call<UserAdmin>('PATCH', `/users/${id}`, input)),
   setSecret: (id: ID, input: { pin?: string; password?: string }) => post<boolean>(`/users/${id}/secret`, input),
   devices: (id: ID) => get<Device[]>(`/users/${id}/devices`),
 };
@@ -349,6 +367,35 @@ export const reports = {
   /** §8.14 PV-01..07: planned vs ordered for approved period plans (Group: + byEntity). */
   plannedVsActual: (f: RP.PvFilter = {}) => get<RP.PlannedVsActual>(`/reports/planned-vs-actual${qs(f)}`),
   group: (f: RP.ReportFilter = {}) => get<RP.GroupReport>(`/reports/group${qs(f)}`),
+  /** docs/14 B-07: combined performance + margins (directors). */
+  performance: (f: PerfFilter = {}) => get<PerformanceReport>(`/reports/performance${qs(f)}`),
+};
+
+/** docs/15: P1 dashboards — one call for several keys with the standard filters (scoped by the caller). */
+export const dashboards = {
+  get: (keys: import('./dashboards').DashKey[], f: import('./dashboards').DashFilter = {}) => get<import('./dashboards').DashResponse>(`/dashboards${qs({ ...f, keys: keys.join(',') })}`),
+};
+
+// ---- docs/14 workstream B: warehouse money and data ---------------------------------------------------------------
+export const warehouse = {
+  expenses: (f: ExpenseFilter = {}) => get<WarehouseExpense[]>(`/warehouse/expenses${qs(f)}`),
+  addExpense: (input: WarehouseExpenseInput) => mutate(post<WarehouseExpense>('/warehouse/expenses', input)),
+  updateExpense: (id: ID, input: Partial<WarehouseExpenseInput>) => mutate(call<WarehouseExpense>('PATCH', `/warehouse/expenses/${id}`, input)),
+  deleteExpense: (id: ID) => mutate(call<boolean>('DELETE', `/warehouse/expenses/${id}`).then(() => true)),
+  stock: (f: { warehouseId?: ID; from?: string; to?: string } = {}) => get<WarehouseStockRow[]>(`/warehouse/stock${qs(f)}`),
+  adjust: (input: StockAdjustInput) => mutate(post<StockAdjustment>('/warehouse/stock-adjustments', input, key())),
+  adjustments: (f: { warehouseId?: ID } = {}) => get<StockAdjustment[]>(`/warehouse/stock-adjustments${qs(f)}`),
+};
+export const reexports = {
+  list: () => get<ReexportOrder[]>('/reexports'),
+  get: (id: ID) => orNull(get<ReexportOrder>(`/reexports/${id}`)),
+  create: (input: ReexportInput) => mutate(post<ReexportOrder>('/reexports', input, key())),
+  load: (id: ID, input: ReexportLoadInput) => mutate(post<ReexportOrder>(`/reexports/${id}/load`, input, key()).then(async (r) => { await loadRef(); return r; })),
+  cancel: (id: ID, reason?: string) => mutate(post<ReexportOrder>(`/reexports/${id}/cancel`, { reason })),
+};
+export const pricing = {
+  list: () => get<SellingPrice[]>('/selling-prices'),
+  set: (input: SellingPriceInput) => mutate(post<SellingPrice>('/selling-prices', input)),
 };
 
 // ---- Companies & settings ------------------------------------------------------------------------------

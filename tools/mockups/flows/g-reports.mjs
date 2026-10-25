@@ -3,7 +3,7 @@ import { open, shot, finish } from '../snap.mjs';
 const out = process.argv[2];
 const settle = (s, ms = 3500) => s.page.waitForTimeout(ms); // Plotly loads lazily on first chart
 
-let s = await open({ app: 'web', user: 'u-dir', outDir: out });
+let s = await open({ app: 'web', user: 'u-daniel', outDir: out });
 await settle(s, 4500);
 await shot(s, 'G01-web-command-view', 'Dashboard — director command view', 'KPI tiles with deltas (sales, cases, margin, on-time, receivables, stock), what needs attention, quarter pace, sales vs last year, orders to place before stock runs out, on-time and receivables trends, movers (§10 executive, §9.3).');
 const tabs = [
@@ -21,7 +21,7 @@ await s.go('/reports?r=period&mode=check', 600); await settle(s);
 await shot(s, 'G09-web-period-check', 'Period · check what was captured', 'Completeness score per area and every missing or inconsistent record (check-ins, acknowledgements, documents, prices, unsent POs, payments, sales gaps, ledger) with a Fix link.');
 await finish(s);
 
-s = await open({ app: 'web', user: 'u-dir', theme: 'dark', outDir: out });
+s = await open({ app: 'web', user: 'u-daniel', theme: 'dark', outDir: out });
 await settle(s, 4500);
 await shot(s, 'G10-web-command-view-dark', 'Dashboard — dark mode', 'Same command view in dark theme; chart colours from the validated dark palette.');
 await finish(s);

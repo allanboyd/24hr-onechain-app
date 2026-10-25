@@ -1,7 +1,8 @@
 <script lang="ts">
   import CompanyChip from '../components/CompanyChip.svelte';
   import { untrack } from 'svelte';
-  // Loading point = the giver (LD-01..04, §17.4 queue, §17.5 agreed price). One card: the next truck to load.
+  // Loading point = the giver (LD-01..04, §17.4 queue). One card: the next truck to load. Quantities and documents only —
+  // no prices or payments (docs/12 A-04): the agreed transport price is recorded later by the truck follow-up officer.
   // Tap → hand-over sheet → slide "Hand over to driver" → loading confirmed, shipment created, driver's trip appears.
   import { field, lookup, pos, ref, type GiverWork, type LoadingAlternative, type User } from '@btw/api';
   import { defaultConfig, loadingCheck } from '@btw/api/rules';
@@ -19,7 +20,8 @@
   import SlideToConfirm from '../components/SlideToConfirm.svelte';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import Plus from '@lucide/svelte/icons/plus';
-  let { user, onlogout }: { user: User; onlogout: () => void } = $props();
+  import ListChecks from '@lucide/svelte/icons/list-checks';
+  let { user, onlogout, onback }: { user: User; onlogout: () => void; /** opened from BTW Team (Testfie at GBI) */ onback?: () => void } = $props();
 
   const points_ = $derived(user.loadingPointIds);
   let lp = $state(untrack(() => user.loadingPointIds[0] ?? ''));
@@ -27,6 +29,9 @@
   let menu = $state(false);
   let handover = $state(false);
   let arrived = $state(false);
+  // D-A1 / C-P1-09: today's loading list + dispatched today (no prices) — lazy sheet
+  let todayOpen = $state(false);
+  const TODAY = () => import('../components/TodaySheet.svelte');
   let sheetEl = $state<HTMLElement>();
   let sheetH = $state(300);
 
@@ -55,18 +60,16 @@
   let truckId = $state(''); let driverId = $state(''); let choosing = $state(false);
   let qty = $state<Record<string, number>>({});
   let alts = $state<LoadingAlternative[]>([]);
-  let price = $state<number | null>(null);
   let photos = $state<string[]>([]);
   let error = $state(''); let busy = $state(false);
   function openHandover() {
     if (!order) return;
     truckId = next?.truckId ?? ''; driverId = next?.driverId ?? ''; choosing = false;
-    qty = Object.fromEntries(order.lines.map((l) => [l.planLineId, l.orderedQty])); alts = []; price = null; photos = []; error = '';
+    qty = Object.fromEntries(order.lines.map((l) => [l.planLineId, l.orderedQty])); alts = []; photos = []; error = '';
     handover = true;
   }
   const truck = $derived(lookup.truck(truckId));
   const check = $derived(order ? loadingCheck(order.lines, qty, alts, truck?.capacityCases ?? 0, cfg, { supplierId: order.loadingPointId, products: ref().products }) : null);
-  const priceMissing = $derived(!(price && price > 0));
   const meterMax = $derived(check ? Math.max(check.max, check.loaded, check.capacity || 0, 1) : 1);
   const pctOf = (n: number) => `${Math.min(100, (n / meterMax) * 100)}%`;
   const name = (pid: string) => { const p = lookup.product(pid); return p ? `${p.brand} ${p.pack}` : pid; };
@@ -75,11 +78,10 @@
     error = '';
     if (!order || !check) return;
     if (check.error) { error = check.error; return; }
-    if (priceMissing) { error = 'Enter the agreed transport price'; return; }
     busy = true;
     try {
       const alternatives = $state.snapshot(alts).filter((a) => a.qty > 0);
-      const r = await outbox.send('loading.confirm', { id: order.id, input: { truckId, driverId, loadedQty: $state.snapshot(qty), agreedTransport: price ?? 0, documents: $state.snapshot(photos), ...(alternatives.length ? { alternatives } : {}) } });
+      const r = await outbox.send('loading.confirm', { id: order.id, input: { truckId, driverId, loadedQty: $state.snapshot(qty), documents: $state.snapshot(photos), ...(alternatives.length ? { alternatives } : {}) } });
       handover = false; haptic('success');
       say(r.queued ? 'Saved on the phone — sends when there is signal' : `${lookup.truck(truckId)?.reg} handed over — the driver's trip has started`);
     } catch (e) { error = (e as Error).message; }
@@ -114,13 +116,16 @@
 </script>
 
 <MapView {points} padBottom={sheetH} />
-<TopBar onmenu={() => (menu = true)} title="{supplier?.code} {supplier?.city}" />
+<TopBar onmenu={() => (menu = true)} {onback} title="{supplier?.code} {supplier?.city}" />
 
 <Sheet bind:el={sheetEl}>
   {#if points_.length > 1}
     <div class="seg" role="group" aria-label="Loading point">
       {#each points_ as id (id)}<button aria-pressed={id === lp} onclick={() => (lp = id)}>{lookup.supplier(id)?.code} {lookup.supplier(id)?.city}</button>{/each}
     </div>
+  {/if}
+  {#if work}
+    <button class="today" onclick={() => (todayOpen = true)}><ListChecks size={20} />Today's list<span class="tn">{pending.length} to load</span></button>
   {/if}
   {#if !work || !queue}
     <div class="skeleton" style="height:24px;width:60%"></div><div class="skeleton" style="height:64px"></div>
@@ -210,8 +215,7 @@
       <PhotoInput bind:names={photos} label="Delivery note" />
     </section>
 
-    <label class="field"><span>Agreed transport price (USD)</span>
-      <input class="input" type="number" inputmode="decimal" min="0" bind:value={price} placeholder="e.g. 1650" aria-invalid={!!error && priceMissing} /></label>
+    <p class="note">Agreed price is recorded later by the truck follow-up officer.</p>
 
     {#if check.error}<p class="error-box" role="alert">{check.error}</p>{:else if error}<p class="error-box" role="alert">{error}</p>{/if}
     {#if check.deviates && !check.error}<p class="note">Loaded differs from the PO — this will create <strong>{order.nextRevisionRef ?? 'a PO revision'}</strong> and tell the planner.</p>{/if}
@@ -247,11 +251,17 @@
   </Sheet>
 {/if}
 
+{#if todayOpen && work}
+  {#await TODAY() then m}<m.default {lp} toLoad={work.toLoad} onclose={() => (todayOpen = false)} />{/await}
+{/if}
+
 {#if menu}<MenuSheet {user} {onlogout} onclose={() => (menu = false)} />{/if}
 
 <style>
   .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .next { display: flex; align-items: center; gap: var(--space-3); width: 100%; padding: 14px 16px; border-radius: var(--radius-lg); border: 1px solid var(--border); background: var(--surface-sunken); color: var(--text); text-align: left; font: inherit; cursor: pointer; }
+  .today { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 48px; padding: 0 14px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-sunken); color: var(--text); font: 600 15px var(--ff-body); cursor: pointer; }
+  .tn { margin-left: auto; font: 700 13px var(--ff-body); color: var(--text-muted); }
   .row-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
   .seg { display: flex; gap: 6px; }
   .seg button { flex: 1; min-height: 40px; border-radius: 20px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font: 600 14px var(--ff-body); cursor: pointer; }

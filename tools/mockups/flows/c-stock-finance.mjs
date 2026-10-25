@@ -3,7 +3,7 @@ const out = process.argv[2];
 const w = (s, ms = 500) => s.page.waitForTimeout(ms);
 
 // Director, light
-let s = await open({ app: 'web', user: 'u-dir', outDir: out });
+let s = await open({ app: 'web', user: 'u-daniel', outDir: out });
 await s.go('/inventory?tab=list', 900);
 await shot(s, 'C01-web-inventory', 'Inventory · warehouse × SKU', 'All §7.5 columns plus in-transit, cover, stock level (IN-05), landed cost and value; search, filters, CSV/Excel/PDF export (IN-01, NT-03).');
 await s.page.locator('tbody tr.clickable').first().click(); await w(s, 700);
@@ -37,18 +37,18 @@ s = await open({ app: 'web', user: 'u-kabonge', outDir: out });
 await s.go('/master', 700);
 await s.page.getByRole('tab', { name: 'Routes & checkpoints' }).click(); await w(s);
 await s.page.locator('td input[type=number]').nth(7).fill('20'); await w(s, 300);
-await shot(s, 'C12-web-master-routes', 'Master data · routes & checkpoints (editable timings)', 'Ordered checkpoints per lane with planned hours, border dwell and geofence radius; Kabonge/Tesfie can adjust the seed timings for review (TR-04, MD-06).');
+await shot(s, 'C12-web-master-routes', 'Master data · routes & checkpoints (editable timings)', 'Ordered checkpoints per lane with planned hours, border dwell and geofence radius; Kabonge/Testfie can adjust the seed timings for review (TR-04, MD-06).');
 await finish(s);
 
 // Director, dark
-s = await open({ app: 'web', user: 'u-dir', theme: 'dark', outDir: out });
+s = await open({ app: 'web', user: 'u-daniel', theme: 'dark', outDir: out });
 await s.go('/analytics', 3000);
 await s.page.locator('button.linkish').first().click(); await w(s, 800);
 await shot(s, 'C13-web-analytics-dark', 'Sales velocity · dark theme', 'Dark theme check: Plotly heatmap and ranking re-themed from tokens; brand drill-down open (§9.4).');
 await finish(s);
 
 // Accounts
-s = await open({ app: 'web', user: 'u-acc', outDir: out });
+s = await open({ app: 'web', user: 'u-daniel', outDir: out });
 await s.go('/finance', 900); await finish(s);
 
 // Receiver (scoped), phone width
@@ -59,7 +59,7 @@ await s.go('/sales', 600); await s.go('/analytics', 600);
 await finish(s);
 
 // Overview tabs (analytics first, list one click away) — C15+
-s = await open({ app: 'web', user: 'u-dir', outDir: out });
+s = await open({ app: 'web', user: 'u-daniel', outDir: out });
 await s.go('/inventory', 3500);
 await shot(s, 'C15-web-inventory-overview', 'Inventory · overview', 'Where stock stands: value at landed cost by warehouse, on hand vs in transit, days-of-cover heatmap with risk, level mix, ageing and top value SKUs; every chart has View data + CSV and clicks open the filtered list (IN-01, IN-05).');
 await s.go('/sales', 3500);

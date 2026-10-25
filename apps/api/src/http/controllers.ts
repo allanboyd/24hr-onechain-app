@@ -24,6 +24,7 @@ import { ReportsService } from '../domain/reports.service';
 import * as RP from '@btw/api/reports';
 import type { CheckpointPass, DriverInput, Leg, ProviderInput, TruckInput, WarehouseInput, PeriodPlan, Plan, RouteStop, Sale, TripCost, TruckIssue } from '@btw/api/types';
 import { defaultPvThresholds, featuresFor } from '@btw/api/rules';
+import { seesPrices } from '@btw/api/access';
 import { eq } from 'drizzle-orm';
 
 type Idem = string | undefined;
@@ -88,13 +89,17 @@ export class CompaniesController {
 export class RefController {
   constructor(private ref: RefService, private platform: PlatformService) {}
   /** Reference bundle for both apps; supports If-None-Match. */
-  @Get('ref') async bundle(@Headers('if-none-match') inm: string | undefined, @Res() res: FastifyReply) {
-    const { bundle, etag } = await this.ref.get();
+  /** docs/12 A-04: loaders, receivers and drivers get the bundle without the price list (own ETag). */
+  @Get('ref') async bundle(@Me() p: Principal, @Headers('if-none-match') inm: string | undefined, @Res() res: FastifyReply) {
+    const { bundle, etag: e0 } = await this.ref.get();
+    const money = seesPrices(p);
+    const etag = money ? e0 : e0.replace(/"$/, '-np"');
     if (inm === etag) return res.status(304).send();
-    return res.header('ETag', etag).header('Cache-Control', 'private, max-age=0, must-revalidate').send(bundle);
+    return res.header('ETag', etag).header('Cache-Control', 'private, max-age=0, must-revalidate').send(money ? bundle : { ...bundle, priceList: [] });
   }
-  @Get('masterdata/:kind') async kind(@Param('kind') kind: string) {
-    const b = (await this.ref.get()).bundle as unknown as Record<string, unknown>;
+  @Get('masterdata/:kind') async kind(@Me() p: Principal, @Param('kind') kind: string) {
+    const b0 = (await this.ref.get()).bundle;
+    const b = (seesPrices(p) ? b0 : { ...b0, priceList: [] }) as unknown as Record<string, unknown>;
     const key = kind.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
     return b[key] ?? fail(`Unknown master data kind ${kind}`, 404, 'not-found');
   }
@@ -108,6 +113,17 @@ export class RefController {
   @Post('masterdata/routes') addRoute(@Me() p: Principal, @Body() b: Parameters<PlatformService['addRoute']>[1]) { return this.platform.addRoute(p, b); }
   @Post('masterdata/warehouses') addWarehouse(@Me() p: Principal, @Body() b: WarehouseInput) { return this.platform.saveWarehouse(p, null, b); }
   @Patch('masterdata/warehouses/:id') editWarehouse(@Me() p: Principal, @Param('id') id: string, @Body() b: Partial<WarehouseInput>) { return this.platform.saveWarehouse(p, id, b as WarehouseInput); }
+  // Static data (docs/12 A-05): companies, suppliers, goods, receiving companies — Kabonge and the directors
+  @Post('masterdata/entities') addEntity(@Me() p: Principal, @Body() b: unknown) { return this.platform.saveEntity(p, null, b); }
+  @Patch('masterdata/entities/:id') editEntity(@Me() p: Principal, @Param('id') id: string, @Body() b: unknown) { return this.platform.saveEntity(p, id, b); }
+  @Post('masterdata/suppliers') addSupplier(@Me() p: Principal, @Body() b: unknown) { return this.platform.saveSupplier(p, null, b); }
+  @Patch('masterdata/suppliers/:id') editSupplier(@Me() p: Principal, @Param('id') id: string, @Body() b: unknown) { return this.platform.saveSupplier(p, id, b); }
+  @Post('masterdata/products') addProduct(@Me() p: Principal, @Body() b: unknown) { return this.platform.saveProduct(p, null, b); }
+  @Patch('masterdata/products/:id') editProduct(@Me() p: Principal, @Param('id') id: string, @Body() b: unknown) { return this.platform.saveProduct(p, id, b); }
+  @Post('masterdata/receiving-companies') addRc(@Me() p: Principal, @Body() b: unknown) { return this.platform.saveReceivingCompany(p, null, b); }
+  @Patch('masterdata/receiving-companies/:id') editRc(@Me() p: Principal, @Param('id') id: string, @Body() b: unknown) { return this.platform.saveReceivingCompany(p, id, b); }
+  /** docs/12 A-07: the audit log — ?userId&feature&from&to&q&page&pageSize (directors). */
+  @Get('audit') audit(@Me() p: Principal, @Query() q: Record<string, unknown>) { return this.platform.audit(p, q ?? {}); }
   @Patch('masterdata/routes/:id') route(@Me() p: Principal, @Param('id') id: string, @Body() b: { stops: RouteStop[] }) { return this.platform.updateRouteStops(p, id, b?.stops ?? []); }
 }
 
@@ -173,7 +189,9 @@ export class LoadingController {
 
 @Controller()
 export class ShipmentsController {
-  constructor(private logistics: LogisticsService, @Inject(PDF) private pdf: PdfPort) {}
+  constructor(private logistics: LogisticsService, private finance: FinanceService, @Inject(PDF) private pdf: PdfPort) {}
+  /** docs/12 A-04: the agreed transport price, recorded after loading (truck follow-up officer, directors). */
+  @Post('shipments/:id/agreed-price') @HttpCode(200) agreed(@Me() p: Principal, @Param('id') id: string, @Body() b: { amount?: number; currency?: string; docRef?: string }) { return this.finance.setAgreedPrice(p, id, b ?? {}); }
   @Get('shipments') list(@Me() p: Principal) { return this.logistics.list(p); }
   @Get('shipments/:id') get(@Me() p: Principal, @Param('id') id: string) { return this.logistics.get(p, id); }
   @Get('shipments/:id/acks') acks(@Me() p: Principal, @Param('id') id: string) { return this.logistics.acks(p, id); }

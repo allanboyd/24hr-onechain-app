@@ -12,6 +12,7 @@ const ORDER = [
   ['onboarding', J.onboarding],
   ['chain', J.fullChain],
   ['transfer', J.transferLeg],
+  ['reexport', J.reexport],
   ['layout', J.layoutSweep],
   ['brand', J.brand],
 ];

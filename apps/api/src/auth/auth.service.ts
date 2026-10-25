@@ -40,7 +40,7 @@ export class AuthService {
   constructor(private jwt: JwtService) {}
 
   async toUser(u: typeof t.users.$inferSelect) {
-    return { id: u.id, name: u.name, phone: u.phone, roles: u.roles, entityIds: u.entityIds, loadingPointIds: u.loadingPointIds, warehouseIds: u.warehouseIds, username: u.username, driverId: u.driverId, features: featuresFor(u.roles as Role[]), ...(await accessOf(u)) };
+    return { id: u.id, name: u.name, phone: u.phone, roles: u.roles, entityIds: u.entityIds, loadingPointIds: u.loadingPointIds, warehouseIds: u.warehouseIds, pairs: u.pairs ?? [], routeIds: u.routeIds ?? [], username: u.username, driverId: u.driverId, features: featuresFor(u.roles as Role[]), ...(await accessOf(u)) };
   }
 
   async login(input: LoginInput) {
@@ -64,6 +64,7 @@ export class AuthService {
       attempts.delete(key);
     } else fail('Send {username, password} or {phone, pin}', 400, 'bad-request');
     if (!u!.active) fail('This account is disabled', 403, 'forbidden');
+    await db.update(t.users).set({ lastLoginAt: iso() }).where(eq(t.users.id, u!.id)); // docs/12 A-08
     const deviceId = input.deviceId || uid('dev');
     await db.insert(t.devices).values({ id: deviceId, userId: u!.id, platform: input.platform ?? (input.pin ? 'app' : 'web'), appVersion: input.appVersion ?? null })
       .onConflictDoUpdate({ target: t.devices.id, set: { userId: u!.id, revokedAt: null, lastSeenAt: iso(), appVersion: input.appVersion ?? null } });

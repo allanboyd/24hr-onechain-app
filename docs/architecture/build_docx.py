@@ -132,6 +132,16 @@ def walk(el, wide):
                 r = p.add_run(k.find('b').text_content()); r.bold = True; r.font.size = Pt(18); r.font.color.rgb = NAVY
                 p2 = t.rows[0].cells[i].add_paragraph(); r2 = p2.add_run(k.find('span').text_content()); r2.font.size = Pt(8.5); r2.font.color.rgb = MUTED
             doc.add_paragraph()
+        elif 'lc' in cl:  # landed-cost formula boxes: one line per box, operators between
+            for k in c:
+                if k.tag == 'span':
+                    continue
+                b = k.find('b'); t = k.find('i')
+                p = doc.add_paragraph(style='List Bullet')
+                r = p.add_run(b.text_content() + ': '); r.bold = True
+                p.add_run(' '.join((k.text_content().replace(b.text_content(), '', 1).replace(t.text_content() if t is not None else '', '')).split()))
+                if t is not None:
+                    r2 = p.add_run(f'  ({t.text_content()})'); r2.font.size = Pt(8); r2.font.color.rgb = MUTED
         elif 'legend' in cl:
             for sp in c.findall('span'):
                 runs(doc.add_paragraph(style='List Bullet'), sp)

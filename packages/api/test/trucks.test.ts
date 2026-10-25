@@ -3,6 +3,7 @@
 import * as api from '../src/index';
 import { FEATURES, featuresFor, hasFeature, normPhone, reorderQueue, seesLoadingPoint, validateDriver, validateProvider, validateTruck } from '../src/rules';
 import { costsByProvider, costsByTruck, deskKpis, sortDesk, truckDesk } from '../src/trucks';
+import { canRecordLoading } from '../src/access';
 
 let failed = 0;
 const ok = (c: unknown, m: string) => { if (!c) { failed++; console.log('FAIL', m); } else console.log('ok  ', m); };
@@ -10,16 +11,15 @@ const rejects = async (p: Promise<unknown>, re: RegExp, m: string) => {
   try { await p; ok(false, `${m} (no error)`); } catch (e) { const msg = `${(e as Error).message} ${(e as { status?: number }).status ?? ''}`; ok(re.test(msg), `${m} → ${msg.trim()}`); }
 };
 
-// ---- the role × feature matrix -------------------------------------------------------------------------
+// ---- the role × feature matrix (docs/12: the truck planner role is now Testfie's "Truck follow-up officer") ------
 const tp = featuresFor(['truck_planner']);
-ok(['logistics', 'finance', 'trucks', 'master-data.transport'].every((f) => tp.includes(f as never)), 'truck planner: logistics, finance (read + expenses), truck desk, transport master data');
-ok(!['purchase-orders', 'purchase-orders.approve', 'finance.approve', 'sales', 'master-data', 'users', 'period-plans', 'inventory', 'dashboard', 'reports'].some((f) => tp.includes(f as never)), 'truck planner: no POs, approvals, sales, full master data, users or reports');
+ok(['logistics', 'loading', 'fleet', 'trucks', 'truck-expenses', 'purchase-orders', 'master-data', 'transport-fees'].every((f) => tp.includes(f as never)), 'truck follow-up: shipments, loading, fleet, truck desk, truck expenses, POs (GBI), transport view');
+ok(!['purchase-orders.approve', 'finance', 'finance.approve', 'sales', 'master-data.transport', 'master-data.static', 'users', 'period-plans', 'inventory', 'dashboard', 'reports', 'audit'].some((f) => tp.includes(f as never)), 'truck follow-up: no trip financials, sales, static-data edits, users, plans, stock or reports');
 const fleet = featuresFor(['fleet']);
-ok(['logistics', 'finance', 'trucks', 'master-data.transport'].every((f) => fleet.includes(f as never)), 'fleet keeps its features and gains the truck desk');
-ok(fleet.filter((f) => ['logistics', 'finance', 'trucks', 'master-data.transport'].includes(f)).every((f) => tp.includes(f)), 'truck planner has at least everything fleet has for trucks');
+ok(['logistics', 'finance', 'trucks', 'master-data.transport'].every((f) => fleet.includes(f as never)), 'fleet (unassigned) keeps its features');
 ok(!hasFeature(['truck_planner'], 'finance.approve') && FEATURES['finance.approve'].length === 1, 'only directors approve payments');
-ok(seesLoadingPoint({ roles: ['truck_planner'], loadingPointIds: ['s-kbl'] }, 's-kbl') && !seesLoadingPoint({ roles: ['truck_planner'], loadingPointIds: ['s-kbl'] }, 's-ubl'), 'truck planner scoped to the loading points on the profile');
-ok(seesLoadingPoint({ roles: ['truck_planner'], loadingPointIds: [] }, 's-sbl'), 'truck planner with no loading points listed works all of them');
+ok(seesLoadingPoint({ roles: ['truck_planner'], loadingPointIds: ['s-gbi'] }, 's-kbl') && seesLoadingPoint({ roles: ['loader'], loadingPointIds: ['s-kbl'] }, 's-kbl') && !seesLoadingPoint({ roles: ['loader'], loadingPointIds: ['s-kbl'] }, 's-ubl'), 'truck follow-up sees every queue; loaders only their own point');
+ok(canRecordLoading({ roles: ['truck_planner'], loadingPointIds: ['s-gbi'] }, 's-gbi') && !canRecordLoading({ roles: ['truck_planner'], loadingPointIds: ['s-gbi'] }, 's-kbl') && !canRecordLoading({ roles: ['director'], loadingPointIds: [] }, 's-kbl'), 'loading recorded only at the points on the profile (Testfie: GBI); directors view');
 
 // ---- pure validators ------------------------------------------------------------------------------------
 const providers = [{ id: 'pr-1', name: 'ETS Sabrina Ltd' }];
@@ -37,30 +37,41 @@ ok(validateDriver({ providerId: 'pr-1', name: 'A', phone: '+254702750019' }, { p
 ok(normPhone('0712 345 678') === '+254712345678' && normPhone('+256 711 000 002') === '+256711000002', 'phones normalised to E.164');
 ok(reorderQueue(['a', 'b', 'c', 'd'], 'd', 1).join('') === 'dabc' && reorderQueue(['a', 'b', 'c'], 'a', 99).join('') === 'bca', 'reorderQueue: move to a position (clamped)');
 
-// ---- mock: the BTW truck planner ------------------------------------------------------------------------
+// ---- mock: Testfie, the truck follow-up officer ---------------------------------------------------------------------
 api.demo.reset();
-await api.auth.login('u-btw-trucks', '');
+await api.auth.login('u-testfie', '');
 const me = api.auth.me()!;
-ok(me.roles.includes('truck_planner') && me.allowedEntityIds.join() === 'e-btw' && !me.canGroup, 'btw-trucks: BTW only, no Group view');
-ok((await api.plans.list()).length === 0 && (await api.pos.list()).length === 0, 'sees no purchase orders');
-await rejects(api.plans.create('e-btw', 's-kbl'), /planners|403/, 'cannot create a purchase order');
+ok(me.roles.includes('truck_planner') && me.allowedEntityIds.length === 3 && !me.canGroup, 'Testfie: all three companies, no Group view');
+ok((await api.plans.list()).every((x) => x.supplierId === 's-gbi') && (await api.pos.list()).every((x) => x.supplierId === 's-gbi'), 'sees only the purchase orders loading at GBI Mombasa');
+await rejects(api.plans.create('e-nud', 's-gbi'), /planners|403/, 'cannot create a purchase order');
 const trips = await api.finance.trips();
-ok(trips.length > 0 && trips.every((x) => (x.shipment as { entityId: string }).entityId === 'e-btw'), 'reads BTW trip costs only');
+ok(trips.length > 0 && new Set(trips.map((x) => (x.shipment as { entityId: string }).entityId)).size === 3, 'reads trip costs of every company');
+ok(trips.every((x) => x.goods === undefined && x.landing === undefined), 'no goods value or landed cost (trip financials are the directors\')');
 const pending = trips.flatMap((x) => x.payments).find((x) => x.status === 'Pending approval');
 await rejects(api.finance.approve(pending!.id), /director|403/, 'cannot approve a payment');
-await rejects(api.finance.pay(trips[0].shipment.id, trips[0].costs[0].id, 1, 'qa'), /accounts|403/, 'cannot record a payment');
-const cost = await api.finance.addCost({ shipmentId: trips[0].shipment.id, kind: 'Other', amount: 35, currency: 'USD', docRef: 'Police fine (receipt)' });
-ok(cost.amountUsd === 35 && cost.entityId === 'e-btw', 'adds a trip expense to a BTW trip');
-const nudTrip = (await (async () => { await api.auth.login('u-dir', ''); const all = await api.finance.trips(); await api.auth.login('u-btw-trucks', ''); return all; })()).find((x) => (x.shipment as { entityId: string }).entityId === 'e-nud')!;
-await rejects(api.finance.addCost({ shipmentId: nudTrip.shipment.id, kind: 'Other', amount: 5, currency: 'USD' }), /another company|403/, 'cannot add an expense to another company\'s trip');
-ok((await api.shipments.list()).every((s) => s.entityId === 'e-btw'), 'sees BTW shipments only');
-ok((await api.loading.waiting()).every((w) => w.loadingPointId === 's-kbl'), 'sees only the KBL queue');
-await rejects(api.loading.addWaiting('s-ubl', 't3', 'd2'), /loading point|403/, 'cannot queue a truck at UBL (not on the profile)');
-ok((await api.loading.list('s-kbl')).every((l) => !!l.poRef), 'loadings carry their PO ref (no PO access needed)');
+await rejects(api.finance.pay(trips[0].shipment.id, trips[0].costs[0].id, 1, 'qa'), /directors|403/, 'cannot record a payment');
+api.entities.setActive('e-btw');
+const btwTrip = trips.find((x) => (x.shipment as { entityId: string }).entityId === 'e-btw')!;
+const cost = await api.finance.addCost({ shipmentId: btwTrip.shipment.id, kind: 'Other', amount: 35, currency: 'USD', docRef: 'Police fine (receipt)' });
+ok(cost.amountUsd === 35 && cost.entityId === 'e-btw', 'adds a truck expense to a BTW trip');
+const nudTrip = trips.find((x) => (x.shipment as { entityId: string }).entityId === 'e-nud')!;
+await rejects(api.finance.addCost({ shipmentId: nudTrip.shipment.id, kind: 'Other', amount: 5, currency: 'USD' }), /another company|403/, 'BTW active: cannot add an expense to a Nihna trip');
+api.entities.setActive(null);
+// agreed transport price after loading (A-04): the Kivu truck was loaded without one
+const missing = trips.find((x) => x.agreedRecorded === false && !x.shipment.fromWarehouseId)!;
+ok(!!missing && missing.transport === 0, `${missing?.shipment.ref}: agreed price not recorded yet`);
+const ap = await api.finance.setAgreedPrice(missing.shipment.id, { amount: 2_400_000, currency: 'TZS' });
+ok(ap.kind === 'Transport' && ap.currency === 'TZS' && (ap.amountUsd ?? 0) > 0, 'Testfie records the agreed price after loading (Transport cost, USD at the month rate)');
+ok((await api.finance.trips()).find((x) => x.shipment.id === missing.shipment.id)!.agreedRecorded === true, 'the trip now counts as recorded');
+ok(new Set((await api.shipments.list()).map((s) => s.entityId)).size === 3, 'follows every truck of every company');
+ok((await api.loading.waiting()).some((w) => w.loadingPointId === 's-kbl') && (await api.loading.waiting()).some((w) => w.loadingPointId === 's-ubl'), 'sees every loading queue');
+ok((await api.loading.list('s-kbl')).every((l) => !!l.poRef), 'loadings carry their PO ref');
 await rejects((async () => api.reports.finance())(), /role|403/, 'finance report (sales margins) not available');
 ok(!!(await api.reports.logistics()), 'logistics report available');
+await rejects(api.masterdata.saveProvider(null, { name: 'Nope Sacco', kind: 'sacco' }), /Kabonge|403/, 'transport master data is view-only for Testfie');
 
-// onboarding: provider → truck → driver with app login
+// onboarding: Kabonge (static data) adds provider → truck → driver with app login
+await api.auth.login('u-kabonge', '');
 const sacco = await api.masterdata.saveProvider(null, { name: 'Mlolongo Haulage Sacco', kind: 'sacco', phone: '0722 000 111', contactName: 'J. Mwangi', email: 'info@mlolongo.example', notes: 'QA sacco' });
 ok(sacco.kind === 'sacco' && sacco.phone === '+254722000111' && sacco.regular && sacco.active, 'adds a sacco (phone normalised, regular, active)');
 await rejects(api.masterdata.saveProvider(null, { name: 'mlolongo haulage sacco', kind: 'company' }), /already registered/, 'duplicate provider name refused');
@@ -91,13 +102,15 @@ await rejects(api.masterdata.saveTruck(trk.id, { active: false }), /queue/, 'a q
 await api.auth.login('u-joel', '');
 const note = (await api.notifications.list()).find((n) => n.title === 'Loading queue changed');
 ok(!!note && /KDC 777M moved/.test(note.body), 'the KBL loader is notified of the new order');
-await api.auth.login('u-btw-trucks', '');
+await api.auth.login('u-testfie', '');
+await api.queue.moveTo(e.id, 1);
+ok((await api.loading.waiting('s-kbl'))[0].id === e.id, 'Testfie also reorders the KBL queue (Q11: both, to confirm)');
 await api.queue.remove(e.id, 'Breakdown');
 q = await api.loading.waiting('s-kbl');
 ok(!q.some((w) => w.id === e.id), 'removed from the queue');
 await api.auth.login('u-joel', '');
 ok((await api.notifications.list()).some((n) => n.title === 'Truck removed from the queue' && /Breakdown/.test(n.body)), 'the loader sees why it was removed');
-await api.auth.login('u-btw-trucks', '');
+await api.auth.login('u-kabonge', '');
 const off = await api.masterdata.saveTruck(trk.id, { active: false });
 ok(off.active === false, 'deactivates the truck');
 await rejects(api.loading.addWaiting('s-kbl', trk.id, drv.id), /deactivated/, 'a deactivated truck cannot be queued');
@@ -106,14 +119,14 @@ ok(pOff.active === false && pOff.name === 'Mlolongo Haulage Sacco', 'deactivates
 
 // ---- other roles ----------------------------------------------------------------------------------------
 await api.auth.login('u-asie', '');
-await rejects(api.masterdata.saveProvider(null, { name: 'Nope', kind: 'company' }), /truck planners|403/, 'receivers cannot onboard providers');
-await rejects(api.queue.moveTo(q[0].id, 2), /loading point|403/, 'receivers cannot reorder a queue');
-await api.auth.login('u-acc', '');
-await rejects(api.masterdata.saveTruck(null, { providerId: 'pr-ets', reg: 'KAA 1A', capacityCases: 10 }), /truck planners|403/, 'accounts cannot add trucks');
-await api.auth.login('u-kabonge', '');
-ok(!!(await api.masterdata.saveDriver(null, { providerId: 'pr-joly', name: 'Fleet Added', phone: '+254744000001' })), 'fleet / planner still add drivers');
-await api.auth.login('u-trucks', '');
-ok(api.auth.me()!.allowedEntityIds.length === 3 && (await api.loading.waiting()).some((w) => w.loadingPointId === 's-ubl'), 'group-wide truck planner sees every company and loading point');
+await rejects(api.masterdata.saveProvider(null, { name: 'Nope', kind: 'company' }), /Kabonge|403/, 'receivers cannot onboard providers');
+await rejects(api.queue.moveTo(q[0].id, 2), /loading point|not found|403|404/, 'receivers cannot reorder a queue');
+await api.auth.login('u-testfie', '');
+await rejects(api.masterdata.saveTruck(null, { providerId: 'pr-ets', reg: 'KAA 1A', capacityCases: 10 }), /Kabonge|403/, 'Testfie cannot add trucks (view only)');
+await api.auth.login('u-daniel', '');
+ok(!!(await api.masterdata.saveDriver(null, { providerId: 'pr-joly', name: 'Director Added', phone: '+254744000001' })), 'directors add drivers too');
+await rejects(api.queue.moveTo(q[0].id, 2), /403|change the waiting list/, 'directors view queues but do not reorder them (§7 Loading = View)');
+await api.auth.login('u-testfie', '');
 
 // ---- truck desk ---------------------------------------------------------------------------------------------
 const r = api.ref();
@@ -129,6 +142,7 @@ ok(rows[0].state === 'Delayed', 'desk sorted most urgent first');
 const allTrips = await api.finance.trips();
 const k = deskKpis(rows, allTrips);
 ok(k.inQueue >= 4 && k.delayed >= 1 && k.openIssues >= 1 && k.avgWaitHours > 0 && k.owed > 0, `KPIs: ${k.inQueue} in queue, ${k.onRoad} on the road, ${k.delayed} delayed, owed USD ${k.owed}`);
+ok(k.agreedMissing === 0, 'no trip left without an agreed price after Testfie recorded it');
 const pc = costsByProvider(allTrips, r.trucks, r.providers);
 const ets = pc.find((x) => x.id === 'pr-ets')!;
 ok(ets && ets.trips > 0 && Math.abs(ets.balance - (ets.agreed - ets.paid)) < 0.01 && ets.perCase > 0, `ETS Sabrina: ${ets.trips} trips, agreed ${ets.agreed}, paid ${ets.paid}, balance ${ets.balance}, ${ets.perCase}/case`);

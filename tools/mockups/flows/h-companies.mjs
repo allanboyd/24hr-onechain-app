@@ -13,7 +13,7 @@ let s = await open({ app: 'web', user: '', outDir: out });
 await shot(s, 'H01-web-signin-companies', 'Sign in · three companies', 'The three sibling companies on the sign-in page; demo accounts grouped as Group (directors, admins, staff of all three) and per company. One tap signs in.');
 await finish(s);
 
-s = await open({ app: 'web', user: 'u-dir', outDir: out, company: 'group' });
+s = await open({ app: 'web', user: 'u-daniel', outDir: out, company: 'group' });
 await s.go('/', 3500);
 await shot(s, 'H02-web-group-dashboard', 'Group command view (directors)', 'Consolidated KPIs with each company’s split, a company league table (best per column), sum of companies → less intercompany → consolidated group, sales by month per company, share of group, stock-out risks by company. FX basis stated.');
 for (const [word, id, name] of [['BTW', 'H03', 'BTW Global'], ['Nihna', 'H04', 'Nihna Unique'], ['Volcanic', 'H05', 'Kivu']]) {
@@ -30,14 +30,14 @@ for (const [word, id, code] of [['BTW', 'H08', 'btw'], ['Nihna', 'H09', 'nud'], 
 }
 await finish(s);
 
-s = await open({ app: 'web', user: 'u-nud-plan', outDir: out, company: 'e-nud' });
+s = await open({ app: 'web', user: 'u-kabonge', outDir: out, company: 'e-nud' });
 await s.go('/', 3000);
 await shot(s, 'H11-web-single-company', 'Single-company staff (NUD planner)', 'Staff of one company never see a switcher or other companies’ numbers; the top bar shows their company.');
 await s.go('/plans/new', 1200);
 await shot(s, 'H12-web-new-plan-company', 'New plan · ordering company', 'The ordering company (letterhead) is the active company, shown with its logo; no free choice of another company.');
 await finish(s);
 
-s = await open({ app: 'web', user: 'u-dir', outDir: out, width: 390, height: 844, company: 'group' });
+s = await open({ app: 'web', user: 'u-daniel', outDir: out, width: 390, height: 844, company: 'group' });
 await s.go('/', 3000);
 await shot(s, 'H13-web-group-phone', 'Group view on a phone', 'Switcher, league table and charts at 390 px.');
 await finish(s);

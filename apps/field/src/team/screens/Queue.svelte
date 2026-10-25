@@ -12,6 +12,7 @@
   import Plus from '@lucide/svelte/icons/plus';
   import Clock from '@lucide/svelte/icons/clock';
   import { canQueue } from '../access';
+  import { canEditQueue } from '@btw/api/access';
   import { co } from '../company.svelte';
   import { Res, onRefresh } from '../load.svelte';
   import Chips from '../components/Chips.svelte';
@@ -24,14 +25,16 @@
   const r = new Res(() => loading.waiting());
   $effect(() => r.live(20_000));
   $effect(() => onRefresh(() => r.reload()));
-  const points = $derived(ref().suppliers.filter((s) => user.roles.some((x) => x === 'director' || x === 'admin') || seesLoadingPoint(user, s.id)));
+  // Kabonge sees the points of his buyer–supplier pairs; Testfie every point (docs/12)
+  const points = $derived(ref().suppliers.filter((s) => (user.roles.some((x) => x === 'director' || x === 'admin') || seesLoadingPoint(user, s.id))
+    && (!user.roles.includes('planner') || !user.pairs?.length || user.pairs.some((p) => p.supplierId === s.id))));
   const waiting = $derived((r.data ?? []).filter((w) => w.status === 'Waiting'));
   let lp = $state(untrack(() => query.get('lp') ?? ''));
   $effect(() => { if (!lp && points.length) lp = (points.find((p) => waiting.some((w) => w.loadingPointId === p.id)) ?? points[0]).id; });
   const chips = $derived(points.map((p) => ({ id: p.id, label: `${p.code} ${p.city}`, count: waiting.filter((w) => w.loadingPointId === p.id).length })));
   const list = $derived(waiting.filter((w) => w.loadingPointId === lp).sort((a, b) => a.position - b.position));
   const hours = (w: WaitingEntry) => Math.max(0, (Date.now() - Date.parse(w.arrivedAt)) / 36e5);
-  const editable = $derived(canQueue(user) && co.active !== null);
+  const editable = $derived(!!lp && canEditQueue(user, lp) && co.active !== null);
   let busy = $state<string | null>(null);
   async function move(w: WaitingEntry, dir: -1 | 1) {
     busy = w.id;

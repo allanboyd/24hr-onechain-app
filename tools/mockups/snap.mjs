@@ -1,5 +1,5 @@
 // Screenshot helper shared by the mockup flows (tools/mockups/flows/*.mjs).
-//   const s = await open({ app: 'web'|'field', user: 'u-dir', theme: 'light'|'dark', width, height, outDir });
+//   const s = await open({ app: 'web'|'field', user: 'u-daniel', theme: 'light'|'dark', width, height, outDir });
 //   await s.go('/plans/plan-2'); await shot(s, 'A10-web-plan-director-review', 'Title', 'Notes + requirement IDs');
 //   await finish(s);   // closes the browser and merges entries into <outDir>/manifest.json
 import { chromium } from 'playwright';
@@ -28,7 +28,7 @@ export async function open({ app, user, theme = 'light', width, height, outDir, 
   await page.evaluate(({ u, theme, reset, company }) => {
     if (reset) localStorage.clear(); if (u) localStorage.setItem('btw-user', u); localStorage.setItem('btw-theme', theme);
     // Flows switch users mid-run (e.g. to the director), so set the preference for every demo user; apps ignore it where not allowed.
-    const ids = ['u-dir', 'u-admin', 'u-kabonge', 'u-acc', 'u-joel', 'u-eric', 'u-moses', 'u-tesfie', 'u-asie', 'u-zonas', 'u-btw-plan', 'u-btw-acc', 'u-nud-plan', 'u-nud-acc', 'u-kvd-plan', 'u-kvd-acc', 'u-drv1', 'u-drv2'];
+    const ids = ['u-daniel', 'u-michael', 'u-kabonge', 'u-testfie', 'u-joel', 'u-eric', 'u-moses', 'u-sbl-loader', 'u-asie', 'u-yonas', 'u-drv1', 'u-drv2', 'u-drv3'];
     if (company) for (const id of ids) { localStorage.setItem(`btw-company:${id}`, company); if (company !== 'group') localStorage.setItem(`btw-entity:${id}`, company); }
   }, { u: user, theme, reset, company });
   await page.reload(); await page.waitForTimeout(400);

@@ -152,7 +152,7 @@ export function overdue(leg: Leg, stops: RouteStop[], graceHours = 3, now = Date
 // ---- Inventory (§7.5) ----------------------------------------------------
 export type MoveKind = 'received' | 'damaged' | 'sold' | 'transferIn' | 'transferOut' | 'adjustment';
 /** Stock is owned per company even inside a shared warehouse: every move carries its entity. */
-export interface StockMove { entityId: ID; warehouseId: ID; productId: ID; kind: MoveKind; qty: number; at: string; ref: string }
+export interface StockMove { entityId: ID; warehouseId: ID; productId: ID; kind: MoveKind; qty: number; at: string; ref: string; /** docs/14 B-02: why (adjustments, write-offs) */ reason?: string | null; note?: string | null; byUserId?: string | null }
 
 /** §7.5 rows keyed by (company, warehouse, product). */
 /** Doc 08 §2: the chain of shipments (origin → … → last) containing `id`, with loaded / received / damaged per shipment. */
@@ -287,27 +287,44 @@ export function validateRoute(r: { name?: string; stops?: RouteStop[] }, checkpo
   return e;
 }
 
-// ---- Role × feature matrix (docs/07 §E) ------------------------------------------------------------
-/** Who may see each web feature. The API enforces the same keys; field roles use the field app endpoints. */
+// ---- Role × feature matrix (roles document §7, docs/12-roles-access.md) ---------------------------------------
+/** Who may open each feature. The API enforces the same keys plus the "Own" scopes in ./access.ts (pairs, loading
+ *  points, warehouses, routes). Roles: director (Daniel, Michael), planner (Kabonge), truck_planner (Testfie — "Truck
+ *  follow-up officer"), loader (Joel, Eric, Moses), receiver (Asie, Yonas), reexport (Asie), driver. The fleet,
+ *  operations, accounts, sales and admin roles stay in code, unassigned. */
 export const FEATURES: Record<FeatureKey, Role[]> = {
-  'dashboard': ['director', 'planner', 'fleet', 'operations', 'accounts', 'admin', 'sales'],
-  'period-plans': ['director', 'planner', 'fleet', 'operations', 'accounts', 'admin'],
-  'purchase-orders': ['director', 'planner', 'fleet', 'operations', 'accounts', 'loader', 'admin'],
+  'dashboard': ['director', 'admin', 'fleet', 'operations', 'accounts', 'sales'],
+  'period-plans': ['director', 'admin', 'planner', 'fleet', 'operations', 'accounts'],
+  'purchase-orders': ['director', 'admin', 'planner', 'truck_planner', 'loader', 'receiver', 'fleet', 'operations', 'accounts'],
   'purchase-orders.approve': ['director'],
-  'planned-vs-actual': ['director', 'planner', 'accounts'],
-  'logistics': ['director', 'planner', 'fleet', 'operations', 'accounts', 'loader', 'truck_planner'],
-  'inventory': ['director', 'planner', 'accounts', 'sales', 'receiver'],
-  'sales': ['director', 'accounts', 'sales', 'receiver'],
-  // truck planner: reads trip costs, payments and transport owed and may add a trip expense — never records or approves payments
-  'finance': ['director', 'fleet', 'operations', 'accounts', 'truck_planner'],
+  'planned-vs-actual': ['director', 'admin', 'planner', 'accounts'],
+  // shipments & legs (Dispatch and multi-leg shipments): everyone but drivers, each within their scope
+  'logistics': ['director', 'admin', 'planner', 'truck_planner', 'loader', 'receiver', 'reexport', 'fleet', 'operations', 'accounts'],
+  'loading': ['director', 'admin', 'planner', 'truck_planner', 'loader', 'fleet', 'operations', 'accounts'],
+  'fleet': ['director', 'admin', 'planner', 'truck_planner', 'receiver', 'fleet', 'operations'],
+  'inventory': ['director', 'admin', 'receiver', 'accounts', 'sales'],
+  // sales, selling prices and trip financials: directors only until someone else is named (§7)
+  'sales': ['director', 'admin', 'accounts', 'sales'],
+  'finance': ['director', 'admin', 'fleet', 'operations', 'accounts'],
   'finance.approve': ['director'],
-  'reports': ['director', 'planner', 'fleet', 'operations', 'accounts'],
-  'master-data': ['admin', 'director', 'planner', 'fleet'],
-  'users': ['admin', 'director'],
-  'integrations': ['admin', 'director'],
-  // docs/10: the truck desk (every truck by state, queues, transport costs) and transport-only master data
-  'trucks': ['director', 'planner', 'fleet', 'operations', 'truck_planner'],
-  'master-data.transport': ['admin', 'director', 'planner', 'fleet', 'truck_planner'],
+  'reports': ['director', 'admin', 'fleet', 'operations', 'accounts'],
+  // the Master data screen (read); edits need .static or .transport
+  'master-data': ['director', 'admin', 'planner', 'truck_planner', 'loader', 'reexport', 'fleet'],
+  'master-data.transport': ['director', 'admin', 'planner', 'fleet'],
+  'master-data.static': ['director', 'admin', 'planner'],
+  'users': ['director', 'admin'],
+  'integrations': ['director', 'admin'],
+  'trucks': ['director', 'admin', 'planner', 'truck_planner', 'fleet', 'operations'],
+  'truck-expenses': ['director', 'admin', 'truck_planner', 'fleet', 'operations'],
+  'audit': ['director', 'admin'],
+  // workstream B (docs/14): directors only for money; receivers their own warehouses (no values)
+  'performance': ['director', 'admin'],
+  'selling-prices': ['director', 'admin'],
+  'warehouse-expenses': ['director', 'admin', 'receiver'],
+  'warehouse-stock': ['director', 'admin', 'receiver'],
+  // re-export orders: Asie raises and loads (reexport); Yonas sees what comes to Juba; Testfie follows up (Q3, to confirm)
+  're-export': ['director', 'admin', 'reexport', 'receiver', 'truck_planner'],
+  'transport-fees': ['director', 'admin', 'truck_planner'],
 };
 export const featuresFor = (roles: Role[]): FeatureKey[] => (Object.keys(FEATURES) as FeatureKey[]).filter((k) => FEATURES[k].some((r) => roles.includes(r)));
 export const hasFeature = (roles: Role[], f: FeatureKey) => FEATURES[f].some((r) => roles.includes(r));
@@ -364,7 +381,7 @@ export function validatePeriodPlan(p: Pick<PeriodPlan, 'from' | 'to' | 'lines'>,
   return errs;
 }
 /** Who saves period plans (they are suggestions: no approval) and who raises / issues purchase orders. */
-export const PERIOD_PLAN_EDITORS: Role[] = ['planner', 'director', 'admin'];
+export const PERIOD_PLAN_EDITORS: Role[] = ['planner', 'director', 'admin']; // + pairs (access.periodLineVisible)
 export const PO_EDITORS: Role[] = ['planner', 'director', 'admin'];
 /** Plans never overlap: the Active plans of the same company whose [from, to] overlaps this one (itself excluded). */
 export function overlapsOf(plan: Pick<PeriodPlan, 'id' | 'entityId' | 'from' | 'to'>, all: PeriodPlan[]): PeriodPlan[] {
@@ -448,7 +465,7 @@ export const missingReasons = (ctx: PlanLineContext[]) => ctx.filter((c) => c.ex
 
 // ---- Server config (apps/api/config.toml) ---------------------------------------------------------------
 /** Defaults when config.toml is missing or a key is absent. The mock client uses the same. */
-export const defaultConfig: AppConfig = { approvals: { purchaseOrders: false }, loading: { allowancePct: 10, allowAlternatives: true, revisionSuffix: '-rev' } };
+export const defaultConfig: AppConfig = { approvals: { purchaseOrders: false }, loading: { allowancePct: 10, allowAlternatives: true, revisionSuffix: '-rev' }, fees: { amberDays: 14, redDays: 30 }, costs: { allocation: 'quantity' } };
 /** Label of an order's state for the UI: "Issued" when it became a PO without director approval. */
 export function planStatusLabel(p: Pick<Plan, 'status' | 'history' | 'revision' | 'supersededById'>, cfg: AppConfig = defaultConfig): string {
   if (p.status === 'Approved') {
@@ -545,31 +562,27 @@ export function revisePlan(prev: Plan, truckNo: number, loading: Pick<LoadingLin
 export const defaultPvThresholds: PvThresholds = { behind: 0.85, over: 1.05 };
 /** Reports a role may open: the general Reports feature, or the feature the report belongs to (e.g. a sales clerk's sales overview). */
 export const REPORT_FEATURES: Record<string, FeatureKey[]> = {
-  dashboard: ['dashboard'], sales: ['reports', 'sales'], quarterly: ['reports'], logistics: ['reports', 'trucks'], inventory: ['reports', 'inventory'],
+  // inventory shows stock values (purchase prices): not for receivers (A-04) — their own reports come with the dashboards
+  dashboard: ['dashboard'], sales: ['reports', 'sales'], quarterly: ['reports'], logistics: ['reports', 'trucks'], inventory: ['reports'],
   // finance shows sales margins: the general Reports feature only (the truck planner reads trip costs, not sales)
   planning: ['reports', 'period-plans'], finance: ['reports'], 'period-plan': ['reports', 'period-plans'], 'capture-check': ['reports'],
   'planned-vs-actual': ['planned-vs-actual'],
 };
 export const canOpenReport = (roles: Role[], report: string) => (REPORT_FEATURES[report] ?? ['reports']).some((f) => hasFeature(roles, f));
 
-// ---- Truck planning (docs/10-truck-planner-role.md) --------------------------------------------------------
-/** Who onboards transport providers, trucks and drivers (add / edit / deactivate). */
-export const TRANSPORT_EDITORS: Role[] = ['truck_planner', 'fleet', 'planner', 'director', 'admin'];
+// ---- Truck planning (docs/10-truck-planner-role.md, reshaped by docs/12) ------------------------------------------
+/** Who onboards transport providers, trucks and drivers (add / edit / deactivate). The truck follow-up officer views only (§7). */
+export const TRANSPORT_EDITORS: Role[] = ['planner', 'fleet', 'director', 'admin'];
 export const canEditTransport = (roles: Role[]) => roles.some((r) => TRANSPORT_EDITORS.includes(r));
-/** Who changes a loading queue (add, reorder, remove): loading-point staff of that point, truck planners, fleet,
- *  operations, planners, directors and admins. */
-export const QUEUE_EDITORS: Role[] = ['loader', 'truck_planner', 'fleet', 'operations', 'planner', 'director', 'admin'];
-/** Roles that follow every loading point of their companies (the others see only their own `loadingPointIds`). */
-const ALL_LOADING_POINTS: Role[] = ['director', 'admin', 'planner', 'fleet', 'operations', 'accounts'];
-/** May this user see / work the queue of loading point `lp`? A truck planner works the loading points on their
- *  profile (none listed = all of them); loaders only theirs. */
-export function seesLoadingPoint(u: { roles: Role[]; loadingPointIds: ID[] }, lp: ID): boolean {
-  if (u.roles.some((r) => ALL_LOADING_POINTS.includes(r))) return true;
-  if (u.roles.includes('truck_planner') && !u.loadingPointIds.length) return true;
-  return u.loadingPointIds.includes(lp);
-}
+/** Who may change a loading queue at all (scope per point: access.canEditQueue). Directors view (§7 Loading = View). */
+export const QUEUE_EDITORS: Role[] = ['loader', 'truck_planner', 'planner', 'fleet', 'operations'];
+/** May this user see the queue / loadings of loading point `lp`? (access.seesLoadingPoint; loaders: their own points.) */
+export { seesLoadingPoint } from './access';
 /** Notifications meant for fleet follow-up also reach truck planners (they took over the trucks). */
 export const withTruckPlanner = (roles: Role[]): Role[] => (roles.includes('fleet') && !roles.includes('truck_planner') ? [...roles, 'truck_planner'] : roles);
+
+/** Feature area of an API path for the audit log ("/v1/masterdata/products/p-1" → "masterdata"). */
+export const auditFeature = (path: string) => path.replace(/^\/?(v1\/)?/, '').split('/')[0] || 'other';
 
 export const PROVIDER_KINDS: { kind: import('./types').ProviderKind; label: string }[] = [
   { kind: 'company', label: 'Transport company' }, { kind: 'sacco', label: 'Sacco' }, { kind: 'individual', label: 'Individual owner' }, { kind: 'market', label: 'Market (hired on the spot)' },

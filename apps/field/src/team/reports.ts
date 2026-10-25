@@ -4,7 +4,7 @@
 // removes the unused branch. Gap: packages/api could expose this split itself (e.g. a lazily imported mock reports module).
 import { reports as clientReports } from '@btw/api';
 
-export type Reports = Pick<typeof clientReports, 'dashboard' | 'sales' | 'logistics' | 'inventory' | 'plannedVsActual' | 'resolvePeriod'>;
+export type Reports = Pick<typeof clientReports, 'dashboard' | 'sales' | 'logistics' | 'inventory' | 'plannedVsActual' | 'resolvePeriod' | 'performance'>;
 let local: Promise<Reports> | null = null;
 export function reportsApi(): Promise<Reports> {
   if (import.meta.env.VITE_API === 'http') return Promise.resolve(clientReports);

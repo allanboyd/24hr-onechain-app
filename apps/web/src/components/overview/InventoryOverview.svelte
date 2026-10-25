@@ -5,9 +5,9 @@
   import { fmtNum } from '@btw/ui';
   import { BarChart, ChartCard, Donut, Heatmap, StatTile, usd } from '../charts';
   import { drill } from '../../lib/tab';
-  let { rows, vel, levelOf, cover, thresholds }: {
+  let { rows, vel, levelOf, cover, thresholds, money = true }: {
     rows: StockRow[]; vel: VelocityRow[]; levelOf: (x: StockRow) => string; cover: (x: StockRow) => number;
-    thresholds: { stockOutDays: number; overstockDays: number };
+    thresholds: { stockOutDays: number; overstockDays: number }; /** false = no values (receivers, docs/12 A-04) */ money?: boolean;
   } = $props();
   const B = '/inventory';
   const wname = (id: string) => destinationLabel(id) ?? id;
@@ -33,16 +33,18 @@
 <CompanySplit title="Stock by company" metrics={inventorySplit()} />
 
 <div class="tiles">
-  <StatTile label="Stock value" value={usd(total.value)} hint="at landed cost per case" />
+  {#if money}<StatTile label="Stock value" value={usd(total.value)} hint="at landed cost per case" />{/if}
   <StatTile label="Cases on hand" value={fmtNum(total.cases)} hint="{whs.length} warehouses · {prods.length} SKUs" />
   <StatTile label="In transit" value={fmtNum(total.transit)} hint="loaded, not yet acknowledged" onclick={() => drill(B, {})} />
   <StatTile label="Needs attention" value={String(attention)} hint="low, out of stock or overstock" onclick={() => drill(B, { level: 'Low' })} />
 </div>
 
 <div class="charts-grid">
+{#if money}
   <ChartCard title="Stock value by warehouse" subtitle="USD at landed cost" rows={() => [['Warehouse', 'Value (USD)', 'Cases'], ...whs.map((w, i) => [wname(w), Math.round(byWh[i].reduce((a, x) => a + value(x), 0)), byWh[i].reduce((a, x) => a + x.closing, 0)])]}>
     <BarChart label="Stock value by warehouse" horizontal categories={whs.map(wname)} series={[{ name: 'Value', values: byWh.map((r) => Math.round(r.reduce((a, x) => a + value(x), 0))) }]} format={usd} onselect={(c) => drill(B, { wh: whs.find((w) => wname(w) === c) })} />
   </ChartCard>
+  {/if}
   <ChartCard title="On hand vs in transit" subtitle="cases by warehouse" rows={() => [['Warehouse', 'On hand', 'In transit'], ...whs.map((w, i) => [wname(w), byWh[i].reduce((a, x) => a + x.closing, 0), byWh[i].reduce((a, x) => a + x.inTransit, 0)])]}>
     <BarChart label="Cases on hand and in transit by warehouse" stacked categories={whs.map(wname)} series={[{ name: 'On hand', values: byWh.map((r) => r.reduce((a, x) => a + x.closing, 0)) }, { name: 'In transit', values: byWh.map((r) => r.reduce((a, x) => a + x.inTransit, 0)), slot: 1 }]} onselect={(c) => drill(B, { wh: whs.find((w) => wname(w) === c) })} />
   </ChartCard>
@@ -59,7 +61,9 @@
   <ChartCard title="Stock ageing" subtitle="cases on hand by days since the last sale" rows={() => [['Days since last sale', 'Cases on hand'], ...AGE.map(([l], i) => [l, ageing[i]])]}>
     <BarChart label="Stock ageing" categories={AGE.map(([l]) => l)} series={[{ name: 'Cases', values: ageing }]} />
   </ChartCard>
+{#if money}
   <ChartCard span={2} title="Top value SKUs" subtitle="where the money sits" rows={() => [['SKU', 'Warehouse', 'Cases', 'Value (USD)'], ...top.map((x) => [pname(x.productId), wname(x.warehouseId), x.closing, Math.round(value(x))])]}>
     <BarChart label="Top value SKUs" horizontal categories={top.map((x) => `${pname(x.productId)} — ${wname(x.warehouseId)}`)} series={[{ name: 'Value', values: top.map((x) => Math.round(value(x))) }]} format={usd} onselect={(c) => { const x = top.find((t) => `${pname(t.productId)} — ${wname(t.warehouseId)}` === c); if (x) drill(B, { wh: x.warehouseId, q: lookup.product(x.productId)?.sku }); }} />
   </ChartCard>
+  {/if}
 </div>

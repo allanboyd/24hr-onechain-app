@@ -1,4 +1,14 @@
-# 10 — Truck planner role
+# 10 — Truck planner role → Truck follow-up officer (Testfie)
+
+> **Update 25 Oct 2026 ([12](12-roles-access.md)):** the role id `truck_planner` is kept and relabelled **"Truck follow-up officer"**; it is **Testfie**'s role (roles document §4). Changes from what follows:
+> - **Scope:** every truck, route and company; **loads only at GBI Mombasa** (`loadingPointIds: [s-gbi]`, `access.canRecordLoading`) while following every queue (`access.seesLoadingPoint` = all points).
+> - **Transport master data is view-only.** Onboarding providers, trucks and drivers moved to **Kabonge** (planner, static data) and the directors (`TRANSPORT_EDITORS`).
+> - **Features:** `logistics`, `loading`, `fleet`, `trucks`, **`truck-expenses`** (trip expenses, agreed price, transport side of trip costs — no goods value or landed cost), `purchase-orders` (view, GBI only), `master-data` (view), `transport-fees` (hook). **No** `finance` (trip financials are the directors'), no reports except the logistics report.
+> - **Agreed transport price after loading:** loaders no longer enter it; Testfie (or a director) records it on the Truck desk / trip (`POST /shipments/:id/agreed-price`). Trips without one show "not recorded" and are counted.
+> - **Queue order:** Testfie on every point and Kabonge on his pairs' points (Q11 — to confirm). Directors view queues.
+> - **Demo logins:** `testfie` (+254700000006). The `btw-trucks` and `trucks` demo users are retired.
+>
+> The sections below describe the original 18 Oct build; where they disagree, doc 12 wins.
 
 The client's request: *"a role that will purely work on truck planning: they onboard the organizations / saccos / providers of trucks and arrange the order of the trucks on the loader queue; this person also checks on the status of trucks in queue, in transit, on delivery, current locations, any issues and so on; also arranging the trucks and understanding any expenses."*
 
@@ -90,8 +100,8 @@ All of this is enforced in both places, identically:
 
 | Username | Phone | Scope |
 |---|---|---|
-| `btw-trucks` — Peter Njoroge (BTW truck planner) | +254700000017 | BTW, loading point KBL |
-| `trucks` — Halima Yusuf (truck planner, all companies) | +254700000018 | BTW · NUD · Kivu, every loading point |
+| `testfie` — Testfie (truck follow-up officer, since 25 Oct) | +254700000006 | BTW · Nihna · Kivu, every queue; loads at GBI Mombasa |
+| ~~`btw-trucks`, `trucks`~~ | — | retired 25 Oct (doc 12) |
 
 - **Seed data:**
   - ETS Sabrina Ltd now has kind and contact data. The contact details are placeholders and are marked "to confirm".

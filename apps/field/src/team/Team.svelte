@@ -5,9 +5,9 @@
   import { untrack } from 'svelte';
   import { analytics, notifications, onChange, type User } from '@btw/api';
   import { router } from '@btw/ui';
-  import { SECTIONS, can, mayApprovePayments, mayApprovePOs, tabsFor, type SectionId } from './access';
+  import { SECTIONS, mayApprovePayments, mayApprovePOs, sectionAllowed, tabsFor, type SectionId } from './access';
   import { clearCompanyPaint, co, initCompany } from './company.svelte';
-  import { isDetail, parse, tabOf, type View } from './routes';
+  import { GLANCE_TITLES, isDetail, parse, tabOf, type View } from './routes';
   import { settle } from './load.svelte';
   import AppBar from './components/AppBar.svelte';
   import BottomNav from './components/BottomNav.svelte';
@@ -41,10 +41,11 @@
     reports: () => import('./screens/Reports.svelte'),
     approvals: () => import('./screens/Approvals.svelte'),
     more: () => import('./screens/More.svelte'),
+    'glance/id': () => import('./screens/Glance.svelte'),
   };
   const keyOf = (v: View) => (v.tab === 'orders' && v.kind && v.id ? `orders/${v.kind}` : isDetail(v) ? `${v.tab}/id` : v.tab);
   const TITLES: Record<string, string> = {
-    home: 'Home', trucks: 'Trucks', 'trucks/id': 'Shipment', queue: 'Loading queue', fleet: 'Truck desk', 'fleet/id': 'Truck', orders: 'Orders', 'orders/po': 'Purchase order', 'orders/draft': 'Order draft', 'orders/period': 'Period plan',
+    home: 'Home', load: 'Load a truck', trucks: 'Trucks', 'trucks/id': 'Shipment', queue: 'Loading queue', fleet: 'Truck desk', 'fleet/id': 'Truck', orders: 'Orders', 'orders/po': 'Purchase order', 'orders/draft': 'Order draft', 'orders/period': 'Period plan',
     stock: 'Stock', sales: 'Sales', money: 'Money', 'money/id': 'Trip payments', notifications: 'Notifications', reports: 'Reports', approvals: 'Approvals', more: 'More',
   };
 
@@ -53,7 +54,7 @@
   const tabs = $derived(tabsFor(user));
   const activeTab = $derived(tabOf(view, tabs.map((t) => t.id)));
   const section = $derived(SECTIONS[view.tab as SectionId]);
-  const allowed = $derived(!section?.feature || can(user, section.feature));
+  const allowed = $derived(!section || sectionAllowed(user, section));
   const canSwitch = $derived(user.canGroup || user.allowedEntityIds.length > 1);
 
   let drawer = $state(false);
@@ -75,8 +76,16 @@
   $effect(() => { void router.path; drawer = false; });
 </script>
 
+{#if key === 'load' && allowed}
+  <!-- Testfie records the GBI Mombasa loading with the loader's own screen (docs/12): back returns to BTW Team -->
+  {#await import('../screens/LoadingPoint.svelte')}
+    <div class="boot" aria-busy="true"></div>
+  {:then m}
+    <m.default {user} {onlogout} onback={() => router.go('/')} />
+  {/await}
+{:else}
 <div class="team">
-  <AppBar title={TITLES[key] ?? 'BTW Team'} {back} {unread} {canSwitch} onmenu={() => (drawer = true)} onback={goBack} oncompany={() => (picking = true)} onbell={() => router.go('/notifications')} />
+  <AppBar title={view.tab === 'glance' ? GLANCE_TITLES[view.id] ?? 'Details' : TITLES[key] ?? 'BTW Team'} {back} {unread} {canSwitch} onmenu={() => (drawer = true)} onback={goBack} oncompany={() => (picking = true)} onbell={() => router.go('/notifications')} />
   <PullToRefresh />
 
   {#key `${co.rev}|${router.path.split('?')[0]}`}
@@ -103,5 +112,6 @@
   <Drawer {user} open={drawer} active={activeTab === 'more' ? (view.tab as SectionId) : activeTab} {badges} {canSwitch} onclose={() => (drawer = false)} oncompany={() => { drawer = false; picking = true; }} {onlogout} />
   {#if picking}<CompanySheet {user} onclose={() => (picking = false)} />{/if}
 </div>
+{/if}
 
 <style>.boot { min-height: 50dvh; }</style>

@@ -12,9 +12,9 @@
   <button type="button" aria-label="Increase {label}" onclick={() => set(value + step)} disabled={value >= max}><Plus size={22} /></button>
 </div>
 <style>
-  .stepper { display: grid; grid-template-columns: 56px 1fr 56px; gap: var(--space-2); }
+  .stepper { display: grid; grid-template-columns: 56px minmax(88px, 1fr) 56px; gap: var(--space-2); }
   button { height: 56px; border-radius: var(--radius-md); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); display: grid; place-items: center; cursor: pointer; }
   button:disabled { opacity: .35; }
-  input { height: 56px; min-width: 0; text-align: center; font: 700 22px var(--ff-body); font-variant-numeric: tabular-nums; border-radius: var(--radius-md); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); }
+  input { height: 56px; min-width: 0; padding: 0 4px; text-align: center; font: 700 22px var(--ff-body); font-variant-numeric: tabular-nums; border-radius: var(--radius-md); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); }
   input[aria-invalid='true'] { border-color: var(--danger); outline: 1px solid var(--danger); }
 </style>

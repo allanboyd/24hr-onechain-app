@@ -6,6 +6,8 @@
 //   transit days = departure from the loading point → arrival at the final warehouse (all legs)
 //   damage/short % = (expected − received + damaged) ÷ expected on acknowledgements
 //   landing cost per case = (goods value + every trip cost) ÷ cases loaded, averaged over delivered trucks
+//   (landed cost v2 — goods + truck + warehouse-expense share ÷ good cases received — and the combined performance
+//   report, docs/14 B-06/B-07, live in ./performance.ts and use the same scoping via scopeReportData)
 import { DAY, H, ORDER_COUNTS, coveringPlans, defaultPvThresholds, etaOf, fxFor, monthsIn, overdue, type StockMove } from './rules';
 import type {
   Acknowledgement, Checkpoint, Driver, Entity, FxRate, ID, Plan, PriceListItem, Product, Provider, PurchaseOrder, Route, Sale, Shipment,
@@ -98,6 +100,10 @@ function prep(dt: ReportData, f: { entityId?: ID }): ReportData {
   if (f.entityId && dt.entityScope && !dt.entityScope.includes(f.entityId)) return scopeData(dt, ['—none—']);
   return scopeData(dt, f.entityId ? [f.entityId] : dt.entityScope ?? null);
 }
+
+/** Scoping for report modules outside this file (performance.ts — landed cost v2 and the combined performance report,
+ *  docs/14; a separate module so the apps' entry chunks stay small). */
+export { prep as scopeReportData };
 
 // ---- small helpers ------------------------------------------------------------------------------------
 const r2 = (x: number) => Math.round(x * 100) / 100;
@@ -639,11 +645,12 @@ export function planningReport(dt: ReportData, f: ReportFilter & { horizonDays?:
 // ======================================================================================================
 export interface FinanceReport {
   range: { from: string; to: string };
-  totals: { goods: number; expenses: number; landing: number; transport: number; paid: number; balance: number; trips: number; perCase: number };
+  /** `agreedMissing` = trips whose agreed transport price is not recorded yet (docs/12 A-04): counted, never treated as zero. */
+  totals: { goods: number; expenses: number; landing: number; transport: number; paid: number; balance: number; trips: number; perCase: number; agreedMissing: number };
   trend: { key: string; label: string; perCase: number | null; transportPerCase: number | null; trips: number }[];
   byLane: { lane: string; name: string; trips: number; perCase: number; transportPerCase: number }[];
   byBrand: { productId: ID; brand: string; pack: string; revenue: number; cogs: number; margin: number; marginPct: number }[];
-  byProvider: { providerId: ID; name: string; trips: number; agreed: number; paid: number; balance: number }[];
+  byProvider: { providerId: ID; name: string; trips: number; agreed: number; paid: number; balance: number; /** trips with no agreed price yet */ agreedMissing: number }[];
   payments: { dueAmount: number; dueTrips: number; overdueAmount: number; overdueTrips: number; pendingApproval: number; pendingCount: number };
   costMix: { kind: TripCost['kind']; amount: number }[];
 }
@@ -659,7 +666,7 @@ function tripsOf(dt: ReportData) {
     const paid = sum(pays.filter((p) => p.status !== 'Pending approval'), (p) => p.amount);
     const loadedAt = t(s.legs[0].passes[0]?.departedAt) || t(s.legs[0].departedAt);
     const ack = finalAck(s, dt.acks);
-    return { s, cases, goods, costs, expenses: sum(costs, (c) => c.amount), transport, paid, pending: sum(pays.filter((p) => p.status === 'Pending approval'), (p) => p.amount), pendingCount: pays.filter((p) => p.status === 'Pending approval').length, loadedAt, deliveredAt: ack ? t(ack.at) : NaN, lane: s.legs.map((l) => l.routeId).join('+'), laneName: s.legs.map((l) => dt.routes.find((r) => r.id === l.routeId)?.name ?? l.routeId).join(' + ') };
+    return { s, cases, goods, costs, agreedRecorded: costs.some((c) => c.kind === 'Transport'), expenses: sum(costs, (c) => c.amount), transport, paid, pending: sum(pays.filter((p) => p.status === 'Pending approval'), (p) => p.amount), pendingCount: pays.filter((p) => p.status === 'Pending approval').length, loadedAt, deliveredAt: ack ? t(ack.at) : NaN, lane: s.legs.map((l) => l.routeId).join('+'), laneName: s.legs.map((l) => dt.routes.find((r) => r.id === l.routeId)?.name ?? l.routeId).join(' + ') };
   });
 }
 export function financeReport(dt: ReportData, f: ReportFilter = {}): FinanceReport {
@@ -667,21 +674,21 @@ export function financeReport(dt: ReportData, f: ReportFilter = {}): FinanceRepo
   const { from, to } = rangeOf(f, dt.now);
   const all = tripsOf(dt).filter((x) => !f.warehouseId || x.s.warehouseId === f.warehouseId);
   const inR = all.filter((x) => x.loadedAt >= from && x.loadedAt < to);
-  const T = { goods: r2(sum(inR, (x) => x.goods)), expenses: r2(sum(inR, (x) => x.expenses)), landing: 0, transport: r2(sum(inR, (x) => x.transport)), paid: r2(sum(inR, (x) => x.paid)), balance: 0, trips: inR.length, perCase: 0 };
+  const T = { goods: r2(sum(inR, (x) => x.goods)), expenses: r2(sum(inR, (x) => x.expenses)), landing: 0, transport: r2(sum(inR, (x) => x.transport)), paid: r2(sum(inR, (x) => x.paid)), balance: 0, trips: inR.length, perCase: 0, agreedMissing: inR.filter((x) => !x.agreedRecorded).length };
   T.landing = r2(T.goods + T.expenses); T.balance = r2(T.transport - T.paid); T.perCase = r2(T.landing / Math.max(1, sum(inR, (x) => x.cases)));
   const trend: FinanceReport['trend'] = [];
   const endM = new Date(Math.min(to, dt.now));
   for (let i = 11; i >= 0; i--) {
     const a = Date.UTC(endM.getUTCFullYear(), endM.getUTCMonth() - i, 1), b = Date.UTC(endM.getUTCFullYear(), endM.getUTCMonth() - i + 1, 1);
     const xs = all.filter((x) => x.loadedAt >= a && x.loadedAt < b); const c = sum(xs, (x) => x.cases);
-    trend.push({ key: ymd(a), label: new Date(a).toLocaleString('en-GB', { month: 'short', year: '2-digit', timeZone: 'UTC' }), perCase: c ? r2((sum(xs, (x) => x.goods) + sum(xs, (x) => x.expenses)) / c) : null, transportPerCase: c ? r2(sum(xs, (x) => x.transport) / c) : null, trips: xs.length });
+    trend.push({ key: ymd(a), label: new Date(a).toLocaleString('en-GB', { month: 'short', year: '2-digit', timeZone: 'UTC' }), perCase: c ? r2((sum(xs, (x) => x.goods) + sum(xs, (x) => x.expenses)) / c) : null, transportPerCase: (() => { const rec = xs.filter((x) => x.agreedRecorded), rc = sum(rec, (x) => x.cases); return rc ? r2(sum(rec, (x) => x.transport) / rc) : null; })(), trips: xs.length });
   }
   const lanes = new Map<string, typeof inR>(); for (const x of inR) { if (!lanes.has(x.lane)) lanes.set(x.lane, []); lanes.get(x.lane)!.push(x); }
   const landed = landedCostMap(dt);
   const sx = salesIn(dt, from, to, f); const bp = new Map<ID, { revenue: number; cases: number }>();
   for (const s of sx) for (const l of s.lines) { const b = bp.get(l.productId) ?? { revenue: 0, cases: 0 }; b.revenue += l.qty * l.price; b.cases += l.qty; bp.set(l.productId, b); }
-  const prov = new Map<ID, { trips: number; agreed: number; paid: number }>();
-  for (const x of inR) { const tr = dt.trucks.find((y) => y.id === x.s.legs[0].truckId); const id = tr?.providerId ?? '—'; const b = prov.get(id) ?? { trips: 0, agreed: 0, paid: 0 }; b.trips++; b.agreed += x.transport; b.paid += x.paid; prov.set(id, b); }
+  const prov = new Map<ID, { trips: number; agreed: number; paid: number; missing: number }>();
+  for (const x of inR) { const tr = dt.trucks.find((y) => y.id === x.s.legs[0].truckId); const id = tr?.providerId ?? '—'; const b = prov.get(id) ?? { trips: 0, agreed: 0, paid: 0, missing: 0 }; b.trips++; b.agreed += x.transport; b.paid += x.paid; if (!x.agreedRecorded) b.missing++; prov.set(id, b); }
   const open = all.filter((x) => x.transport - x.paid > 1);
   const overdueT = open.filter((x) => dt.now - x.loadedAt > 30 * DAY); // §17.5 follow-up period
   const mix = new Map<TripCost['kind'], number>(); for (const x of inR) for (const c of x.costs) mix.set(c.kind, (mix.get(c.kind) ?? 0) + c.amount);
@@ -689,7 +696,7 @@ export function financeReport(dt: ReportData, f: ReportFilter = {}): FinanceRepo
     range: { from: new Date(from).toISOString(), to: new Date(to).toISOString() }, totals: T, trend,
     byLane: [...lanes].map(([lane, xs]) => { const c = sum(xs, (x) => x.cases); return { lane, name: xs[0].laneName, trips: xs.length, perCase: r2((sum(xs, (x) => x.goods) + sum(xs, (x) => x.expenses)) / Math.max(1, c)), transportPerCase: r2(sum(xs, (x) => x.transport) / Math.max(1, c)) }; }).sort((a, b) => b.trips - a.trips),
     byBrand: [...bp].map(([productId, v]) => { const p = dt.products.find((x) => x.id === productId); const cogs = r2(v.cases * (landed.get(productId) ?? 0)); return { productId, brand: p?.brand ?? productId, pack: p?.pack ?? '', revenue: r2(v.revenue), cogs, margin: r2(v.revenue - cogs), marginPct: v.revenue ? (v.revenue - cogs) / v.revenue : 0 }; }).sort((a, b) => b.margin - a.margin),
-    byProvider: [...prov].map(([providerId, v]) => ({ providerId, name: dt.providers.find((p) => p.id === providerId)?.name ?? providerId, trips: v.trips, agreed: r2(v.agreed), paid: r2(v.paid), balance: r2(v.agreed - v.paid) })).sort((a, b) => b.balance - a.balance),
+    byProvider: [...prov].map(([providerId, v]) => ({ providerId, name: dt.providers.find((p) => p.id === providerId)?.name ?? providerId, trips: v.trips, agreed: r2(v.agreed), paid: r2(v.paid), balance: r2(v.agreed - v.paid), agreedMissing: v.missing })).sort((a, b) => b.balance - a.balance),
     payments: { dueAmount: r2(sum(open, (x) => x.transport - x.paid)), dueTrips: open.length, overdueAmount: r2(sum(overdueT, (x) => x.transport - x.paid)), overdueTrips: overdueT.length, pendingApproval: r2(sum(all, (x) => x.pending)), pendingCount: sum(all, (x) => x.pendingCount) },
     costMix: [...mix].map(([kind, amount]) => ({ kind, amount: r2(amount) })).sort((a, b) => b.amount - a.amount),
   };
@@ -850,7 +857,9 @@ export function captureCheck(dt: ReportData, f: ReportFilter = {}): CaptureCheck
     const po = dt.pos.find((p) => p.id === ld.poId); const sh = dt.shipments.find((s) => s.poId === ld.poId && s.truckNo === ld.truckNo);
     const link = sh ? `#/shipments/${sh.id}` : '#/loading';
     if (!ld.documents?.length) add({ area: 'Loading', kind: 'No loading documents', severity: 'medium', text: `${po?.ref ?? ''} truck ${ld.truckNo} (${reg(ld.truckId)}) loaded with no delivery note, invoice or gate-pass photo.`, at: ld.loadedAt!, link, ref: po?.ref });
-    if (!(ld.agreedTransport > 0)) add({ area: 'Loading', kind: 'No agreed transport price', severity: 'high', text: `${po?.ref ?? ''} truck ${ld.truckNo} (${reg(ld.truckId)}) has no agreed transport price (§17.5).`, at: ld.loadedAt!, link: '#/finance', ref: po?.ref });
+    // docs/12 A-04: the agreed price is recorded after loading (Truck desk) — flag it while it is still missing
+    const agreed = Number(ld.agreedTransport) > 0 || (!!sh && dt.costs.some((c) => c.shipmentId === sh.id && c.kind === 'Transport'));
+    if (!agreed) add({ area: 'Loading', kind: 'Agreed transport price not recorded', severity: 'high', text: `${po?.ref ?? ''} truck ${ld.truckNo} (${reg(ld.truckId)}): agreed transport price not recorded yet — record it on the Truck desk.`, at: ld.loadedAt!, link: '#/trucks', ref: po?.ref });
     for (const l of ld.lines) if (l.orderedQty && Math.abs(l.loadedQty - l.orderedQty) / l.orderedQty > 0.02)
       add({ area: 'Quantities', kind: 'Loaded ≠ ordered', severity: 'low', text: `${po?.ref ?? ''} truck ${ld.truckNo}: ordered ${l.orderedQty}, loaded ${l.loadedQty} cases of ${dt.products.find((p) => p.id === l.productId)?.brand ?? l.productId}.`, at: ld.loadedAt!, link, ref: po?.ref });
   }

@@ -7,7 +7,9 @@
   import POsOverview from '../components/overview/POsOverview.svelte';
   import { currentTab } from '../lib/tab';
   import { groupRevisions, poApprovals, revTag } from '../lib/orders';
+  import { seesPrices } from '@btw/api/access';
   let { user }: { params?: any; user: User } = $props();
+  const money = $derived(seesPrices(user)); // loaders and receivers: no prices (docs/12 A-04)
   const tab = currentTab();
   let list = $state<PurchaseOrder[] | null>(null);
   let planList = $state<Plan[]>([]);
@@ -49,7 +51,7 @@
 
 <div class="card flush table-wrap desktop">
   <table class="table">
-    <thead><tr><th>Reference</th><th>Title</th><th>Entity</th><th>Supplier</th><th class="num">Trucks</th><th class="num">Cases</th><th class="num">Amount</th><th>{approvals ? 'Approved' : 'Issued'}</th><th>Sent</th><th>Progress</th></tr></thead>
+    <thead><tr><th>Reference</th><th>Title</th><th>Entity</th><th>Supplier</th><th class="num">Trucks</th><th class="num">Cases</th>{#if money}<th class="num">Amount</th>{/if}<th>{approvals ? 'Approved' : 'Issued'}</th><th>Sent</th><th>Progress</th></tr></thead>
     <tbody>
       {#if !list}<tr><td colspan="10"><div class="skeleton"></div></td></tr>{/if}
       {#each rows as g (g.base.id)}
@@ -64,7 +66,7 @@
           <td>{lookup.supplier(po.supplierId)?.code}, {lookup.supplier(po.supplierId)?.city}</td>
           <td class="num">{p ? new Set(p.lines.map((l) => l.truckNo)).size : '—'}</td>
           <td class="num">{p ? fmtNum(p.lines.reduce((a, l) => a + l.qty, 0)) : '—'}</td>
-          <td class="num">{p ? fmtMoney(p.lines.reduce((a, l) => a + amount(l.qty, l.price), 0), po.currency) : '—'}</td>
+          {#if money}<td class="num">{p ? fmtMoney(p.lines.reduce((a, l) => a + amount(l.qty, l.price ?? 0), 0), po.currency) : '—'}</td>{/if}
           <td class="small">{fmtDate(po.approvedAt)}<div class="caption">{lookup.user(po.approvedById)?.name}</div></td>
           <td class="small">{#if po.sentAt}{fmtDateTime(po.sentAt)}{:else}<Badge tone="warning">Not sent</Badge>{/if}</td>
           <td><div class="row" style="gap:4px">
@@ -87,7 +89,7 @@
     <li><a class="card" href="#/pos/{po.id}">
       <div class="row between"><span class="mono">{po.ref}{#if po.revision}{' '}<Badge tone="accent">{revTag(po.revision)}</Badge>{/if}</span>{#if po.sentAt}<Badge tone="success">Sent</Badge>{:else}<Badge tone="warning">Not sent</Badge>{/if}</div>
       <div>{po.title || '—'} · <span class="muted">{lookup.supplier(po.supplierId)?.code} {lookup.supplier(po.supplierId)?.city}</span></div>
-      <div class="row between"><span class="small">{pr.loaded}/{pr.trucks} loaded · {pr.delivered} delivered</span>{#if p}<strong class="num">{fmtMoney(p.lines.reduce((a, l) => a + amount(l.qty, l.price), 0), po.currency)}</strong>{/if}</div>
+      <div class="row between"><span class="small">{pr.loaded}/{pr.trucks} loaded · {pr.delivered} delivered</span>{#if p && money}<strong class="num">{fmtMoney(p.lines.reduce((a, l) => a + amount(l.qty, l.price ?? 0), 0), po.currency)}</strong>{/if}</div>
     </a></li>
   {:else}{#if list}<li class="empty">No purchase orders yet — issue an order to generate one.</li>{/if}{/each}
 </ul>

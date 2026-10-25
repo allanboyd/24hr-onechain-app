@@ -1,11 +1,15 @@
 <script lang="ts" module>
+  import type { Theme } from './theme.svelte';
   // Plotly loads on first use only (≈490 KB gz, never in the web entry). Cached for every chart after that.
   let mod: Promise<any> | null = null;
   export const loadPlotly = () => (mod ??= import('plotly.js-cartesian-dist-min').then((m) => m.default ?? m));
+
+  /** Each mounted chart's wrapper → how to redraw it; read by ./snapshot.ts (lazy) for PDF export. */
+  export const figures = new WeakMap<Element, () => { spec: (t: Theme, ctx: { narrow: boolean }) => { data: any[]; layout?: Record<string, any> }; height: number }>();
 </script>
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { readTheme, themeTick, watchTheme, type Theme } from './theme.svelte';
+  import { readTheme, themeTick, watchTheme } from './theme.svelte';
 
   export interface PlotPoint { x: any; y: any; label?: string; curveNumber: number; pointIndex: number; seriesName?: string; customdata?: any }
   let { spec, height = 260, label, filename = 'chart', zoom = true, onselect }: {
@@ -31,6 +35,8 @@
     for (const [k, v] of Object.entries(b)) out[k] = v && typeof v === 'object' && !Array.isArray(v) && typeof a[k] === 'object' ? merge(a[k], v) : v;
     return out;
   }
+  let wrap = $state<HTMLDivElement>();
+  $effect(() => { if (wrap) figures.set(wrap, () => ({ spec, height })); });
   $effect(() => {
     if (!Plotly || !el) return;
     themeTick.v; // re-render on light/dark change
@@ -63,7 +69,7 @@
   });
 </script>
 
-<div class="plot" style:min-height="{height}px" role="img" aria-label={label}>
+<div class="plot" bind:this={wrap} style:min-height="{height}px" role="img" aria-label={label}>
   {#if !Plotly && !failed}<div class="skeleton" style:height="{height - 16}px"></div>{/if}
   {#if failed}<p class="caption" style="padding:var(--space-4)">Chart could not load — use “View data”.</p>{/if}
   <div bind:this={el} class:clickable={!!onselect}></div>

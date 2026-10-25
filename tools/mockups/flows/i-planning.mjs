@@ -20,7 +20,7 @@ async function as(s, u, company = 'e-btw') {
 }
 
 // ---- Planner (BTW): new quarter plan, lines, monthly split, validation, submit
-let s = await open({ app: 'web', user: 'u-btw-plan', outDir: out });
+let s = await open({ app: 'web', user: 'u-kabonge', outDir: out });
 await s.go('/period-plans/new', 1500);
 await s.page.fill('input[type=month]', month); await w(s, 800);
 await shot(s, 'I01-web-period-plan-new', 'New period plan · choose the period', 'Planner picks 1 month, a quarter, half a year, a year or custom dates; quarters follow the calendar. Optionally start from an earlier plan; overlapping plans are warned about (PL-06, PL-11).');
@@ -41,7 +41,7 @@ await shot(s, 'I03-web-period-plan-submitted', 'Period plan · submitted', 'Subm
 const planUrl = await s.page.evaluate(() => location.hash);
 
 // ---- Director: list, approve with signature, amend
-await as(s, 'u-dir');
+await as(s, 'u-daniel');
 await s.go('/period-plans', 2500);
 await shot(s, 'I04-web-period-plans-overview', 'Period plans · overview', 'Plans in force today, awaiting approval, upcoming periods; planned purchases by month and cases planned by supplier.');
 await s.go('/period-plans?tab=list', 1500);
@@ -57,7 +57,7 @@ await shot(s, 'I08-web-period-plan-amend', 'Amendment with a reason', 'Changes a
 await dlg(s).getByRole('button', { name: 'Cancel' }).click();
 
 // ---- Planner: PO draft above the plan → reason required
-await as(s, 'u-btw-plan');
+await as(s, 'u-kabonge');
 await s.go('/plans/new', 1500);
 await btn(s, /Create draft/).click(); await w(s, 1800);
 await s.page.fill('input[placeholder^="e.g. October"]', 'Plan check order');
@@ -76,7 +76,7 @@ await btn(s, 'Submit for approval').click(); await w(s, 1500);
 const poUrl = await s.page.evaluate(() => location.hash);
 
 // ---- Director: PO approval shows the marks
-await as(s, 'u-dir');
+await as(s, 'u-daniel');
 await s.go(poUrl.slice(1), 2000);
 await btn(s, 'Approve & sign').click(); await w(s, 600);
 await shot(s, 'I10-web-po-approval-marks', 'PO approval · over-plan and unplanned marks', 'Before issuing, the director sees every line over plan or not in the plan with the planner’s reason (PO-08).', { fullPage: false });
@@ -86,7 +86,7 @@ await shot(s, 'I11-web-planned-vs-actual', 'Planned vs actual · company', 'Plan
 await s.go('/', 3500);
 await shot(s, 'I12-web-dashboard-plan-tile', 'Dashboard · planned vs actual tile', 'The command view shows this quarter’s plan used against what was expected by today, with flag counts.');
 
-await as(s, 'u-dir', 'group');
+await as(s, 'u-daniel', 'group');
 await s.go('/reports?r=pv', 4500);
 await shot(s, 'I13-web-planned-vs-actual-group', 'Planned vs actual · group', 'In Group scope the report adds a by-company comparison and a Company column; directors see the three companies side by side.');
 

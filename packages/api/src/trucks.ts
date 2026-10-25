@@ -115,7 +115,9 @@ export function sortDesk(rows: TruckRow[]): TruckRow[] {
 
 // ---- Expenses: per trip, per truck, per provider --------------------------------------------------------
 /** One finance trip (finance.trips()): costs and payments in USD totals. */
-export interface TripLike { shipment: Shipment; costs: (TripCost & { amountUsd?: number })[]; payments: TripPayment[]; transport: number; paid: number; balance: number; expenses: number; cases: number }
+export interface TripLike { shipment: Shipment; costs: (TripCost & { amountUsd?: number })[]; payments: TripPayment[]; transport: number; paid: number; balance: number; expenses: number; cases: number; /** false = agreed price not recorded yet (docs/12) */ agreedRecorded?: boolean }
+/** Has the agreed transport price of this trip been recorded (a Transport cost line exists)? */
+export const agreedRecorded = (x: Pick<TripLike, 'costs' | 'agreedRecorded'>) => x.agreedRecorded ?? x.costs.some((c) => c.kind === 'Transport');
 export interface CostLine {
   id: ID; label: string; trips: number;
   /** agreed transport (USD) */ agreed: number;
@@ -123,7 +125,8 @@ export interface CostLine {
   /** payments made (approved / paid, USD) */ paid: number;
   /** payments waiting for a director (USD) */ pending: number;
   /** agreed transport − paid (USD) */ balance: number;
-  cases: number; /** (transport + extras) per case (USD) */ perCase: number;
+  cases: number; /** (transport + extras) per case (USD), over trips with an agreed price */ perCase: number;
+  /** trips whose agreed transport price is not recorded yet — shown as "not recorded", never as zero */ notRecorded: number;
 }
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const usdOf = (c: { amount: number; amountUsd?: number }) => c.amountUsd ?? c.amount;
@@ -136,7 +139,9 @@ function line(id: ID, label: string, trips: TripLike[]): CostLine {
   const paid = trips.reduce((a, x) => a + x.paid, 0);
   const pending = trips.reduce((a, x) => a + x.payments.filter((p) => p.status === 'Pending approval').reduce((b, p) => b + (p.amountUsd ?? p.amount), 0), 0);
   const cases = trips.reduce((a, x) => a + x.cases, 0);
-  return { id, label, trips: trips.length, agreed: r2(agreed), extras: r2(extras), paid: r2(paid), pending: r2(pending), balance: r2(agreed - paid), cases, perCase: cases ? r2((agreed + extras) / cases) : 0 };
+  const rec = trips.filter(agreedRecorded), recCases = rec.reduce((a, x) => a + x.cases, 0);
+  const recCost = rec.reduce((a, x) => a + x.transport + x.costs.filter((c) => c.kind !== 'Transport').reduce((b, c) => b + usdOf(c), 0), 0);
+  return { id, label, trips: trips.length, agreed: r2(agreed), extras: r2(extras), paid: r2(paid), pending: r2(pending), balance: r2(agreed - paid), cases, perCase: recCases ? r2(recCost / recCases) : 0, notRecorded: trips.length - rec.length };
 }
 export function costsByTruck(trips: TripLike[], trucks: Truck[]): CostLine[] {
   const by = new Map<ID, TripLike[]>();
@@ -149,7 +154,7 @@ export function costsByProvider(trips: TripLike[], trucks: Truck[], providers: P
   return [...by].map(([id, xs]) => line(id, providers.find((p) => p.id === id)?.name ?? 'Unknown provider', xs)).sort((a, b) => b.balance - a.balance || b.agreed - a.agreed);
 }
 
-export interface DeskKpis { inQueue: number; loading: number; onRoad: number; delayed: number; openIssues: number; avgWaitHours: number; longWaits: number; idle: number; owed: number; pending: number }
+export interface DeskKpis { inQueue: number; loading: number; onRoad: number; delayed: number; openIssues: number; avgWaitHours: number; longWaits: number; idle: number; owed: number; pending: number; /** loaded trips with no agreed transport price yet */ agreedMissing: number }
 /** Headline numbers for the desk (long wait = more than `longWaitHours` in a queue). */
 export function deskKpis(rows: TruckRow[], trips: TripLike[] | null, longWaitHours = 24): DeskKpis {
   const queued = rows.filter((r) => r.state === 'Waiting');
@@ -162,6 +167,7 @@ export function deskKpis(rows: TruckRow[], trips: TripLike[] | null, longWaitHou
     longWaits: waits.filter((h) => h > longWaitHours).length, idle: rows.filter((r) => r.state === 'Idle').length,
     owed: r2((trips ?? []).reduce((a, x) => a + Math.max(0, x.balance), 0)),
     pending: r2((trips ?? []).reduce((a, x) => a + x.payments.filter((p) => p.status === 'Pending approval').reduce((b, p) => b + (p.amountUsd ?? p.amount), 0), 0)),
+    agreedMissing: (trips ?? []).filter((x) => !agreedRecorded(x) && !x.shipment.fromWarehouseId).length,
   };
 }
 /** "5 h", "2 d 3 h" */

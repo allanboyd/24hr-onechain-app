@@ -21,13 +21,15 @@ export const PASS = 'demo1234';
 export const PIN = '1234';
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const psql = (sql, db = 'btw') => execSync(`docker compose exec -T db psql -U btw -d ${db} -v ON_ERROR_STOP=1 -Atc ${JSON.stringify(sql)}`, { cwd: ROOT, encoding: 'utf8' }).trim();
+const psql = (sql, db = 'postgres') => execSync(`docker compose exec -T db psql -U btw -d ${db} -v ON_ERROR_STOP=1 -Atc ${JSON.stringify(sql)}`, { cwd: ROOT, encoding: 'utf8' }).trim();
 export const sql = (q) => psql(q, DB_NAME);
 
 // ---------------------------------------------------------------------------------------------
 // Instance: own database + own server (port 3197) serving the http-mode builds of both apps.
 let server;
 export async function startInstance({ build = process.env.E2E_SKIP_BUILD !== '1' } = {}) {
+  // Never test (or drop the database under) someone else's server: refuse if the port already answers.
+  if (await fetch(`${BASE}/health`).then(() => true, () => false)) throw new Error(`port ${PORT} is already in use — another e2e run? (E2E_PORT=… to pick another)`);
   console.log('▸ database', DB_NAME);
   execSync('docker compose up -d --wait db mail', { cwd: ROOT, stdio: 'ignore' });
   psql(`DROP DATABASE IF EXISTS ${DB_NAME} WITH (FORCE)`);
@@ -70,6 +72,8 @@ export async function person(name, { kind = 'web', viewport } = {}) {
     viewport: viewport ?? (isPhone ? VIEW.phone : VIEW.desktop), deviceScaleFactor: 1, isMobile: isPhone, hasTouch: isPhone,
     timezoneId: 'Africa/Nairobi', locale: 'en-GB', acceptDownloads: true, permissions: [],
   });
+  // The PWA's "Put BTW Team on your home screen" card (first visit in a browser) would cover the slide-to-confirm.
+  if (isPhone) await ctx.addInitScript(() => { try { localStorage.setItem('btw-install-hint', '1'); } catch { /* ignore */ } });
   const page = await ctx.newPage();
   page.setDefaultTimeout(15000);
   const p = { name, kind, ctx, page, console: [], failed: [], expect: [] };

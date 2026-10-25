@@ -6,7 +6,9 @@ import type { PeriodPlan, Plan, PlanLine, PurchaseOrder } from '@btw/api/types';
 import { fail, forbidden, notFound } from '../common/errors';
 import { isUsableImage } from '../common/images';
 import { iso, uid } from '../common/ids';
-import { assertEntity, canSeeEntity, has, isGlobal, writeEntity, type Principal } from '../auth/principal';
+import { assertEntity, canSeeEntity, has, writeEntity, type Principal } from '../auth/principal';
+import { isDirector, orderAccess, orderFor, seesPair, seesPrices } from '@btw/api/access';
+import { auditNote } from '../common/audit-context';
 import { entityById, pdfEntity } from './companies';
 import { MAIL, PDF, type MailPort, type PdfPort, type PoLetterData } from '../integrations/ports';
 import { NotifyService } from './notify.service';
@@ -20,11 +22,24 @@ const INSTRUCTION = 'Kindly process and avail stock for loading.';
 export class PlanningService {
   constructor(private ref: RefService, private notify: NotifyService, @Inject(PDF) private pdf: PdfPort, @Inject(MAIL) private mail: MailPort) {}
 
-  /** Plans and POs: office and loading-point staff of the company. Drivers, receivers and sales work across
-   *  companies on their own trips / warehouses and never see orders. */
-  /** Role × feature matrix (docs/07 §E): purchase orders are seen by the 'purchase-orders' roles, raised by planners/directors. */
+  /** Roles document §7: directors all orders; Kabonge his buyer–supplier pairs (edit); loaders and Testfie the orders
+   *  loading at their points (view, loaders without prices); receivers the orders delivering to them (their lines, no prices). */
   private seesPlans = (p: Principal) => hasFeature(p.roles, 'purchase-orders');
-  private assertSee(p: Principal, entityId: string) { if (!this.seesPlans(p)) forbidden(); assertEntity(p, entityId); }
+  /** Receiving companies of the user's warehouses. */
+  private async myRc(p: Principal) { const { bundle } = await this.ref.get(); return [...new Set(bundle.warehouses.filter((w) => p.warehouseIds.includes(w.id)).map((w) => w.receivingCompanyId))]; }
+  private async access(p: Principal, plan: Pick<Plan, 'entityId' | 'supplierId' | 'lines'>) { return this.seesPlans(p) && canSeeEntity(p, plan.entityId) ? orderAccess(p, plan, await this.myRc(p)) : null; }
+  /** The order as this reader may see it (404 outside scope). */
+  private async load(p: Principal, id: string, need: 'view' | 'edit' = 'view') {
+    const [r] = await db.select().from(t.plans).where(eq(t.plans.id, id));
+    if (!r) return notFound('Plan');
+    assertEntity(p, r.entityId);
+    const plan = map.plan(r);
+    const a = await this.access(p, plan);
+    if (!a) forbidden();
+    if (need === 'edit' && a !== 'edit') forbidden('This order is not one of your buyer–supplier pairs');
+    return plan;
+  }
+  private async out(p: Principal, plan: Plan) { return orderFor(p, plan, await this.myRc(p)); }
 
   /** Approved/other period plans and orders of a company, and a line → destination warehouse lookup (PO-06). */
   private async planLinks(entityId: string) {
@@ -36,29 +51,28 @@ export class PlanningService {
   }
   /** PO-06: each order line against the approved period plan — planned, ordered before, this PO, remaining, over/unplanned. */
   async planContext(p: Principal, id: string) {
-    const plan = await this.get(p, id);
+    const plan = await this.load(p, id);
     const k = await this.planLinks(plan.entityId);
     return planContext(plan, k.periodPlans, k.orders, k.destOf);
   }
 
   /** Orders (PO drafts). Revision copies made at loading are not listed: they are reached from their PO. */
   async list(p: Principal) {
+    if (!this.seesPlans(p)) return [];
     const rows = await db.select().from(t.plans).orderBy(desc(t.plans.date));
-    return rows.map(map.plan).filter((x) => !x.revisionOf && this.seesPlans(p) && canSeeEntity(p, x.entityId));
+    const rc = await this.myRc(p);
+    return rows.map(map.plan).filter((x) => !x.revisionOf && canSeeEntity(p, x.entityId) && orderAccess(p, x, rc)).map((x) => orderFor(p, x, rc));
   }
-  async get(p: Principal, id: string) {
-    const [r] = await db.select().from(t.plans).where(eq(t.plans.id, id));
-    if (!r) return notFound('Plan');
-    this.assertSee(p, r.entityId);
-    return map.plan(r);
-  }
+  async get(p: Principal, id: string) { return this.out(p, await this.load(p, id)); }
 
   async create(p: Principal, entityId: string, supplierId: string) {
     if (!has(p, ...PO_EDITORS)) forbidden('Only planners create plans');
     entityId = writeEntity(p, typeof entityId === 'string' ? entityId : undefined);
     const { bundle } = await this.ref.get();
     const e = bundle.entities.find((x) => x.id === entityId) ?? notFound('Entity');
-    if (!bundle.suppliers.some((s) => s.id === supplierId)) notFound('Supplier');
+    const sup = bundle.suppliers.find((s) => s.id === supplierId) ?? notFound('Supplier');
+    if (!isDirector(p) && !seesPair(p, entityId, supplierId)) forbidden(`${e.shortName || e.code}–${sup.code} is not one of your buyer–supplier pairs`);
+    if ((e as { active?: boolean }).active === false || (sup as { active?: boolean }).active === false) fail(`${(e as { active?: boolean }).active === false ? e.name : sup.name} is deactivated`, 409, 'inactive');
     return db.transaction(async (tx) => {
       const refs = (await tx.select({ ref: t.plans.ref }).from(t.plans)).map((r) => r.ref);
       const plan: Plan = {
@@ -66,13 +80,14 @@ export class PlanningService {
         date: iso().slice(0, 10), requiredBy: iso(Date.now() + 10 * 864e5).slice(0, 10), status: 'Draft', version: 1, lines: [], history: [], createdById: p.id,
       };
       await tx.insert(t.plans).values({ ...plan, poId: null });
+      auditNote({ recordType: 'plan', recordId: plan.id, summary: `${plan.ref} created`, entityId });
       return plan;
     });
   }
 
   /** PL-01: save a draft/returned plan. Locked once approved (PL-03); prices come from the price list unless a director overrides. */
   async save(p: Principal, id: string, input: Partial<Plan>) {
-    const cur = await this.get(p, id);
+    const cur = await this.load(p, id, 'edit');
     if (cur.status === 'Approved') fail('Approved plans are locked — create an amendment (PL-04)', 409, 'locked');
     if ((cur.status === 'Submitted' && appConfig.approvals.purchaseOrders) || cur.status === 'Rejected') fail(`A ${cur.status.toLowerCase()} plan cannot be edited`, 409, 'locked');
     if (!has(p, ...PO_EDITORS)) forbidden('Only planners edit plans');
@@ -112,7 +127,8 @@ export class PlanningService {
    *  the PO is created at once (approvedBy = the issuer), loadings exactly as on approval. Period plans gate nothing. */
   async submit(p: Principal, id: string) {
     if (!has(p, ...PO_EDITORS)) forbidden('Only planners submit plans');
-    const plan = await this.get(p, id);
+    const plan = await this.load(p, id, 'edit');
+    auditNote({ recordType: 'plan', recordId: id, summary: `${plan.ref} ${appConfig.approvals.purchaseOrders ? 'submitted' : 'issued'}`, entityId: plan.entityId });
     const issue = !appConfig.approvals.purchaseOrders;
     const from = issue ? ['Draft', 'Returned', 'Submitted'] : ['Draft', 'Returned'];
     if (!from.includes(plan.status)) fail(`Only draft or returned plans can be ${issue ? 'issued' : 'submitted'} (now ${plan.status})`, 409, 'state');
@@ -163,7 +179,7 @@ export class PlanningService {
   async decide(p: Principal, id: string, action: 'approved' | 'returned' | 'rejected', comment?: string, signature?: string) {
     if (!has(p, 'director')) forbidden('Only directors decide plans');
     if (!appConfig.approvals.purchaseOrders) fail('Director approval of purchase orders is switched off (config.toml) — the planner issues the PO', 409, 'approvals-off');
-    const plan = await this.get(p, id);
+    const plan = await this.load(p, id, 'edit');
     if (plan.status !== 'Submitted') fail('Only submitted plans can be decided', 409, 'state');
     if (action === 'approved' && !signature) fail('Signature required to approve (PL-03)');
     if (action === 'approved' && !isUsableImage(signature)) fail('The signature image could not be read — sign again');
@@ -183,7 +199,7 @@ export class PlanningService {
   async amend(p: Principal, id: string, reason: string) {
     if (!has(p, ...PO_EDITORS)) forbidden();
     if (typeof reason !== 'string' || !reason.trim()) fail('Give a reason for the amendment');
-    const plan = await this.get(p, id);
+    const plan = await this.load(p, id, 'edit');
     if (plan.status !== 'Approved') fail('Only approved plans are amended; edit drafts directly', 409, 'state');
     if (plan.supersededById || plan.revisionOf) fail('This PO was revised at loading — its trucks are being loaded; raise a new order for further changes', 409, 'revised');
     plan.version += 1; plan.status = 'Draft'; plan.history.push({ at: iso(), byUserId: p.id, action: 'amended', comment: reason });
@@ -192,7 +208,8 @@ export class PlanningService {
   }
 
   async versions(p: Principal, id: string) {
-    await this.get(p, id);
+    await this.load(p, id);
+    if (!seesPrices(p)) return []; // snapshots carry prices
     return db.select().from(t.planVersions).where(eq(t.planVersions.planId, id)).orderBy(desc(t.planVersions.version));
   }
 
@@ -209,27 +226,35 @@ export class PlanningService {
 
   // ---- Purchase orders ----------------------------------------------------------
   async listPos(p: Principal) {
-    const rows = (await db.select().from(t.pos).orderBy(desc(t.pos.approvedAt))).map(map.po);
-    return rows.filter((x) => this.seesPlans(p) && canSeeEntity(p, x.entityId));
+    if (!this.seesPlans(p)) return [];
+    const rows = (await db.select().from(t.pos).orderBy(desc(t.pos.approvedAt))).map(map.po).filter((x) => canSeeEntity(p, x.entityId));
+    const plans = new Map((await db.select().from(t.plans)).map((r) => [r.id, map.plan(r)]));
+    const rc = await this.myRc(p), hide = !seesPrices(p);
+    return rows.filter((x) => orderAccess(p, plans.get(x.planId) ?? { entityId: x.entityId, supplierId: x.supplierId, lines: [] }, rc)).map((x) => (hide ? { ...x, pricesHidden: true } : x));
   }
   /** The PO, its order lines and — for a PO revised at loading — the whole chain (original first, latest last). */
   async getPo(p: Principal, id: string) {
     const [r] = await db.select().from(t.pos).where(eq(t.pos.id, id));
     if (!r) return notFound('Purchase order');
-    this.assertSee(p, r.entityId);
-    const [plan] = await db.select().from(t.plans).where(eq(t.plans.id, r.planId));
+    assertEntity(p, r.entityId);
+    const [planRow] = await db.select().from(t.plans).where(eq(t.plans.id, r.planId));
+    const plan = map.plan(planRow);
+    if (!(await this.access(p, plan))) forbidden();
     const base = r.revisionOf ?? r.id;
     const chain = (await db.select().from(t.pos).where(or(eq(t.pos.id, base), eq(t.pos.revisionOf, base)))).map(map.po).sort((a, b) => (a.revision ?? 0) - (b.revision ?? 0));
-    return { po: map.po(r), plan: map.plan(plan), revisions: chain.length > 1 ? chain : [] };
+    const hide = !seesPrices(p);
+    return { po: hide ? { ...map.po(r), pricesHidden: true } : map.po(r), plan: await this.out(p, plan), revisions: chain.length > 1 ? chain : [] };
   }
   async markSent(p: Principal, id: string) {
     const { po } = await this.getPo(p, id);
+    await this.load(p, po.planId, 'edit');
     await db.update(t.pos).set({ sentAt: iso() }).where(eq(t.pos.id, id));
     return { ...po, sentAt: iso() };
   }
 
   /** Data handed to the PDF port's 'po-letter' template (§7.1/§7.2 layout). */
   async poLetterData(p: Principal, id: string): Promise<PoLetterData> {
+    if (!seesPrices(p)) forbidden('The PO letter shows prices — loaders and receivers see the quantities on screen');
     const { po, plan } = await this.getPo(p, id);
     const { bundle } = await this.ref.get();
     const product = (pid: string) => bundle.products.find((x) => x.id === pid);
@@ -258,8 +283,9 @@ export class PlanningService {
   /** PO-03: email the PO letter to the supplier export section and record when it was sent. */
   async sendPo(p: Principal, id: string) {
     const data = await this.poLetterData(p, id);
-    const pdf = await this.pdf.render('po-letter', data);
     const { po } = await this.getPo(p, id);
+    await this.load(p, po.planId, 'edit');
+    const pdf = await this.pdf.render('po-letter', data);
     const supplier = (await this.ref.get()).bundle.suppliers.find((x) => x.id === po.supplierId)!;
     await this.mail.send({ to: supplier.email, subject: `${data.entity.name} — ${data.title} / ${data.ref}`, text: `Dear ${supplier.name},\n\n${data.instruction}\n\nPlease find our order ${data.ref} attached.\n\n${data.entity.name}`, attachments: [{ filename: `${data.ref}.pdf`, content: pdf, contentType: 'application/pdf' }] });
     return this.markSent(p, id);

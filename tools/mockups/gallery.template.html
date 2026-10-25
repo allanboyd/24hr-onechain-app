@@ -139,7 +139,7 @@ dialog::backdrop { background: rgba(4,21,43,.7); }
 
 <script>
 const DATA = /*DATA*/null;
-const ROLE = { 'u-dir': 'Director', 'u-kabonge': 'Planner · Kabonge', 'u-joel': 'Loader · Joel', 'u-eric': 'Loader · Eric', 'u-moses': 'Loader · Moses', 'u-tesfie': 'Fleet · Tesfie', 'u-asie': 'Receiver · Asie', 'u-zonas': 'Receiver · Zonas', 'u-acc': 'Accounts', 'u-admin': 'Admin', 'u-drv1': 'Driver', 'u-drv2': 'Driver' };
+const ROLE = { 'u-daniel': 'Director · Daniel', 'u-michael': 'Director · Michael', 'u-kabonge': 'Planner · Kabonge', 'u-testfie': 'Truck follow-up · Testfie', 'u-joel': 'Loader · Joel', 'u-eric': 'Loader · Eric', 'u-moses': 'Loader · Moses', 'u-sbl-loader': 'Loader · SBL', 'u-asie': 'Receiver · Asie', 'u-yonas': 'Receiver · Yonas', 'u-drv1': 'Driver', 'u-drv2': 'Driver', 'u-drv3': 'Driver' };
 const LABEL = { approved: '✓ Approved', changes: '✎ Needs changes', none: 'Not reviewed' };
 const all = DATA.flatMap((s) => s.shots.map((sh) => ({ ...sh, section: s })));
 let reviews = {}; let db = null; let user = null; let canWrite = true; let myId = null;

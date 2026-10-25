@@ -1,24 +1,27 @@
 import { Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db, schema as t, type Tx } from '../db/client';
-import { applyPass, deriveShipmentStatus, dwell, etaOf, journeyOf, loadingCheck, makePasses, overdue, reorderQueue, revisePlan, revisionRef, revisionSummary, undoPass, H } from '@btw/api/rules';
+import { applyPass, deriveShipmentStatus, dwell, etaOf, hasFeature, journeyOf, loadingCheck, makePasses, overdue, reorderQueue, revisePlan, revisionRef, revisionSummary, undoPass, H } from '@btw/api/rules';
+import { canAcknowledge, canDispatch, canEditQueue, canRecordLoading, canSendOn, canSplitLeg, canUpdateTrip, loadingWithoutPrice, seesPair, seesPrices, seesShipment, TRIP_ROLES } from '@btw/api/access';
+import { auditNote } from '../common/audit-context';
+import { ACK_REASONS, validAckReason } from '@btw/api/money';
 import type { AckLine, CheckpointPass, Leg, Loading, LoadingAlternative, PurchaseOrder, Role, TruckIssue } from '@btw/api/types';
 import { appConfig } from '../config/app-config';
 import { fail, forbidden, notFound } from '../common/errors';
 import { isUsableImage } from '../common/images';
 import { iso, uid } from '../common/ids';
-import { assertEntity, canOperate, canSeeEntity, canSeeLoadingPoint, has, isGlobal, OPS, writeEntity, type Principal } from '../auth/principal';
+import { assertEntity, canSeeEntity, canSeeLoadingPoint, has, isGlobal, OPS, writeEntity, type Principal } from '../auth/principal';
 import { entityById, pdfEntity, usdOf } from './companies';
 import type { AckPdfData, InboundCheckin, InboundHandler } from '../integrations/ports';
 import { NotifyService } from './notify.service';
 import { RefService } from './ref.service';
 import { loadShipment, loadShipments, map, publicShipment, saveShipment, shipmentIdOfLeg, toIso, type ShipmentRow } from './store';
 
-const OFFICE: Role[] = ['planner', 'operations', 'fleet', 'truck_planner', 'accounts'];
 const ACTIVE = (l: Leg) => !['Acknowledged', 'Cancelled'].includes(l.status);
 
-/** `loadedQty` per PO line (planLineId → cases; omitted = as ordered); `alternatives` = substitutes from the same supplier. */
-export interface ConfirmLoadingInput { truckId: string; driverId: string; loadedQty: Record<string, number>; agreedTransport: number; transportCurrency?: string; documents?: string[]; loadedAt?: string; alternatives?: LoadingAlternative[] }
+/** `loadedQty` per PO line (planLineId → cases; omitted = as ordered); `alternatives` = substitutes from the same supplier.
+ *  docs/12 A-04: no price at hand-over — `agreedTransport` is taken only from users with truck expenses (else ignored). */
+export interface ConfirmLoadingInput { truckId: string; driverId: string; loadedQty: Record<string, number>; agreedTransport?: number | null; transportCurrency?: string; documents?: string[]; loadedAt?: string; alternatives?: LoadingAlternative[] }
 export interface AckInput { receiverName: string; lines: AckLine[]; signature?: string; photos?: string[]; at?: string }
 
 @Injectable()
@@ -34,20 +37,15 @@ export class LogisticsService implements InboundHandler {
     const { bundle } = await this.ref.get();
     return bundle.suppliers.filter((s) => p.loadingPointIds.includes(s.id)).map((s) => s.checkpointId);
   }
+  /** Roles document §7 (shared rule @btw/api/access): directors and the truck follow-up officer every shipment; Kabonge
+   *  his pairs; loaders what they loaded; receivers what comes to (or leaves) their warehouses; drivers their trips. */
   private async canSeeShipment(p: Principal, sh: ShipmentRow) {
     if (!canSeeEntity(p, sh.entityId)) return false; // company scope first (X-Entity-Id / allowed companies)
-    if (isGlobal(p)) return true;
-    if (has(p, ...OFFICE) && canSeeEntity(p, sh.entityId)) return true;
-    if (has(p, 'loader') && p.loadingPointIds.includes(sh.loadingPointId)) return true;
-    if (has(p, 'receiver', 'sales')) {
-      if (p.warehouseIds.includes(sh.warehouseId)) return true;
-      const cps = await this.warehouseCheckpoints(p);
-      if (sh.legs.some((l) => cps.includes(l.toId) || cps.includes(l.fromId))) return true;
-    }
-    if (has(p, 'driver') && p.driverId && sh.legs.some((l) => l.driverId === p.driverId)) return true;
-    return false;
+    return seesShipment(p, sh, { loadingPointId: sh.loadingPointId, myWarehouseCps: await this.warehouseCheckpoints(p) });
   }
-  private async derive(sh: ShipmentRow) {
+  private async tripCtx(p: Principal) { return { myLoadingCps: await this.loadingCheckpoints(p), myWarehouseCps: await this.warehouseCheckpoints(p) }; }
+  private assertTrip(p: Principal | null, leg: Leg) { if (p && !canUpdateTrip(p, leg)) forbidden(has(p, 'driver') ? 'Not your trip' : 'Your role can view trips but not change them'); }
+  async derive(sh: ShipmentRow) {
     const { bundle } = await this.ref.get();
     const stops = (id: string) => bundle.routes.find((r) => r.id === id)?.stops ?? [];
     sh.status = deriveShipmentStatus(sh, bundle.warehouses.find((w) => w.id === sh.warehouseId)?.checkpointId, stops);
@@ -62,9 +60,12 @@ export class LogisticsService implements InboundHandler {
 
   // ---- Waiting list (§17.4) ------------------------------------------------------
   async waiting(p: Principal, loadingPointId?: string) {
+    if (!hasFeature(p.roles, 'loading')) return [];
     const rows = (await db.select().from(t.waitingEntries).orderBy(asc(t.waitingEntries.position))).map(map.waiting);
-    return rows.filter((w) => (!loadingPointId || w.loadingPointId === loadingPointId) && canSeeEntity(p, w.entityId) && canSeeLoadingPoint(p, w.loadingPointId));
+    return rows.filter((w) => (!loadingPointId || w.loadingPointId === loadingPointId) && canSeeEntity(p, w.entityId) && this.seesLp(p, w.loadingPointId, w.entityId));
   }
+  /** Queues / loadings this user sees: their loading points, and a planner's pairs (Kabonge: not Nihna–GBI). */
+  private seesLp(p: Principal, lp: string, entityId: string) { return canSeeLoadingPoint(p, lp) && (!has(p, 'planner') || isGlobal(p) || seesPair(p, entityId, lp)); }
   /** A queued truck loads for one company: the one named, the active one, or (several in scope) the company that
    *  last ordered from this loading point. */
   private async waitingEntity(p: Principal, loadingPointId: string, entityId?: string) {
@@ -73,13 +74,13 @@ export class LogisticsService implements InboundHandler {
     return writeEntity(p, last?.entityId);
   }
   private assertLp(p: Principal, lp: string) { if (!canSeeLoadingPoint(p, lp)) forbidden('Not your loading point'); }
-  /** Changing a loading queue: loading-point staff of that point, truck planners / fleet / operations / planners, or directors/admin. */
+  /** Changing a loading queue (§7 Loading): the truck follow-up officer, the planner of that point's pairs, its loaders.
+   *  Directors view queues. */
   private assertLpWrite(p: Principal, lp: string) {
     this.assertLp(p, lp);
-    if (!isGlobal(p) && !has(p, 'loader', ...OPS)) forbidden('Only loading-point and truck planning staff change the waiting list');
+    if (!canEditQueue(p, lp)) forbidden('Only the truck follow-up officer, the planner of that loading point and its loaders change the waiting list');
   }
   private async lpCode(lp: string) { return (await this.ref.get()).bundle.suppliers.find((x) => x.id === lp)?.code ?? lp; }
-  private assertOperator(p: Principal | null) { if (p && !canOperate(p)) forbidden('Your role can view trips but not change them'); }
   private async renumber(tx: Tx, lp: string) {
     const q = (await tx.select().from(t.waitingEntries).where(and(eq(t.waitingEntries.loadingPointId, lp), eq(t.waitingEntries.status, 'Waiting')))).sort((a, b) => a.position - b.position);
     for (const [k, w] of q.entries()) if (w.position !== k + 1) await tx.update(t.waitingEntries).set({ position: k + 1 }).where(eq(t.waitingEntries.id, w.id));
@@ -133,7 +134,7 @@ export class LogisticsService implements InboundHandler {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${'queue:' + e.loadingPointId}))`);
       await tx.delete(t.waitingEntries).where(eq(t.waitingEntries.id, entryId));
       await this.renumber(tx, e.loadingPointId);
-      await tx.insert(t.auditLog).values({ userId: p.id, channel: p.channel, method: 'DELETE', path: `/waiting/${entryId}`, status: 200, entityId: e.entityId, detail: { loadingPointId: e.loadingPointId, truckId: e.truckId, position: e.position, reason: why || null } });
+      await tx.insert(t.auditLog).values({ userId: p.id, channel: p.channel, method: 'DELETE', path: `/waiting/${entryId}`, status: 200, entityId: e.entityId, feature: 'waiting', recordType: 'waiting', recordId: entryId, summary: why || 'removed from the queue', detail: { loadingPointId: e.loadingPointId, truckId: e.truckId, position: e.position, reason: why || null } });
       await this.notify.notify(tx, 'Truck removed from the queue', `${await this.lpCode(e.loadingPointId)}: ${await this.ref.truckReg(e.truckId)} removed by ${p.name}${why ? ` — ${why}` : ''}`, `#/loading?lp=${e.loadingPointId}`, ['loader'], { entityId: e.entityId });
       return true;
     });
@@ -168,8 +169,11 @@ export class LogisticsService implements InboundHandler {
 
   // ---- Loading (LD-*) -------------------------------------------------------------
   async loadings(p: Principal, loadingPointId?: string) {
+    if (!hasFeature(p.roles, 'loading')) return [];
     const rows = (await db.select().from(t.loadings)).map(map.loading);
-    const mine = rows.filter((l) => (!loadingPointId || l.loadingPointId === loadingPointId) && canSeeEntity(p, l.entityId) && canSeeLoadingPoint(p, l.loadingPointId));
+    const mine0 = rows.filter((l) => (!loadingPointId || l.loadingPointId === loadingPointId) && canSeeEntity(p, l.entityId) && this.seesLp(p, l.loadingPointId, l.entityId));
+    // A-04: loaders see quantities and documents, never the agreed transport price
+    const mine = seesPrices(p) ? mine0 : mine0.map((l) => loadingWithoutPrice(l) as Loading);
     if (!mine.length) return mine;
     // Pending trucks: the ref a deviation would create ("This will create BTW-PO-…-rev001"); every truck: its PO ref
     // (truck planners see loadings but not purchase orders).
@@ -187,11 +191,18 @@ export class LogisticsService implements InboundHandler {
 
   /** LD-01..04 + §17.5: record the loading → shipment with its first leg, agreed transport cost, queue entry closed. */
   async confirmLoading(p: Principal, id: string, input: ConfirmLoadingInput) {
-    if (!isGlobal(p) && !has(p, 'loader', ...OPS)) forbidden('Only loading-point staff record loadings');
+    if (!has(p, 'loader', 'truck_planner')) forbidden('Only the loaders of a loading point record its loadings (directors and planners view them)');
+    { // scope before anything else (no truck / driver oracle for someone else's loading point)
+      const [x] = await db.select({ lp: t.loadings.loadingPointId, entityId: t.loadings.entityId }).from(t.loadings).where(eq(t.loadings.id, id));
+      if (!x) return notFound('Loading');
+      assertEntity(p, x.entityId);
+      if (!canRecordLoading(p, x.lp)) forbidden('Not your loading point — loadings are recorded by the loaders of that point');
+    }
     const { bundle } = await this.ref.get();
-    const truck = bundle.trucks.find((x) => x.id === input.truckId) ?? notFound('Truck');
+    const truck = bundle.trucks.find((x) => x.id === input?.truckId) ?? notFound('Truck');
     if (!input.driverId) fail('Pick the driver');
-    if (!(Number(input.agreedTransport) > 0)) fail('Enter the agreed transport price (§17.5)');
+    // A-04: the agreed price is recorded after loading by the truck follow-up officer; a loader's value is ignored
+    const price = hasFeature(p.roles, 'truck-expenses') && Number(input.agreedTransport) > 0 ? Number(input.agreedTransport) : null;
     const result = await db.transaction(async (tx) => {
       // One loading at a time per loading point: a revision repoints every truck of the PO, so trucks of one order serialise.
       const [peek] = await tx.select({ lp: t.loadings.loadingPointId }).from(t.loadings).where(eq(t.loadings.id, id));
@@ -202,6 +213,7 @@ export class LogisticsService implements InboundHandler {
       const ld = map.loading(row);
       assertEntity(p, ld.entityId);
       this.assertLp(p, ld.loadingPointId);
+      if (!canRecordLoading(p, ld.loadingPointId)) forbidden('Not your loading point — loadings are recorded by the loaders of that point');
       if (ld.status === 'Loaded') fail('This truck is already loaded', 409, 'state');
       const [po0] = await tx.select().from(t.pos).where(eq(t.pos.id, ld.poId)).for('update');
       if (po0.entityId !== ld.entityId) fail('This loading belongs to another company', 409, 'entity-mismatch');
@@ -242,8 +254,8 @@ export class LogisticsService implements InboundHandler {
         revised = { from: po, to: next, summary };
         po = next; plan = r.plan;
       }
-      ld.truckId = input.truckId; ld.driverId = input.driverId; ld.agreedTransport = Number(input.agreedTransport); ld.loadedAt = iso(at); ld.status = 'Loaded';
-      ld.transportCurrency = (input.transportCurrency ?? 'USD') as Loading['transportCurrency'];
+      ld.truckId = input.truckId; ld.driverId = input.driverId; ld.agreedTransport = price; ld.loadedAt = iso(at); ld.status = 'Loaded';
+      ld.transportCurrency = (price !== null && input.transportCurrency ? input.transportCurrency : ld.transportCurrency ?? 'USD') as Loading['transportCurrency'];
       ld.documents = (input.documents ?? []).map((n) => ({ id: n.startsWith('file-') ? n : uid('doc'), kind: 'delivery-note' as const, name: n }));
       await tx.update(t.loadings).set({ poId: ld.poId, truckId: ld.truckId, driverId: ld.driverId, agreedTransport: ld.agreedTransport, transportCurrency: ld.transportCurrency, loadedAt: ld.loadedAt, status: 'Loaded', lines: ld.lines, documents: ld.documents }).where(eq(t.loadings.id, id));
       if (revised) {
@@ -262,9 +274,10 @@ export class LogisticsService implements InboundHandler {
       leg.status = 'Loaded';
       await this.derive(sh);
       await saveShipment(tx, sh);
-      await tx.insert(t.tripCosts).values({ id: uid('cost'), entityId: sh.entityId, shipmentId: sh.id, legId: leg.id, kind: 'Transport', amount: ld.agreedTransport, currency: ld.transportCurrency, docRef: `Agreed at loading ${ld.loadedAt.slice(0, 10)}`, ...(await usdOf(tx, ld.agreedTransport, ld.transportCurrency, at)) });
+      if (price !== null) await tx.insert(t.tripCosts).values({ id: uid('cost'), entityId: sh.entityId, shipmentId: sh.id, legId: leg.id, kind: 'Transport', amount: price, currency: ld.transportCurrency, docRef: `Agreed at loading ${ld.loadedAt.slice(0, 10)}`, ...(await usdOf(tx, price, ld.transportCurrency, at)) });
       await tx.update(t.waitingEntries).set({ status: 'Loaded' }).where(and(eq(t.waitingEntries.truckId, input.truckId), inArray(t.waitingEntries.status, ['Waiting', 'Assigned'])));
-      await this.notify.notify(tx, 'Truck loaded', `${truck.reg} · ${total.toLocaleString('en-US')} cases · ${sh.ref}`, `#/shipments/${sh.id}`, ['operations', 'fleet', 'director'], { entityId: sh.entityId });
+      await this.notify.notify(tx, 'Truck loaded', `${truck.reg} · ${total.toLocaleString('en-US')} cases · ${sh.ref}${price === null ? ' · agreed price not recorded yet' : ''}`, `#/shipments/${sh.id}`, ['operations', 'fleet', 'director', 'truck_planner'], { entityId: sh.entityId });
+      auditNote({ recordType: 'loading', recordId: id, summary: `${truck.reg} loaded · ${sh.ref}`, entityId: sh.entityId });
       return sh;
     });
     const driver = bundle.drivers.find((d) => d.id === input.driverId);
@@ -277,7 +290,7 @@ export class LogisticsService implements InboundHandler {
     return publicShipment(result);
   }
 
-  private newLeg(sh: ShipmentRow, routeId: string, stops: { checkpointId: string; plannedHours: number; plannedDwellHours: number }[], truckId: string, driverId: string, departAt: number, lines?: Leg['lines'], prevAckLines?: AckLine[]): Leg {
+  newLeg(sh: ShipmentRow, routeId: string, stops: { checkpointId: string; plannedHours: number; plannedDwellHours: number }[], truckId: string, driverId: string, departAt: number, lines?: Leg['lines'], prevAckLines?: AckLine[]): Leg {
     const prev = sh.legs.at(-1);
     const leg: Leg = {
       id: uid('leg'), seq: sh.legs.length + 1, routeId, fromId: stops[0].checkpointId, toId: stops.at(-1)!.checkpointId, truckId, driverId, status: 'Planned',
@@ -308,9 +321,10 @@ export class LogisticsService implements InboundHandler {
   async pass(p: Principal | null, legId: string, checkpointId: string, kind: 'arrived' | 'departed', source: CheckpointPass['source'] = 'driver', at = Date.now()) {
     return db.transaction(async (tx) => {
       const { sh, leg } = await this.shipmentForLeg(tx, p, legId);
-      this.assertOperator(p);
-      if (p && has(p, 'driver') && !isGlobal(p) && !has(p, ...OPS) && leg.driverId !== p.driverId) forbidden('Not your trip');
       if (kind !== 'arrived' && kind !== 'departed') fail('kind must be "arrived" or "departed"', 400, 'bad-request');
+      // dispatch (leaving the first checkpoint) is also the loader's / re-export planner's; every other check-in is follow-up's or the driver's
+      const dispatching = kind === 'departed' && leg.passes[0]?.checkpointId === checkpointId && ['Planned', 'Loaded'].includes(leg.status);
+      if (p && !(dispatching ? canDispatch(p, leg, await this.tripCtx(p)) : canUpdateTrip(p, leg))) forbidden(has(p, 'driver') ? 'Not your trip' : 'Your role can view trips but not change them');
       // Offline check-ins carry the phone's time; allow small clock skew, never the future (it would fake punctuality).
       if (!Number.isFinite(at)) fail('Invalid check-in time', 400, 'bad-request');
       if (at > Date.now() + 10 * 60_000) fail("Check-in time is in the future — check the phone's clock");
@@ -333,8 +347,8 @@ export class LogisticsService implements InboundHandler {
   async undoPass(p: Principal, legId: string, checkpointId: string, kind: 'arrived' | 'departed') {
     return db.transaction(async (tx) => {
       const { sh, leg } = await this.shipmentForLeg(tx, p, legId);
-      const office = isGlobal(p) || has(p, ...OPS);
-      if (!office && leg.driverId !== p.driverId) forbidden('Not your trip');
+      const office = has(p, ...TRIP_ROLES);
+      if (!office && !(has(p, 'driver') && leg.driverId === p.driverId)) forbidden(has(p, 'driver') ? 'Not your trip' : 'Your role can view trips but not change them');
       const { bundle } = await this.ref.get();
       const before = leg.passes.find((x) => x.checkpointId === checkpointId);
       const at = kind === 'arrived' ? before?.arrivedAt : before?.departedAt;
@@ -343,7 +357,7 @@ export class LogisticsService implements InboundHandler {
       if (!office && at && Date.now() - Date.parse(at) > 10 * 60_000) fail('Too late to undo from the app — call the fleet office to correct it');
       undoPass(leg, checkpointId, kind, (id) => bundle.checkpoints.find((c) => c.id === id)?.kind ?? 'town');
       await this.derive(sh); await saveShipment(tx, sh);
-      await tx.insert(t.auditLog).values({ userId: p.id, channel: p.channel, method: 'UNDO', path: `/legs/${legId}/passes`, status: 200, detail: { checkpointId, kind, was: at ?? null } });
+      await tx.insert(t.auditLog).values({ userId: p.id, channel: p.channel, method: 'UNDO', path: `/legs/${legId}/passes`, status: 200, feature: 'legs', recordType: 'leg', recordId: legId, entityId: sh.entityId, summary: `${kind} undone`, before: { [kind]: at ?? null }, after: { [kind]: null }, detail: { checkpointId, kind, was: at ?? null } });
       await this.notify.notify(tx, 'Check-in corrected', `${await this.ref.truckReg(leg.truckId)}: ${kind} at ${bundle.checkpoints.find((c) => c.id === checkpointId)?.name} undone by ${p.name}`, `#/shipments/${sh.id}`, ['fleet', 'operations'], { entityId: sh.entityId });
       return leg;
     });
@@ -351,6 +365,7 @@ export class LogisticsService implements InboundHandler {
 
   async dispatch(p: Principal, legId: string, source: CheckpointPass['source'] = 'office') {
     const { leg } = await db.transaction((tx) => this.shipmentForLeg(tx, p, legId));
+    if (!canDispatch(p, leg, await this.tripCtx(p))) forbidden('Your role can view this trip but not dispatch it');
     if (!['Planned', 'Loaded'].includes(leg.status)) fail('This leg has already left', 409, 'state');
     return this.pass(p, legId, leg.passes[0].checkpointId, 'departed', source);
   }
@@ -358,8 +373,7 @@ export class LogisticsService implements InboundHandler {
   async issue(p: Principal | null, legId: string, issue: Omit<TruckIssue, 'id'>) {
     return db.transaction(async (tx) => {
       const { sh, leg } = await this.shipmentForLeg(tx, p, legId);
-      this.assertOperator(p);
-      if (p && has(p, 'driver') && !isGlobal(p) && !has(p, ...OPS) && leg.driverId !== p.driverId) forbidden('Not your trip');
+      this.assertTrip(p, leg);
       if (typeof issue?.reason !== 'string' || !issue.reason.trim()) fail('Say what the problem is');
       leg.issues.push({ id: uid('iss'), at: issue.at ?? iso(), checkpointId: issue.checkpointId, place: issue.place ?? '', reason: issue.reason, newDueDate: issue.newDueDate, fixedAt: issue.fixedAt });
       await this.derive(sh); await saveShipment(tx, sh);
@@ -370,8 +384,7 @@ export class LogisticsService implements InboundHandler {
   async fixIssue(p: Principal | null, legId: string, issueId: string) {
     return db.transaction(async (tx) => {
       const { sh, leg } = await this.shipmentForLeg(tx, p, legId);
-      this.assertOperator(p);
-      if (p && has(p, 'driver') && !isGlobal(p) && !has(p, ...OPS) && leg.driverId !== p.driverId) forbidden('Not your trip');
+      this.assertTrip(p, leg);
       const i = leg.issues.find((x) => x.id === issueId) ?? notFound('Issue');
       i.fixedAt = iso();
       await this.derive(sh); await saveShipment(tx, sh);
@@ -384,7 +397,8 @@ export class LogisticsService implements InboundHandler {
     const res = await db.transaction(async (tx) => {
       const { sh, leg } = await this.shipmentForLeg(tx, p, legId);
       const cps = await this.warehouseCheckpoints(p);
-      if (!isGlobal(p) && !has(p, 'operations', 'fleet', 'truck_planner', 'planner') && !(has(p, 'receiver') && cps.includes(leg.toId))) forbidden('This truck is not coming to your warehouse');
+      // §7 Delivery acknowledgement: the receiver of that warehouse (Asie, Yonas); directors and Kabonge view
+      if (!canAcknowledge(p, leg, cps)) forbidden('This truck is not coming to your warehouse');
       if (leg.status === 'Acknowledged') fail('Already acknowledged', 409, 'state');
       if (typeof input?.receiverName !== 'string' || !input.receiverName.trim()) fail('Enter the name of the person signing');
       if (!Array.isArray(input.lines) || !input.lines.length) fail('Count at least one line');
@@ -392,6 +406,9 @@ export class LogisticsService implements InboundHandler {
       for (const l of input.lines) {
         if (!onTruck.has(l.productId)) fail(`${l.productId} is not on this truck`);
         if (![l.received, l.damaged].every((n) => Number.isInteger(n) && n >= 0) || l.damaged > l.received) fail('Received and damaged must be whole numbers ≥ 0, and damaged cannot exceed received');
+        // docs/14 B-08: why cases were short or damaged — one of the list (or none)
+        if (!validAckReason(l.reason)) fail(`Pick a reason from the list: ${ACK_REASONS.join(', ')}`);
+        if (!l.reason) delete l.reason;
         l.expected = onTruck.get(l.productId)!; // expected comes from the loading record, not the client
       }
       if (input.signature !== undefined && input.signature !== null && input.signature !== '' && !isUsableImage(input.signature)) fail('The signature image could not be read — sign again');
@@ -412,6 +429,7 @@ export class LogisticsService implements InboundHandler {
         if (l.damaged) await tx.insert(t.stockMoves).values({ entityId: sh.entityId, warehouseId: ack.warehouseId, productId: l.productId, kind: 'damaged', qty: l.damaged, at: ack.at, ref: sh.ref });
       }
       await this.derive(sh); await saveShipment(tx, sh);
+      auditNote({ recordType: 'ack', recordId: ack.id, summary: `${sh.ref} leg ${leg.seq} received at ${wh?.name ?? ''}`, entityId: sh.entityId });
       if (hasDiscrepancy) await this.notify.notify(tx, 'Delivery discrepancy', `${sh.ref} leg ${leg.seq}: ${input.lines.map((l) => `${l.expected - l.received + l.damaged} cases short/damaged`).join(', ')}`, `#/shipments/${sh.id}`, ['director', 'operations', 'accounts'], { email: true, entityId: sh.entityId });
       else await this.notify.notify(tx, 'Delivery acknowledged', `${sh.ref} leg ${leg.seq} received in full at ${wh?.name ?? ''}`, `#/shipments/${sh.id}`, ['operations', 'fleet'], { entityId: sh.entityId });
       return { ...ack, signature: ack.signature ?? undefined, isFinal };
@@ -427,7 +445,7 @@ export class LogisticsService implements InboundHandler {
   /** Doc 08 §2: move goods on from the warehouse where `fromShipmentId` was received, as a NEW shipment.
    *  Stock leaves that warehouse now (transferOut) and posts into the next one on acknowledgement (transferIn). */
   async sendOn(p: Principal, fromShipmentId: string, input: { routeId: string; truckId: string; driverId: string; lines?: Leg['lines'] }) {
-    if (!isGlobal(p) && !has(p, ...OPS, 'receiver', 'loader')) forbidden();
+    if (!has(p, ...TRIP_ROLES, 'reexport')) forbidden('Only the truck follow-up officer (or the re-export planner of that warehouse) sends goods on');
     if (typeof input?.routeId !== 'string' || typeof input.truckId !== 'string' || typeof input.driverId !== 'string') fail('Pick the route, truck and driver');
     const { bundle } = await this.ref.get();
     if (!bundle.trucks.some((x) => x.id === input.truckId)) fail('Unknown truck');
@@ -440,7 +458,7 @@ export class LogisticsService implements InboundHandler {
       if (prev.status !== 'Acknowledged') fail('Acknowledge the delivery before sending the goods on', 409, 'state');
       const fromWh = bundle.warehouses.find((w) => w.checkpointId === prev.toId);
       if (!fromWh) fail('Goods can only be sent on from a warehouse');
-      if (has(p, 'receiver') && !isGlobal(p) && !has(p, ...OPS) && !p.warehouseIds.includes(fromWh!.id)) forbidden('Not your warehouse');
+      if (!canSendOn(p, fromWh!.id)) forbidden('Not your warehouse');
       const stops = await this.ref.stopsOf(input.routeId);
       if (!stops.length) notFound('Route');
       if (stops[0].checkpointId !== prev.toId) fail('The onward route must start at the warehouse where the goods were received');
@@ -470,6 +488,7 @@ export class LogisticsService implements InboundHandler {
       const leg = this.newLeg(sh, input.routeId, stops, input.truckId, input.driverId, at + 2 * H, lines);
       leg.status = 'Loaded';
       await this.derive(sh); await saveShipment(tx, sh);
+      auditNote({ recordType: 'shipment', recordId: sh.id, summary: `${sh.ref} from ${fromWh!.name} to ${toWh!.name}`, entityId: sh.entityId });
       await this.notify.notify(tx, 'Goods sent on', `${sh.ref}: ${await this.ref.truckReg(input.truckId)} from ${fromWh!.name} to ${toWh!.name} (after ${from.ref})`, `#/shipments/${sh.id}`, ['operations', 'fleet', 'loader', 'receiver'], { entityId: sh.entityId });
       return sh;
     });
@@ -491,7 +510,7 @@ export class LogisticsService implements InboundHandler {
   }
 
   async splitAt(p: Principal, legId: string, checkpointId: string) {
-    if (!isGlobal(p) && !has(p, ...OPS)) forbidden();
+    if (!canSplitLeg(p)) forbidden('Only the truck follow-up officer sets a transfer point');
     return db.transaction(async (tx) => {
       const { sh, leg } = await this.shipmentForLeg(tx, p, legId);
       const k = leg.passes.findIndex((x) => x.checkpointId === checkpointId);
@@ -504,14 +523,18 @@ export class LogisticsService implements InboundHandler {
     });
   }
 
+  /** §7 Delivery acknowledgement: directors and Kabonge view, receivers their own; the truck follow-up officer, loaders and drivers see none. */
+  private seesAcks(p: Principal) { return isGlobal(p) || has(p, 'planner', 'receiver', 'fleet', 'operations', 'accounts', 'sales'); }
   async acks(p: Principal, shipmentId: string) {
     await this.get(p, shipmentId);
+    if (!this.seesAcks(p)) return [];
     return (await db.select().from(t.acks).where(eq(t.acks.shipmentId, shipmentId))).map(map.ack);
   }
   async ack(p: Principal, id: string) {
     const [a] = await db.select().from(t.acks).where(eq(t.acks.id, id));
     if (!a) return notFound('Acknowledgement');
     await this.get(p, a.shipmentId);
+    if (!this.seesAcks(p)) forbidden('Delivery acknowledgements are for the receivers and the office');
     return map.ack(a);
   }
 
@@ -539,7 +562,7 @@ export class LogisticsService implements InboundHandler {
   // ---- Positions → geofence (TR-01, TR-05, TR-06) -----------------------------------
   async positions(p: Principal, items: { legId?: string; truckId?: string; lat: number; lng: number; at?: string; accuracyM?: number; speedKmh?: number; source?: string }[]) {
     if (!Array.isArray(items)) fail('Send a list of positions', 400, 'bad-request');
-    this.assertOperator(p);
+    if (!has(p, ...TRIP_ROLES, 'driver')) forbidden('Your role can view trips but not change them');
     if (items.length > 500) fail('At most 500 positions per request', 400, 'bad-request');
     for (const it of items) if (!it || !Number.isFinite(it.lat) || !Number.isFinite(it.lng) || Math.abs(it.lat) > 90 || Math.abs(it.lng) > 180) fail('Each position needs a valid lat (−90…90) and lng (−180…180)', 400, 'bad-request');
     const events: { legId: string; checkpointId: string; kind: 'arrived' | 'departed' }[] = [];
@@ -550,7 +573,7 @@ export class LogisticsService implements InboundHandler {
       const point = sql`ST_SetSRID(ST_MakePoint(${it.lng}, ${it.lat}), 4326)::geography`;
       const evs = await db.transaction(async (tx) => {
         const { sh, leg } = await this.shipmentForLeg(tx, p, legId);
-        if (has(p, 'driver') && !has(p, ...OPS) && !isGlobal(p) && leg.driverId !== p.driverId) forbidden('Not your trip');
+        this.assertTrip(p, leg);
         await tx.insert(t.positions).values({ legId, truckId: leg.truckId, lat: it.lat, lng: it.lng, geog: point as unknown as string, at: iso(at), source: it.source ?? 'app', accuracyM: it.accuracyM ?? null, speedKmh: it.speedKmh ?? null });
         if (!leg.lastPing || Date.parse(leg.lastPing.at) <= at) leg.lastPing = { lat: it.lat, lng: it.lng, at: iso(at) };
         const out: typeof events = [];
@@ -663,10 +686,11 @@ export class LogisticsService implements InboundHandler {
   }
   async giverWork(p: Principal) {
     const { bundle } = await this.ref.get();
-    const lps = bundle.suppliers.filter((s) => p.loadingPointIds.includes(s.id) || isGlobal(p));
-    const lpCps = lps.map((s) => s.checkpointId).concat(await this.warehouseCheckpoints(p));
-    const waiting = await this.waiting(p);
-    const pending = (await this.loadings(p)).filter((l) => l.status === 'Pending');
+    // the loading points on the profile (Testfie: GBI Mombasa only, although she follows every queue)
+    const lps = bundle.suppliers.filter((s) => p.loadingPointIds.includes(s.id));
+    const lpCps = lps.map((s) => s.checkpointId).concat(has(p, 'reexport') ? await this.warehouseCheckpoints(p) : []);
+    const waiting = (await this.waiting(p)).filter((w) => p.loadingPointIds.includes(w.loadingPointId));
+    const pending = (await this.loadings(p)).filter((l) => l.status === 'Pending' && p.loadingPointIds.includes(l.loadingPointId));
     const pos = new Map((await db.select().from(t.pos)).map((x) => [x.id, x]));
     const all = await loadShipments(db);
     const handover = [];

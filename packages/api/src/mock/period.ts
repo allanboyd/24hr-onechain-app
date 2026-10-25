@@ -14,7 +14,7 @@ const ymd = (t: number) => iso(t).slice(0, 10);
 const up100 = (x: number) => Math.ceil(x / 100) * 100;
 const down100 = (x: number) => Math.floor(x / 100) * 100;
 
-const PLANNER: Record<ID, ID> = { 'e-btw': 'u-kabonge', 'e-nud': 'u-nud-plan', 'e-kivu': 'u-kvd-plan' };
+const PLANNER: Record<ID, ID> = { 'e-btw': 'u-kabonge', 'e-nud': 'u-kabonge', 'e-kivu': 'u-kabonge' }; // Kabonge plans all three (docs/12)
 /** Planned = ordered × factor (cycled per line): > ~1.3 reads "Behind plan" mid-period, ~1.1 "On track". */
 const FACTORS = [1.5, 1.12, 1.65, 1.15, 1.1];
 /** The line (supplier|SKU|destination) planned below what was ordered, and by how many cases. */

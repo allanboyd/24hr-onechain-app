@@ -17,8 +17,11 @@
   const w = watch(async () => { list = await users.list(); });
   let tab = $state<'all' | 'field' | 'office' | 'inactive'>('all');
   let q = $state('');
-  const isFieldUser = (u: AdminUser) => u.roles.some((x) => ['loader', 'driver', 'receiver'].includes(x));
-  const isField = (u: AdminUser) => u.roles.some((x) => ['loader', 'driver', 'receiver'].includes(x));
+  const FIELDISH = ['loader', 'driver', 'receiver', 'reexport'];
+  const isFieldUser = (u: AdminUser) => u.roles.some((x) => FIELDISH.includes(x));
+  const isField = isFieldUser;
+  const code = (id: string) => r.entities.find((e) => e.id === id)?.shortName ?? r.suppliers.find((s) => s.id === id)?.code ?? id;
+  const pairKey = (e: string, s: string) => `${e}|${s}`;
   const rows = $derived((list ?? []).filter((u) =>
     (tab === 'all' ? u.active : tab === 'field' ? u.active && isField(u) : tab === 'office' ? u.active && !isField(u) : !u.active) &&
     (!q || `${u.name} ${u.phone} ${u.roles.join(' ')}`.toLowerCase().includes(q.toLowerCase()))));
@@ -28,7 +31,9 @@
     const parts = [
       ...u.loadingPointIds.map((id) => r.suppliers.find((s) => s.id === id)?.code),
       ...u.warehouseIds.map((id) => r.warehouses.find((w) => w.id === id)?.name),
-      ...(u.entityIds.length === r.entities.length ? ['All entities'] : u.entityIds.map((id) => r.entities.find((e) => e.id === id)?.code)),
+      ...(u.entityIds.length === r.entities.length ? ['All companies'] : u.entityIds.map((id) => r.entities.find((e) => e.id === id)?.code)),
+      ...(u.pairs ?? []).map((p) => `${code(p.entityId)}–${code(p.supplierId)}`),
+      ...((u.routeIds ?? []).length ? [`${u.routeIds!.length} route${u.routeIds!.length > 1 ? 's' : ''}`] : []),
     ].filter(Boolean);
     return parts.join(' · ') || '—';
   }
@@ -36,7 +41,7 @@
   // ---- editor ----
   let dlg = $state<HTMLDialogElement>();
   let editing = $state<AdminUser | null>(null);
-  let form = $state<UserInput>({ name: '', phone: '', roles: [], entityIds: [], loadingPointIds: [], warehouseIds: [] });
+  let form = $state<UserInput>({ name: '', phone: '', roles: [], entityIds: [], loadingPointIds: [], warehouseIds: [], pairs: [], routeIds: [] });
   let formError = $state('');
   let busy = $state(false);
   let pinShown = $state('');
@@ -45,11 +50,13 @@
   function open(u: AdminUser | null) {
     editing = u; formError = ''; pinShown = ''; devs = null;
     if (u) loadDevices(u.id);
-    form = u ? { id: u.id, name: u.name, phone: u.phone, roles: [...u.roles], entityIds: [...u.entityIds], loadingPointIds: [...u.loadingPointIds], warehouseIds: [...u.warehouseIds] }
-      : { name: '', phone: '+254', roles: ['driver'], entityIds: [], loadingPointIds: [], warehouseIds: [] };
+    form = u ? { id: u.id, name: u.name, phone: u.phone, roles: [...u.roles], entityIds: [...u.entityIds], loadingPointIds: [...u.loadingPointIds], warehouseIds: [...u.warehouseIds], pairs: [...(u.pairs ?? [])], routeIds: [...(u.routeIds ?? [])] }
+      : { name: '', phone: '+254', roles: ['driver'], entityIds: [], loadingPointIds: [], warehouseIds: [], pairs: [], routeIds: [] };
     dlg?.showModal();
   }
   const toggle = (arr: string[], v: string) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+  const hasPair = (e: string, s: string) => form.pairs.some((p) => pairKey(p.entityId, p.supplierId) === pairKey(e, s));
+  const togglePair = (e: string, s: string) => (form.pairs = hasPair(e, s) ? form.pairs.filter((p) => pairKey(p.entityId, p.supplierId) !== pairKey(e, s)) : [...form.pairs, { entityId: e, supplierId: s }]);
   async function save(e: Event) {
     e.preventDefault(); busy = true;
     formError = await attempt(async () => { await users.save($state.snapshot(form) as UserInput); });
@@ -75,7 +82,7 @@
     if (msg) { formError = msg; return; }
     say('Device signed out. Its offline data is wiped on next contact.'); loadDevices(editing.id);
   }
-  const fieldPicked = $derived(form.roles.some((x) => ['loader', 'driver', 'receiver'].includes(x)));
+  const fieldPicked = $derived(form.roles.some((x) => FIELDISH.includes(x)));
 </script>
 
 <div class="page-head">
@@ -99,19 +106,20 @@
   <ErrorState error={w.error} onretry={w.retry} compact />
   <div class="card flush table-wrap">
     <table class="table">
-      <thead><tr><th>Name</th><th>Phone</th><th>Roles</th><th>Scope</th><th>Field sign-in</th><th>Status</th></tr></thead>
+      <thead><tr><th>Name</th><th>Phone</th><th>Roles</th><th>Scope</th><th>Field sign-in</th><th>Last sign-in</th><th>Status</th></tr></thead>
       <tbody>
-        {#if !list}{#each Array(5) as _}<tr><td colspan="6"><div class="skeleton"></div></td></tr>{/each}{/if}
+        {#if !list}{#each Array(5) as _}<tr><td colspan="7"><div class="skeleton"></div></td></tr>{/each}{/if}
         {#each rows as u (u.id)}
           <tr class="clickable" onclick={() => open(u)}>
             <td><strong>{u.name}</strong>{#if u.id === user.id}<span class="caption"> · you</span>{/if}</td>
             <td class="mono small">{u.phone}</td>
-            <td><div class="row" style="gap:4px">{#each u.roles as role}<Badge tone={['loader', 'driver', 'receiver'].includes(role) ? 'accent' : 'neutral'}>{roleLabel(role)}</Badge>{/each}</div></td>
+            <td><div class="row" style="gap:4px">{#each u.roles as role}<Badge tone={FIELDISH.includes(role) ? 'accent' : 'neutral'}>{roleLabel(role)}</Badge>{/each}</div></td>
             <td class="small">{scopeText(u)}</td>
             <td class="small">{#if isFieldUser(u)}{#if u.hasPin}<span class="row" style="gap:4px"><Smartphone size={14} />PIN set</span>{:else}<Badge tone="warning">No PIN yet</Badge>{/if}{:else}<span class="subtle">Web only</span>{/if}</td>
+            <td class="small">{#if u.lastLoginAt}<span title={new Date(u.lastLoginAt).toLocaleString('en-GB')}>{ago(u.lastLoginAt)}</span>{:else}<span class="subtle">Never</span>{/if}</td>
             <td>{#if u.active}<Badge tone="success">Active</Badge>{:else}<Badge tone="neutral">Deactivated</Badge>{/if}</td>
           </tr>
-        {:else}{#if list}<tr><td colspan="6" class="empty">No users match.</td></tr>{/if}{/each}
+        {:else}{#if list}<tr><td colspan="7" class="empty">No users match.</td></tr>{/if}{/each}
       </tbody>
     </table>
   </div>
@@ -133,9 +141,20 @@
     </fieldset>
 
     <div class="scopes">
-      <fieldset><legend class="label">Entities</legend>{#each r.entities as e}<label class="check"><input type="checkbox" checked={form.entityIds.includes(e.id)} onchange={() => (form.entityIds = toggle(form.entityIds, e.id))} />{e.code}<span class="caption">{e.name}</span></label>{/each}</fieldset>
+      <fieldset><legend class="label">Companies</legend>{#each r.entities as e}<label class="check"><input type="checkbox" checked={form.entityIds.includes(e.id)} onchange={() => (form.entityIds = toggle(form.entityIds, e.id))} />{e.shortName || e.code}<span class="caption">{e.name}</span></label>{/each}</fieldset>
       <fieldset><legend class="label">Loading points {#if form.roles.includes('loader')}<span class="accent-text">· required</span>{/if}</legend>{#each r.suppliers as s}<label class="check"><input type="checkbox" checked={form.loadingPointIds.includes(s.id)} onchange={() => (form.loadingPointIds = toggle(form.loadingPointIds, s.id))} />{s.code}<span class="caption">{s.city}</span></label>{/each}</fieldset>
       <fieldset><legend class="label">Warehouses {#if form.roles.includes('receiver')}<span class="accent-text">· required</span>{/if}</legend>{#each r.warehouses as wh}<label class="check"><input type="checkbox" checked={form.warehouseIds.includes(wh.id)} onchange={() => (form.warehouseIds = toggle(form.warehouseIds, wh.id))} />{wh.name}</label>{/each}</fieldset>
+    </div>
+    <div class="scopes two">
+      <fieldset><legend class="label">Buyer–supplier pairs <span class="caption">· none ticked = no pair limit</span></legend>
+        <table class="pairs"><thead><tr><th></th>{#each r.suppliers as s}<th class="caption">{s.code}</th>{/each}</tr></thead>
+          <tbody>{#each r.entities.filter((e) => form.entityIds.includes(e.id) || form.roles.includes('director')) as e}<tr><th class="caption">{e.shortName || e.code}</th>{#each r.suppliers as s}<td><input type="checkbox" aria-label="{e.shortName || e.code}–{s.code}" checked={hasPair(e.id, s.id)} onchange={() => togglePair(e.id, s.id)} /></td>{/each}</tr>{:else}<tr><td class="caption" colspan={r.suppliers.length + 1}>Tick a company first.</td></tr>{/each}</tbody>
+        </table>
+        {#if form.pairs.length}<span class="help">Plans, POs, loadings and shipments limited to {form.pairs.map((p) => `${code(p.entityId)}–${code(p.supplierId)}`).join(', ')}.</span>{/if}
+      </fieldset>
+      <fieldset><legend class="label">Routes <span class="caption">· optional; none = every route</span></legend>
+        <div class="routes">{#each r.routes as rt}<label class="check"><input type="checkbox" checked={form.routeIds.includes(rt.id)} onchange={() => (form.routeIds = toggle(form.routeIds, rt.id))} />{rt.name}</label>{/each}</div>
+      </fieldset>
     </div>
     {#if fieldPicked && !editing}<p class="help">After saving, open the user and use “Set new PIN” so they can sign in to the field app with their phone number.</p>{/if}
 
@@ -179,6 +198,12 @@
   .scopes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
   @media (max-width: 640px) { .scopes { grid-template-columns: 1fr; } }
   .check { display: flex; align-items: baseline; gap: 6px; }
+  .scopes.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 640px) { .scopes.two { grid-template-columns: 1fr; } }
+  .pairs { border-collapse: collapse; }
+  .pairs th, .pairs td { padding: 2px 8px; text-align: center; }
+  .pairs tbody th { text-align: left; }
+  .routes { max-height: 180px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
   .check .caption { margin-left: 2px; }
   .device { border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
   .notice { background: var(--info-subtle); color: var(--info); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); margin: 0; }

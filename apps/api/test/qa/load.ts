@@ -9,13 +9,13 @@ export async function loadSuite(env: Env, opts = { drivers: 50, seconds: 60 }) {
   const c = client(env.base);
   const N = opts.drivers;
   section(`Load · setting up ${N} drivers with their own trucks`);
-  const dir = (await c.login('dir')).accessToken; const planner = (await c.login('kabonge')).accessToken;
+  const dir = (await c.login('daniel')).accessToken; const planner = (await c.login('kabonge')).accessToken; const joel = (await c.login('joel')).accessToken; // §7: the KBL loader records and dispatches
   let plan = (await c.req('POST', '/plans', { token: planner, body: { entityId: 'e-btw', supplierId: 's-kbl' } })).body;
   plan = (await c.req('PUT', `/plans/${plan.id}`, { token: planner, body: { title: 'QA load', lines: Array.from({ length: N }, (_, i) => ({ truckNo: i + 1, productId: 'p-a300', qty: 100, price: 1, routeId: 'r-nbo-kgl', deliveredToId: 'rc-asie', exceptionReason: 'QA load test (over plan by design)' })) } })).body;
   const sub = (await c.req('POST', `/plans/${plan.id}/submit`, { token: planner })).body; // approvals off (default config): issued at once
   const po = sub.poId ?? (await c.req('POST', `/plans/${plan.id}/decision`, { token: dir, body: { action: 'approved', signature: SIG } })).body.poId;
   const provider = (await c.req('POST', '/masterdata/providers', { token: dir, body: { name: 'QA Load Haulage' } })).body;
-  const loadings = ((await c.req('GET', '/loadings?loadingPointId=s-kbl', { token: dir })).body as any[]).filter((l) => l.poId === po).sort((a, b) => a.truckNo - b.truckNo);
+  const loadings = ((await c.req('GET', '/loadings?loadingPointId=s-kbl', { token: joel })).body as any[]).filter((l) => l.poId === po).sort((a, b) => a.truckNo - b.truckNo);
   const drivers: { phone: string; legId: string; token?: string }[] = [];
   for (let i = 0; i < N; i++) {
     const phone = `+2547990${String(i).padStart(5, '0')}`;
@@ -23,8 +23,8 @@ export async function loadSuite(env: Env, opts = { drivers: 50, seconds: 60 }) {
     const t = (await c.req('POST', '/masterdata/trucks', { token: dir, body: { providerId: provider.id, reg: `QAL ${String(i).padStart(3, '0')}X`, trailer: `ZQ ${i}`, capacityCases: 2000, defaultDriverId: d.id } })).body;
     await c.req('POST', '/users', { token: dir, body: { name: `QA Driver ${i}`, phone, roles: ['driver'], pin: '1234' } });
     const ld = loadings[i];
-    const sh = (await c.req('POST', `/loadings/${ld.id}/confirm`, { token: dir, body: { truckId: t.id, driverId: d.id, loadedQty: { [ld.lines[0].planLineId]: 100 }, agreedTransport: 500 } })).body;
-    await c.req('POST', `/legs/${sh.legs[0].id}/dispatch`, { token: dir, body: {} });
+    const sh = (await c.req('POST', `/loadings/${ld.id}/confirm`, { token: joel, body: { truckId: t.id, driverId: d.id, loadedQty: { [ld.lines[0].planLineId]: 100 }, agreedTransport: 500 } })).body;
+    await c.req('POST', `/legs/${sh.legs[0].id}/dispatch`, { token: joel, body: {} });
     drivers.push({ phone, legId: sh.legs[0].id });
   }
   for (const d of drivers) d.token = (await c.login(d.phone, '1234')).accessToken;
@@ -33,14 +33,14 @@ export async function loadSuite(env: Env, opts = { drivers: 50, seconds: 60 }) {
   section(`Load · ${N} drivers for ${opts.seconds} s`);
   const lat: Record<string, number[]> = { ping: [], checkin: [], refresh: [] };
   const errors: string[] = [];
-  const end = Date.now() + opts.seconds * 1000;
+  const end = performance.now() + opts.seconds * 1000; // monotonic: a wall-clock jump (WSL resync) must not cut the run short
   const headers = { 'x-channel': 'app', 'x-app-version': '1.0.0' };
   const run = async (d: (typeof drivers)[number], n: number) => {
     let i = 0;
     const route = (await c.req('GET', '/field/driver', { token: d.token, headers })).body.trips[0];
     let k = route.leg.passes.findIndex((p: any) => !p.arrivedAt);
     await new Promise((r) => setTimeout(r, (n * 37) % 1000)); // stagger
-    while (Date.now() < end) {
+    while (performance.now() < end) {
       i++;
       try {
         const cp = route.checkpoints[Math.min(k, route.checkpoints.length - 2)];
@@ -60,7 +60,7 @@ export async function loadSuite(env: Env, opts = { drivers: 50, seconds: 60 }) {
   };
   // Cache churn: a director edits master data every 2 s while drivers are busy. With a 1.5 s reference-cache TTL and a
   // small pool this deadlocked the API before the fix (transactions held every connection while waiting on the cache).
-  const churn = (async () => { let i = 0; while (Date.now() < end) { await c.req('POST', '/masterdata/providers', { token: dir, body: { name: `QA churn ${i++}` } }).catch(() => {}); await new Promise((r) => setTimeout(r, 2000)); } })();
+  const churn = (async () => { let i = 0; while (performance.now() < end) { await c.req('POST', '/masterdata/providers', { token: dir, body: { name: `QA churn ${i++}` } }).catch(() => {}); await new Promise((r) => setTimeout(r, 2000)); } })();
   const t0 = Date.now();
   await Promise.all([...drivers.map((d, n) => run(d, n)), churn]);
   const secs = (Date.now() - t0) / 1000;

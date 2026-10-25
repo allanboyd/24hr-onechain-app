@@ -14,9 +14,9 @@
   import CompanyMark from '../components/CompanyMark.svelte';
 
   const DEMO_PASSWORD = 'demo1234';
-  const FIELD = ['driver', 'loader', 'receiver'];
-  const OFFICE_ORDER = ['director', 'planner', 'fleet', 'truck_planner', 'operations', 'accounts', 'admin'];
-  const ROLE_LABEL: Record<string, string> = { director: 'Director', planner: 'Planner', fleet: 'Fleet', truck_planner: 'Truck planner', operations: 'Operations', accounts: 'Accounts', admin: 'Administrator', loader: 'Loading point', receiver: 'Receiver', sales: 'Sales', driver: 'Driver' };
+  import { ROLE_LABEL } from '../lib/roles';
+  const FIELD = ['driver', 'loader', 'receiver', 'reexport'];
+  const OFFICE_ORDER = ['director', 'planner', 'truck_planner', 'fleet', 'operations', 'accounts', 'admin'];
   const users: User[] = showDemoHelpers ? auth.demoUsers() : [];
   // Office demo accounts: anyone with at least one office role, ordered by their most senior role.
   const rank = (u: User) => Math.min(...u.roles.map((r) => (OFFICE_ORDER.indexOf(r) + 1 || 99)));
@@ -77,7 +77,7 @@
             {#each g.users as u (u.id)}
               <button type="button" class="acct" onclick={() => go(u.id, u.phone, DEMO_PASSWORD)} disabled={!!busy} aria-label="Sign in as {u.name}">
                 <span class="avatar" aria-hidden="true">{u.name.slice(0, 1)}</span>
-                <span class="grow"><strong>{u.name}</strong><span class="caption">{u.roles.filter((r) => !FIELD.includes(r)).map((r) => ROLE_LABEL[r] ?? r).join(' · ')}{g.id ? ` · ${u.entityIds.map((e) => companyLabel(e)).join(' + ')}${u.entityIds.length === 1 ? ' only' : ''}` : ''}</span></span>
+                <span class="grow"><strong>{u.name}</strong><span class="caption">{u.roles.filter((r) => !FIELD.includes(r)).map((r) => ROLE_LABEL[r] ?? r).join(' · ')}{u.loadingPointIds.includes('s-gbi') && u.roles.includes('truck_planner') ? ' · loads at GBI Mombasa' : ''}{g.id ? ` · ${u.entityIds.map((e) => companyLabel(e)).join(' + ')}${u.entityIds.length === 1 ? ' only' : ''}` : ''}</span></span>
                 {#if busy === u.id}<span class="caption">Signing in…</span>{:else}<ArrowRight size={20} />{/if}
               </button>
             {/each}
@@ -105,7 +105,7 @@
       <a class="btn btn-accent btn-lg btn-block" href={fieldUrl}>Open the field app <ArrowRight size={18} /></a>
       {#if field.length}
         <ul class="chips" aria-label="Field demo accounts">
-          {#each field as u (u.id)}<li><span class="caption"><strong>{u.name}</strong> · {u.roles.map((r) => ROLE_LABEL[r] ?? r).join(' · ')} · <span class="mono">{u.phone}</span></span></li>{/each}
+          {#each field as u (u.id)}<li><span class="caption"><strong>{u.name}</strong> · {u.roles.map((r) => ROLE_LABEL[r] ?? r).join(' · ')} · <span class="mono">{u.phone}</span></span>{#if !u.roles.includes('driver')}<button type="button" class="btn btn-ghost btn-sm" onclick={() => go(u.id, u.phone, DEMO_PASSWORD)} disabled={!!busy} aria-label="Sign in to the web as {u.name}">web</button>{/if}</li>{/each}
         </ul>
       {/if}
     </section>
@@ -136,5 +136,6 @@
   .url { display: flex; align-items: center; gap: var(--space-2); background: var(--surface-sunken); border-radius: var(--radius-md); padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3); min-width: 0; }
   .url code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
   .chips { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+  .chips li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
   .center { text-align: center; }
 </style>

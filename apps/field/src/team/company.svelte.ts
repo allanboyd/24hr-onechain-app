@@ -15,7 +15,7 @@ export function companiesFor(u: User) {
 }
 export const isGroup = () => co.active === null;
 export const activeBrand = () => brandOf(co.active);
-export const shortName = (id: ID | null) => (id ? (brandOf(id)?.code === 'KVD' ? 'Kivu' : brandOf(id)?.code ?? '') : 'Group');
+export const shortName = (id: ID | null) => (id ? ({ KVD: 'Kivu', NUD: 'Nihna' } as Record<string, string>)[brandOf(id)?.code ?? ''] ?? brandOf(id)?.code ?? '' : 'Group');
 
 function paint() {
   const b = brandOf(co.active);

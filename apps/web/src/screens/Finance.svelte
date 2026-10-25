@@ -18,12 +18,12 @@
   let open = $state<string | null>(null);
   async function load() { trips = await finance.trips(); }
   const w = watch(load);
-  const canApprove = $derived(user.roles.some((r) => r === 'director' || r === 'accounts'));
+  const canApprove = $derived(user.roles.some((r) => r === 'director'));
   const canPay = $derived(user.roles.some((r) => r === 'accounts' || r === 'director'));
-  const payStatus = (t: Trip) => (t.transport > 0 && t.paid >= t.transport ? 'Paid' : t.paid > 0 ? 'Part-paid' : 'Unpaid');
+  const payStatus = (t: Trip) => (t.agreedRecorded === false ? 'Unpaid' : t.transport > 0 && t.paid >= t.transport ? 'Paid' : t.paid > 0 ? 'Part-paid' : 'Unpaid');
   const totals = $derived.by(() => {
     const ts = trips ?? [];
-    return { transport: ts.reduce((a, t) => a + t.transport, 0), paid: ts.reduce((a, t) => a + t.paid, 0), balance: ts.reduce((a, t) => a + t.balance, 0), pending: ts.flatMap((t) => t.payments).filter((p) => p.status === 'Pending approval').length };
+    return { transport: ts.reduce((a, t) => a + t.transport, 0), paid: ts.reduce((a, t) => a + t.paid, 0), balance: ts.reduce((a, t) => a + t.balance, 0), pending: ts.flatMap((t) => t.payments).filter((p) => p.status === 'Pending approval').length, missing: ts.filter((t) => t.agreedRecorded === false).length };
   });
   const THRESHOLD = 500; // FN-03 director-set threshold (mock default)
   const FOLLOW_UP_DAYS = 30; // §17.5 "follow-up after one month" (Q-P9)
@@ -65,7 +65,7 @@
 
 <div class="page-head">
   <div><div class="overline crumb">Finance</div><h1>Trip financials & landing cost</h1></div>
-  <div class="row"><p class="muted small" style="max-width:440px;margin:0">Agreed transport price is captured at loading (§17.5). Payments above USD {THRESHOLD} need director approval (FN-03; threshold set by directors).</p><ExportMenu name="trip-financials" rows={exportRows} /></div>
+  <div class="row"><p class="muted small" style="max-width:440px;margin:0">The agreed transport price is recorded after loading by the truck follow-up officer (docs/12). Payments above USD {THRESHOLD} need director approval (FN-03; threshold set by directors).</p><ExportMenu name="trip-financials" rows={exportRows} /></div>
 </div>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
 <PageTabs base="/finance" current={tab} listLabel="Trips" />
@@ -76,7 +76,7 @@
 {:else}
 
 <div class="grid grid-kpi" style="margin-bottom:var(--space-4)">
-  <div class="card kpi"><div class="overline">Agreed transport</div><div class="value">{fmtMoney(totals.transport)}</div></div>
+  <div class="card kpi"><div class="overline">Agreed transport</div><div class="value">{fmtMoney(totals.transport)}</div>{#if totals.missing}<div class="delta nr">{totals.missing} trip{totals.missing > 1 ? 's' : ''} not recorded yet</div>{/if}</div>
   <div class="card kpi"><div class="overline">Paid</div><div class="value">{fmtMoney(totals.paid)}</div></div>
   <div class="card kpi"><div class="overline">Outstanding</div><div class="value accent-text">{fmtMoney(totals.balance)}</div></div>
   <div class="card kpi"><div class="overline">Awaiting approval</div><div class="value">{totals.pending}</div><div class="delta">payments</div></div>
@@ -95,7 +95,7 @@
           <td><span class="mono" style="white-space:nowrap">{t.shipment.ref}</span><div class="caption" style="white-space:nowrap">Truck {t.shipment.truckNo} · {t.shipment.legs.length} leg{t.shipment.legs.length > 1 ? 's' : ''}</div></td>
           <td>{truck?.reg}<div class="caption">{lookup.provider(truck?.providerId ?? '')?.name}</div></td>
           <td class="small">{lookup.route(leg.routeId)?.name}</td>
-          <td class="num">{fmtNum(t.transport, 2)}</td>
+          <td class="num">{#if t.agreedRecorded === false}<span class="nr">not recorded</span>{:else}{fmtNum(t.transport, 2)}{/if}</td>
           <td class="num">{fmtNum(t.paid, 2)}</td>
           <td class="num" class:accent-text={t.balance > 0}>{fmtNum(t.balance, 2)}</td>
           <td><Badge status={payStatus(t)} />{#if t.payments.some((p) => p.status === 'Pending approval')} <Badge status="Pending approval" />{/if}</td>
@@ -185,6 +185,7 @@
   .detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 300px; gap: var(--space-4); align-items: start; }
   .detail-grid .table td { background: var(--surface); }
   @media (max-width: 1100px) { .detail-grid { grid-template-columns: minmax(0, 1fr); } }
+  .nr { color: var(--warning); font-weight: 600; }
   .landing { display: flex; flex-direction: column; gap: var(--space-2); }
   .note.warn { background: var(--warning-subtle); color: var(--warning); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
   .landing .total { border-top: 1px solid var(--border); padding-top: var(--space-2); font-weight: 700; }

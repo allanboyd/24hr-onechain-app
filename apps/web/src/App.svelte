@@ -6,6 +6,7 @@
   import { describe } from './lib/errors';
   import { brand } from './lib/brand';
   import { API_MODE } from './lib/mode';
+  import { roleText } from './lib/roles';
   import { routes, navFor, canOpen, isFieldOnly, homeOf, type WebRoute } from './routes';
   import Login from './screens/Login.svelte';
   import CompanySwitcher from './components/CompanySwitcher.svelte';
@@ -122,7 +123,7 @@
         <div class="grow scope small muted">{#if scope}Scope: <strong>{scope}</strong>{/if}</div>
         <button class="btn btn-ghost btn-sm" onclick={toggleTheme} aria-label="Toggle theme">{#if theme === 'dark'}<Sun size={18} />{:else}<Moon size={18} />{/if}</button>
         <a class="btn btn-ghost btn-sm bell" href="#/notifications" aria-label="Notifications"><Bell size={18} />{#if unread}<span class="dotcount">{unread}</span>{/if}</a>
-        <div class="who"><div class="small" style="font-weight:600">{user.name}</div><div class="caption">{user.roles.map((r) => r.replace('_', ' ')).join(' · ')}</div></div>
+        <div class="who"><div class="small" style="font-weight:600">{user.name}</div><div class="caption">{roleText(user.roles)}</div></div>
         <button class="btn btn-ghost btn-sm" onclick={logout} aria-label="Sign out"><LogOut size={18} /></button>
       </header>
       <main class="content">

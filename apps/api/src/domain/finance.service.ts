@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { db, schema as t } from '../db/client';
-import type { TripCost } from '@btw/api/types';
+import type { Currency, TripCost } from '@btw/api/types';
+import { canRecordPayment, seesShipment } from '@btw/api/access';
+import { auditNote } from '../common/audit-context';
 import { fail, forbidden, notFound } from '../common/errors';
 import { hasFeature } from '@btw/api/rules';
 import { iso, uid } from '../common/ids';
@@ -15,12 +17,16 @@ import { loadShipments, map, publicShipment } from './store';
 @Injectable()
 export class FinanceService {
   constructor(private ref: RefService, private notify: NotifyService) {}
-  /** Role × feature matrix (docs/07 §E): trip costs and payments are the Finance feature. */
-  private assert(p: Principal) { if (!hasFeature(p.roles, 'finance')) forbidden(); }
+  /** Roles document §7: trip financials (goods value, landed cost, payments approval) are the directors'; the truck
+   *  follow-up officer reads the transport side (agreed price, expenses, payments against references) and adds expenses. */
+  private assert(p: Principal) { if (!hasFeature(p.roles, 'finance') && !hasFeature(p.roles, 'truck-expenses')) forbidden(); }
+  private assertExpenses(p: Principal) { if (!hasFeature(p.roles, 'truck-expenses')) forbidden('Truck expenses are recorded by the truck follow-up officer and the directors'); }
 
   async trips(p: Principal) {
     this.assert(p);
-    const shs = (await loadShipments(db)).filter((s) => canSeeEntity(p, s.entityId));
+    const full = hasFeature(p.roles, 'finance');
+    const cps = (await this.ref.get()).bundle.warehouses.filter((w) => p.warehouseIds.includes(w.id)).map((w) => w.checkpointId);
+    const shs = (await loadShipments(db)).filter((s) => canSeeEntity(p, s.entityId) && seesShipment(p, s, { loadingPointId: s.loadingPointId, myWarehouseCps: cps }));
     if (!shs.length) return [];
     const ids = shs.map((s) => s.id);
     const [costs, pays, plans, pos] = await Promise.all([
@@ -37,7 +43,32 @@ export class FinanceService {
       const goods = s.legs[0].lines.reduce((a, l) => a + l.loadedQty * (plan?.lines.find((pl) => pl.productId === l.productId)?.price ?? 0), 0);
       const cases = s.legs[0].lines.reduce((a, l) => a + l.loadedQty, 0);
       const expenses = c.reduce((a, x) => a + x.amountUsd, 0);
-      return { shipment: publicShipment(s), costs: c, payments: py, transport, paid, balance: transport - paid, goods, expenses, landing: goods + expenses, cases, perCase: cases ? (goods + expenses) / cases : 0 };
+      // A-04: no agreed price yet → `agreedRecorded: false` (shown as "not recorded", never as a zero price)
+      const row = { shipment: publicShipment(s), costs: c, payments: py, transport, paid, balance: transport - paid, goods, expenses, landing: goods + expenses, cases, perCase: cases ? (goods + expenses) / cases : 0, agreedRecorded: c.some((x) => x.kind === 'Transport') };
+      if (full) return row;
+      const { goods: _g, landing: _l, perCase: _pc, ...transportSide } = row;
+      return transportSide;
+    });
+  }
+  /** docs/12 A-04: the agreed transport price of a loaded truck, recorded after loading (Testfie, directors). Creates the
+   *  trip's Transport cost line, or corrects it while nothing has been paid against it. */
+  async setAgreedPrice(p: Principal, shipmentId: string, input: { amount?: number; currency?: string; docRef?: string }) {
+    this.assertExpenses(p);
+    const s = await this.shipmentScope(p, shipmentId);
+    const amount = Number(input?.amount);
+    if (!(amount > 0) || amount > 1e9) fail('Enter the agreed transport price (above zero)');
+    if (input?.docRef !== undefined && (typeof input.docRef !== 'string' || input.docRef.length > 120)) fail('Reference must be text (120 characters at most)', 400, 'bad-request');
+    const [ld] = await db.select().from(t.loadings).where(eq(t.loadings.poId, s.poId)).then((rows) => rows.filter((x) => x.truckNo === s.truckNo && x.status === 'Loaded'));
+    const currency = (typeof input?.currency === 'string' && /^[A-Z]{3}$/.test(input.currency) ? input.currency : ld?.transportCurrency ?? 'USD') as Currency;
+    return db.transaction(async (tx) => {
+      const [cur] = await tx.select().from(t.tripCosts).where(and(eq(t.tripCosts.shipmentId, s.id), eq(t.tripCosts.kind, 'Transport')));
+      if (cur && (await tx.select({ id: t.tripPayments.id }).from(t.tripPayments).where(eq(t.tripPayments.costId, cur.id))).length) fail('Payments were made against this price — record a correction as another cost instead', 409, 'state');
+      const [leg] = await tx.select({ id: t.legs.id }).from(t.legs).where(eq(t.legs.shipmentId, s.id)).orderBy(t.legs.seq).limit(1);
+      const x = { id: cur?.id ?? uid('cost'), entityId: s.entityId, shipmentId: s.id, legId: leg?.id ?? null, kind: 'Transport', amount, currency, docRef: input?.docRef?.trim() || `Agreed after loading ${iso().slice(0, 10)}`, ...(await usdOf(tx, amount, currency)) };
+      if (cur) await tx.update(t.tripCosts).set(x).where(eq(t.tripCosts.id, cur.id)); else await tx.insert(t.tripCosts).values(x);
+      if (ld && !s.fromWarehouseId) await tx.update(t.loadings).set({ agreedTransport: amount, transportCurrency: currency }).where(eq(t.loadings.id, ld.id));
+      auditNote({ recordType: 'shipment', recordId: s.id, summary: `${s.ref}: agreed transport ${currency} ${amount}`, entityId: s.entityId, before: cur ? { amount: cur.amount, currency: cur.currency } : null, after: { amount, currency } });
+      return map.cost(x as typeof t.tripCosts.$inferSelect);
     });
   }
   private async shipmentScope(p: Principal, shipmentId: string) {
@@ -47,7 +78,7 @@ export class FinanceService {
     return s;
   }
   async addCost(p: Principal, c: Omit<TripCost, 'id'>) {
-    this.assert(p);
+    this.assertExpenses(p);
     if (!(c.amount > 0)) fail('Amount must be above zero');
     const s = await this.shipmentScope(p, c.shipmentId);
     // a cost belongs to the trip's company; naming another one is refused
@@ -59,7 +90,7 @@ export class FinanceService {
   }
   /** FN-02/03: payments above the director-set threshold wait for approval. */
   async pay(p: Principal, input: { shipmentId: string; costId: string; amount: number; reference: string; receiptFileId?: string }) {
-    if (!has(p, 'accounts', 'director')) forbidden('Only accounts record payments');
+    if (!canRecordPayment(p)) forbidden('Only the directors record payments');
     if (!(input.amount > 0)) fail('Amount must be above zero');
     if (!input.reference?.trim()) fail('Enter the payment reference');
     const s = await this.shipmentScope(p, input.shipmentId);

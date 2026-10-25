@@ -10,6 +10,8 @@ import { db, schema as t, type Tx } from '../db/client';
 import { fail, forbidden, notFound } from '../common/errors';
 import { iso, uid } from '../common/ids';
 import { assertEntity, has, writeEntity, type Principal } from '../auth/principal';
+import { periodLineVisible } from '@btw/api/access';
+import { auditNote } from '../common/audit-context';
 import { RefService } from './ref.service';
 import { map } from './store';
 
@@ -22,6 +24,16 @@ export class PeriodPlansService {
 
   private see(p: Principal) { if (!hasFeature(p.roles, 'period-plans')) forbidden('Period plans are not available for your role'); }
   private edit(p: Principal) { this.see(p); if (!has(p, ...PERIOD_PLAN_EDITORS)) forbidden('Only planners, directors and admins edit period plans'); }
+  /** docs/12: a pair-scoped planner (Kabonge) sees and edits only the lines of their buyer–supplier pairs. */
+  private mine = (p: Principal, entityId: string) => (l: PeriodPlanLine) => periodLineVisible(p, entityId, l.supplierId);
+  private out = (p: Principal, plan: PeriodPlan): PeriodPlan => ({ ...plan, lines: plan.lines.filter(this.mine(p, plan.entityId)) });
+  /** Lines sent must be the user's pairs; lines they cannot see are kept as they were. */
+  private merge(p: Principal, entityId: string, incoming: PeriodPlanLine[], cur: PeriodPlanLine[], codeOf: (id: string) => string) {
+    const mine = this.mine(p, entityId);
+    const bad = incoming.find((l) => !mine(l));
+    if (bad) forbidden(`${codeOf(bad.supplierId)} lines are not one of your buyer–supplier pairs`);
+    return [...cur.filter((l) => !mine(l)), ...incoming];
+  }
   private async prefix(entityId: string) {
     const e = (await this.ref.get()).bundle.entities.find((x) => x.id === entityId) ?? notFound('Company');
     return e.poPrefix.replace(/-PO$/, '-PP');
@@ -35,9 +47,10 @@ export class PeriodPlansService {
   async list(p: Principal, all = false) {
     this.see(p);
     const rows = await db.select().from(t.periodPlans).where(all ? inArray(t.periodPlans.entityId, p.scope) : and(inArray(t.periodPlans.entityId, p.scope), eq(t.periodPlans.status, 'Active'))).orderBy(desc(t.periodPlans.from));
-    return rows.map(map.periodPlan);
+    return rows.map(map.periodPlan).map((x) => this.out(p, x));
   }
-  async get(p: Principal, id: string) {
+  async get(p: Principal, id: string) { return this.out(p, await this.load(p, id)); }
+  private async load(p: Principal, id: string) {
     this.see(p);
     const [r] = await db.select().from(t.periodPlans).where(eq(t.periodPlans.id, id));
     if (!r) return notFound('Period plan');
@@ -93,7 +106,9 @@ export class PeriodPlansService {
     const kind = KINDS.includes(b?.periodKind as PeriodKind) ? (b.periodKind as PeriodKind) : 'custom';
     if (b?.title !== undefined && (typeof b.title !== 'string' || b.title.length > 200)) fail('Title must be text (max 200 characters)', 400, 'bad-request');
     const prefix = await this.prefix(entityId);
-    const lines = this.lines(b, [], (await this.ref.get()).bundle);
+    const { bundle } = await this.ref.get();
+    const code = (id: string) => bundle.suppliers.find((x) => x.id === id)?.code ?? id;
+    const lines = this.merge(p, entityId, this.lines(b, [], bundle), [], code);
     return db.transaction(async (tx) => {
       const refs = (await tx.select({ ref: t.periodPlans.ref }).from(t.periodPlans)).map((r) => r.ref);
       const plan: PeriodPlan = { id: uid('pp'), ref: nextRef(refs, prefix, Number(b.from!.slice(0, 4))), entityId, title: b.title ?? '', periodKind: kind, from: b.from!, to: b.to!, status: 'Active', version: 1, lines, history: [{ at: iso(), byUserId: p.id, action: 'created' }], createdById: p.id };
@@ -101,7 +116,8 @@ export class PeriodPlansService {
       if (replaced.length) plan.history[0].comment = `replaces ${replaced.map((x) => x.ref).join(', ')}`;
       await tx.insert(t.periodPlans).values({ ...plan, copiedFromId: null, amendReason: null, replacedById: null });
       await this.snapshot(tx, p, plan, 'created');
-      return plan;
+      auditNote({ recordType: 'period-plan', recordId: plan.id, summary: `${plan.ref} created`, entityId });
+      return this.out(p, plan);
     });
   }
 
@@ -109,12 +125,14 @@ export class PeriodPlansService {
    *  Changing the dates onto another Active plan's period is refused (409) unless `replace: true`. */
   async save(p: Principal, id: string, b: Partial<PeriodPlan> & { replace?: boolean }) {
     this.edit(p);
-    const cur = await this.get(p, id);
+    const cur = await this.load(p, id);
     if (cur.status === 'Replaced') fail('This plan was replaced by a newer one and is kept for history', 409, 'locked');
     if (b?.entityId && b.entityId !== cur.entityId) fail('A plan cannot move to another company', 403, 'forbidden');
     const from = b?.from ?? cur.from, to = b?.to ?? cur.to;
     this.dates(from, to);
-    const lines = this.lines(b, cur.lines, (await this.ref.get()).bundle);
+    const { bundle } = await this.ref.get();
+    const code = (sid: string) => bundle.suppliers.find((x) => x.id === sid)?.code ?? sid;
+    const lines = b?.lines === undefined ? cur.lines : this.merge(p, cur.entityId, this.lines(b, [], bundle), cur.lines, code);
     const title = b?.title ?? cur.title;
     if (typeof title !== 'string' || title.length > 200) fail('Title must be text (max 200 characters)', 400, 'bad-request');
     const periodKind = KINDS.includes(b?.periodKind as PeriodKind) ? (b!.periodKind as PeriodKind) : cur.periodKind;
@@ -124,14 +142,15 @@ export class PeriodPlansService {
       next.history.push({ at: iso(), byUserId: p.id, action: 'edited', ...(replaced.length ? { comment: `replaces ${replaced.map((x) => x.ref).join(', ')}` } : {}) });
       await tx.update(t.periodPlans).set({ title, periodKind, from, to, lines, version: next.version, history: next.history, updatedAt: iso() }).where(and(eq(t.periodPlans.id, id), eq(t.periodPlans.status, 'Active')));
       await this.snapshot(tx, p, next, 'edited');
-      return next;
+      auditNote({ recordType: 'period-plan', recordId: id, summary: `${cur.ref} v${next.version}`, entityId: cur.entityId, before: { version: cur.version, from: cur.from, to: cur.to, lines: cur.lines.length }, after: { version: next.version, from, to, lines: lines.length } });
+      return this.out(p, next);
     });
   }
 
   /** PL-11: copy an earlier plan as the start of the next one (dates and monthly split shift with the period). */
   async copy(p: Principal, fromId: string, b: { from?: string; to?: string; title?: string; replace?: boolean }) {
     this.edit(p);
-    const src = await this.get(p, fromId);
+    const src = await this.get(p, fromId); // only the lines this user may see are copied
     writeEntity(p, src.entityId);
     this.dates(b?.from, b?.to);
     if (b?.title !== undefined && (typeof b.title !== 'string' || b.title.length > 200)) fail('Title must be text (max 200 characters)', 400, 'bad-request');
@@ -142,7 +161,7 @@ export class PeriodPlansService {
       await this.claimPeriod(tx, p, plan, b?.replace);
       await tx.insert(t.periodPlans).values({ ...plan, copiedFromId: plan.copiedFromId ?? null, amendReason: null, replacedById: null });
       await this.snapshot(tx, p, plan, 'created');
-      return plan;
+      return this.out(p, plan);
     });
   }
 
@@ -157,6 +176,8 @@ export class PeriodPlansService {
 
   async versions(p: Principal, id: string) {
     await this.get(p, id);
-    return db.select().from(t.periodPlanVersions).where(eq(t.periodPlanVersions.planId, id)).orderBy(desc(t.periodPlanVersions.version));
+    const rows = await db.select().from(t.periodPlanVersions).where(eq(t.periodPlanVersions.planId, id)).orderBy(desc(t.periodPlanVersions.version));
+    // snapshots hold every pair's lines: a pair-scoped planner sees only theirs
+    return rows.map((r) => ({ ...r, snapshot: this.out(p, r.snapshot as PeriodPlan) }));
   }
 }

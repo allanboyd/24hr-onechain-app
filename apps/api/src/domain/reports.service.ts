@@ -7,6 +7,10 @@ import type { PvThresholds } from '@btw/api/types';
 import * as RP from '@btw/api/reports';
 import { forbidden } from '../common/errors';
 import { canSeeWarehouse, has, isGlobal, type Principal } from '../auth/principal';
+import { seesPair, seesShipment } from '@btw/api/access';
+
+/** Purchase-planning reports read stock cover and sales history even though the planner has no inventory screen (docs/12). */
+const PLANNER_STOCK_REPORTS = ['planning', 'period-plan', 'planned-vs-actual'];
 import { fxRates } from './companies';
 import { RefService } from './ref.service';
 import { StockService } from './stock.service';
@@ -41,23 +45,25 @@ export class ReportsService {
       db.select().from(t.plans).where(inArray(t.plans.entityId, entityScope)), db.select().from(t.pos).where(inArray(t.pos.entityId, entityScope)),
       db.select().from(t.loadings).where(inArray(t.loadings.entityId, entityScope)), db.select().from(t.stockMoves).where(inArray(t.stockMoves.entityId, entityScope)), this.stock.stock(null, now), fxRates(),
     ]);
-    const wh = (id: string) => canSeeWarehouse(p, id);
+    const planStock = has(p, 'planner') && PLANNER_STOCK_REPORTS.includes(opts.report ?? '');
+    const wh = (id: string) => canSeeWarehouse(p, id) || planStock || (!!opts.group && p.canGroup);
     const office = isGlobal(p) || has(p, 'planner', 'fleet', 'operations', 'accounts', 'truck_planner');
-    // truck planners follow every truck of their companies (logistics) but see no stock or sales
-    const whTrip = (id: string) => wh(id) || has(p, 'truck_planner');
-    const shipments = ships.filter((s) => inE(s.entityId) && whTrip(s.warehouseId))
+    // "Own" scope (§7): Kabonge his buyer–supplier pairs; the truck follow-up officer every truck (no stock or sales)
+    const pairOk = (o: { entityId: string; supplierId: string }) => isGlobal(p) || seesPair(p, o.entityId, o.supplierId);
+    const cps = bundle.warehouses.filter((w) => p.warehouseIds.includes(w.id)).map((w) => w.checkpointId);
+    const shipments = ships.filter((s) => inE(s.entityId) && (isGlobal(p) || seesShipment(p, s, { loadingPointId: s.loadingPointId, myWarehouseCps: cps })))
       .map((s) => publicShipment({ ...s, status: deriveShipmentStatus(s, bundle.warehouses.find((w) => w.id === s.warehouseId)?.checkpointId, stops, now) }));
     const shipIds = new Set(shipments.map((s) => s.id));
-    const visiblePos = office ? pos.map(map.po) : [];
+    const visiblePos = office ? pos.map(map.po).filter(pairOk) : [];
     const planIds = new Set(visiblePos.map((x) => x.planId));
     return {
       now, fxRates: rates, entityScope,
-      periodPlans: office ? periodPlans.map(map.periodPlan) : [], pvThresholds: (pvRow[0]?.value as PvThresholds | undefined) ?? defaultPvThresholds,
+      periodPlans: office ? periodPlans.map(map.periodPlan).map((pp) => (isGlobal(p) ? pp : { ...pp, lines: pp.lines.filter((l) => seesPair(p, pp.entityId, l.supplierId)) })) : [], pvThresholds: (pvRow[0]?.value as PvThresholds | undefined) ?? defaultPvThresholds,
       sales: sales.map(map.sale).filter((s) => wh(s.warehouseId)),
       shipments, acks: acks.map(map.ack).filter((a) => shipIds.has(a.shipmentId)),
       costs: costs.map(map.cost).filter((c) => shipIds.has(c.shipmentId)), payments: payments.map(map.payment).filter((x) => shipIds.has(x.shipmentId)),
-      plans: office ? plans.map(map.plan).filter((x) => planIds.has(x.id) || !x.poId) : [], pos: visiblePos, loadings: office ? loadings.map(map.loading) : [],
-      moves: moves.filter((m) => wh(m.warehouseId)).map((m): StockMove => ({ entityId: m.entityId, warehouseId: m.warehouseId, productId: m.productId, kind: m.kind as StockMove['kind'], qty: m.qty, at: new Date(m.at).toISOString(), ref: m.ref })),
+      plans: office ? plans.map(map.plan).filter((x) => pairOk(x) && (planIds.has(x.id) || !x.poId)) : [], pos: visiblePos, loadings: office ? loadings.map(map.loading).filter((l) => pairOk({ entityId: l.entityId, supplierId: l.loadingPointId })) : [],
+      moves: moves.filter((m) => wh(m.warehouseId)).map((m): StockMove => ({ entityId: m.entityId, warehouseId: m.warehouseId, productId: m.productId, kind: m.kind as StockMove['kind'], qty: m.qty, at: new Date(m.at).toISOString(), ref: m.ref, reason: m.reason ?? null })),
       stock: stock.filter((r) => inE(r.entityId) && wh(r.warehouseId)),
       products: bundle.products, priceList: bundle.priceList as RP.ReportData['priceList'], warehouses: bundle.warehouses.filter((w) => wh(w.id)), routes: bundle.routes,
       checkpoints: bundle.checkpoints as RP.ReportData['checkpoints'], suppliers: bundle.suppliers, trucks: bundle.trucks, drivers: bundle.drivers, providers: bundle.providers, entities: bundle.entities,

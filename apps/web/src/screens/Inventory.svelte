@@ -5,11 +5,13 @@
   import ErrorState from '../components/ErrorState.svelte';
   import { analytics, inventory, lookup, ref, type StockRow, type User, type VelocityRow } from '@btw/api';
   import { Badge, fmtDateTime, fmtMoney, fmtNum } from '@btw/ui';
+  import { seesPrices } from '@btw/api/access';
   import ExportMenu from '../components/ExportMenu.svelte';
   import PageTabs from '../components/PageTabs.svelte';
   import InventoryOverview from '../components/overview/InventoryOverview.svelte';
   import { currentTab, qp } from '../lib/tab';
   let { user }: { params?: any; user: User } = $props();
+  const money = $derived(seesPrices(user)); // receivers: quantities only, no purchase prices (docs/12 A-04)
   const r = ref();
   const scoped = $derived(user.roles.includes('director') || !user.warehouseIds.length ? null : user.warehouseIds);
   const warehouses = $derived(r.warehouses.filter((w) => !scoped || scoped.includes(w.id)));
@@ -40,8 +42,8 @@
   const alerts = $derived(shown.filter((x) => levelOf(x) !== 'OK').length);
   async function open(row: StockRow) { sel = row; ledger = await inventory.ledger(row.warehouseId, row.productId); dialog?.showModal(); }
   const cols: [keyof StockRow, string][] = [['opening', 'Opening'], ['received', 'Received'], ['transfersIn', 'Transfers in'], ['transfersOut', 'Transfers out'], ['damaged', 'Damaged'], ['adjustments', 'Adjustments'], ['sold', 'Sold'], ['closing', 'Closing']];
-  const exportRows = () => [['Warehouse', 'SKU', 'Brand', 'Package', ...cols.map(([, l]) => l), 'In transit', 'Cover (days)', 'Level', 'Landed cost/case (USD)', 'Value (USD)'],
-    ...shown.map((x) => { const p = lookup.product(x.productId)!; return [lookup.warehouse(x.warehouseId)!.name, p.sku, p.brand, p.pack, ...cols.map(([k]) => x[k] as number), x.inTransit, cover(x) >= 999 ? '' : cover(x), levelOf(x), x.landedCostPerCase, Math.round(x.closing * x.landedCostPerCase * 100) / 100]; })];
+  const exportRows = () => [['Warehouse', 'SKU', 'Brand', 'Package', ...cols.map(([, l]) => l), 'In transit', 'Cover (days)', 'Level', ...(money ? ['Landed cost/case (USD)', 'Value (USD)'] : [])],
+    ...shown.map((x) => { const p = lookup.product(x.productId)!; return [lookup.warehouse(x.warehouseId)!.name, p.sku, p.brand, p.pack, ...cols.map(([k]) => x[k] as number), x.inTransit, cover(x) >= 999 ? '' : cover(x), levelOf(x), ...(money ? [x.landedCostPerCase, Math.round(x.closing * x.landedCostPerCase * 100) / 100] : [])]; })];
 </script>
 
 <div class="page-head">
@@ -55,12 +57,12 @@
 {#if tab === 'overview'}
   {#if !rows}<div class="tiles">{#each Array(4) as _}<div class="card"><div class="skeleton" style="height:56px"></div></div>{/each}</div>
   {:else if !rows.length}<div class="card empty">No stock recorded yet.</div>
-  {:else}<InventoryOverview rows={rows.filter((x) => !scoped || scoped.includes(x.warehouseId))} {vel} {levelOf} {cover} thresholds={t} />{/if}
+  {:else}<InventoryOverview rows={rows.filter((x) => !scoped || scoped.includes(x.warehouseId))} {vel} {levelOf} {cover} thresholds={t} {money} />{/if}
 {:else}
 <div class="grid grid-kpi" style="margin-bottom:var(--space-4)">
   <div class="card kpi"><div class="overline">Closing stock</div><div class="value">{fmtNum(sum('closing'))}</div><div class="delta">cases on hand</div></div>
   <div class="card kpi"><div class="overline">In transit</div><div class="value">{fmtNum(sum('inTransit'))}</div><div class="delta">loaded, not yet acknowledged</div></div>
-  <div class="card kpi"><div class="overline">Stock value</div><div class="value">{fmtMoney(value)}</div><div class="delta">at landed cost per case (§17.6)</div></div>
+  {#if money}<div class="card kpi"><div class="overline">Stock value</div><div class="value">{fmtMoney(value)}</div><div class="delta">at landed cost per case (§17.6)</div></div>{/if}
   <button class="card kpi pick" class:on={level === 'Low' || level === 'Overstock'} onclick={() => (level = level ? '' : 'Low')}><div class="overline">Needs attention</div><div class="value" class:accent-text={alerts > 0}>{alerts}</div><div class="delta">low (&lt; {t.stockOutDays} d cover) or overstock (&gt; {t.overstockDays} d)</div></button>
 </div>
 
@@ -73,7 +75,7 @@
 
 <div class="card flush table-wrap">
   <table class="table">
-    <thead><tr><CompanyCell head /><th>Warehouse</th><th>Brand · Package</th>{#each cols as [, l]}<th class="num">{l}</th>{/each}<th class="num">In transit</th><th class="num">Cover</th><th>Level</th><th class="num">Landed / case (USD)</th><th class="num">Value (USD)</th></tr></thead>
+    <thead><tr><CompanyCell head /><th>Warehouse</th><th>Brand · Package</th>{#each cols as [, l]}<th class="num">{l}</th>{/each}<th class="num">In transit</th><th class="num">Cover</th><th>Level</th>{#if money}<th class="num">Landed / case (USD)</th><th class="num">Value (USD)</th>{/if}</tr></thead>
     <tbody>
       {#if !rows}{#each Array(4) as _}<tr><td colspan="15"><div class="skeleton"></div></td></tr>{/each}{/if}
       {#each shown as x (x.warehouseId + x.productId)}
@@ -86,12 +88,12 @@
           <td class="num muted">{x.inTransit ? fmtNum(x.inTransit) : '—'}</td>
           <td class="num">{cover(x) >= 999 ? '—' : `${Math.max(0, cover(x))} d`}</td>
           <td><Badge tone={levelTone[lv]}>{lv}</Badge></td>
-          <td class="num">{fmtNum(x.landedCostPerCase, 2)}</td>
-          <td class="num">{fmtNum(x.closing * x.landedCostPerCase, 2)}</td>
+          {#if money}<td class="num">{fmtNum(x.landedCostPerCase, 2)}</td>
+          <td class="num">{fmtNum(x.closing * x.landedCostPerCase, 2)}</td>{/if}
         </tr>
       {:else}{#if rows}<tr><td colspan="15" class="empty">No stock matches these filters</td></tr>{/if}{/each}
       {#if shown.length}
-        <tr class="grand"><td colspan="2">Total</td>{#each cols as [k]}<td class="num">{fmtNum(sum(k))}</td>{/each}<td class="num">{fmtNum(sum('inTransit'))}</td><td></td><td></td><td></td><td class="num">{fmtNum(value, 2)}</td></tr>
+        <tr class="grand"><td colspan="2">Total</td>{#each cols as [k]}<td class="num">{fmtNum(sum(k))}</td>{/each}<td class="num">{fmtNum(sum('inTransit'))}</td><td></td><td></td>{#if money}<td></td><td class="num">{fmtNum(value, 2)}</td>{/if}</tr>
       {/if}
     </tbody>
   </table>

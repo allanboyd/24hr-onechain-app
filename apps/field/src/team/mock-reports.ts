@@ -34,4 +34,12 @@ export const mockReports: Reports = {
   logistics: (f = {}) => { check(f, 'logistics'); return wait(RP.logisticsReport(data(), f)); },
   inventory: (f = {}) => { check(f, 'inventory'); return wait(RP.inventoryReport(data(), f)); },
   plannedVsActual: (f = {}) => { check(f, 'planned-vs-actual'); return wait(RP.plannedVsActual(data(), f)); },
+  // docs/14 B-07 (directors): the mock's own performance() (mock/money.ts — the same lazy chunk the demo client loads for
+  // warehouse money, so no extra chunk lands in the entry's preload list), given this module's report data.
+  performance: async (f = {}) => {
+    const mm = await import('../../../../packages/api/src/mock/money.ts');
+    const err = (msg: string, status: number) => Object.assign(new Error(msg), { status });
+    const ctx = { current: auth.me(), ensure: () => {}, wait, httpErr: err, reportData: data, config: ref().config ?? {} } as unknown as Parameters<typeof mm.performance>[0];
+    return mm.performance(ctx, f);
+  },
 };

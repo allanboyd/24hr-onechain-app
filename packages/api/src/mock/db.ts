@@ -5,11 +5,11 @@ import { buildHistory } from './history';
 import { buildPeriodPlans } from './period';
 import * as R from '../rules';
 import type {
-  Acknowledgement, AckLine, Checkpoint, CheckpointPass, EtaInfo, Flag, FxRate, ID, Leg, LegStatus, Loading, Notification, PeriodPlan, Plan,
+  Acknowledgement, AckLine, AuditEntry, ReexportOrder, SellingPrice, WarehouseExpense, Checkpoint, CheckpointPass, Entity, PriceListItem, Product, ReceivingCompany, Supplier, EtaInfo, Flag, FxRate, ID, Leg, LegStatus, Loading, Notification, PeriodPlan, Plan,
   PurchaseOrder, PvThresholds, Role, Sale, Shipment, StockRow, TripCost, TripPayment, TruckIssue, User, VelocityRow, Warehouse, WaitingEntry,
 } from '../types';
 
-const KEY = 'btw-mock-v4'; // v4: editable providers / drivers (truck planner, docs/10); v3: client master data (doc 08) + shipment chains; v2: rows carry entityId
+const KEY = 'btw-mock-v6'; // v6: warehouse money (expenses, selling prices, re-exports, ack reasons — docs/14); v5: client roster + access matrix, editable static data, audit log (docs/12); v4: editable providers / drivers (truck planner, docs/10); v3: client master data (doc 08) + shipment chains; v2: rows carry entityId
 // Browser storage when present (the server imports this module only for the demo snapshot).
 const ls = () => (globalThis as { localStorage?: { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void } }).localStorage;
 const H = 36e5;
@@ -34,10 +34,24 @@ export interface DB {
   extraDrivers?: typeof seed.drivers; extraProviders?: typeof seed.providers;
   /** Doc 08 §3: warehouses / checkpoints added or edited by an admin (applied over the seed on load). */
   warehouseEdits?: Warehouse[]; checkpointEdits?: Checkpoint[];
+  /** docs/12 A-05: companies, suppliers, goods (+ prices) and receiving companies added or edited (applied over the seed). */
+  entityEdits?: Entity[]; supplierEdits?: Supplier[]; productEdits?: Product[]; priceEdits?: PriceListItem[]; receivingCompanyEdits?: ReceivingCompany[];
+  /** docs/12 A-07: audit log (who did what, when; before/after for record edits). Newest last. */
+  audit?: AuditEntry[];
+  /** docs/12 A-08: last sign-in per user id (mock). */
+  lastLogin?: Record<string, string>;
+  /** docs/14 (workstream B): warehouse expenses, selling prices (with history) and re-export orders. */
+  expenses?: WarehouseExpense[]; sellingPrices?: SellingPrice[]; reexports?: ReexportOrder[];
+  /** when this dataset was built (the money history is relative to it) */ builtAt?: number;
 }
 
 const SEED_WAREHOUSES = seed.warehouses.map((w) => ({ ...w }));
 const SEED_CHECKPOINTS = seed.checkpoints.map((c) => ({ ...c }));
+const SEED_ENTITIES = seed.entities.map((x) => ({ ...x }));
+const SEED_SUPPLIERS = seed.suppliers.map((x) => ({ ...x }));
+const SEED_PRODUCTS = seed.products.map((x) => ({ ...x }));
+const SEED_PRICES = seed.priceList.map((x) => ({ ...x }));
+const SEED_RCS = seed.receivingCompanies.map((x) => ({ ...x }));
 /** Rebuild the live warehouse / checkpoint lists = seed + this demo's admin edits (the arrays are shared by reference). */
 export function applyMasterEdits() {
   const put = <T extends { id: ID }>(arr: T[], base: T[], edits: T[] | undefined) => {
@@ -46,6 +60,20 @@ export function applyMasterEdits() {
   };
   put(seed.warehouses, SEED_WAREHOUSES, db.warehouseEdits);
   put(seed.checkpoints, SEED_CHECKPOINTS, db.checkpointEdits);
+  put(seed.entities, SEED_ENTITIES, db.entityEdits);
+  put(seed.suppliers, SEED_SUPPLIERS, db.supplierEdits);
+  put(seed.products, SEED_PRODUCTS, db.productEdits);
+  put(seed.receivingCompanies, SEED_RCS, db.receivingCompanyEdits);
+  // price list rows are keyed by product
+  seed.priceList.splice(0, seed.priceList.length, ...SEED_PRICES.map((x) => ({ ...x })));
+  for (const e of db.priceEdits ?? []) { const i = seed.priceList.findIndex((x) => x.productId === e.productId); if (i >= 0) seed.priceList[i] = { ...e }; else seed.priceList.push({ ...e }); }
+}
+/** docs/12 A-07: one audit row (mock). `path` mirrors the API route so the screen reads the same either way. */
+export function audit(userId: ID | null, method: string, path: string, x: { status?: number; entityId?: ID | null; recordType?: string; recordId?: string; summary?: string; before?: unknown; after?: unknown; at?: number } = {}) {
+  const log = (db.audit ??= []);
+  log.push({ id: `a-${log.length + 1}`, at: iso(x.at ?? Date.now()), userId, channel: 'web', method, path, status: x.status ?? 200, entityId: x.entityId ?? null,
+    feature: R.auditFeature(path), recordType: x.recordType ?? null, recordId: x.recordId ?? null, summary: x.summary ?? null, before: x.before, after: x.after });
+  if (log.length > 5000) log.splice(0, log.length - 5000);
 }
 
 function routeStops(routeId: ID) { return db.routes.find((r) => r.id === routeId)!.stops; }
@@ -60,7 +88,7 @@ function initial(): DB {
     { id: 't9', providerId: 'pr-joly', reg: 'UBG 118H', trailer: 'UZ 1207', capacityCases: 2000, defaultDriverId: 'd4' },
     { id: 't10', providerId: 'pr-y', reg: 'T 733 DKL', trailer: 'T 140 ZZU', capacityCases: 1800, defaultDriverId: 'd7' }];
   const routes = [...seed.routes, {
-    id: 'r-kgl-goma', code: 'GIS-GOM', name: 'Gisenyi → Goma', distanceKm: 20,
+    id: 'r-kgl-goma', code: 'GIS-GOM', name: 'Rwanda → Congo (Gisenyi → Goma transfer)', distanceKm: 20,
     stops: [{ checkpointId: 'cp-gisenyi-wh', plannedHours: 0, plannedDwellHours: 0 }, { checkpointId: 'cp-gisenyi', plannedHours: 0.5, plannedDwellHours: 10 }, { checkpointId: 'cp-goma', plannedHours: 11.5, plannedDwellHours: 0 }],
   }];
   const d: DB = {
@@ -73,7 +101,7 @@ function initial(): DB {
   d.pos.push({
     id: 'po-1', ref: plan1.ref, planId: plan1.id, entityId: plan1.entityId, supplierId: plan1.supplierId, currency: 'USD',
     date: plan1.date, title: plan1.title, instruction: 'Kindly process and avail stock for loading.', version: 1,
-    sentAt: '2026-09-08T10:30:00Z', approvedById: 'u-dir', approvedAt: '2026-09-08T10:02:00Z', signature: 'sig:director', approval: 'director',
+    sentAt: '2026-09-08T10:30:00Z', approvedById: 'u-daniel', approvedAt: '2026-09-08T10:02:00Z', signature: 'sig:director', approval: 'director',
   });
   createLoadingsForPO(d.pos[0]);
 
@@ -125,7 +153,7 @@ function initial(): DB {
   for (const [planId, poId, sent] of [['plan-4', 'po-2', '2026-10-01T09:20:00Z'], ['plan-5', 'po-3', null]] as const) {
     const pl = d.plans.find((x) => x.id === planId)!;
     d.pos.push({ id: poId, ref: pl.ref, planId: pl.id, entityId: pl.entityId, supplierId: pl.supplierId, currency: 'USD', date: pl.date, title: pl.title,
-      instruction: 'Kindly process and avail stock for loading.', version: 1, sentAt: sent ?? undefined, approvedById: 'u-dir', approvedAt: pl.history[1].at, signature: 'sig:director', approval: 'director' });
+      instruction: 'Kindly process and avail stock for loading.', version: 1, sentAt: sent ?? undefined, approvedById: pl.history[1].byUserId, approvedAt: pl.history[1].at, signature: 'sig:director', approval: 'director' });
     createLoadingsForPO(d.pos.at(-1)!);
   }
   const ldN = d.loadings.find((l) => l.poId === 'po-2')!; ldN.transportCurrency = 'UGX';
@@ -133,8 +161,9 @@ function initial(): DB {
   const legN = d.shipments.at(-1)!.legs[0];
   legN.status = 'In transit'; legN.departedAt = iso(now - 18 * H); legN.passes = makePasses(legN.routeId, now - 18 * H);
   [[0, 0], [6.2, 6.6]].forEach(([a0, b0], i) => Object.assign(legN.passes[i], { arrivedAt: iso(now - 18 * H + a0 * H), departedAt: iso(now - 18 * H + b0 * H), source: i ? 'sms' : 'office' }));
+  // docs/12 A-04: loaded by the loader without a price — Testfie records the agreed transport price afterwards
   const ldK = d.loadings.find((l) => l.poId === 'po-3')!; ldK.transportCurrency = 'TZS';
-  completeLoading(ldK, 't10', 'd7', 2_400_000, now - 16 * H);
+  completeLoading(ldK, 't10', 'd7', null, now - 16 * H);
   const legK = d.shipments.at(-1)!.legs[0];
   legK.status = 'At border'; legK.departedAt = iso(now - 14 * H); legK.passes = makePasses(legK.routeId, now - 14 * H);
   [[0, 0], [5.8, 6.1], [10.2, null]].forEach(([a0, b0], i) => Object.assign(legK.passes[i], { arrivedAt: iso(now - 14 * H + a0! * H), ...(b0 !== null ? { departedAt: iso(now - 14 * H + b0 * H) } : {}), source: 'geofence' }));
@@ -152,14 +181,44 @@ function initial(): DB {
   buildHistory(d, now);
   buildPeriodPlans(d, now); // one approved 3-month plan per company; the orders above are linked to it
   for (const s of d.sales) for (const l of s.lines) d.stockMoves.push({ entityId: s.entityId, warehouseId: s.warehouseId, productId: l.productId, kind: 'sold', qty: l.qty, at: s.at, ref: s.ref });
+  // docs/14: the warehouse-money history (expenses, ack reasons, selling prices, counts, re-exports) is added by
+  // mock/money-history.ts — lazily (mock-client ready() / the money module) so it stays out of the apps' entry chunks
+  { const sh3Ack = d.acks.find((x) => x.shipmentId === sh3.id); if (sh3Ack) sh3Ack.lines[0].reason = 'Poor stacking'; }
+  d.builtAt = now;
 
   notify('Order ready', 'NUD-PO-2026-0009 · October ’26 Order · 4,000 cases · over plan', '#/plans/plan-2', ['planner', 'director'], 'e-nud');
   notify('Order ready', `${d.plans.find((x) => x.id === 'plan-6')!.ref} · top-up · 2,000 cases`, '#/plans/plan-6', ['planner', 'director'], 'e-btw');
   notify('Truck stopped at border', 'UBA 789C at Elegu/Nimule for 20 h — clearing documents pending', `#/shipments/${d.shipments.find((x) => x.legs[0]?.truckId === 't3' && x.status !== 'Acknowledged')?.id}`, ['director', 'fleet', 'operations'], 'e-btw');
   notify('Delivery discrepancy', `${sh3.ref} leg 1: 6 cases damaged at Asie Gisenyi`, `#/shipments/${sh3.id}`, ['director', 'operations', 'accounts'], sh3.entityId);
   notify('Payment needs approval', 'USD 850 transport balance · KBV 894T', '#/finance', ['director', 'accounts'], sh1.entityId);
+  notify('Agreed price not recorded', `T 733 DKL · ${d.shipments.find((x) => x.poId === 'po-3')?.ref} loaded without a transport price — record the agreed price`, `#/trucks`, ['truck_planner', 'director'], 'e-kivu');
   notify('Truck at border', 'T 733 DKL reached Rusumo', `#/shipments/${d.shipments.find((x) => x.poId === 'po-3')?.id}`, ['fleet', 'operations'], 'e-kivu');
+  seedAudit(d, now);
   return d;
+}
+
+/** A few weeks of plausible audit rows so the directors' audit screen has something to search (docs/12 A-07). */
+function seedAudit(d: DB, now: number) {
+  db = d;
+  const r = seed.rng(1207);
+  const who: [string, string, string, string][] = [
+    ['u-kabonge', 'PUT', '/plans/plan-3', 'plan'], ['u-kabonge', 'POST', '/plans/plan-2/submit', 'plan'], ['u-kabonge', 'PATCH', '/masterdata/trucks/t3', 'truck'],
+    ['u-testfie', 'POST', '/waiting/wl1/move', 'waiting'], ['u-testfie', 'POST', '/finance/costs', 'cost'], ['u-testfie', 'POST', '/legs/leg/issues', 'issue'],
+    ['u-joel', 'POST', '/loadings/ld/confirm', 'loading'], ['u-eric', 'POST', '/legs/leg/dispatch', 'leg'], ['u-moses', 'POST', '/loadings/ld/confirm', 'loading'],
+    ['u-asie', 'POST', '/legs/leg/acknowledgement', 'ack'], ['u-yonas', 'POST', '/legs/leg/acknowledgement', 'ack'], ['u-daniel', 'POST', '/finance/payments/pay/approve', 'payment'],
+    ['u-michael', 'PUT', '/settings/fx', 'fx'], ['u-drv1', 'POST', '/legs/leg/passes', 'leg'], ['u-drv2', 'POST', '/legs/leg/passes', 'leg'],
+  ];
+  for (let day = 27; day >= 1; day--) {
+    const n = 3 + Math.floor(r() * 6);
+    for (let k = 0; k < n; k++) {
+      const [u, method, path, type] = who[Math.floor(r() * who.length)];
+      audit(u, method, path, { at: now - day * 864e5 + (6 + r() * 10) * H, recordType: type, entityId: ['e-btw', 'e-nud', 'e-kivu'][Math.floor(r() * 3)] });
+    }
+  }
+  audit('u-kabonge', 'PATCH', '/masterdata/products/p-a300', { at: now - 3 * 864e5, recordType: 'product', recordId: 'p-a300', summary: 'Tusker Lager Cans: pack corrected',
+    before: { pack: '24 x 330ml' }, after: { pack: '24 x 330 ml cans' } });
+  audit('u-daniel', 'PATCH', '/users/u-testfie', { at: now - 2 * 864e5, recordType: 'user', recordId: 'u-testfie', summary: 'Testfie: loading point GBI Mombasa',
+    before: { loadingPointIds: [] }, after: { loadingPointIds: ['s-gbi'] } });
 }
 
 export let db: DB;
@@ -199,12 +258,13 @@ export function createLoadingsForPO(po: PurchaseOrder) {
     db.loadings.push({
       id: uid('ld'), entityId: po.entityId, poId: po.id, truckNo: no, truckId: '', driverId: '', loadingPointId: po.supplierId, status: 'Pending',
       lines: lines.map((l) => ({ planLineId: l.id, productId: l.productId, orderedQty: l.qty, loadedQty: l.qty })),
-      agreedTransport: 0, transportCurrency: 'USD', documents: [],
+      agreedTransport: null, transportCurrency: 'USD', documents: [],
     });
   }
 }
 
-export function completeLoading(ld: Loading, truckId: ID, driverId: ID, transport: number, at = Date.now()) {
+/** `transport` null = the loader recorded no price (docs/12 A-04): no Transport cost until the agreed price is recorded. */
+export function completeLoading(ld: Loading, truckId: ID, driverId: ID, transport: number | null, at = Date.now()) {
   ld.truckId = truckId; ld.driverId = driverId; ld.agreedTransport = transport; ld.loadedAt = iso(at); ld.status = 'Loaded';
   const po = db.pos.find((p) => p.id === ld.poId)!;
   const plan = db.plans.find((p) => p.id === po.planId)!;
@@ -219,7 +279,7 @@ export function completeLoading(ld: Loading, truckId: ID, driverId: ID, transpor
   db.shipments.push(sh);
   const leg = addLeg(sh.id, pl.routeId, truckId, driverId, at + 2 * H, ld.lines.filter((l) => l.loadedQty > 0).map((l) => ({ productId: l.productId, loadedQty: l.loadedQty })));
   leg.status = 'Loaded'; sh.status = deriveShipmentStatus(sh);
-  { const rate = R.fxFor(db.fxRates ?? seed.seedFxRates(at), ld.transportCurrency, at); db.costs.push({ id: uid('cost'), entityId: sh.entityId, shipmentId: sh.id, legId: leg.id, kind: 'Transport', amount: transport, currency: ld.transportCurrency, docRef: `Agreed at loading ${ld.loadedAt.slice(0, 10)}`, fxRate: rate, amountUsd: Math.round((transport / rate) * 100) / 100 }); }
+  if (transport !== null) { const rate = R.fxFor(db.fxRates ?? seed.seedFxRates(at), ld.transportCurrency, at); db.costs.push({ id: uid('cost'), entityId: sh.entityId, shipmentId: sh.id, legId: leg.id, kind: 'Transport', amount: transport, currency: ld.transportCurrency, docRef: `Agreed at loading ${ld.loadedAt.slice(0, 10)}`, fxRate: rate, amountUsd: Math.round((transport / rate) * 100) / 100 }); }
   const w = db.waiting.find((x) => x.truckId === truckId && x.status !== 'Loaded');
   if (w) w.status = 'Loaded';
   return sh;

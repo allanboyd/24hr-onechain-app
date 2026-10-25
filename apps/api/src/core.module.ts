@@ -17,6 +17,10 @@ import { RefService } from './domain/ref.service';
 import { StockService } from './domain/stock.service';
 import { SyncService } from './domain/sync.service';
 import { ReportsService } from './domain/reports.service';
+import { MoneyService } from './domain/money.service';
+import { DashboardsService } from './domain/dashboards.service';
+import { DashboardsController } from './http/dashboards.controller';
+import { MoneyController, ReexportsController, WarehouseController } from './http/money.controllers';
 import { INBOUND_HANDLER } from './integrations/ports';
 import {
   AuthController, DevResetController, FinanceController, LoadingController, MeController, PlanningController, PeriodPlansController, RefController,
@@ -27,9 +31,9 @@ import {
 @Global()
 @Module({
   imports: [JwtModule.register({ secret: config.JWT_SECRET, global: true })],
-  controllers: [AuthController, MeController, RefController, UsersController, PlanningController, PeriodPlansController, LoadingController, ShipmentsController, StockController, FinanceController, SyncController, DevResetController, ReportsController, CompaniesController],
+  controllers: [AuthController, MeController, RefController, UsersController, PlanningController, PeriodPlansController, LoadingController, ShipmentsController, StockController, FinanceController, SyncController, DevResetController, ReportsController, CompaniesController, WarehouseController, ReexportsController, MoneyController, DashboardsController],
   providers: [
-    RefService, NotifyService, AuthService, PlanningService, PeriodPlansService, LogisticsService, StockService, FinanceService, PlatformService, SyncService, ReportsService,
+    RefService, NotifyService, AuthService, PlanningService, PeriodPlansService, LogisticsService, StockService, FinanceService, PlatformService, SyncService, ReportsService, MoneyService, DashboardsService,
     { provide: INBOUND_HANDLER, useExisting: LogisticsService },
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_INTERCEPTOR, useClass: BodyShapeInterceptor },

@@ -8,15 +8,15 @@ await shot(s, 'A01-web-login', 'Sign in', 'Username or phone + password (UA-04).
 await finish(s);
 
 // Dashboard light / dark / mobile
-s = await open({ app: 'web', user: 'u-dir', outDir: out });
+s = await open({ app: 'web', user: 'u-daniel', outDir: out });
 await s.go('/', 900);
 await shot(s, 'A02-web-dashboard', 'Executive dashboard (director)', 'KPIs (trucks on the road, approvals waiting, stock, 30-day sales), trucks in transit with ETA badges, velocity flags, daily sales and plans awaiting approval (§10 Executive summary, TR-02, §9.3).');
 await finish(s);
-s = await open({ app: 'web', user: 'u-dir', outDir: out, theme: 'dark' });
+s = await open({ app: 'web', user: 'u-daniel', outDir: out, theme: 'dark' });
 await s.go('/', 900);
 await shot(s, 'A03-web-dashboard-dark', 'Executive dashboard — dark mode', 'Same screen in dark theme: orange takes the primary role, logo stays on a white tile (02-design-system §2.4, Q-B3).');
 await finish(s);
-s = await open({ app: 'web', user: 'u-dir', outDir: out, width: 390, height: 844 });
+s = await open({ app: 'web', user: 'u-daniel', outDir: out, width: 390, height: 844 });
 await s.go('/', 900);
 await shot(s, 'A04-web-dashboard-mobile', 'Dashboard on a phone browser', 'Responsive web at 390 px: KPI cards stack, route column hides, flags wrap to two lines (§12 Browsers: desktop, tablet, phone).');
 await s.page.click('button[aria-label="Menu"]'); await sleep(400);
@@ -52,7 +52,7 @@ await P.click('button:has-text("Submit for approval")'); await sleep(3500);
 const planUrl = await P.evaluate(() => location.hash.slice(1));
 await shot(s, 'A09-web-plan-submitted-planner', 'Plan submitted', 'After submitting, the plan is read-only for the planner; history shows who submitted and that directors were notified (PL-02, PL-05).');
 // Director takes over in the same browser data
-await P.evaluate(() => localStorage.setItem('btw-user', 'u-dir')); await P.reload(); await sleep(500);
+await P.evaluate(() => localStorage.setItem('btw-user', 'u-daniel')); await P.reload(); await sleep(500);
 await s.go(planUrl, 800);
 await shot(s, 'A10-web-plan-director-review', 'Director reviews the plan', 'Director sees order lines grouped by truck, truck/brand subtotals and the grand total, with Return, Reject and Approve & sign (PL-02).');
 await P.click('button:has-text("Approve & sign")'); await sleep(400);
@@ -73,13 +73,13 @@ await shot(s, 'A15-web-po-print', 'PO letter — print / PDF view', 'Print view 
 await finish(s);
 
 // Seeded PO with mixed-load truck, 1024 tablet
-s = await open({ app: 'web', user: 'u-dir', outDir: out, width: 1024, height: 768 });
+s = await open({ app: 'web', user: 'u-daniel', outDir: out, width: 1024, height: 768 });
 await s.go('/plans/plan-2', 800);
 await shot(s, 'A16-web-plan-tablet', 'Plan review on a tablet (1024 px)', 'Narrower summary column; in read-only mode route and receiving company share a column so all amounts stay visible (§12 Browsers).');
 await finish(s);
 
 // Admin: users & devices, integrations (A17–A20)
-s = await open({ app: 'web', user: 'u-admin', outDir: out });
+s = await open({ app: 'web', user: 'u-daniel', outDir: out });
 await s.go('/users', 900);
 await shot(s, 'A17-web-users', 'Users & devices', 'Field-app people (loading point / driver / receiver) and office staff with roles, scope (entities, loading points, warehouses), active phones and last seen (UA-01/02, §17.7).');
 await s.page.locator('tr', { hasText: 'Mawazi K' }).first().click(); await s.page.waitForTimeout(400);
@@ -98,7 +98,7 @@ await finish(s);
 
 
 // Overview tabs — A21+
-s = await open({ app: 'web', user: 'u-dir', outDir: out });
+s = await open({ app: 'web', user: 'u-daniel', outDir: out });
 await s.go('/plans', 3500);
 await shot(s, 'A21-web-plans-overview', 'Plans · overview', 'What waits for approval, value by status / entity / supplier, and approval turnaround by month (PL-02, §10 Procurement).');
 await s.go('/pos', 3500);

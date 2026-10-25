@@ -8,8 +8,8 @@ const key = () => crypto.randomUUID();
 export async function syncSuite(env: Env) {
   const c = client(env.base);
   const T = {
-    dir: (await c.login('dir')).accessToken, plan: (await c.login('kabonge')).accessToken, joel: (await c.login('+254700000003', '1234')).accessToken,
-    asie: (await c.login('+250700000007', '1234')).accessToken, drv1: (await c.login('+254702750019', '1234')).accessToken, zonas: (await c.login('+211900000008', '1234')).accessToken,
+    dir: (await c.login('daniel')).accessToken, plan: (await c.login('kabonge')).accessToken, joel: (await c.login('+254700000003', '1234')).accessToken,
+    asie: (await c.login('+250700000007', '1234')).accessToken, drv1: (await c.login('+254702750019', '1234')).accessToken, yonas: (await c.login('+211900000008', '1234')).accessToken,
   };
   const app = { 'x-channel': 'app', 'x-app-version': '1.0.0' };
   const batch = (token: string, items: { op: string; payload: unknown; idempotencyKey?: string }[]) =>
@@ -86,18 +86,18 @@ export async function syncSuite(env: Env) {
   ok(moves[0].n === lines.length, `stock received posted exactly once per line (${moves[0].n})`, moves[0]);
   // rejected items stay rejected on replay (no double processing after the client retries)
   const badKey = key();
-  await batch(T.zonas, [{ idempotencyKey: badKey, op: 'leg.acknowledge', payload: { legId: target.leg.id, input: { receiverName: 'x', lines } } }]);
-  r = await batch(T.zonas, [{ idempotencyKey: badKey, op: 'leg.acknowledge', payload: { legId: target.leg.id, input: { receiverName: 'x', lines } } }]);
+  await batch(T.yonas, [{ idempotencyKey: badKey, op: 'leg.acknowledge', payload: { legId: target.leg.id, input: { receiverName: 'x', lines } } }]);
+  r = await batch(T.yonas, [{ idempotencyKey: badKey, op: 'leg.acknowledge', payload: { legId: target.leg.id, input: { receiverName: 'x', lines } } }]);
   ok(r.body[0].status === 'rejected' && r.body[0].error?.status === 403, 'a rejected item replays as rejected with the same status', r.body[0]);
 
   section('Sync · sales offline');
-  const stock = ((await c.req('GET', '/stock', { token: T.zonas })).body as any[]).find((x) => x.warehouseId === 'w-juba' && x.closing > 10);
+  const stock = ((await c.req('GET', '/stock', { token: T.yonas })).body as any[]).find((x) => x.warehouseId === 'w-juba' && x.closing > 10);
   const sk = key();
   const sale = { op: 'sale.create', idempotencyKey: sk, payload: { input: { entityId: stock.entityId, warehouseId: 'w-juba', customer: 'QA offline', kind: 'Cash', lines: [{ productId: stock.productId, qty: 3, price: 12 }], currency: 'USD', paid: 36, at: new Date().toISOString() } } };
-  const twice = await Promise.all([batch(T.zonas, [sale]), batch(T.zonas, [sale])]);
+  const twice = await Promise.all([batch(T.dir, [sale]), batch(T.dir, [sale])]);
   const sales = await env.sql`select count(*)::int as n from sales where customer = 'QA offline'`;
   ok(sales[0].n === 1 && twice.map((t) => t.body[0].status).sort().join() === 'applied,duplicate', 'the same offline sale sent twice concurrently is recorded once', { sales: sales[0].n, statuses: twice.map((t) => t.body[0].status) });
-  const after = ((await c.req('GET', '/stock', { token: T.zonas })).body as any[]).find((x) => x.warehouseId === 'w-juba' && x.productId === stock.productId);
+  const after = ((await c.req('GET', '/stock', { token: T.yonas })).body as any[]).find((x) => x.warehouseId === 'w-juba' && x.productId === stock.productId);
   ok(after.closing === stock.closing - 3, 'stock reduced once (−3)', { before: stock.closing, after: after.closing });
   const big = await c.req('POST', '/sync/batch', { token: T.drv1, body: Array.from({ length: 201 }, () => ({ idempotencyKey: key(), op: 'positions', payload: { items: [] } })) });
   ok(big.status === 400, 'batches over 200 items are refused', big.status);

@@ -2,14 +2,14 @@
 import { API_MODE } from './mode';
 // Built on @btw/api (`users`, `devices`, `pos`), which works in both mock and http mode. The dev endpoints
 // (/v1/dev/*) exist only on non-production servers; the screens show a calm "not available" otherwise.
-import { devices as apiDevices, pos, users as apiUsers, type Device, type ID, type Role, type UserAdmin } from '@btw/api';
+import { devices as apiDevices, pos, users as apiUsers, type Device, type ID, type Role, type UserAdmin, type UserPair } from '@btw/api';
 
 export class NotAvailable extends Error { constructor(what: string) { super(`${what} isn’t available here.`); this.name = 'NotAvailable'; } }
 export const isNotAvailable = (e: unknown) => e instanceof NotAvailable || (e as any)?.status === 404 || (e as any)?.status === 501;
 
 export type AdminUser = UserAdmin;
 export type { Device };
-export type UserInput = { id?: ID; name: string; phone: string; roles: Role[]; entityIds: ID[]; loadingPointIds: ID[]; warehouseIds: ID[] };
+export type UserInput = { id?: ID; name: string; phone: string; roles: Role[]; entityIds: ID[]; loadingPointIds: ID[]; warehouseIds: ID[]; pairs: UserPair[]; routeIds: ID[] };
 const rule = (message: string) => Object.assign(new Error(message), { status: 422 });
 
 export const users = {
@@ -23,7 +23,8 @@ export const users = {
     if (input.roles.includes('loader') && !input.loadingPointIds.length) throw rule('A loading-point user needs at least one loading point.');
     if (input.roles.includes('receiver') && !input.warehouseIds.length) throw rule('A receiver needs at least one warehouse.');
     const { id, ...rest } = input;
-    const scopes = { roles: rest.roles, entityIds: rest.entityIds, loadingPointIds: rest.loadingPointIds, warehouseIds: rest.warehouseIds };
+    if (input.pairs.some((p) => !input.entityIds.includes(p.entityId)) && !input.roles.includes('director')) throw rule('Every buyer–supplier pair must be for one of the user’s companies.');
+    const scopes = { roles: rest.roles, entityIds: rest.entityIds, loadingPointIds: rest.loadingPointIds, warehouseIds: rest.warehouseIds, pairs: rest.pairs, routeIds: rest.routeIds };
     return id ? apiUsers.update(id, { name: rest.name.trim(), ...scopes }) : apiUsers.create({ name: rest.name.trim(), phone, ...scopes });
   },
   setActive: (id: ID, active: boolean) => apiUsers.update(id, { active }),
@@ -37,15 +38,17 @@ export const users = {
 };
 
 export const FIELD_ROLES: { role: Role; label: string; hint: string }[] = [
-  { role: 'loader', label: 'Loading point (giver)', hint: 'Hands goods to trucks at a supplier loading point' },
-  { role: 'driver', label: 'Driver', hint: 'Checks in at checkpoints on the field app' },
-  { role: 'receiver', label: 'Receiver', hint: 'Counts and signs for deliveries at a warehouse' },
+  { role: 'loader', label: 'Loader', hint: 'Records loadings at a supplier loading point — quantities and documents, no prices' },
+  { role: 'driver', label: 'Driver', hint: 'Updates trip status on the field app, also offline' },
+  { role: 'receiver', label: 'Receiver · warehouse', hint: 'Acknowledges deliveries, records warehouse stock and expenses' },
+  { role: 'reexport', label: 'Re-export planner', hint: 'Raises and loads onward orders from their own warehouse (e.g. Rwanda → Juba)' },
 ];
 export const OFFICE_ROLES: { role: Role; label: string; hint?: string }[] = [
-  { role: 'director', label: 'Director' }, { role: 'planner', label: 'Planner' }, { role: 'operations', label: 'Operations' },
-  { role: 'fleet', label: 'Fleet follow-up' },
-  { role: 'truck_planner', label: 'Truck planner', hint: 'Onboards transport providers and trucks, runs the loading queues, follows trucks and their costs' },
-  { role: 'accounts', label: 'Accounts' }, { role: 'sales', label: 'Sales' }, { role: 'admin', label: 'Administrator' },
+  { role: 'director', label: 'Director', hint: 'Full access, every company; payments and selling prices' },
+  { role: 'planner', label: 'Purchase planner · static data', hint: 'Plans and POs for their buyer–supplier pairs; companies, suppliers, goods, transport data' },
+  { role: 'truck_planner', label: 'Truck follow-up officer', hint: 'Follows every truck, truck expenses, agreed transport price; loads at the loading points on the profile' },
+  { role: 'operations', label: 'Operations (unassigned)' }, { role: 'fleet', label: 'Fleet (unassigned)' },
+  { role: 'accounts', label: 'Accounts (unassigned)' }, { role: 'sales', label: 'Sales (unassigned)' }, { role: 'admin', label: 'Administrator (unassigned)' },
 ];
 
 // ---------------- integrations (dev endpoints, non-production servers only) ----------------

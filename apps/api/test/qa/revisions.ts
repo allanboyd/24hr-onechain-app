@@ -7,7 +7,7 @@ import { client, expectStatus, ok, section, type Env } from './harness';
 
 export async function revisionsSuite(env: Env) {
   const c = client(env.base);
-  const T = { dir: (await c.login('dir')).accessToken, plan: (await c.login('kabonge')).accessToken, joel: (await c.login('joel')).accessToken, acc: (await c.login('acc')).accessToken };
+  const T = { dir: (await c.login('daniel')).accessToken, plan: (await c.login('kabonge')).accessToken, joel: (await c.login('joel')).accessToken, acc: (await c.login('testfie')).accessToken };
   const btw = { 'x-entity-id': 'e-btw' };
   const ref = (await c.req('GET', '/ref', { token: T.dir })).body;
 
@@ -47,7 +47,7 @@ export async function revisionsSuite(env: Env) {
   ok(Array.isArray(vers) && vers.some((v) => v.version === 1) && vers.some((v) => v.version === 2), 'every saved version kept (edit history)', vers.map((v) => v.version));
   for (const [path, body] of [['submit', {}], ['decision', { action: 'approved', signature: 'x' }], ['amendments', { reason: 'x' }]] as const)
     expectStatus(await c.req('POST', `/period-plans/${jun.id}/${path}`, { token: T.dir, body }), 404, `no period-plan ${path} endpoint any more`);
-  expectStatus(await c.req('POST', '/period-plans', { token: T.acc, body: { entityId: 'e-btw', periodKind: 'month', from: '2032-01-01', to: '2032-01-31', title: 'x' } }), 403, 'accounts cannot save period plans');
+  expectStatus(await c.req('POST', '/period-plans', { token: T.acc, body: { entityId: 'e-btw', periodKind: 'month', from: '2032-01-01', to: '2032-01-31', title: 'x' } }), 403, 'the truck follow-up officer cannot save period plans');
   r = await c.req('POST', `/period-plans/${jun.id}/copy`, { token: T.plan, body: { from: '2031-04-15', to: '2031-05-15' } });
   ok(r.status === 409 && r.body.conflicts?.[0]?.id === jun.id, 'copy onto a covered period → 409 too', r.body);
 

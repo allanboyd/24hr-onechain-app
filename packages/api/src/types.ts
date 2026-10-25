@@ -7,11 +7,20 @@ export type Currency = 'USD' | 'KES' | 'UGX' | 'TZS' | 'RWF';
 
 export type Role =
   | 'director' | 'planner' | 'operations' | 'loader' | 'fleet' | 'truck_planner'
-  | 'receiver' | 'sales' | 'accounts' | 'driver' | 'admin';
+  | 'receiver' | 'sales' | 'accounts' | 'driver' | 'admin'
+  /** Re-export planner (docs/12): raises and loads onward orders from their own warehouse (Asie: Rwanda → Juba). */
+  | 'reexport';
+
+/** A buyer–supplier pair a user works on (docs/12 "Own" scope), e.g. BTW–KBL. */
+export interface UserPair { entityId: ID; supplierId: ID }
 
 export interface User {
   id: ID; name: string; phone: string; roles: Role[];
   entityIds: ID[]; loadingPointIds: ID[]; warehouseIds: ID[]; // UA-02 + §17.7 scope
+  /** Buyer–supplier pairs (docs/12): plans, POs, loadings and shipments are limited to these. Empty/absent = no pair limit. */
+  pairs?: UserPair[];
+  /** Optional route scope (docs/12 A-06): shipments on these routes only. Empty/absent = every route. */
+  routeIds?: ID[];
   /** Companies this user may work in (directors/admins: all; drivers: all — their trips decide). */
   allowedEntityIds: ID[];
   /** May open the consolidated "Group · all companies" view (directors and admins). */
@@ -25,7 +34,21 @@ export type FeatureKey =
   /** Truck desk: every truck by state, queue management across loading points, transport costs (docs/10). */
   | 'trucks'
   /** Master data limited to transport: providers, trucks and drivers (add / edit / deactivate). */
-  | 'master-data.transport';
+  | 'master-data.transport'
+  // ---- docs/12 (roles document §7) -------------------------------------------------------------
+  /** Companies, suppliers, goods and receiving companies: add / edit / deactivate. */
+  | 'master-data.static'
+  /** Loading queues and loadings (view); recording a loading also needs the loading point on the user's profile. */
+  | 'loading'
+  /** Fleet follow-up: tracking map, truck issues, where trucks stopped and why. */
+  | 'fleet'
+  /** Truck expenses per trip and leg, the agreed transport price after loading and transport-fee tracking. */
+  | 'truck-expenses'
+  /** Audit log: search who did what and when (directors). */
+  | 'audit'
+  /** Hooks for workstream B (not built yet): combined performance + margins, selling prices, warehouse expenses /
+   *  stock recording, re-export orders, transport-fee tracking. */
+  | 'performance' | 'selling-prices' | 'warehouse-expenses' | 'warehouse-stock' | 're-export' | 'transport-fees';
 
 /** One of the three sibling companies (tenant). Legal/contact fields come from the client's letterheads. */
 export interface Entity {
@@ -39,18 +62,35 @@ export interface Entity {
   kraPin: string; registrationNo: string; registeredOffice: string;
   reportingCurrency: Currency;
   letterhead: { header: string; footer: string; watermark?: string };
+  /** false = deactivated: kept for history, no new orders (docs/12 A-05) */ active?: boolean;
 }
 /** Approved exchange rate for one month, in units of `currency` per 1 USD: average (P&L, costs, sales) and closing (stock and balances). */
 export interface FxRate { currency: Currency; month: string; avg: number; closing: number }
-export interface ReceivingCompany { id: ID; name: string; countries: string[] }
+export interface ReceivingCompany { id: ID; name: string; countries: string[]; /** false = deactivated (kept for history) */ active?: boolean }
 /** A destination warehouse (docs/07 §D): shown as "<country> – <town>", e.g. "Rwanda – Gisenyi". */
 export interface Warehouse { id: ID; name: string; receivingCompanyId: ID; checkpointId: ID; country: string; town: string; /** doc 08 §3: inactive = kept for history, not offered as a destination */ active?: boolean }
 /** Doc 08 §3: add / edit a warehouse (admin, director); its geofence becomes a warehouse checkpoint. */
 export interface WarehouseInput { name: string; country: string; town: string; receivingCompanyId: ID; lat: number; lng: number; radiusM?: number; active?: boolean }
-export interface Supplier { id: ID; code: string; name: string; city: string; country: string; checkpointId: ID; email: string }
+export interface Supplier { id: ID; code: string; name: string; city: string; country: string; checkpointId: ID; email: string; /** false = deactivated */ active?: boolean }
+// ---- Static data editing (docs/12 A-05): companies, suppliers, goods, receiving companies ---------------------
+export interface EntityInput { code: string; name: string; shortName?: string; poPrefix?: string; address?: string[]; phones?: string[]; email?: string; website?: string; tagline?: string; reportingCurrency?: Currency; active?: boolean }
+/** A supplier's loading point is a checkpoint at `lat`/`lng` (created with it). */
+export interface SupplierInput { code: string; name: string; city: string; country: string; email?: string; lat?: number; lng?: number; active?: boolean }
+export interface ProductInput { sku: string; brand: string; pack: string; unitsPerCase: number; sizeMl: number; supplierId: ID; category?: string | null; /** purchase price (USD) for the price list */ price?: number; active?: boolean }
+export interface ReceivingCompanyInput { name: string; countries: string[]; active?: boolean }
+/** One audit-log row (docs/12 A-07): who did what, when, with before/after values where the change is a record edit. */
+export interface AuditEntry {
+  id: string; at: ISODate; userId: ID | null; userName?: string; channel: string; method: string; path: string; status: number; entityId: ID | null;
+  /** Feature area derived from the path (e.g. "masterdata", "loadings", "shipments"). */ feature: string;
+  /** Record kind and id when known (e.g. "product" / "p-a300"). */ recordType?: string | null; recordId?: string | null;
+  summary?: string | null; before?: unknown; after?: unknown;
+}
+export interface AuditFilter { userId?: ID; feature?: string; from?: string; to?: string; q?: string; page?: number; pageSize?: number }
+export interface AuditPage { rows: AuditEntry[]; total: number; page: number; pageSize: number; /** actions per day over the filter (sparkline) */ byDay: { day: string; n: number }[] }
 
 export interface Product {
   id: ID; sku: string; brand: string; pack: string; unitsPerCase: number; sizeMl: number; supplierId: ID;
+  /** false = deactivated: kept for history, not offered on new orders */ active?: boolean;
   /** spirits | beer | wine | rtd (from the client's list, docs/08 §1) */ category?: string | null;
   /** false → the client's list gives no pack; units/size are assumptions ("to confirm") */ packConfirmed?: boolean;
   /** row number in the client's price list for that source */ sheetNo?: number | null;
@@ -122,6 +162,8 @@ export interface Plan {
   revisionOf?: ID; revision?: number;
   /** Set once a later revision replaces this order (it then no longer counts as ordered). */
   supersededById?: ID;
+  /** docs/12 A-04: prices were removed for this reader (loaders, receivers, drivers) — line `price` is absent. */
+  pricesHidden?: boolean;
 }
 // ---- Period plans (§8.3 PL-06..PL-12) ---------------------------------------
 export type PeriodKind = 'month' | 'quarter' | 'half' | 'year' | 'custom';
@@ -161,6 +203,8 @@ export interface PurchaseOrder {
   createdBy?: 'system'; onBehalfOfId?: ID;
   /** Set when a later revision replaces this PO (kept viewable; reports use the latest revision). */
   supersededById?: ID;
+  /** docs/12 A-04: prices were removed for this reader. */
+  pricesHidden?: boolean;
 }
 /** One line of a PO revision made at loading: what was ordered vs what the truck actually took. */
 export interface PoRevisionChange {
@@ -171,7 +215,12 @@ export interface PoRevisionChange {
 export interface AppConfig {
   approvals: { /** true = a director approves every PO before it is issued */ purchaseOrders: boolean };
   loading: { /** ± % the truck's loaded total may differ from the PO */ allowancePct: number; /** loader may load substitute products */ allowAlternatives: boolean; /** PO-001 → PO-001-rev001 */ revisionSuffix: string };
+  /** docs/14 B-04: unpaid transport fees turn amber / red this many days after loading (config [fees], to confirm). */
+  fees?: { amberDays: number; redDays: number };
+  /** docs/14 B-06: how shared truck and warehouse costs are split over products (config [costs], to confirm Q5). */
+  costs?: { allocation: CostAllocation };
 }
+export type CostAllocation = 'quantity' | 'value';
 /** Substitute product loaded instead of (or on top of) a PO line. */
 export interface LoadingAlternative { productId: ID; qty: number; replacesPlanLineId?: ID }
 
@@ -180,7 +229,9 @@ export interface WaitingEntry { id: ID; entityId: ID; loadingPointId: ID; truckI
 export interface LoadingLine { planLineId: ID; productId: ID; orderedQty: number; loadedQty: number; /** substitute loaded at the loading point (orderedQty 0) */ alternativeFor?: ID }
 export interface Loading {
   id: ID; entityId: ID; poId: ID; truckNo: number; truckId: ID; driverId: ID; loadingPointId: ID;
-  loadedAt?: ISODate; lines: LoadingLine[]; agreedTransport: number; transportCurrency: Currency;
+  /** docs/12 A-04: agreed transport price, recorded by the truck follow-up officer AFTER loading (null = not recorded yet).
+   *  Hidden (absent) for loaders, receivers and drivers. */
+  loadedAt?: ISODate; lines: LoadingLine[]; agreedTransport: number | null; transportCurrency: Currency;
   documents: DocumentRef[]; status: 'Pending' | 'Loaded';
   /** Pending trucks (computed, not stored): the PO ref a deviation at loading would create, e.g. BTW-PO-2026-0002-rev001. */
   nextRevisionRef?: string;
@@ -218,7 +269,9 @@ export interface TruckIssue { id: ID; at: ISODate; checkpointId?: ID; place: str
 export interface EtaInfo { state: 'Early' | 'On time' | 'Late'; hours: number; eta: ISODate; nextCheckpointId?: ID }
 
 // ---- Acknowledgement (AK-*) -----------------------------------------------
-export interface AckLine { productId: ID; expected: number; received: number; damaged: number; remarks?: string }
+export interface AckLine { productId: ID; expected: number; received: number; damaged: number; remarks?: string;
+  /** docs/14 B-08: why cases were short or damaged (money.ACK_REASONS) — feeds the delivery-loss Pareto. */
+  reason?: string }
 export interface Acknowledgement {
   id: ID; entityId: ID; legId: ID; shipmentId: ID; warehouseId: ID; receiverName: string; at: ISODate;
   lines: AckLine[]; signature?: string; photos: DocumentRef[]; hasDiscrepancy: boolean;
@@ -242,6 +295,59 @@ export interface Sale {
 export type CostKind = 'Transport' | 'Taxes & duties' | 'Clearing & forwarding' | 'Loading & offloading' | 'Storage' | 'Other';
 export interface TripCost { id: ID; entityId: ID; shipmentId: ID; legId?: ID; kind: CostKind; amount: number; currency: Currency; docRef?: string; /** units of `currency` per 1 USD (approved month average); amountUsd = amount ÷ fxRate */ fxRate?: number; amountUsd?: number }
 export interface TripPayment { id: ID; entityId: ID; shipmentId: ID; costId: ID; amount: number; at: ISODate; reference: string; approvedById?: ID; status: 'Pending approval' | 'Approved' | 'Paid'; fxRate?: number; amountUsd?: number }
+
+// ---- Warehouse money and data (docs/14, workstream B) ------------------------------------------------------
+export type WarehouseExpenseCategory = 'Offloading' | 'Storage' | 'Salary' | 'Rent' | 'Utilities' | 'Damaged goods' | 'Other';
+/** B-01: an expense of a warehouse, recorded by its receiver (Asie, Yonas) or a director. It belongs to the warehouse and its
+ *  receiving company; landed cost v2 spreads a warehouse's monthly expenses over the goods received there that month. */
+export interface WarehouseExpense {
+  id: ID; warehouseId: ID; receivingCompanyId: ID; /** YYYY-MM-DD */ date: string; category: WarehouseExpenseCategory;
+  amount: number; currency: Currency; /** units of currency per USD (approved month average) */ fxRate: number; amountUsd: number;
+  reference?: string | null; note?: string | null; receipt?: DocumentRef | null; byUserId: ID; at: ISODate;
+}
+export interface WarehouseExpenseInput {
+  warehouseId: ID; date: string; category: WarehouseExpenseCategory; amount: number; currency?: Currency;
+  reference?: string | null; note?: string | null; /** uploaded file id (files.upload) or a name */ receiptFileId?: string | null; receiptName?: string | null; /** the link files.upload returned */ receiptUrl?: string | null;
+}
+export interface ExpenseFilter { warehouseId?: ID; from?: string; to?: string; category?: string }
+/** B-02: count = physical count (difference posted), damaged = write-off, moved-out = left other than a sale or re-export, found. */
+export type StockAdjustKind = 'count' | 'damaged' | 'moved-out' | 'found';
+export interface StockAdjustInput { warehouseId: ID; productId: ID; entityId?: ID; kind: StockAdjustKind; /** cases (damaged / moved-out / found) */ qty?: number; /** physical count (kind count) */ counted?: number; note?: string; at?: string }
+/** One recorded adjustment (a stock move with its reason). `qty` is the effect on stock held (negative = less). */
+export interface StockAdjustment { entityId: ID; warehouseId: ID; productId: ID; kind: StockAdjustKind; qty: number; counted?: number | null; reason: string; note?: string | null; at: ISODate; byUserId?: ID | null; ref: string }
+/** B-02: quantities only (never values) per company × warehouse × product over a period. */
+export interface WarehouseStockRow {
+  entityId: ID; warehouseId: ID; productId: ID; opening: number; received: number; transfersIn: number; damaged: number;
+  /** short on acknowledgement (expected − received) */ short: number; /** moved out other than sales / re-exports */ movedOut: number;
+  /** sent on / re-exported */ transfersOut: number; sold: number; /** count differences and found stock (signed) */ adjusted: number;
+  held: number; lastCountAt?: ISODate | null;
+}
+export type ReexportStatus = 'Open' | 'Loaded' | 'In transit' | 'Delivered' | 'Cancelled';
+/** B-03: a re-export order (Asie, Rwanda → Juba): raised from her warehouse stock, loaded by her, shipped as a new shipment
+ *  (ref = the order ref) and acknowledged by Yonas into Juba stock. */
+export interface ReexportOrder {
+  id: ID; ref: string; entityId: ID; fromWarehouseId: ID; toWarehouseId: ID; routeId: ID;
+  lines: { productId: ID; qty: number; loadedQty?: number }[]; status: ReexportStatus;
+  truckId?: ID | null; driverId?: ID | null; shipmentId?: ID | null; note?: string | null;
+  createdById: ID; createdAt: ISODate; loadedById?: ID | null; loadedAt?: ISODate | null; deliveredAt?: ISODate | null;
+  /** follow-up owner — "to confirm" (Q3); Testfie for now */ followUpById?: ID | null;
+}
+export interface ReexportInput { entityId?: ID; fromWarehouseId: ID; toWarehouseId?: ID; routeId?: ID; lines: { productId: ID; qty: number }[]; note?: string; truckId?: ID; driverId?: ID }
+/** Hand-over of a re-export (like the loader's, no prices): a truck from the list or a market truck. */
+export interface ReexportLoadInput { truckId?: ID; driverId?: ID; market?: { company?: string; reg: string; trailer?: string; driverName: string; driverPhone?: string; capacityCases?: number }; loadedQty?: Record<ID, number>; documents?: string[] }
+/** B-05: selling price per product, per warehouse (warehouseId) or company-wide (warehouseId null), from an effective date. */
+export interface SellingPrice { id: ID; entityId: ID; productId: ID; warehouseId: ID | null; price: number; currency: Currency; /** YYYY-MM-DD */ from: string; note?: string | null; byUserId: ID; at: ISODate }
+export interface SellingPriceInput { entityId?: ID; productId: ID; warehouseId?: ID | null; price: number; from?: string; note?: string }
+export type FeeStatus = 'Not recorded' | 'Unpaid' | 'Part paid' | 'Paid';
+export type FeeFlag = 'ok' | 'amber' | 'red' | 'none';
+/** B-04: one trip's transport fee — agreed price vs payments against document references, with its age since loading. */
+export interface TransportFeeRow {
+  shipmentId: ID; ref: string; entityId: ID; truckId: ID; providerId: ID | null; routeId: ID; warehouseId: ID; loadedAt: ISODate | null; ageDays: number;
+  agreed: { amount: number; currency: Currency } | null; agreedUsd: number | null; paidUsd: number; pendingUsd: number; balanceUsd: number | null;
+  status: FeeStatus; flag: FeeFlag; references: string[]; reexport?: boolean;
+  costs: { id: ID; legId?: ID; kind: CostKind; amount: number; currency: Currency; amountUsd: number; docRef?: string }[];
+  legs: { id: ID; seq: number; routeId: ID; status: LegStatus }[];
+}
 
 // ---- Analytics (§9) -------------------------------------------------------
 export type VelocityClass = 'Fast' | 'Normal' | 'Slow' | 'Stagnant';
@@ -267,7 +373,7 @@ export interface GiverWork { loadingPoints: Supplier[]; waiting: WaitingEntry[];
 export interface ReceiverWork { warehouses: Warehouse[]; incoming: LegView[] }
 
 // ---- Admin ---------------------------------------------------------------------------------------
-export interface UserAdmin extends User { username: string; email?: string | null; active: boolean; driverId?: string | null; hasPassword: boolean; hasPin: boolean }
+export interface UserAdmin extends User { username: string; email?: string | null; active: boolean; driverId?: string | null; hasPassword: boolean; hasPin: boolean; /** last successful sign-in */ lastLoginAt?: ISODate | null }
 export interface Device { id: string; userId: ID; platform: string; appVersion?: string | null; lastSeenAt: ISODate; revokedAt?: ISODate | null; hasPush: boolean }
 export interface StoredFile { id: string; url: string; size: number }
 export interface SyncResult { idempotencyKey: string; status: 'applied' | 'duplicate' | 'rejected'; result?: unknown; error?: { title: string; status: number } }

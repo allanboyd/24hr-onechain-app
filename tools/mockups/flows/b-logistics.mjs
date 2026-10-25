@@ -25,8 +25,8 @@ await dlg(s).getByRole('button', { name: 'Confirm loading' }).click(); await s.p
 const shipUrl = await s.page.evaluate(() => location.hash);
 await shot(s, 'B05-web-shipment-new-loaded-loader', 'New shipment after loading (loader view)', 'Loading creates the shipment and leg 1 with loaded quantities (−20 variance) and the agreed transport cost; loaders see status only. DS-01.');
 
-await as(s, 'u-kabonge'); // fleet follow-up across the companies (Tesfie covers NUD and Kivu only)
-await shot(s, 'B06-web-shipment-office-actions', 'Shipment — office actions (Kabonge, fleet follow-up)', 'Dispatch, record arrival/departure for drivers without the app, plan an unload-and-transfer point at an intermediate warehouse, and log truck issues. DS-02, §17.5.');
+await as(s, 'u-testfie'); // truck follow-up officer: every truck, route and company (docs/12)
+await shot(s, 'B06-web-shipment-office-actions', 'Shipment — office actions (Testfie, truck follow-up)', 'Dispatch, record arrival/departure for drivers without the app, plan an unload-and-transfer point at an intermediate warehouse, and log truck issues. DS-02, §17.5.');
 await s.page.getByRole('button', { name: /Unload & transfer at/ }).first().click(); await s.page.waitForTimeout(500);
 await s.page.getByRole('button', { name: /Dispatch from/ }).click(); await s.page.waitForTimeout(500);
 await s.page.getByRole('button', { name: /Mark arrived/ }).click(); await s.page.waitForTimeout(500);
@@ -53,7 +53,7 @@ await shot(s, 'B10-web-shipment-multileg-reconciliation', 'Journey — chain of 
 await finish(s);
 
 // ---- Director views ----
-const d = await open({ app: 'web', user: 'u-dir', outDir: out });
+const d = await open({ app: 'web', user: 'u-daniel', outDir: out });
 await d.go('/shipments?tab=list');
 await shot(d, 'B11-web-shipments-list', 'Shipments & legs', 'Quick filters with counts (on the road, delayed, at border, no check-in, delivered). Last check-in with its source and age, time at a checkpoint vs planned dwell, next checkpoint and ETA. TR-02, TR-04.');
 await d.page.getByRole('tab', { name: /No check-in/ }).click(); await d.page.waitForTimeout(300);
@@ -73,19 +73,19 @@ await d.go('/notifications');
 await shot(d, 'B17-web-notifications', 'Notifications', 'Approvals, delays, discrepancies, payments; unread filter; clicking marks read. NT-01.');
 await finish(d);
 
-const k = await open({ app: 'web', user: 'u-dir', theme: 'dark', outDir: out });
+const k = await open({ app: 'web', user: 'u-daniel', theme: 'dark', outDir: out });
 await k.go('/tracking', 2800);
 await shot(k, 'B18-web-tracking-dark', 'Tracking map — dark theme', 'Tiles dimmed for dark mode; markers and list use theme tokens.', { fullPage: false });
 await k.go('/shipments?tab=list'); await k.page.locator('tr', { hasText: 'UBA 789C' }).click(); await k.page.waitForTimeout(700);
 await shot(k, 'B19-web-shipment-dark', 'Shipment detail — dark theme', 'Same screen in dark mode.');
 await finish(k);
 
-const t = await open({ app: 'web', user: 'u-tesfie', width: 1024, height: 800, outDir: out });
+const t = await open({ app: 'web', user: 'u-testfie', width: 1024, height: 800, outDir: out });
 await t.go('/loading?tab=list'); await t.page.getByRole('tab', { name: /GBI/ }).click(); await t.page.waitForTimeout(300);
-await shot(t, 'B20-web-loading-1024-empty', 'Loading at 1024 px — GBI Mombasa (empty states)', 'Tesfie sees only GBI and SBL; empty queue and no pending lines explain what to do next.');
+await shot(t, 'B20-web-loading-1024-empty', 'Loading at 1024 px — GBI Mombasa (empty states)', 'Testfie loads only at GBI Mombasa; empty queue and no pending lines explain what to do next.');
 await finish(t);
 
-const m = await open({ app: 'web', user: 'u-dir', width: 390, height: 844, outDir: out });
+const m = await open({ app: 'web', user: 'u-daniel', width: 390, height: 844, outDir: out });
 await m.go('/shipments?tab=list');
 await shot(m, 'B21-web-shipments-390', 'Shipments on a phone browser (390 px)', 'Table becomes one card per truck with status, ETA and overdue flag.');
 await m.go('/tracking', 2800);
@@ -93,7 +93,7 @@ await shot(m, 'B22-web-tracking-390', 'Tracking on a phone browser (390 px)', 'L
 await finish(m);
 
 // Overview tabs — B23+
-const o = await open({ app: 'web', user: 'u-dir', outDir: out });
+const o = await open({ app: 'web', user: 'u-daniel', outDir: out });
 await o.go('/shipments', 3500);
 await shot(o, 'B23-web-shipments-overview', 'Shipments · overview', 'Trucks by status, on-time gauge, transit time vs plan by lane, border waits vs planned dwell, worst legs for shortages and damage; clicks open the filtered list (TR-02..04, DS-03).');
 await o.go('/loading', 3500);

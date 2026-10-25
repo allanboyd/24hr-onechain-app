@@ -31,7 +31,7 @@ const TRUCKS_OF: Record<string, [string, string][]> = { // [truck, driver] pools
   's-sbl': [['t6', 'd6'], ['t5', 'd5']], 's-gbi': [['t7', 'd7'], ['t4', 'd4']],
 };
 const TRANSFER: [string, string] = ['t8', 'd5'];
-const RECEIVER: Record<string, string> = { 'w-kgl': 'Asie Gisenyi – J. Uwase', 'w-goma': 'Asie Goma – P. Bahati', 'w-juba': 'Zonas Juba – M. Deng' };
+const RECEIVER: Record<string, string> = { 'w-kgl': 'Asie Gisenyi – J. Uwase', 'w-goma': 'Asie Goma – P. Bahati', 'w-juba': 'Yonas Juba – M. Deng' };
 const ISSUE_REASONS = ['Breakdown — gearbox', 'Clearing documents pending (C&F agent)', 'Weighbridge queue', 'Police check', 'Road closure after heavy rain', 'Tyre burst'];
 
 interface Order { idx: number; wh: string; pid: string; supplierId: string; chain: string[]; truck: [string, string]; capacity: number }
@@ -128,10 +128,13 @@ export function buildHistory(d: HistoryTarget, now = Date.now()) {
     const entityId = ENTITY_OF[o0.supplierId];
     const ref = nextRef(entityId, year);
     const month = new Date(dateT).toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' });
+    // Kabonge raises BTW–KBL, Nihna–UBL and Kivu–SBL; Nihna–GBI is not his (to confirm, Q2) — a director raised those.
+    const raiser = o0.supplierId === 's-gbi' ? seed.DIRECTOR_ID : seed.PLANNER_ID;
+    const approver = nPlan % 2 ? 'u-daniel' : 'u-michael';
     const plan: Plan = {
       id: `h-plan-${nPlan}`, ref, title: `${month} ’${String(year).slice(2)} Order`, entityId, supplierId: o0.supplierId, currency: 'USD',
-      date: iso(dateT).slice(0, 10), requiredBy: iso(dateT + 10 * DAY).slice(0, 10), status: 'Approved', version: 1, createdById: 'u-kabonge',
-      lines: [], history: [{ at: iso(dateT), byUserId: 'u-kabonge', action: 'submitted' }, { at: iso(dateT + 5 * H), byUserId: 'u-dir', action: 'approved', signature: 'sig:director' }],
+      date: iso(dateT).slice(0, 10), requiredBy: iso(dateT + 10 * DAY).slice(0, 10), status: 'Approved', version: 1, createdById: raiser,
+      lines: [], history: [{ at: iso(dateT), byUserId: raiser, action: 'submitted' }, { at: iso(dateT + 5 * H), byUserId: approver, action: 'approved', signature: 'sig:director' }],
       poId: `h-po-${nPlan}`,
     };
     const progress = o0.idx / N;
@@ -141,7 +144,7 @@ export function buildHistory(d: HistoryTarget, now = Date.now()) {
     });
     const po: PurchaseOrder = {
       id: plan.poId!, ref, planId: plan.id, entityId, supplierId: o0.supplierId, currency: 'USD', date: plan.date, title: plan.title,
-      instruction: 'Kindly process and avail stock for loading.', version: 1, sentAt: iso(dateT + 7 * H), approvedById: 'u-dir', approvedAt: iso(dateT + 5 * H), signature: 'sig:director',
+      instruction: 'Kindly process and avail stock for loading.', version: 1, sentAt: iso(dateT + 7 * H), approvedById: approver, approvedAt: iso(dateT + 5 * H), signature: 'sig:director',
     };
     histPlans.push(plan); histPos.push(po);
     os.forEach((o, i) => lines.push({ o, plan, po, line: plan.lines[i] }));
@@ -226,11 +229,11 @@ export function buildHistory(d: HistoryTarget, now = Date.now()) {
       cur.legs.push(leg);
       // transport cost per leg + payments
       nCost++;
-      const rate = li === 0 ? ld.agreedTransport : TRANSPORT_RATE[routeId] ?? 500;
+      const rate = (li === 0 ? ld.agreedTransport : null) ?? TRANSPORT_RATE[routeId] ?? 500;
       const cost: TripCost = { id: `h-cost-${nCost}`, entityId: sh.entityId, shipmentId: cur.id, legId: leg.id, kind: 'Transport', amount: rate, currency: 'USD', docRef: `Agreed at loading ${iso(depart).slice(0, 10)}`, fxRate: 1, amountUsd: rate };
       d.costs.push(cost);
       const age = (now - ackT) / DAY;
-      const pay = (amount: number, at: number, ref: string) => { nPay++; d.payments.push({ id: `h-pay-${nPay}`, entityId: sh.entityId, shipmentId: cur.id, costId: cost.id, amount, at: iso(at), reference: ref, status: 'Paid', approvedById: amount > 500 ? 'u-dir' : undefined, fxRate: 1, amountUsd: amount }); };
+      const pay = (amount: number, at: number, ref: string) => { nPay++; d.payments.push({ id: `h-pay-${nPay}`, entityId: sh.entityId, shipmentId: cur.id, costId: cost.id, amount, at: iso(at), reference: ref, status: 'Paid', approvedById: amount > 500 ? 'u-daniel' : undefined, fxRate: 1, amountUsd: amount }); };
       const adv = Math.round(rate * 0.5 / 10) * 10;
       pay(adv, depart + 2 * H, `MPESA ${(nPay * 7919 % 1e6).toString(36).toUpperCase()}`);
       if (age > 35) pay(rate - adv, ackT + (5 + r() * 20) * DAY, `BANK TT-${50000 + nPay}`);

@@ -1,7 +1,7 @@
 <script lang="ts">
   // Money: what is owed to transporters per trip, what was paid, and what waits for a director.
   import { untrack } from 'svelte';
-  import { finance, type User } from '@btw/api';
+  import { finance, type TransportFeeRow, type User } from '@btw/api';
   import Search from '@lucide/svelte/icons/search';
   import Wallet from '@lucide/svelte/icons/wallet';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
@@ -21,19 +21,25 @@
   const r = new Res(() => finance.trips());
   $effect(() => r.live());
   $effect(() => onRefresh(() => r.reload()));
+  // docs/14 B-04: age of each unpaid fee since loading (amber / red after config [fees] days)
+  let fees = $state(new Map<string, TransportFeeRow>());
+  $effect(() => { void r.data; finance.fees().then((x) => (fees = new Map(x.map((y) => [y.shipmentId, y])))).catch(() => {}); });
+  const flagOf = (id: string) => fees.get(id)?.flag ?? 'none';
 
-  let f = $state(untrack(() => (query.get('f') === 'pending' ? 'pending' : 'owed'))), q = $state('');
-  const all = $derived((r.data ?? []).filter((t) => t.transport > 0 || t.payments.length));
+  let f = $state(untrack(() => (query.get('f') === 'pending' ? 'pending' : query.get('f') === 'missing' ? 'missing' : 'owed'))), q = $state('');
+  const all = $derived((r.data ?? []).filter((t) => t.transport > 0 || t.payments.length || t.agreedRecorded === false));
   const owed = $derived(all.reduce((a, t) => a + Math.max(0, t.balance), 0));
   const paid = $derived(all.reduce((a, t) => a + t.paid, 0));
   const pending = $derived(all.flatMap(pendingOf));
   const chips = $derived([
     { id: 'owed', label: 'Owed', count: all.filter((t) => t.balance > 0.5).length },
+    { id: 'missing', label: 'Price not recorded', count: all.filter((t) => t.agreedRecorded === false).length },
+    { id: 'late', label: 'Unpaid 2 weeks+', count: all.filter((t) => ['amber', 'red'].includes(flagOf(t.shipment.id))).length },
     { id: 'pending', label: 'Waiting approval', count: all.filter((t) => pendingOf(t).length).length },
     { id: 'settled', label: 'Settled', count: all.filter((t) => t.balance <= 0.5).length },
     { id: 'all', label: 'All', count: all.length },
   ]);
-  const list = $derived(all.filter((t) => (f === 'owed' ? t.balance > 0.5 : f === 'pending' ? pendingOf(t).length > 0 : f === 'settled' ? t.balance <= 0.5 : true))
+  const list = $derived(all.filter((t) => (f === 'owed' ? t.balance > 0.5 : f === 'pending' ? pendingOf(t).length > 0 : f === 'missing' ? t.agreedRecorded === false : f === 'late' ? ['amber', 'red'].includes(flagOf(t.shipment.id)) : f === 'settled' ? t.balance <= 0.5 && t.agreedRecorded !== false : true))
     .filter((t) => !q.trim() || `${t.shipment.ref} ${truckReg(t.shipment.legs[0])} ${transporter(t.shipment)}`.toLowerCase().includes(q.trim().toLowerCase()))
     .sort((a, b) => b.balance - a.balance));
 </script>
@@ -56,11 +62,11 @@
         <a class="t-item" href="#/money/{t.shipment.id}">
           <span class="t-icon"><Wallet size={20} /></span>
           <span class="t-main">
-            <span class="t-line1">{#if co.active === null}<CompanyDot entityId={t.shipment.entityId} />{/if}<span class="t-ellipsis">{truckReg(t.shipment.legs[0]) || t.shipment.ref}</span>{#if pendingOf(t).length}<span class="wait">waiting</span>{/if}</span>
+            <span class="t-line1">{#if co.active === null}<CompanyDot entityId={t.shipment.entityId} />{/if}<span class="t-ellipsis">{truckReg(t.shipment.legs[0]) || t.shipment.ref}</span>{#if pendingOf(t).length}<span class="wait">waiting</span>{/if}{#if ['amber', 'red'].includes(flagOf(t.shipment.id))}<span class="age {flagOf(t.shipment.id)}">{flagOf(t.shipment.id) === 'red' ? '✕' : '!'} {fees.get(t.shipment.id)?.ageDays} d</span>{/if}</span>
             <span class="t-meta t-ellipsis">{transporter(t.shipment)} · {t.shipment.ref}</span>
-            <span class="t-meta">{usd(t.paid)} paid of {usd(t.transport)}</span>
+            <span class="t-meta">{t.agreedRecorded === false ? 'Agreed price not recorded yet' : `${usd(t.paid)} paid of ${usd(t.transport)}`}</span>
           </span>
-          <span class="t-amount" class:zero={t.balance <= 0.5}>{t.balance > 0.5 ? usd(t.balance) : 'Paid'}</span>
+          <span class="t-amount" class:zero={t.balance <= 0.5 && t.agreedRecorded !== false} class:nr={t.agreedRecorded === false}>{t.agreedRecorded === false ? 'Not recorded' : t.balance > 0.5 ? usd(t.balance) : 'Paid'}</span>
           <ChevronRight class="t-chev" size={20} />
         </a>
       {/each}
@@ -75,4 +81,7 @@
   .glance strong { font: 800 30px/36px var(--ff-display); font-variant-numeric: tabular-nums; }
   .wait { font: 700 12px var(--ff-body); color: var(--warning); background: var(--warning-subtle); border-radius: 10px; padding: 2px 8px; flex: none; }
   .zero { color: var(--success); }
+  .age { font: 700 12px var(--ff-body); border-radius: 10px; padding: 2px 8px; flex: none; color: var(--warning); background: var(--warning-subtle); }
+  .age.red { color: var(--danger); background: var(--danger-subtle); }
+  .nr { color: var(--warning); font-size: 14px; }
 </style>

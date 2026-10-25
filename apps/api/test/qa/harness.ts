@@ -23,14 +23,25 @@ export async function boot(name: string, port: number, env: Record<string, strin
     cwd: ROOT, env: { ...process.env, DATABASE_URL: dbUrl, PORT: String(port), PUBLIC_URL: `http://localhost:${port}`, NODE_ENV: 'test', SERVE_APPS: '0', ...env }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = ''; server.stdout!.on('data', (d) => (log += d)); server.stderr!.on('data', (d) => (log += d));
+  const st = { exited: null as number | null }; server.on('exit', (code) => (st.exited = code ?? -1));
   const kill = () => { try { server.kill(); } catch { /* gone */ } };
   process.on('exit', kill);
-  for (let i = 0; i < 80; i++) { try { if ((await fetch(`http://localhost:${port}/health`)).ok) break; } catch { /* booting */ } await new Promise((r) => setTimeout(r, 400)); }
+  // Fail fast and loudly (with the server's own output) instead of running a suite against a server that never came up.
+  let healthy = false;
+  for (let i = 0; i < 150 && !healthy && st.exited === null; i++) { try { healthy = (await fetch(`http://localhost:${port}/health`)).ok; } catch { /* booting */ } if (!healthy) await new Promise((r) => setTimeout(r, 400)); }
+  if (!healthy) { kill(); throw new Error(`API for ${name} on :${port} ${st.exited !== null ? `exited (${st.exited})` : 'not healthy after 60 s'}:\n${log.slice(-3000)}`); }
   const sql = postgres(dbUrl, { onnotice: () => {} });
   return {
     base: `http://localhost:${port}/v1`, port, dbUrl, sql, log: () => log,
     stop: async () => { kill(); await sql.end({ timeout: 2 }); await new Promise((r) => setTimeout(r, 300)); },
   };
+}
+
+/** Polls `fn` until it returns a truthy value (fire-and-forget work such as a driver's push lands after the response). */
+export async function waitFor<T>(fn: () => Promise<T>, timeoutMs = 5000, everyMs = 200): Promise<T> {
+  const t0 = performance.now(); let v = await fn();
+  while (!v && performance.now() - t0 < timeoutMs) { await new Promise((r) => setTimeout(r, everyMs)); v = await fn(); }
+  return v;
 }
 
 export interface Res<T = any> { status: number; body: T; headers: Headers; ms: number }

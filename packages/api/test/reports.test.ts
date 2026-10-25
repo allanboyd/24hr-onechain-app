@@ -166,7 +166,7 @@ const mkShipment = (n: number, depart: number, lateHours: number, dwellH: number
   ok(q.kpis.length === 10 && q.kpis.every((k) => Number.isFinite(k.value)) && q.highlights.length >= 3, 'quarterly pack: 10 KPIs + highlights');
   const c = RP.captureCheck(data, RP.resolvePeriod('last-90', Date.now()));
   const has = (k: string) => c.kinds.some((x) => x.kind === k);
-  for (const k of ['Missing check-ins', 'Arrived, not acknowledged', 'Discrepancy not explained', 'No loading documents', 'No agreed transport price', 'PO not sent to supplier', 'Payment without reference', 'Sale without customer', 'Payment status inconsistent', 'Ledger entry without reference', 'No sales recorded on a trading day', 'Loaded ≠ ordered'])
+  for (const k of ['Missing check-ins', 'Arrived, not acknowledged', 'Discrepancy not explained', 'No loading documents', 'Agreed transport price not recorded', 'PO not sent to supplier', 'Payment without reference', 'Sale without customer', 'Payment status inconsistent', 'Ledger entry without reference', 'No sales recorded on a trading day', 'Loaded ≠ ordered'])
     ok(has(k), `capture check finds planted gap: ${k}`);
   ok(c.score > 0 && c.score < 1 && c.areas.every((a) => a.score >= 0 && a.score <= 1), `completeness score ${Math.round(c.score * 100)}%`);
   const gd = RP.groupReport({ ...data, fxRates: seed.seedFxRates() }, RP.resolvePeriod('last-30', Date.now()));

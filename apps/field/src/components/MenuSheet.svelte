@@ -5,6 +5,7 @@
   import { outbox, type OutboxState } from '@btw/api/outbox';
   import { ago, say } from '@btw/ui';
   import Sheet from './Sheet.svelte';
+  import { lastSynced, syncedLabel } from '../synced';
   import { APP_VERSION, ROLE_LABEL, fieldRole } from '../lib';
   let { user, onclose, onlogout, smsHelp = '' }: { user: User; onclose: () => void; onlogout: () => void; smsHelp?: string } = $props();
   let s = $state<OutboxState>({ online: true, pending: [], syncing: false });
@@ -23,7 +24,7 @@
   </div>
 
   <section class="block">
-    <div class="row between"><h3>Waiting to send</h3><span class="caption">{s.lastSync ? `Last sent ${ago(s.lastSync)}` : ''}</span></div>
+    <div class="row between"><h3>Waiting to send</h3><span class="caption">{(s.lastSync, syncedLabel(lastSynced()))}</span></div>
     {#if s.pending.length}
       <ul class="queue">
         {#each s.pending as it (it.idempotencyKey)}

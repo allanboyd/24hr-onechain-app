@@ -22,12 +22,12 @@ await sheet(s).locator('input[type=number]').first().fill('1980'); await sheet(s
 await slide(s, sheet(s)); await wait(s, 1200);
 await shot(s, 'E04-field-loading-done', 'Loading point · after hand-over', 'The shipment and the driver\'s trip are created; the card moves to the next truck or says nothing is left to load. The truck now shows on the map once it leaves.', { keepToast: true });
 
-// Tesfie handles two loading points
-await as(s, 'u-tesfie');
-await shot(s, 'E05-field-loading-two-points', 'Loading point · two sites', 'Tesfie covers GBI Mombasa and SBL Mwanza: a switcher at the top of the sheet, nothing else changes (§17.3).');
+// Testfie loads at GBI Mombasa (and follows every queue)
+await as(s, 'u-testfie');
+await shot(s, 'E05-field-loading-two-points', 'Loading point · two sites', 'Testfie loads at GBI Mombasa only (docs/12); the loaders keep their own points.');
 
 // Drive the new truck to the transfer point in Gisenyi (as the office + driver would) — the office sees every company's trucks
-await as(s, 'u-dir');
+await as(s, 'u-daniel');
 await s.page.evaluate(async (API) => {
   const api = await import(API);
   const list = await api.shipments.list();
@@ -62,7 +62,7 @@ await slide(s, sheet(s)); await wait(s, 1200);
 await shot(s, 'E10-field-receive-done', 'Receiver · after signing', 'The truck leaves the list; the acknowledgement, signature and photos go to the office (queued if offline).', { keepToast: true });
 
 // Office plans the next leg Gisenyi → Goma (an office action); Asie sends it on
-await as(s, 'u-dir');
+await as(s, 'u-daniel');
 await s.page.evaluate(async (API) => {
   const api = await import(API);
   const list = await api.shipments.list();
@@ -82,10 +82,10 @@ await shot(s, 'E12-field-transfer-handover', 'Transfer hand-over', 'Same hand-ov
 await slide(s, sheet(s)); await wait(s, 1000);
 await finish(s);
 
-// Zonas in Juba; dark mode
-let z = await open({ app: 'field', user: 'u-zonas', outDir: out });
+// Yonas in Juba; dark mode
+let z = await open({ app: 'field', user: 'u-yonas', outDir: out });
 await wait(z, 2000);
-await shot(z, 'E13-field-receiver-zonas', 'Receiver · Zonas Juba', 'A truck still on the road: the card shows when it arrives and whether it is late; "It\'s here — receive now" covers a truck that never checked in.');
+await shot(z, 'E13-field-receiver-yonas', 'Receiver · Yonas Juba', 'A truck still on the road: the card shows when it arrives and whether it is late; "It\'s here — receive now" covers a truck that never checked in.');
 await finish(z);
 z = await open({ app: 'field', user: 'u-asie', outDir: out, theme: 'dark' });
 await wait(z, 2000);

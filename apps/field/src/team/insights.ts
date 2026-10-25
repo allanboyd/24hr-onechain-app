@@ -14,14 +14,14 @@ export interface HomeData { sum: Summary | null; dash: DashboardReport | null; t
 type KpiKey = 'sales' | 'trucks' | 'delayed' | 'onTime' | 'stock' | 'transit' | 'owed' | 'receivables' | 'margin' | 'cases' | 'queue' | 'issues' | 'wait';
 const PREFS: Record<Role, KpiKey[]> = {
   director: ['sales', 'trucks', 'onTime', 'stock', 'owed', 'receivables'],
-  planner: ['trucks', 'transit', 'stock', 'onTime', 'delayed', 'sales'],
+  planner: ['trucks', 'transit', 'onTime', 'delayed'],
   fleet: ['trucks', 'delayed', 'onTime', 'owed'],
   truck_planner: ['queue', 'trucks', 'delayed', 'issues', 'wait', 'owed'],
   operations: ['trucks', 'delayed', 'onTime', 'owed'],
   accounts: ['owed', 'receivables', 'sales', 'margin', 'stock', 'trucks'],
   sales: ['sales', 'cases', 'stock', 'receivables'],
   admin: ['trucks', 'sales', 'stock', 'onTime'],
-  loader: ['trucks'], receiver: ['stock', 'sales'], driver: [],
+  loader: ['trucks'], receiver: ['stock'], reexport: [], driver: [],
 };
 
 export function kpisFor(u: User, d: HomeData): Kpi[] {

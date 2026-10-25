@@ -10,3 +10,10 @@ purchase_orders = false     # true = a director must approve (and sign) a PO bef
 allowance_pct = 10          # how far a truck's loaded total may differ from the PO (± %) before the office must step in
 allow_alternatives = true   # the loader may load substitute products (same supplier) when an item is missing
 revision_suffix = "-rev"    # a PO changed at loading becomes PO-001 → PO-001-rev001, PO-001-rev002, …
+
+[fees]                      # docs/14 B-04 — transport fee tracking (to confirm with the client, Q9)
+amber_days = 14             # an unpaid or part-paid transport fee turns amber this many days after loading
+red_days = 30               # … and red after this many days
+
+[costs]                     # docs/14 B-06 — landed cost v2 (to confirm with the client, Q5)
+allocation = "quantity"     # how shared truck and warehouse costs are split over products: "quantity" (cases) or "value" (goods value)

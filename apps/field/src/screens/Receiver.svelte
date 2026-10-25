@@ -1,7 +1,7 @@
 <script lang="ts">
   import CompanyChip from '../components/CompanyChip.svelte';
   import CompanyDot from '../components/CompanyDot.svelte';
-  // Receiver (Asie / Zonas, MA-03, AK-*): map of trucks coming to my warehouse(s) and ONE card —
+  // Receiver (Asie / Yonas, MA-03, AK-*): map of trucks coming to my warehouse(s) and ONE card —
   // an arrived truck to receive first, else a transfer to send on (DS-02), else the next truck on its way.
   import { field, lookup, type Leg, type LegView, type User } from '@btw/api';
   import { outbox, type OutboxState } from '@btw/api/outbox';
@@ -16,6 +16,9 @@
   import ReceiveSheet from '../components/ReceiveSheet.svelte';
   import HandoverSheet from '../components/HandoverSheet.svelte';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
+  import Receipt from '@lucide/svelte/icons/receipt';
+  import ClipboardCheck from '@lucide/svelte/icons/clipboard-check';
+  import ArrowRightLeft from '@lucide/svelte/icons/arrow-right-left';
   let { user, onlogout }: { user: User; onlogout: () => void } = $props();
 
   type Item = LegView;
@@ -27,13 +30,25 @@
   let sending = $state<Item | null>(null);
   let sheetEl = $state<HTMLElement>();
   let sheetH = $state(300);
+  // docs/14: warehouse tools for Asie / Yonas — expenses, stock counts, re-exports (Asie). Each sheet is its own lazy chunk.
+  const TOOLS = {
+    expense: () => import('../team/warehouse/ExpenseSheet.svelte'),
+    stock: () => import('../team/warehouse/StockSheet.svelte'),
+    reexport: () => import('../team/warehouse/ReexportSheet.svelte'),
+  } as const;
+  let tool = $state<keyof typeof TOOLS | null>(null);
+  let toolRev = $state(0);
+  // D-A1: Asie / Yonas home strip (to sign, on the way, stock low / over, expenses this month, re-exports) — lazy chunk.
+  const glance = import('../team/warehouse/WarehouseGlance.svelte');
+  const can = (f: string) => !!user.features?.includes(f as never);
 
   // Working sets: trucks heading to my warehouses + transfer legs waiting to leave from them (DS-02).
   async function load() {
     const [r, g] = await Promise.all([field.receiver(), field.giver()]);
     incomingAll = r.incoming;
     const mine = r.warehouses.map((w) => w.checkpointId);
-    toSendAll = g.handover.filter((v) => mine.includes(v.leg.fromId) && !v.leg.passes[0].departedAt);
+    // only the re-export planner (Asie) loads and dispatches onward moves from her warehouses (docs/12 §7)
+    toSendAll = user.roles.includes('reexport') ? g.handover.filter((v) => mine.includes(v.leg.fromId) && !v.leg.passes[0].departedAt) : [];
   }
   $effect(() => live(load));
   $effect(() => outbox.subscribe((s) => (sync = s)));
@@ -75,6 +90,14 @@
 <TopBar onmenu={() => (menu = true)} title={user.warehouseIds.map((w) => warehouseLabel(w)).join(' · ')} />
 
 <Sheet bind:el={sheetEl}>
+  <nav class="tools" aria-label="Warehouse">
+    {#if can('warehouse-expenses')}<button onclick={() => (tool = 'expense')}><Receipt size={20} />Expense</button>{/if}
+    {#if can('warehouse-stock')}<button onclick={() => (tool = 'stock')}><ClipboardCheck size={20} />Stock count</button>{/if}
+    {#if user.roles.includes('reexport')}<button onclick={() => (tool = 'reexport')}><ArrowRightLeft size={20} />Re-export</button>{/if}
+  </nav>
+  {#if incomingAll}
+    {#await glance then m}<m.default {user} {incoming} rev={toolRev} onreceive={(v: Item) => (receiving = v)} ontool={(t: keyof typeof TOOLS) => (tool = t)} />{/await}
+  {/if}
   {#if !incomingAll}
     <div class="skeleton" style="height:24px;width:60%"></div><div class="skeleton" style="height:64px"></div>
   {:else if !focus}
@@ -107,7 +130,7 @@
     {/if}
     {#if others.length}
       <ul class="others">
-        {#each others.slice(0, 3) as o (o.leg.id)}
+        {#each others.slice(0, 2) as o (o.leg.id)}
           {@const e = o.eta}
           <li><button onclick={() => (receiving = o)}><CompanyDot entityId={o.shipment.entityId} /><span class="grow"><strong>{o.truck?.reg}</strong> <span class="caption">· {cases(total(o.leg))}</span></span><span class="caption">{arrivedNow(o.leg) ? 'Arrived' : fmtDateTime(e.eta)}</span><ChevronRight size={18} /></button></li>
         {/each}
@@ -123,12 +146,17 @@
   <HandoverSheet entityId={sending.shipment.entityId} title="Hand over" subtitle="New shipment {sending.shipment.ref} · {sending.route?.name}"
     trucks={[{ truckId: sending.leg.truckId, driverId: sending.leg.driverId }]}
     lines={sending.leg.lines.map((l, i) => ({ key: String(i), productId: l.productId, qty: l.loadedQty }))}
-    editable={false} askPrice={false} qtyLabel="good on receipt" onsubmit={sendOn} onclose={() => (sending = null)} />
+    editable={false} qtyLabel="good on receipt" onsubmit={sendOn} onclose={() => (sending = null)} />
 {/if}
 {#if menu}<MenuSheet {user} {onlogout} onclose={() => (menu = false)} />{/if}
+{#if tool}
+  {#await TOOLS[tool]() then m}<m.default {user} onclose={() => { tool = null; toolRev = toolRev + 1; load(); }} />{:catch}<p class="sr-only">Couldn't open — check the connection</p>{/await}
+{/if}
 
 <style>
   .row { display: flex; align-items: center; gap: var(--space-3); }
+  .tools { display: flex; gap: var(--space-2); margin-bottom: var(--space-2); }
+  .tools button { flex: 1; min-height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-sunken); color: var(--text); font: 600 14px var(--ff-body); cursor: pointer; }
   .grow { flex: 1; min-width: 0; }
   .others { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
   .others button { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: 52px; border: 0; border-bottom: 1px solid var(--border); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; padding: 0; }

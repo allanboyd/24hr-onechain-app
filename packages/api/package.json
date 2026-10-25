@@ -8,13 +8,18 @@
     "./outbox": "./src/outbox.ts",
     "./types": "./src/types.ts",
     "./rules": "./src/rules.ts",
+    "./access": "./src/access.ts",
+    "./static-data": "./src/static-data.ts",
     "./http": "./src/http.ts",
     "./mock/seed": "./src/mock/seed.ts",
     "./mock/db": "./src/mock/db.ts",
     "./client": "./src/client.ts",
     "./vite": "./vite.mjs",
     "./reports": "./src/reports.ts",
-    "./trucks": "./src/trucks.ts"
+    "./trucks": "./src/trucks.ts",
+    "./money": "./src/money.ts",
+    "./performance": "./src/performance.ts",
+    "./dashboards": "./src/dashboards.ts"
   },
   "sideEffects": [
     "./src/outbox.ts"

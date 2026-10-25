@@ -8,7 +8,10 @@
   const groupView = $derived(company.active === GROUP);
   import { watch } from '../lib/load.svelte';
   import ErrorState from '../components/ErrorState.svelte';
-  import { lookup, ref, shipments, tracking, type Acknowledgement, type Leg, type Shipment, type User } from '@btw/api';
+  import { finance, lookup, ref, shipments, tracking, type Acknowledgement, type Leg, type Shipment, type User } from '@btw/api';
+  import { canDispatch, canSendOn, canSplitLeg, canUpdateTrip } from '@btw/api/access';
+  import { can } from '../lib/features';
+  import { describe } from '../lib/errors';
   import { Badge, CheckpointTimeline, fmtDateTime, fmtNum, hoursLabel, say } from '@btw/ui';
   import Plus from '@lucide/svelte/icons/plus';
   import AlertTriangle from '@lucide/svelte/icons/triangle-alert';
@@ -30,10 +33,28 @@
     chainAcks = Object.fromEntries((await Promise.all(others.map((c) => tracking.acks(c.id)))).flat().map((a) => [a.legId, a]));
     poRef = lookup.poRef(sh.poId);
     acks = Object.fromEntries((await tracking.acks(sh.id)).map((a) => [a.legId, a]));
+    if (canMoney) { const t = (await finance.trips()).find((x) => x.shipment.id === sh!.id); agreed = t ? { recorded: t.agreedRecorded !== false, usd: t.transport } : null; }
+  }
+  // docs/12 A-04: the agreed transport price is recorded after loading (Testfie, directors)
+  const canMoney = $derived(can(user, 'truck-expenses'));
+  let agreed = $state<{ recorded: boolean; usd: number } | null>(null);
+  let apDlg = $state<HTMLDialogElement>();
+  let apAmount = $state<number | ''>(''); let apCur = $state<'USD' | 'KES' | 'UGX' | 'TZS' | 'RWF'>('USD'); let apErr = $state('');
+  async function saveAgreed(e: Event) {
+    e.preventDefault(); apErr = '';
+    if (!(Number(apAmount) > 0)) { apErr = 'Enter the agreed price (above zero)'; return; }
+    try { await finance.setAgreedPrice(sh!.id, { amount: Number(apAmount), currency: apCur }); apDlg?.close(); say('Agreed transport price recorded'); } catch (err) { apErr = describe(err).message; }
   }
   const w = watch(load);
 
-  const office = $derived(user.roles.some((x) => ['director', 'operations', 'fleet', 'admin', 'planner'].includes(x)));
+  // docs/12 §7: directors and Kabonge view trips; Testfie updates every trip; loaders dispatch at their point; the
+  // re-export planner sends goods on from her warehouse.
+  const myLoadingCps = $derived(r.suppliers.filter((s) => user.loadingPointIds.includes(s.id)).map((s) => s.checkpointId));
+  const myWarehouseCps = $derived(r.warehouses.filter((w) => user.warehouseIds.includes(w.id)).map((w) => w.checkpointId));
+  const mayAct = (leg: Leg, a: { cp: string; kind: string } | null) => !!a && (a.cp === leg.passes[0].checkpointId && a.kind === 'departed' ? canDispatch(user, leg, { myLoadingCps, myWarehouseCps }) : canUpdateTrip(user, leg));
+  const tripWrite = (leg: Leg) => canUpdateTrip(user, leg) || mayAct(leg, nextAction(leg));
+  const office = $derived(!!sh && sh.legs.some((l) => tripWrite(l)));
+  const mayOnward = $derived(!!sh && !!sh.legs.at(-1) && canSendOn(user, r.warehouses.find((w) => w.checkpointId === sh!.legs.at(-1)!.toId)?.id ?? ''));
   const finalCp = $derived(sh ? lookup.warehouse(sh.warehouseId)?.checkpointId : undefined);
   const last = $derived(sh?.legs.at(-1));
 
@@ -134,7 +155,8 @@
     </div>
     <div class="row">
       <a class="btn btn-secondary" href="#/finance">Trip costs & landing cost</a>
-      {#if canAddLeg && office}<RecordFor entityId={(sh as { entityId?: string }).entityId} cue={false}><button class="btn btn-primary" onclick={openLeg}><Plus size={16} />Send on — new shipment</button></RecordFor>{/if}
+      {#if canMoney && agreed}{#if agreed.recorded}<span class="caption">Agreed transport USD {fmtNum(agreed.usd, 2)}</span>{:else}<Badge tone="warning">Agreed price: not recorded yet</Badge><button class="btn btn-secondary" onclick={() => { apAmount = ''; apErr = ''; apDlg?.showModal(); }}>Record agreed price</button>{/if}{/if}
+      {#if canAddLeg && mayOnward}<RecordFor entityId={(sh as { entityId?: string }).entityId} cue={false}><button class="btn btn-primary" onclick={openLeg}><Plus size={16} />Send on — new shipment</button></RecordFor>{/if}
     </div>
   </div>
 
@@ -154,7 +176,7 @@
       {/each}
       <li class="end"><span class="dot"></span><div><div class="caption">Final warehouse</div><strong>{destinationLabel(sh.warehouseId)}</strong></div></li>
     </ol>
-    {#if atWarehouse && office}<p class="small note">Goods are in stock at <strong>{atWarehouse}</strong>. {last?.toId === finalCp ? 'To move them further (e.g. on to Goma or a re-export), send them on as a new shipment.' : 'Send them on as a new shipment when the next truck is ready.'}</p>{/if}
+    {#if atWarehouse && mayOnward}<p class="small note">Goods are in stock at <strong>{atWarehouse}</strong>. {last?.toId === finalCp ? 'To move them further (e.g. on to Goma or a re-export), send them on as a new shipment.' : 'Send them on as a new shipment when the next truck is ready.'}</p>{/if}
   </section>
 
   <div class="stack">
@@ -185,14 +207,14 @@
         <div class="leg-grid">
           <CheckpointTimeline {leg} />
           <div class="stack">
-            {#if office && (a || leg.status !== 'Acknowledged') && groupView}
+            {#if tripWrite(leg) && (a || leg.status !== 'Acknowledged') && groupView}
               <div class="stack-sm"><div class="overline">Office actions</div><RecordFor entityId={(sh as { entityId?: string }).entityId} cue={false}><span></span></RecordFor></div>
-            {:else if office && (a || leg.status !== 'Acknowledged')}
+            {:else if tripWrite(leg) && (a || leg.status !== 'Acknowledged')}
               <div class="stack-sm">
                 <div class="overline">Office actions</div>
-                {#if a}<button class="btn {leg.status === 'Planned' || leg.status === 'Loaded' ? 'btn-primary' : 'btn-secondary'} btn-block wrap" onclick={() => act(leg, a)}>{a.label}</button>{/if}
-                {#each transferPoints(leg) as tp}<button class="btn btn-secondary btn-block wrap" onclick={() => split(leg, tp.checkpointId)}>Unload & transfer at {lookup.checkpoint(tp.checkpointId)?.name}</button>{/each}
-                {#if leg.status !== 'Acknowledged'}<button class="btn btn-ghost btn-block wrap" onclick={() => openIssue(leg)}><AlertTriangle size={16} />Log truck issue</button>{/if}
+                {#if a && mayAct(leg, a)}<button class="btn {leg.status === 'Planned' || leg.status === 'Loaded' ? 'btn-primary' : 'btn-secondary'} btn-block wrap" onclick={() => act(leg, a)}>{a.label}</button>{/if}
+                {#each canSplitLeg(user) ? transferPoints(leg) : [] as tp}<button class="btn btn-secondary btn-block wrap" onclick={() => split(leg, tp.checkpointId)}>Unload & transfer at {lookup.checkpoint(tp.checkpointId)?.name}</button>{/each}
+                {#if leg.status !== 'Acknowledged' && canUpdateTrip(user, leg)}<button class="btn btn-ghost btn-block wrap" onclick={() => openIssue(leg)}><AlertTriangle size={16} />Log truck issue</button>{/if}
                 <p class="caption">Normally recorded by the driver app or geofence; use these when the driver has no app (SMS) or the GPS provider is down.</p>
               </div>
             {/if}
@@ -203,7 +225,7 @@
                   <div class="card {i.fixedAt ? '' : 'flag-danger'}" style="padding:var(--space-3)">
                     <div class="row between"><strong class="small">{i.reason}</strong>{#if i.fixedAt}<Badge tone="success">Fixed</Badge>{:else}<Badge tone="danger">Open</Badge>{/if}</div>
                     <div class="caption">{i.place} · since {fmtDateTime(i.at)}{#if i.newDueDate} · new due {fmtDateTime(i.newDueDate)}{/if}{#if i.fixedAt} · fixed {fmtDateTime(i.fixedAt)}{/if}</div>
-                    {#if !i.fixedAt && office}<button class="btn btn-ghost btn-sm" onclick={() => fix(leg, i.id)}>Mark fixed</button>{/if}
+                    {#if !i.fixedAt && canUpdateTrip(user, leg)}<button class="btn btn-ghost btn-sm" onclick={() => fix(leg, i.id)}>Mark fixed</button>{/if}
                   </div>
                 {/each}
               </div>
@@ -214,7 +236,7 @@
                 <div class="row between"><span class="overline">Acknowledgement</span>{#if k.hasDiscrepancy}<Badge tone="warning">Discrepancy</Badge>{:else}<Badge tone="success">Clean</Badge>{/if}</div>
                 <div class="small">{k.receiverName} · {fmtDateTime(k.at)}</div>
                 <div class="caption">{destinationLabel(k.warehouseId)}{k.signature ? ' · signed' : ''}{k.photos.length ? ` · ${k.photos.length} photo(s)` : ''}</div>
-                {#each k.lines.filter((x) => x.remarks) as x}<div class="caption">“{x.remarks}”</div>{/each}
+                {#each k.lines.filter((x) => x.remarks || x.reason) as x}<div class="caption">{#if x.reason}<strong>{x.reason}</strong>{x.remarks ? ' · ' : ''}{/if}{#if x.remarks}“{x.remarks}”{/if}</div>{/each}
               </div>
             {/if}
           </div>
@@ -275,6 +297,14 @@
       <label class="field"><span>Driver</span><select class="select" bind:value={nl.driverId}>{#each r.drivers as d}<option value={d.id}>{d.name}</option>{/each}</select></label>
       <div class="row" style="justify-content:flex-end"><button class="btn btn-ghost" onclick={() => legDlg?.close()}>Cancel</button><button class="btn btn-primary" onclick={addLeg}>Create shipment</button></div>
     </div>
+  </dialog>
+  <dialog class="sheet" bind:this={apDlg} aria-labelledby="ap-t">
+    <form class="body stack" onsubmit={saveAgreed}>
+      <div><h3 id="ap-t">Agreed transport price · {sh.ref}</h3><div class="caption">{lookup.truck(sh.legs[0]?.truckId ?? '')?.reg} · agreed with the transporter after loading; it becomes the trip's transport cost.</div></div>
+      <label class="field"><span>Agreed price</span><span class="row"><select class="select" style="width:90px" bind:value={apCur} aria-label="Currency">{#each ['USD', 'KES', 'UGX', 'TZS', 'RWF'] as c}<option>{c}</option>{/each}</select><input class="input num" type="number" min="0" step="0.01" bind:value={apAmount} aria-label="Agreed price" /></span></label>
+      {#if apErr}<p class="error" role="alert">{apErr}</p>{/if}
+      <div class="row" style="justify-content:flex-end"><button type="button" class="btn btn-ghost" onclick={() => apDlg?.close()}>Cancel</button><button class="btn btn-primary">Record price</button></div>
+    </form>
   </dialog>
 {/if}
 

@@ -11,22 +11,27 @@
   import { companyBrand } from '../lib/companies';
   import ErrorState from '../components/ErrorState.svelte';
   import { revTag } from '../lib/orders';
+  import { orderAccess, seesPrices } from '@btw/api/access';
   let { params, user }: { params: { id: string }; user: User } = $props();
   let data = $state<{ po: PurchaseOrder; plan: Plan; revisions?: PurchaseOrder[] } | null | undefined>(undefined);
   const w = watch(async () => { data = await pos.get(params.id); });
 
   const lines = $derived(data ? [...data.plan.lines].sort((a, b) => a.truckNo - b.truckNo) : []);
+  // docs/12 A-04: loaders and receivers see quantities and documents, never prices; only an editor sends the PO.
+  const noPrice = $derived(!!data && (!!data.plan.pricesHidden || !!data.po.pricesHidden || !seesPrices(user)));
+  const myRc = $derived([...new Set(user.warehouseIds.map((id) => lookup.warehouse(id)?.receivingCompanyId).filter((x): x is string => !!x))]);
+  const editor = $derived(!!data && orderAccess(user, data.plan, myRc) === 'edit');
   const byPack = $derived.by(() => {
     const m = new Map<string, { brand: string; pack: string; qty: number; amt: number }>();
     for (const l of lines) {
       const p = lookup.product(l.productId)!;
       const cur = m.get(p.id) ?? { brand: p.brand, pack: p.pack, qty: 0, amt: 0 };
-      cur.qty += l.qty; cur.amt += amount(l.qty, l.price); m.set(p.id, cur);
+      cur.qty += l.qty; cur.amt += amount(l.qty, l.price ?? 0); m.set(p.id, cur);
     }
     return [...m.values()];
   });
   const totalQty = $derived(lines.reduce((a, l) => a + l.qty, 0));
-  const totalAmt = $derived(lines.reduce((a, l) => a + amount(l.qty, l.price), 0));
+  const totalAmt = $derived(lines.reduce((a, l) => a + amount(l.qty, l.price ?? 0), 0));
   const entity = $derived(data ? lookup.entity(data.po.entityId) : undefined);
   // Issuing company's letterhead (docs/06 §5): header/footer bands traced from docs/inspiration/*.pdf.
   const co = $derived(data ? companyBrand(data.po.entityId) : null);
@@ -76,9 +81,9 @@
     </div>
     <div class="row">
       <a class="btn btn-ghost" href="#/plans/{data.plan.id}">View plan</a>
-      <button class="btn btn-secondary" onclick={downloadPdf} disabled={busy === 'pdf'}><Download size={16} />{busy === 'pdf' ? 'Preparing…' : 'Download PDF'}</button>
+      {#if !noPrice}<button class="btn btn-secondary" onclick={downloadPdf} disabled={busy === 'pdf'}><Download size={16} />{busy === 'pdf' ? 'Preparing…' : 'Download PDF'}</button>{/if}
       <button class="btn btn-secondary" onclick={() => window.print()}><Printer size={16} />Print</button>
-      {#if !data.po.sentAt && user.roles.some((r) => ['planner', 'operations', 'director'].includes(r))}
+      {#if !data.po.sentAt && editor}
         <RecordFor entityId={data.po.entityId} cue={false}><button class="btn btn-primary" onclick={send} disabled={busy === 'send'}><Send size={16} />{poServer.available ? 'Email to supplier' : 'Mark as sent to supplier'}</button></RecordFor>
       {/if}
     </div>
@@ -132,16 +137,17 @@
     </div>
 
     <table class="table">
-      <thead><tr><th class="num">Truck No.</th><th>Brand</th><th>Package</th><th class="num">Quantity (cases)</th><th class="num">Price ({data.po.currency})</th><th class="num">Amount ({data.po.currency})</th></tr></thead>
+      <thead><tr><th class="num">Truck No.</th><th>Brand</th><th>Package</th><th class="num">Quantity (cases)</th>{#if !noPrice}<th class="num">Price ({data.po.currency})</th><th class="num">Amount ({data.po.currency})</th>{/if}</tr></thead>
       <tbody>
         {#each lines as l (l.id)}
           {@const p = lookup.product(l.productId)}
-          <tr><td class="num">{l.truckNo}</td><td>{p?.brand}</td><td>{p?.pack}</td><td class="num">{fmtNum(l.qty)}</td><td class="num">{fmtNum(l.price, 2)}</td><td class="num">{fmtNum(amount(l.qty, l.price), 2)}</td></tr>
+          <tr><td class="num">{l.truckNo}</td><td>{p?.brand}</td><td>{p?.pack}</td><td class="num">{fmtNum(l.qty)}</td>{#if !noPrice}<td class="num">{fmtNum(l.price ?? 0, 2)}</td><td class="num">{fmtNum(amount(l.qty, l.price ?? 0), 2)}</td>{/if}</tr>
         {/each}
         {#if byPack.length > 1}
-          {#each byPack as b}<tr class="subtotal"><td></td><td>Subtotal · {b.brand}</td><td>{b.pack}</td><td class="num">{fmtNum(b.qty)}</td><td></td><td class="num">{fmtNum(b.amt, 2)}</td></tr>{/each}
+          {#each byPack as b}<tr class="subtotal"><td></td><td>Subtotal · {b.brand}</td><td>{b.pack}</td><td class="num">{fmtNum(b.qty)}</td>{#if !noPrice}<td></td><td class="num">{fmtNum(b.amt, 2)}</td>{/if}</tr>{/each}
         {/if}
-        <tr class="grand"><td></td><td colspan="2">Total</td><td class="num">{fmtNum(totalQty)}</td><td></td><td class="num">{fmtNum(totalAmt, 2)}</td></tr>
+        <tr class="grand"><td></td><td colspan="2">Total</td><td class="num">{fmtNum(totalQty)}</td>{#if !noPrice}<td></td><td class="num">{fmtNum(totalAmt, 2)}</td>{/if}</tr>
+        {#if noPrice}<tr><td colspan="4" class="caption">Prices are not shown for your role.</td></tr>{/if}
       </tbody>
     </table>
 

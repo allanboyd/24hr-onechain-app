@@ -1,6 +1,6 @@
 <script lang="ts">
   // One truck: where it is now, its driver and provider to call, open issues, its trips and what it cost.
-  // Truck planners can add a trip expense (accounts pay it; above the limit a director approves).
+  // The truck follow-up officer (and directors) add trip expenses; the agreed price is recorded on the trip (Money).
   import { finance, lookup, type CostKind, type User } from '@btw/api';
   import { Badge, fmtDateTime, say } from '@btw/ui';
   import { TRUCK_STATES, costsByTruck, tripTruck, waitLabel } from '@btw/api/trucks';
@@ -71,15 +71,15 @@
   {/if}
 
   {#if cost}
-    <h3 class="t-title">What it cost {#if can(user, 'finance') && trips.length && co.active !== null}<button onclick={() => { trip = trips[0].shipment.id; kind = 'Other'; amount = 0; docRef = ''; adding = true; }}><Plus size={14} />Expense</button>{/if}</h3>
+    <h3 class="t-title">What it cost {#if can(user, 'truck-expenses') && trips.length && co.active !== null}<button onclick={() => { trip = trips[0].shipment.id; kind = 'Other'; amount = 0; docRef = ''; adding = true; }}><Plus size={14} />Expense</button>{/if}</h3>
     <section class="t-card">
       <dl class="t-kv">
         <dt>Trips</dt><dd>{num(cost.trips)}</dd>
-        <dt>Agreed transport</dt><dd>{usd(cost.agreed)}</dd>
+        <dt>Agreed transport</dt><dd>{usd(cost.agreed)}{#if cost.notRecorded}<span class="nr"> · {cost.notRecorded} not recorded</span>{/if}</dd>
         <dt>Extra costs</dt><dd>{usd(cost.extras)}</dd>
         <dt>Paid</dt><dd>{usd(cost.paid)}{cost.pending ? ` (+${usd(cost.pending)} waiting)` : ''}</dd>
         <dt>Balance owed</dt><dd class:owed={cost.balance > 0}>{usd(cost.balance)}</dd>
-        <dt>Trip cost per case</dt><dd>${cost.perCase.toFixed(2)}</dd>
+        <dt>Trip cost per case</dt><dd>{cost.notRecorded === cost.trips ? 'not recorded' : `$${cost.perCase.toFixed(2)}`}</dd>
       </dl>
     </section>
   {/if}
@@ -91,7 +91,7 @@
         <a class="t-item" href="#/money/{t.shipment.id}">
           <span class="t-main"><span class="t-line1"><span class="t-ellipsis">{t.shipment.ref}</span><Badge status={t.shipment.status} /></span>
             <span class="t-meta t-ellipsis">{lookup.route(t.shipment.legs[0]?.routeId ?? '')?.name ?? ''} · {num(t.cases)} cases</span>
-            <span class="t-meta">{usd(t.expenses)} costs · {t.balance > 0 ? `${usd(t.balance)} owed` : 'settled'}</span></span>
+            <span class="t-meta">{#if t.agreedRecorded === false}<span class="nr">Agreed price not recorded</span> · {/if}{usd(t.expenses)} costs · {t.balance > 0 ? `${usd(t.balance)} owed` : 'settled'}</span></span>
           <ChevronRight class="t-chev" size={20} />
         </a>
       {/each}
@@ -107,12 +107,13 @@
     <label class="field"><span>Kind</span><select class="select" bind:value={kind}>{#each KINDS as k}<option>{k}</option>{/each}</select></label>
     <label class="field"><span>Amount (USD)</span><input class="input" type="number" inputmode="decimal" min="0" step="0.01" bind:value={amount} /></label>
     <label class="field"><span>Receipt / reference</span><input class="input" bind:value={docRef} placeholder="e.g. weighbridge fine receipt" /></label>
-    <p class="t-meta">Accounts record the payment; above the limit a director approves.</p>
+    <p class="t-meta">The directors record and approve payments.</p>
     <div class="t-actions"><button class="btn btn-secondary btn-lg" onclick={() => (adding = false)}>Cancel</button><button class="btn btn-primary btn-lg" onclick={saveCost}>Add expense</button></div>
   </div>
 {/if}
 
 <style>
+  .nr { color: var(--warning); font-weight: 600; }
   .hero { display: flex; flex-direction: column; gap: 8px; }
   .where { margin: 0; font-weight: 600; font-size: 16px; }
   .issues { display: flex; flex-direction: column; gap: 8px; background: var(--danger-subtle); color: var(--danger); }

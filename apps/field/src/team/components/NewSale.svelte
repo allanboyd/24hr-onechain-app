@@ -1,6 +1,7 @@
 <script lang="ts">
   // Quick sale: warehouse · customer · brand lines (from stock on hand) · cash or credit · amount paid.
-  import { inventory, lookup, sales, type SaleLine, type StockRow, type User } from '@btw/api';
+  import { inventory, lookup, pricing, sales, type SaleLine, type SellingPrice, type StockRow, type User } from '@btw/api';
+  import { sellingPriceFor } from '@btw/api/money';
   import { say } from '@btw/ui';
   import Plus from '@lucide/svelte/icons/plus';
   import Trash from '@lucide/svelte/icons/trash-2';
@@ -13,6 +14,10 @@
   let { user, onclose, ondone }: { user: User; onclose: () => void; ondone: () => void } = $props();
 
   let stock = $state<StockRow[]>([]);
+  // docs/14 B-05: lines start from the directors' selling price (warehouse price, else company price; else the list price)
+  let prices = $state<SellingPrice[]>([]);
+  pricing.list().then((p) => (prices = p)).catch(() => {});
+  const priceOf = (pid: string) => sellingPriceFor(prices, co.active ?? '', wh, pid) ?? lookup.price(pid);
   inventory.stock().then((s) => { stock = s.filter((x) => x.entityId === co.active && x.closing > 0); if (!wh) wh = whs[0] ?? ''; }).catch(() => {});
   const whs = $derived([...new Set(stock.map((x) => x.warehouseId))].filter((w) => !user.warehouseIds.length || user.warehouseIds.includes(w)));
   let wh = $state('');
@@ -24,7 +29,7 @@
   const avail = (pid: string) => stock.find((x) => x.warehouseId === wh && x.productId === pid)?.closing ?? 0;
   const products = $derived(stock.filter((x) => x.warehouseId === wh).map((x) => ({ id: x.productId, p: lookup.product(x.productId), n: x.closing })).sort((a, b) => (a.p?.brand ?? '').localeCompare(b.p?.brand ?? '')));
   $effect(() => { if (wh && !lines.length && products.length) addLine(); });
-  function addLine() { const p = products.find((x) => !lines.some((l) => l.productId === x.id)) ?? products[0]; if (p) lines.push({ productId: p.id, qty: 1, price: lookup.price(p.id) }); }
+  function addLine() { const p = products.find((x) => !lines.some((l) => l.productId === x.id)) ?? products[0]; if (p) lines.push({ productId: p.id, qty: 1, price: priceOf(p.id) }); }
   const total = $derived(lines.reduce((a, l) => a + (l.qty || 0) * (l.price || 0), 0));
   const paidNow = $derived(paid ?? (kind === 'Cash' ? total : 0));
 
@@ -52,7 +57,7 @@
     <Segmented options={[{ id: 'Cash', label: 'Cash' }, { id: 'Credit', label: 'Credit' }]} bind:value={kind} label="Sale type" />
     {#each lines as l, i (i)}
       <div class="line">
-        <select class="select" bind:value={l.productId} onchange={() => (l.price = lookup.price(l.productId))} aria-label="Brand">
+        <select class="select" bind:value={l.productId} onchange={() => (l.price = priceOf(l.productId))} aria-label="Brand">
           {#each products as p}<option value={p.id}>{p.p?.brand} {p.p?.pack} · {num(p.n)} in stock</option>{/each}
         </select>
         <div class="nums">

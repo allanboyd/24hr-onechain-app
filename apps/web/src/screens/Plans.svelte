@@ -3,6 +3,7 @@
   import { watch } from '../lib/load.svelte';
   import ErrorState from '../components/ErrorState.svelte';
   import { amount, lookup, plans, type Plan, type User } from '@btw/api';
+  import { seesPrices } from '@btw/api/access';
   import { Badge, fmtDate, fmtMoney, fmtNum, router } from '@btw/ui';
   import Plus from '@lucide/svelte/icons/plus';
   import { untrack } from 'svelte';
@@ -27,7 +28,8 @@
   const rows = $derived((list ?? []).filter((p) =>
     (!status || p.status === status) && (!entity || p.entityId === entity) &&
     (!q || `${p.ref} ${p.title}`.toLowerCase().includes(q.toLowerCase()))));
-  const total = (p: Plan) => p.lines.reduce((a, l) => a + amount(l.qty, l.price), 0);
+  const total = (p: Plan) => p.lines.reduce((a, l) => a + amount(l.qty, l.price ?? 0), 0);
+  const money = $derived(seesPrices(user)); // docs/12 A-04
 </script>
 
 <div class="page-head">
@@ -55,7 +57,7 @@
 
 <div class="card flush table-wrap desktop">
   <table class="table">
-    <thead><tr><th>Reference</th><th>Title</th><th>Entity</th><th>Supplier</th><th class="num">Trucks</th><th class="num">Cases</th><th class="num">Amount</th><th>Date</th><th>Status</th></tr></thead>
+    <thead><tr><th>Reference</th><th>Title</th><th>Entity</th><th>Supplier</th><th class="num">Trucks</th><th class="num">Cases</th>{#if money}<th class="num">Amount</th>{/if}<th>Date</th><th>Status</th></tr></thead>
     <tbody>
       {#if !list}{#each Array(3) as _}<tr><td colspan="9"><div class="skeleton"></div></td></tr>{/each}{/if}
       {#each rows as p (p.id)}
@@ -66,7 +68,7 @@
           <td>{lookup.supplier(p.supplierId)?.code}, {lookup.supplier(p.supplierId)?.city}</td>
           <td class="num">{new Set(p.lines.map((l) => l.truckNo)).size}</td>
           <td class="num">{fmtNum(p.lines.reduce((a, l) => a + l.qty, 0))}</td>
-          <td class="num">{fmtMoney(total(p), p.currency)}</td>
+          {#if money}<td class="num">{fmtMoney(total(p), p.currency)}</td>{/if}
           <td class="small">{fmtDate(p.date)}</td>
           <td><Badge tone={labelTone(planLabel(p))}>{planLabel(p)}</Badge>{#if p.version > 1}<span class="caption"> v{p.version}</span>{/if}</td>
         </tr>
@@ -82,7 +84,7 @@
       <div class="row between"><span class="mono">{p.ref}</span><Badge tone={labelTone(planLabel(p))}>{planLabel(p)}</Badge></div>
       <div>{p.title || '—'}</div>
       <div class="row between small muted"><span>{lookup.entity(p.entityId)?.code} → {lookup.supplier(p.supplierId)?.code} {lookup.supplier(p.supplierId)?.city}</span><span>{fmtDate(p.date)}</span></div>
-      <div class="row between"><span class="small">{new Set(p.lines.map((l) => l.truckNo)).size} trucks · {fmtNum(p.lines.reduce((a, l) => a + l.qty, 0))} cases</span><strong class="num">{fmtMoney(total(p), p.currency)}</strong></div>
+      <div class="row between"><span class="small">{new Set(p.lines.map((l) => l.truckNo)).size} trucks · {fmtNum(p.lines.reduce((a, l) => a + l.qty, 0))} cases</span>{#if money}<strong class="num">{fmtMoney(total(p), p.currency)}</strong>{/if}</div>
     </a></li>
   {:else}{#if list}<li class="empty">No purchase order drafts match these filters.</li>{/if}{/each}
 </ul>

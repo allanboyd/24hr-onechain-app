@@ -19,7 +19,7 @@ const JUNK: (string | undefined)[] = [undefined, '{}', '[]', '"x"', 'null', '42'
 
 export async function fuzzSuite(env: Env) {
   const c = client(env.base);
-  const dir = (await c.login('dir')).accessToken;
+  const dir = (await c.login('daniel')).accessToken;
   const drv = (await c.login('+254702750019', '1234')).accessToken;
   section('Fuzz · every route with junk input (no 5xx)');
   const list = routes().filter((r) => !SKIP.includes(r.path));

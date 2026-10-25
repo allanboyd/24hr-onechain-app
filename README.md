@@ -17,12 +17,16 @@ packages/ui     Shared CSS (tokens only), Badge, CheckpointTimeline, SignaturePa
 packages/tokens tokens.css generated from docs/design-system/tokens.json (`pnpm tokens`)
 ```
 
-## What's new (18 Oct 2026)
+## What's new (18–25 Oct 2026)
 - **Period plans are suggestions** — no approval; statuses Active / Replaced; Active plans of a company never overlap (the app offers *Replace*); plans don't gate POs. See [`docs/09-plans-po-revisions.md`](docs/09-plans-po-revisions.md).
 - **PO approval is a switch** — `[approvals] purchase_orders` in `apps/api/config.toml` (default `false`): planners tap *Issue purchase order* and the letter says ISSUED. Set `true` for director approval.
 - **Loading allowance and PO revisions** — the loader loads from the PO within ±`allowance_pct` (10 %), may load alternatives; any difference auto-creates `<PO ref>-rev001`, `-rev002`, … (numbered from the original); shipments follow the latest revision.
 - **Truck planner role** — onboards providers / saccos / trucks / drivers, orders the loading queues, Truck desk (`#/trucks`), expenses per truck and provider. See [`docs/10-truck-planner-role.md`](docs/10-truck-planner-role.md).
-- **Team phone app (PWA)** — office roles sign in at `/app/` with phone + PIN and get bottom tabs per role: director Home·Trucks·Orders·Money·More, planner Home·Trucks·Orders·Stock·More, accounts Home·Trucks·Orders·Money·More, truck planner Home·Queue·Trucks·Money·More. Field roles are unchanged.
+- **Users, roles and access (docs/12)** — the client's roster (Daniel, Michael, Kabonge, Testfie, Joel, Eric, Moses, Asie, Yonas, drivers), the roles document's §7 access matrix enforced in the API, the mock and the UI ("Own" scopes: buyer–supplier pairs, loading points, warehouses, optional routes), no prices for loaders / receivers / drivers, the agreed transport price recorded after loading, static-data editing (companies, suppliers, goods, receiving companies), routes to Congo, the directors' audit log screen. See [`docs/12-roles-access.md`](docs/12-roles-access.md).
+- **Warehouse and money data (docs/14)** — warehouse expenses (Asie, Yonas; receipt photo, USD at the month rate), warehouse stock counts and adjustments (quantities only), re-export orders Asie → Yonas (`ASIE-RX-…`, Gisenyi → Juba), transport-fee tracking with amber / red ageing (`config.toml [fees]`), selling prices with a target-margin helper (new sales start from them), landed cost v2 (goods + truck + warehouse share, `[costs] allocation`) and the directors' combined performance report; shortage / damage reasons on acknowledgements. Migration `0010_warehouse_money`. See [`docs/14-warehouse-money.md`](docs/14-warehouse-money.md).
+- **Dashboards and home screens (docs/15, docs/16)** — the 28 first-release dashboards plus 3 showcase visuals at `#/dashboards/<group>` (definition, period, freshness, drill-down, CSV / Excel / PDF, "No data yet"), one scoped endpoint `GET /v1/dashboards`; every person's web home `#/` and phone home show only their own dashboards; "last synced" on offline screens.
+- **Deck and architecture refreshed (25 Oct)** — `docs/presentation/BTW-Platform-Overview.pptx` (36 slides: roster, access matrix, warehouse money, landed cost v2, dashboards, home screens, demo logins, grouped open questions) and the architecture pack v1.2 (`docs/architecture/`, 10-page PDF + Word).
+- **Team phone app (PWA)** — office roles sign in at `/app/` with phone + PIN and get bottom tabs per role: directors Home·Trucks·Orders·Money·More, Kabonge Home·Orders·Plans·Truck desk·More, Testfie Home·Queue·Truck desk·Money·More (plus “Load at GBI Mombasa”). Field roles are unchanged.
 
 ## Settings (`apps/api/config.toml`)
 Read by the API at start-up (restart after a change; `CONFIG_FILE=/path` to use another file; defaults apply if missing). Apps receive them in `GET /v1/ref` as `config`.
@@ -75,9 +79,21 @@ pnpm dev:all           # same stack with hot reload (web :5173, field :5174, API
 pnpm verify            # type-check, workflow + API tests, builds, size budget
 pnpm android:build     # debug APK (docs/android.md)
 ```
-Demo sign-in: web `+254700000001` / `demo1234` (director) · field PIN `1234` (driver `+254711000001`, loading point `+254700000003`, receiver `+250700000007`).
-Truck planners: `btw-trucks` (+254700000017, BTW / KBL) and `trucks` (+254700000018, all companies) — web password `demo1234`.
-Office team on a phone: open `/app/` and sign in with the user's phone + PIN `1234` (e.g. director `+254700000001`, truck planner `+254700000017`).
+Demo sign-in — the client's roster (docs/12-roles-access.md). Web password `demo1234`, phone PIN `1234`:
+
+| Person | Username | Phone | Role |
+|---|---|---|---|
+| Daniel | `daniel` | +254700000001 | Director (full access, group-wide) |
+| Michael | `michael` | +254700000020 | Director |
+| Kabonge | `kabonge` | +254700000002 | Purchase planner (BTW–KBL, Nihna–UBL, Kivu–SBL) + static data |
+| Testfie | `testfie` | +254700000006 | Truck follow-up officer; loads at GBI Mombasa |
+| Joel, Eric | `joel`, `eric` | +254700000003, +254700000004 | Loaders, KBL Nairobi |
+| Moses | `moses` | +256700000005 | Loader, UBL Kampala |
+| SBL loader (to confirm) | `sbl-loader` | +255700000021 | Loader, SBL Tanzania (placeholder) |
+| Asie | `asie` | +250700000007 | Receiver + warehouse (Goma, Gisenyi), re-export planner |
+| Yonas | `yonas` | +211900000008 | Receiver + warehouse (Juba) |
+| Drivers | — | +254702750019 (Mawazi K), +254701811686 (Kanyike E), +256711000002 (Joseph Mugisha) | Driver app |
+Office team on a phone: open `/app/` and sign in with the user's phone + PIN `1234` (e.g. director `+254700000001`, Testfie `+254700000006`).
 
 ## Docs
 Build plan and ownership: `docs/04-build-plan.md` · Android: `docs/android.md` · Brand & logo variants: `docs/brand/README.md` · Process: `docs/DEVELOPMENT.md`.

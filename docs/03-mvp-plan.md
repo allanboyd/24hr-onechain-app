@@ -50,8 +50,8 @@ The field app is a **separate, smaller build**, not the web app squeezed onto a 
 ### 2.2 Performance budget (enforced in CI)
 | Target | Budget |
 |---|---|
-| Web initial JS (gzipped) | ≤ 120 KB. The map, charts and PDF preview load lazily. |
-| Field app initial JS (gzipped) | ≤ 80 KB |
+| Web initial JS (gzipped) | ≤ 130 KB (raised from 120 KB on 25 Oct 2026). The map, charts and PDF preview load lazily. |
+| Field app initial JS (gzipped) | ≤ 90 KB (raised from 80 KB on 25 Oct 2026) |
 | Field app APK | ≤ 15 MB |
 | Time to interactive, field app on a mid-range Android phone (e.g. Samsung A15) on 3G | ≤ 3 s |
 | Photo upload | Compressed on the device to about 1600 px longest edge and about 70% JPEG quality (≈ 200–350 KB) before it is queued (MA-10) |

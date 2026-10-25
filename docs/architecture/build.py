@@ -57,25 +57,25 @@ def architecture():
     d.v('Data', 230, 530, 660, 170, GROUP + 'fillColor=#F6F8FB;strokeColor=#8593A8;')
     d.v('External services', 930, 0, 290, 500, GROUP + 'fillColor=#FFF9F4;strokeColor=#DF4901;fontColor=#8F2D00;')
     # clients
-    web = d.v('<b>Office web app</b><br>' + F9('directors · planners · truck planners<br>fleet · accounts · admin'), 60, 40, 80, 66, ICON + 'fontSize=12;fillColor=#062953;shape=mxgraph.aws4.client;')
-    pwa = d.v('<b>Team phone app (PWA)</b><br>' + F9('office roles on a phone · /app/<br>installed from the browser'), 76, 180, 48, 66, ICON + 'fontSize=12;fillColor=#062953;shape=mxgraph.aws4.mobile_client;')
-    fld = d.v('<b>Field app (Android)</b><br>' + F9('loading point · driver · receiver<br>offline outbox · GPS · camera'), 72, 330, 56, 76, ICON + 'fontSize=12;fillColor=#062953;shape=mxgraph.aws4.mobile_client;')
+    web = d.v('<b>Office web app</b><br>' + F9('Daniel · Michael · Kabonge · Testfie<br>Asie · Yonas (warehouse money)'), 60, 40, 80, 66, ICON + 'fontSize=12;fillColor=#062953;shape=mxgraph.aws4.client;')
+    pwa = d.v('<b>Team phone app (PWA)</b><br>' + F9('per-person home screens · /app/<br>installed from the browser'), 76, 180, 48, 66, ICON + 'fontSize=12;fillColor=#062953;shape=mxgraph.aws4.mobile_client;')
+    fld = d.v('<b>Field app (Android)</b><br>' + F9('loaders (no prices) · drivers · receivers<br>offline outbox · GPS · camera'), 72, 330, 56, 76, ICON + 'fontSize=12;fillColor=#062953;shape=mxgraph.aws4.mobile_client;')
     fph = d.v('<b>Feature phone</b><br>' + F9('driver SMS / USSD'), 78, 490, 44, 72, 'shape=mxgraph.android.phone2;strokeWidth=2;strokeColor=#062953;verticalLabelPosition=bottom;verticalAlign=top;html=1;fontSize=12;')
     # server: static, gateway bar, services, rules, adapters
     d.v('<b>Static hosting</b> · / web · /app/ field + team app · /brand/ logos', 300, 34, 570, 30, BOX + 'fontSize=12;fillColor=#F6F8FB;strokeColor=#8593A8;')
-    gw = d.v('<b>API gateway /v1</b><br><br>NestJS 11 · Fastify<br><br>Auth: JWT, password or phone + PIN<br><br>Role &amp; scope guard<br><br>Audit log<br><br>Idempotency keys<br><br>App-version check', 245, 80, 120, 400, BOX + f'fontSize=11;fillColor={NAVY};strokeColor={NAVY};fontColor=#FFFFFF;')
-    svcs = ['Planning &amp; PO', 'Loading &amp; dispatch', 'Tracking · ETA<br>geofence', 'Receipt &amp; stock', 'Sales', 'Finance<br>landing cost', 'Analytics &amp; flags', 'Offline sync<br>/sync/batch', 'Notifications']
+    gw = d.v('<b>API gateway /v1</b><br><br>NestJS 11 · Fastify<br><br>Auth: JWT, password or phone + PIN<br><br>Role, feature &amp; scope guard<br>(company · pair · point · warehouse)<br><br>Audit log<br>(before / after)<br><br>Idempotency keys<br><br>App-version check', 245, 80, 120, 400, BOX + f'fontSize=11;fillColor={NAVY};strokeColor={NAVY};fontColor=#FFFFFF;')
+    svcs = ['Planning &amp; PO', 'Loading &amp; dispatch', 'Tracking · ETA', 'Receipt &amp; stock', 'Warehouse money', 'Re-exports', 'Sales · prices', 'Fees · landed cost v2', 'Dashboards', 'Offline sync', 'Notifications', 'Audit · static data']
     for i, s in enumerate(svcs):
-        d.v(s, 385 + (i % 3) * 103, 80 + (i // 3) * 74, 97, 60, SVC + 'fontSize=12;')
-    rules = d.v('<b>Shared business rules</b><br>' + F9('rules.ts — same code in server, web &amp; field'), 385, 410, 303, 52, BOX + 'fontSize=12;fillColor=#E6F4EC;strokeColor=#15703A;fontColor=#0E2A1E;')
+        d.v(s, 385 + (i % 3) * 103, 80 + (i // 3) * 50, 97, 42, SVC + 'fontSize=11;')
+    rules = d.v('<b>Shared business rules</b><br>' + F9('rules.ts · access.ts · performance.ts · dashboards.ts<br>same code in server, web &amp; field'), 385, 410, 303, 52, BOX + 'fontSize=12;fillColor=#E6F4EC;strokeColor=#15703A;fontColor=#0E2A1E;')
     d.v('Domain services', 385, 286, 303, 20, 'text;html=1;fontSize=11;fontColor=#4A5A70;align=center;')
-    d.v('<b>Settings</b> · apps/api/config.toml<br>' + F9('PO approval on/off · loading allowance ±% · alternatives · revision suffix'), 385, 330, 303, 52, BOX + 'fontSize=11;fillColor=#FFF9E6;strokeColor=#8A5300;fontColor=#3D2600;')
+    d.v('<b>Settings</b> · apps/api/config.toml<br>' + F9('PO approval (off) · allowance ±% · revision suffix<br>[fees] amber / red days · [costs] allocation'), 385, 330, 303, 52, BOX + 'fontSize=11;fillColor=#FFF9E6;strokeColor=#8A5300;fontColor=#3D2600;')
     adp = {}
     for i, a in enumerate(['SMS / USSD', 'Email (SMTP)', 'Push (FCM)', 'Routing (OSRM)', 'PDF letters (Typst)', 'Files']):
         adp[a] = d.v(a, 712, 80 + i * 66, 158, 48, ADP + 'fontSize=12;')
     d.v('Adapters · real or local stand-in', 712, 470, 158, 24, 'text;html=1;fontSize=11;fontColor=#8F2D00;align=center;')
     # data
-    db = d.v('<b>PostgreSQL 17 + PostGIS</b><br>' + F9('36 tables · checkpoints &amp; GPS as geography · audit'), 420, 570, 230, 110, CYL + 'fontSize=12;fillColor=#D9E3F1;strokeColor=#062953;')
+    db = d.v('<b>PostgreSQL 17 + PostGIS</b><br>' + F9('39 tables · checkpoints &amp; GPS as geography · audit'), 420, 570, 230, 110, CYL + 'fontSize=12;fillColor=#D9E3F1;strokeColor=#062953;')
     fs = d.v('<b>File store</b><br>' + F9('photos · signatures · PDFs'), 720, 570, 140, 110, CYL + 'fontSize=12;fillColor=#FFE3CC;strokeColor=#DF4901;')
     # external services aligned with their adapters
     CL = 'ellipse;shape=cloud;whiteSpace=wrap;html=1;fontSize=12;fillColor=#FFF4EC;strokeColor=#DF4901;'
@@ -107,7 +107,7 @@ def architecture():
 # ---------------------------------------------------------------- 2. Process (swimlanes)
 def process():
     d = D('02-process', 'Process — planning to reconciliation')
-    lanes = ['Planner (Kabonge)', 'Director', 'Truck planner · fleet', 'Loading point (giver)', 'Driver', 'BTW platform (system)', 'Receiver (Asie · Zonas)', 'Accounts']
+    lanes = ['Planner (Kabonge)', 'Directors (Daniel · Michael)', 'Truck follow-up (Testfie)', 'Loaders (Joel · Eric · Moses)', 'Driver', 'BTW platform (system)', 'Receivers (Asie · Yonas)', 'Directors · money']
     PX = [130, 300, 455, 650, 880, 1070, 1240, 1410]
     phases = ['1 · Plan (suggestion)', '2 · Purchase order', '3 · Load &amp; dispatch', '4 · Route &amp; monitor', '5 · Receive', '6 · Inventory &amp; sales', '7 · Reconcile']
     LH, TOP = 90, 30
@@ -124,29 +124,26 @@ def process():
     DEC = 'rhombus;whiteSpace=wrap;html=1;fontSize=11;fillColor=#FFF4D1;strokeColor=#8A5300;'
     H = 54
     b = lambda lane, x, w, t, st=T: d.v(t, x, Y(lane), w, H, st)
-    OPT = 'rhombus;whiteSpace=wrap;html=1;fontSize=10;fillColor=#FFF4D1;strokeColor=#8A5300;dashed=1;'
-    plan = b(0, 140, 150, 'Period plan' + S9('a suggestion · no approval'))
-    iss = b(0, 305, 140, 'Issue PO' + S9('lines per truck · ISSUED'))
-    q1 = d.v('Approve?<br>(if on)', 372, Y(1) - 8, 76, 70, OPT)
+    plan = b(0, 140, 150, 'Period plan' + S9('his pairs · a suggestion'))
+    iss = b(0, 305, 140, 'Issue PO' + S9('no approval step'))
     po = b(5, 305, 140, 'PO letter (PDF)' + S9('emailed to supplier'), SYS)
     que = b(2, 465, 175, 'Line up trucks' + S9('queue order · reasons'))
-    load = b(3, 465, 175, 'Load ±10% → hand over' + S9('alternatives · photo · price'))
+    load = b(3, 465, 175, 'Load ±10% → hand over' + S9('alternatives · photo · no prices'))
     shp = b(5, 465, 175, 'Shipment &amp; leg' + S9('PO revision if load differs'), SYS)
     drv = b(4, 660, 125, 'Drive &amp; check in' + S9('slide · geofence · SMS'))
     prob = b(4, 795, 78, 'Problem<br>→ fixed')
     eta = b(5, 680, 150, 'ETA · overdue ·<br>border-wait alerts', SYS)
-    mon = b(2, 680, 160, 'Follow trucks &amp; costs' + S9('truck desk · issues · expenses'))
+    mon = b(2, 680, 160, 'Agreed price · trucks' + S9('after loading · issues · expenses'))
     cnt = b(6, 885, 116, 'Count &amp; sign' + S9('OK · damaged · short'))
     q3 = d.v('Final?', 1004, Y(6) - 6, 62, 66, DEC)
-    trn = b(2, 925, 115, 'Plan transfer leg')
+    trn = b(3, 925, 115, 'Send on / re-export' + S9('Asie → Yonas (Juba)'))
     stk = b(5, 1080, 150, 'Post stock at final warehouse', SYS)
-    sal = b(6, 1080, 150, 'Record sales' + S9('cash · credit · batch'))
-    rec = d.v('<b>Reconcile</b>' + S9('loaded vs received per leg · stock ledger · payments vs agreed'), 1250, Y(5) - 8, 150, H + 16, BOX + 'fontSize=12;fillColor=#E6F4EC;strokeColor=#15703A;')
-    pay = b(7, 1250, 150, 'Pay transport &amp; expenses' + S9('landing cost per truck'))
-    dsh = b(1, 1250, 150, 'Dashboards' + S9('velocity flags · discrepancies'))
+    cnt2 = b(6, 1080, 150, 'Stock counts · expenses' + S9('quantities only'))
+    sal = b(7, 1080, 150, 'Sales · selling prices' + S9('cash · credit · batch'))
+    rec = d.v('<b>Reconcile</b>' + S9('loaded vs received per leg · stock ledger · fees vs agreed price'), 1250, Y(5) - 8, 150, H + 16, BOX + 'fontSize=12;fillColor=#E6F4EC;strokeColor=#15703A;')
+    pay = b(7, 1250, 150, 'Pay transport fees' + S9('age: amber 14 · red 30 days'))
+    dsh = b(1, 1250, 150, 'Dashboards · margins' + S9('landed cost v2 · alerts'))
     d.e(plan, iss, '', FLOW)
-    d.e(iss, q1, 'only if switched on', XLANE, exit=(0.85, 1), entry=(0.5, 0))
-    d.e(q1, po, 'yes', XLANE, exit=(0.5, 1), entry=(0.85, 0))
     d.e(iss, po, 'issued', XLANE, exit=(0.2, 1), entry=(0.2, 0))
     d.e(po, load, 'truck lines', XLANE, exit=(1, 0.3), entry=(0, 0.5))
     d.e(que, load, 'next truck', FLOW)
@@ -157,14 +154,16 @@ def process():
     d.e(eta, mon, 'late / no check-in', XLANE, exit=(0, 0.3), entry=(0, 0.5), pts=[(651, Y(5) + 16), (651, Y(2) + 27)])
     d.e(prob, cnt, 'arrived', XLANE, exit=(1, 0.5), entry=(0.5, 0), pts=[(945, Y(4) + 27)])
     d.e(cnt, q3, '', FLOW)
-    d.e(q3, trn, 'no', XLANE, exit=(0.5, 0), entry=(0.95, 1), pts=[(1035, Y(2) + 66)])
-    d.e(trn, load, 'next leg · same hand-over', XLANE, exit=(0.5, 1), entry=(1, 0.5), pts=[(982, Y(3) + 27)])
+    d.e(q3, trn, 'no', XLANE, exit=(0.5, 0), entry=(0.95, 1), pts=[(1035, Y(3) + 66)])
+    d.e(trn, load, 'next leg · same hand-over', XLANE, exit=(0, 0.5), entry=(1, 0.5))
     d.e(q3, stk, 'yes', XLANE, exit=(1, 0.5), entry=(0, 0.5), pts=[(1073, Y(6) + 27), (1073, Y(5) + 27)])
-    d.e(stk, sal, 'stock', XLANE, exit=(0.25, 1), entry=(0.25, 0))
+    d.e(stk, cnt2, 'stock', XLANE, exit=(0.25, 1), entry=(0.25, 0))
+    d.e(cnt2, sal, 'stock', XLANE, exit=(0.25, 1), entry=(0.25, 0))
     d.e(stk, rec, '', FLOW)
-    d.e(sal, rec, 'sales', XLANE, exit=(1, 0.5), entry=(0.3, 1), pts=[(1295, Y(6) + 27)])
+    d.e(cnt2, rec, 'expenses', XLANE, exit=(1, 0.5), entry=(0.3, 1), pts=[(1295, Y(6) + 27)])
+    d.e(sal, pay, '', FLOW)
     d.e(pay, rec, 'payments', XLANE, exit=(0.7, 0), entry=(0.7, 1))
-    d.e(rec, dsh, 'flags · discrepancies', XLANE, exit=(0.5, 0), entry=(0.5, 1))
+    d.e(rec, dsh, 'profit · losses', XLANE, exit=(0.5, 0), entry=(0.5, 1))
     d.save(); return d
 
 # ---------------------------------------------------------------- 3. Data flow (Gane–Sarson style)
@@ -180,12 +179,12 @@ def dataflow():
     E = lambda t, x, y, w=140: d.v(t, x, y, w, 44, EXT)
     S = lambda t, y: d.v(t, 600, y, 210, 30, STORE)
     p = [P(0, '1.0', 'Period plan'), P(1, '2.0', 'Issue PO'), P(2, '3.0', 'Load &amp; dispatch'), P(3, '4.0', 'Track &amp; monitor'),
-         P(4, '5.0', 'Receive'), P(5, '6.0', 'Inventory &amp; sales'), P(6, '7.0', 'Finance &amp; reconcile'), P(7, '8.0', 'Analytics &amp; notify')]
-    pl, di = E('Planner', 0, py(0) + 6), E('Director', 0, py(1) + 6)
-    tp, lp = E('Truck planner', 0, py(2) - 40), E('Loading point', 0, py(2) + 14)
+         P(4, '5.0', 'Receive'), P(5, '6.0', 'Inventory &amp; sales'), P(6, '7.0', 'Fees · landed cost v2'), P(7, '8.0', 'Dashboards &amp; alerts')]
+    pl, di = E('Kabonge (planner)', 0, py(0) + 6), E('Directors', 0, py(1) + 6)
+    tp, lp = E('Testfie (follow-up)', 0, py(2) - 40), E('Loaders (no prices)', 0, py(2) + 14)
     dv, sg = E('Driver · phone GPS', 0, py(3) - 18), E('SMS / USSD gateway', 0, py(3) + 38)
-    rc = E('Receiver', 0, py(4) + 60)
-    ac = E('Accounts', 0, py(6) + 6)
+    rc = E('Asie · Yonas', 0, py(4) + 60)
+    ac = E('Directors (money)', 0, py(6) + 6)
     su = E('Supplier', 900, py(1) + 6, 120)
     ow = E('Office users<br>(dashboards)', 0, py(7) + 6)
     d1, d2 = S('<b>D1</b> | Master data', py(0) - 14), S('<b>D2</b> | Plans &amp; POs', py(0) + 40)
@@ -193,19 +192,19 @@ def dataflow():
     d2c, d3, d6 = S('<b>D2</b> | Plans &amp; POs', py(2) - 24), S('<b>D3</b> | Shipments · legs', py(2) + 13), S('<b>D6</b> | Trip costs &amp; payments', py(2) + 50)
     d1b, d3b = S('<b>D1</b> | Checkpoints (master)', py(3) - 14), S('<b>D3</b> | Shipments · legs · positions', py(3) + 40)
     d3c, d4, d8b = S('<b>D3</b> | Shipments · legs', py(4) - 24), S('<b>D4</b> | Stock ledger', py(4) + 13), S('<b>D8</b> | Files', py(4) + 50)
-    d5, d4b = S('<b>D5</b> | Sales', py(5) - 14), S('<b>D4</b> | Stock ledger', py(5) + 40)
+    d5, d4b, d10 = S('<b>D5</b> | Sales', py(5) - 24), S('<b>D4</b> | Stock ledger', py(5) + 13), S('<b>D10</b> | Warehouse money', py(5) + 50)
     d6b, d3d = S('<b>D6</b> | Trip costs &amp; payments', py(6) - 14), S('<b>D3</b> | Shipments · legs', py(6) + 40)
     d45, d9 = S('<b>D4 · D5</b> | Stock &amp; sales', py(7) - 14), S('<b>D9</b> | Notifications', py(7) + 40)
     d7 = d.v('<b>D7</b> | Audit log · idempotency keys — every process writes here', 300, py(8) + 4, 510, 30, STORE)
     fl = [
         (pl, p[0], 'plan lines (suggestion)'), (d1, p[0], 'products · prices · lanes'), (p[0], d2, 'Active / Replaced versions'),
-        (pl, p[1], 'truck lines · issue'), (di, p[1], 'approval (only if switched on)'), (d2b, p[1], 'plan context'), (p[1], d8, 'PO PDF'), (p[1], su, 'PO letter by email'),
-        (tp, p[2], 'queue order · providers · trucks'), (lp, p[2], 'cases ±10% · alternatives'), (d2c, p[2], 'truck lines'), (p[2], d2c, 'PO revision -rev001'), (p[2], d3, 'shipment · leg'), (p[2], d6, 'agreed transport'),
+        (pl, p[1], 'truck lines · issue'), (di, p[1], 'Nihna–GBI orders'), (d2b, p[1], 'plan context'), (p[1], d8, 'PO PDF'), (p[1], su, 'PO letter by email'),
+        (tp, p[2], 'queue · agreed price after loading'), (lp, p[2], 'cases ±10% · alternatives'), (d2c, p[2], 'truck lines'), (p[2], d2c, 'PO revision -rev001'), (p[2], d3, 'shipment · leg'), (p[2], d6, 'agreed transport'),
         (dv, p[3], 'check-ins · pings · issues'), (sg, p[3], 'ARR / DEP codes'), (d1b, p[3], 'geofences'), (p[3], d3b, 'passes · ETA'),
-        (rc, p[4], 'counts · damage · signature'), (d3c, p[4], 'expected cases'), (p[4], d4, 'received · damaged'), (p[4], d8b, 'photos · signature'),
-        (rc, p[5], 'sales'), (p[5], d5, 'sale'), (d4b, p[5], 'available stock'),
-        (ac, p[6], 'payments · expenses'), (tp, p[6], 'trip expenses'), (p[6], d6b, 'payments'), (d3d, p[6], 'loaded vs received'), (p[6], ow, 'landing cost · balances'),
-        (d45, p[7], 'stock · sales history'), (p[7], d9, 'alerts'), (p[7], ow, 'velocity · flags'),
+        (rc, p[4], 'counts · loss reasons · signature'), (d3c, p[4], 'expected cases'), (p[4], d4, 'received · damaged'), (p[4], d8b, 'photos · signature'),
+        (rc, p[5], 'stock counts · expenses · re-exports'), (p[5], d10, 'expenses · counts'), (p[5], d5, 'sales (directors)'), (d4b, p[5], 'available stock'),
+        (ac, p[6], 'payments · selling prices'), (d10, p[6], 'warehouse share · prices'), (tp, p[6], 'trip expenses'), (p[6], d6b, 'payments'), (d3d, p[6], 'loaded vs received'), (p[6], ow, 'landed cost · margins · fee age'),
+        (d45, p[7], 'stock · sales history'), (p[7], d9, 'alerts'), (p[7], ow, 'GET /v1/dashboards (scoped)'),
     ]
     for s, t, l in fl: d.e(s, t, l, F)
     d.save(); return d
@@ -221,22 +220,23 @@ def usecases():
     d.v('Web app · team phone app (PWA)', 190, 30, 330, 680, 'rounded=1;arcSize=2;html=1;verticalAlign=top;align=left;spacingLeft=8;fontSize=10;fontColor=#4A5A70;dashed=1;fillColor=none;strokeColor=#A3B1C6;')
     d.v('Field app · SMS', 580, 30, 330, 680, 'rounded=1;arcSize=2;html=1;verticalAlign=top;align=left;spacingLeft=8;fontSize=10;fontColor=#8F2D00;dashed=1;fillColor=none;strokeColor=#FFC79A;')
     A = lambda n, x, y: d.v(n, x, y, 30, 56, ACT)
-    planner, director, tplan, fleet, accounts, admin = A('Planner', 60, 30), A('Director', 60, 145), A('Truck planner', 60, 260), A('Fleet / ops', 60, 375), A('Accounts', 60, 490), A('Admin', 60, 610)
-    giver, driver, receiver = A('Loading point', 1010, 70), A('Driver', 1010, 300), A('Receiver', 1010, 520)
+    planner, tplan, director = A('Kabonge', 60, 90), A('Testfie', 60, 320), A('Daniel · Michael', 60, 540)
+    giver, driver, receiver = A('Joel · Eric · Moses', 1010, 70), A('Driver', 1010, 300), A('Asie · Yonas', 1010, 520)
     supplier = A('Supplier', 470, 760)
     U = lambda t, x, y, s=UC: d.v(t, x + (-10 if x == 210 else 0), y, 150, 48, s)
-    w = [U('Save period plan (suggestion)', 210, 50), U('Approve PO (only if switched on)', 210, 120), U('Issue &amp; email PO', 360, 160),
-         U('Track trucks · ETA · map', 210, 260), U('Log issue · plan transfer leg', 360, 320), U('View velocity &amp; flags', 210, 200),
-         U('Record payments · approve', 210, 470), U('Landing cost per truck', 360, 520), U('Manage users &amp; devices', 210, 620),
-         U('Manage master data · routes', 360, 640), U('Inventory &amp; sales', 360, 410),
-         U('Onboard providers · trucks · drivers', 360, 240), U('Order loading queues', 210, 330), U('Truck desk · trip expenses', 210, 400)]
-    f = [U('Manage waiting list', 600, 60, UCF), U('Load ±10% · hand over (PO revision)', 750, 110, UCF), U('Check in at checkpoint', 600, 250, UCF),
-         U('Report problem · fixed', 750, 300, UCF), U('Check in by SMS / USSD', 600, 360, UCF), U('Receive &amp; sign delivery', 600, 520, UCF),
-         U('Send on (transfer leg)', 750, 580, UCF), U('Work offline · sync', 750, 430, UCF)]
-    links = [(planner, w[0]), (director, w[1]), (director, w[5]), (director, w[6]), (planner, w[2]), (fleet, w[3]), (fleet, w[4]), (director, w[3]),
-             (accounts, w[6]), (accounts, w[7]), (admin, w[8]), (admin, w[9]), (planner, w[9]), (accounts, w[10]), (w[2], supplier),
-             (giver, f[0]), (giver, f[1]), (driver, f[2]), (driver, f[3]), (driver, f[4]), (driver, f[7]), (receiver, f[5]), (receiver, f[6]),
-             (receiver, f[7]), (giver, f[7]), (receiver, w[10]), (tplan, w[11]), (tplan, w[12]), (tplan, w[13]), (tplan, w[3]), (planner, w[11])]
+    w = [U('Save period plan (his pairs)', 210, 50), U('Edit static data (companies, goods)', 210, 120), U('Issue &amp; email PO', 360, 160),
+         U('Fleet board · delays · issues', 210, 260), U('Agreed price after loading', 360, 320), U('Dashboards · combined performance', 210, 200),
+         U('Record payments · selling prices', 210, 470), U('Landed cost v2 · margins', 360, 520), U('Users · pairs · audit log', 210, 620),
+         U('Routes · warehouses', 360, 640), U('Sales (directors)', 360, 410),
+         U('Onboard providers · trucks · drivers', 360, 240), U('Order loading queues', 210, 330), U('Trip expenses · fee ageing', 210, 400)]
+    f = [U('Manage waiting list', 600, 60, UCF), U('Load ±10% · hand over, no prices', 750, 110, UCF), U('Check in at checkpoint', 600, 250, UCF),
+         U('Report problem · fixed', 750, 300, UCF), U('Check in by SMS / USSD', 600, 360, UCF), U('Receive &amp; sign · loss reasons', 600, 520, UCF),
+         U('Re-export Rwanda → Juba (Asie)', 750, 580, UCF), U('Work offline · sync', 750, 430, UCF), U('Warehouse expenses · stock counts', 600, 640, UCF)]
+    links = [(planner, w[0]), (planner, w[1]), (planner, w[2]), (planner, w[11]), (planner, w[12]), (w[2], supplier),
+             (tplan, w[3]), (tplan, w[4]), (tplan, w[12]), (tplan, w[13]), (tplan, f[1]),
+             (director, w[5]), (director, w[6]), (director, w[7]), (director, w[8]), (director, w[9]), (director, w[10]), (director, w[3]), (director, w[1]),
+             (giver, f[0]), (giver, f[1]), (giver, f[7]), (driver, f[2]), (driver, f[3]), (driver, f[4]), (driver, f[7]),
+             (receiver, f[5]), (receiver, f[6]), (receiver, f[7]), (receiver, f[8])]
     for a, b in links: d.e(a, b, '', L)
     d.save(); return d
 

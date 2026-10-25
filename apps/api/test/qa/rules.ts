@@ -7,8 +7,8 @@ const BAD_SIG = 'data:image/png;base64,iVBORw0KGgo=';
 export async function rulesSuite(env: Env) {
   const c = client(env.base);
   const T = {
-    dir: (await c.login('dir')).accessToken, plan: (await c.login('kabonge')).accessToken, joel: (await c.login('joel')).accessToken,
-    asie: (await c.login('asie')).accessToken, acc: (await c.login('acc')).accessToken, drv1: (await c.login('+254702750019', '1234')).accessToken,
+    dir: (await c.login('daniel')).accessToken, plan: (await c.login('kabonge')).accessToken, joel: (await c.login('joel')).accessToken,
+    asie: (await c.login('asie')).accessToken, acc: (await c.login('michael')).accessToken, tf: (await c.login('testfie')).accessToken, drv1: (await c.login('+254702750019', '1234')).accessToken,
   };
   const year = new Date().getFullYear();
   const ref = (await c.req('GET', '/ref', { token: T.dir })).body;
@@ -60,7 +60,6 @@ export async function rulesSuite(env: Env) {
   const qty = (o: number, p: number) => ({ [ld.lines[0].planLineId]: o, [ld.lines[1].planLineId]: p });
   const truck = ref.trucks.find((x: any) => x.reg === 'SSD 879T');
   expectStatus(await c.req('POST', `/loadings/${ld.id}/confirm`, { token: T.joel, body: { truckId: truck.id, driverId: 'd3', loadedQty: qty(1500, 900), agreedTransport: 1500 } }), 422, `over capacity (2,400 > ${truck.capacityCases}) refused`);
-  expectStatus(await c.req('POST', `/loadings/${ld.id}/confirm`, { token: T.joel, body: { truckId: truck.id, driverId: 'd3', loadedQty: qty(1000, 900), agreedTransport: 0 } }), 422, 'agreed transport price required');
   r = await c.req('POST', `/loadings/${ld.id}/confirm`, { token: T.joel, body: { truckId: truck.id, driverId: 'd3', loadedQty: qty(1000, 800), agreedTransport: 1500 } });
   ok(r.status === 422 && /Below the 5% loading allowance/.test(r.body.title), 'config allowance (±5 %) enforced: 1,800 of 1,900 refused', r.body);
   r = await c.req('POST', `/loadings/${ld.id}/confirm`, { token: T.joel, body: { truckId: truck.id, driverId: 'd3', loadedQty: qty(1000, 880), agreedTransport: 1500, alternatives: [{ productId: 'p-a300', qty: 10 }] } });
@@ -77,7 +76,7 @@ export async function rulesSuite(env: Env) {
   const stockAt = async (wh: string, pid: string, entityId: string = sh.entityId) => ((await c.req('GET', '/stock', { token: T.dir })).body as any[]).find((x) => x.entityId === entityId && x.warehouseId === wh && x.productId === pid) ?? { received: 0, closing: 0, inTransit: 0, transfersIn: 0, transfersOut: 0 };
   const kglBefore = await stockAt('w-kgl', 'p-a300'); const gomaBefore = await stockAt('w-goma', 'p-a300');
   ok(gomaBefore.inTransit >= 1000, 'in-transit stock shows at the final warehouse before arrival (IN-01)', gomaBefore);
-  expectStatus(await c.req('POST', `/legs/${leg1.id}/split`, { token: T.plan, body: { checkpointId: 'cp-gisenyi-wh' } }), 200, 'planner makes the Gisenyi warehouse the first destination');
+  expectStatus(await c.req('POST', `/legs/${leg1.id}/split`, { token: T.tf, body: { checkpointId: 'cp-gisenyi-wh' } }), 200, 'the truck follow-up officer makes the Gisenyi warehouse the first destination');
   await c.req('POST', `/legs/${leg1.id}/dispatch`, { token: T.joel, body: {} });
   const lines1 = [{ productId: 'p-a300', expected: 1, received: 990, damaged: 4, remarks: '10 short' }, { productId: 'p-b500', expected: 1, received: 880, damaged: 0 }];
   r = await c.req('POST', `/legs/${leg1.id}/acknowledgement`, { token: T.asie, body: { receiverName: 'QA Uwase', lines: lines1, signature: SIG } });
@@ -98,7 +97,7 @@ export async function rulesSuite(env: Env) {
   ok(leg2?.lines.find((l: any) => l.productId === 'p-a300').loadedQty === 986, 'onward shipment carries the GOOD quantity received (990 − 4 damaged)', leg2?.lines);
   ok((await stockAt('w-kgl', 'p-a300')).closing === kglMid.closing - 986, 'stock leaves Gisenyi at dispatch (transfer out 986)');
   await c.req('POST', `/legs/${leg2.id}/dispatch`, { token: T.asie, body: {} });
-  await c.req('POST', `/legs/${leg2.id}/passes`, { token: T.dir, body: { checkpointId: 'cp-goma', kind: 'arrived' } });
+  await c.req('POST', `/legs/${leg2.id}/passes`, { token: T.tf, body: { checkpointId: 'cp-goma', kind: 'arrived' } });
   r = await c.req('POST', `/legs/${leg2.id}/acknowledgement`, { token: T.asie, body: { receiverName: 'QA Goma', lines: [{ productId: 'p-a300', expected: 0, received: 986, damaged: 1 }, { productId: 'p-b500', expected: 0, received: 880, damaged: 0 }], signature: SIG } });
   ok(r.status === 201 && r.body.isFinal === true, 'final acknowledgement at Goma', r.body);
   const gomaAfter = await stockAt('w-goma', 'p-a300');
@@ -113,18 +112,24 @@ export async function rulesSuite(env: Env) {
   section('Rules · sales & stock limits (SL-02)');
   const kgl = await stockAt('w-kgl', 'p-e330', 'e-kivu');
   const sale = (qty: number, override = false) => ({ entityId: 'e-kivu', warehouseId: 'w-kgl', customer: 'QA', kind: 'Cash', lines: [{ productId: 'p-e330', qty, price: 20 }], currency: 'USD', paid: 0, at: new Date().toISOString(), override });
-  expectStatus(await c.req('POST', '/sales', { token: T.asie, body: sale(kgl.closing + 1) }), 422, `sale above stock (${kgl.closing}) blocked`);
-  expectStatus(await c.req('POST', '/sales', { token: T.asie, body: sale(kgl.closing + 1, true) }), 403, 'only a director may override');
+  expectStatus(await c.req('POST', '/sales', { token: T.dir, body: sale(kgl.closing + 1) }), 422, `sale above stock (${kgl.closing}) blocked`);
+  expectStatus(await c.req('POST', '/sales', { token: T.asie, body: sale(kgl.closing + 1, true) }), 403, 'receivers record no sales (directors only, §7)');
   r = await c.req('POST', '/sales', { token: T.dir, body: sale(kgl.closing + 1, true) });
   ok(r.status === 201, 'director override records the sale', r.body);
   ok((await stockAt('w-kgl', 'p-e330', 'e-kivu')).closing === -1, 'stock goes negative only through the audited override', (await stockAt('w-kgl', 'p-e330', 'e-kivu')).closing);
-  r = await c.req('POST', '/sales', { token: T.asie, body: { ...sale(1), lines: [{ productId: 'p-e330', qty: 1, price: 20 }], paid: 0 } });
+  r = await c.req('POST', '/sales', { token: T.dir, body: { ...sale(1), lines: [{ productId: 'p-e330', qty: 1, price: 20 }], paid: 0 } });
   ok(r.status === 422, 'with stock at −1, even 1 case is blocked', r.body);
 
   section('Rules · trip financials & landing cost (FN-*, §17.6)');
+  const trips0 = (await c.req('GET', '/finance/trips', { token: T.acc })).body as any[];
+  const trip0 = trips0.find((x) => x.shipment.id === sh.id);
+  ok(trip0 && trip0.transport === 0 && trip0.agreedRecorded === false, 'the loader recorded no price: agreed transport "not recorded yet" (A-04)', trip0 && { transport: trip0.transport, agreedRecorded: trip0.agreedRecorded });
+  expectStatus(await c.req('POST', `/shipments/${sh.id}/agreed-price`, { token: T.joel, body: { amount: 1500, currency: 'USD' } }), 403, 'a loader cannot record the agreed price');
+  expectStatus(await c.req('POST', `/shipments/${sh.id}/agreed-price`, { token: T.tf, body: { amount: 0 } }), 422, 'agreed price must be above zero');
+  expectStatus(await c.req('POST', `/shipments/${sh.id}/agreed-price`, { token: T.tf, body: { amount: 1500, currency: 'USD', docRef: 'QA agreed' } }), 200, 'Testfie records the agreed price after loading');
   const trips = (await c.req('GET', '/finance/trips', { token: T.acc })).body as any[];
   const trip = trips.find((x) => x.shipment.id === sh.id);
-  ok(trip && trip.transport === 1500 && trip.balance === 1500, 'agreed transport from loading becomes the trip cost', trip && { transport: trip.transport, balance: trip.balance });
+  ok(trip && trip.transport === 1500 && trip.balance === 1500, 'the agreed price becomes the trip\'s Transport cost', trip && { transport: trip.transport, balance: trip.balance });
   const cost = trip.costs.find((x: any) => x.kind === 'Transport');
   await c.req('POST', '/finance/costs', { token: T.acc, body: { shipmentId: sh.id, kind: 'Taxes & duties', amount: 2000, currency: 'USD', docRef: 'QA-TAX' } });
   const threshold = ref.settings.paymentApprovalThreshold;
@@ -132,7 +137,7 @@ export async function rulesSuite(env: Env) {
   ok(r.body.status === 'Paid', `payment ≤ threshold (${threshold}) is paid at once`, r.body);
   r = await c.req('POST', '/finance/payments', { token: T.acc, body: { shipmentId: sh.id, costId: cost.id, amount: threshold + 1, reference: 'QA big' } });
   ok(r.body.status === 'Pending approval', 'payment above threshold waits for a director (FN-03)', r.body);
-  expectStatus(await c.req('POST', `/finance/payments/${r.body.id}/approve`, { token: T.acc }), 403, 'accounts cannot approve');
+  expectStatus(await c.req('POST', `/finance/payments/${r.body.id}/approve`, { token: T.tf }), 403, 'the truck follow-up officer cannot approve');
   expectStatus(await c.req('POST', `/finance/payments/${r.body.id}/approve`, { token: T.dir }), 200, 'director approves');
   expectStatus(await c.req('POST', '/finance/payments', { token: T.acc, body: { shipmentId: sh.id, costId: cost.id, amount: 1500, reference: 'QA overpay' } }), 422, 'overpaying a cost is refused');
   expectStatus(await c.req('POST', '/finance/payments', { token: T.acc, body: { shipmentId: sh.id, costId: 'cost-of-another-trip', amount: 1, reference: 'QA' } }), 422, 'cost line must belong to the trip');
@@ -153,7 +158,7 @@ export async function rulesSuite(env: Env) {
   const old = new Date(Date.now() - 20 * 60_000).toISOString();
   await c.req('POST', `/legs/${legK.id}/passes`, { token: T.drv1, headers: { 'x-channel': 'app' }, body: { checkpointId: next.checkpointId, kind: 'arrived', at: old } });
   expectStatus(await c.req('POST', `/legs/${legK.id}/passes/${next.checkpointId}/undo`, { token: T.drv1, body: { kind: 'arrived' } }), 422, 'undo after 10 min refused for the driver');
-  expectStatus(await c.req('POST', `/legs/${legK.id}/passes/${next.checkpointId}/undo`, { token: T.plan, body: { kind: 'arrived' } }), 200, 'office can correct any time');
+  expectStatus(await c.req('POST', `/legs/${legK.id}/passes/${next.checkpointId}/undo`, { token: T.tf, body: { kind: 'arrived' } }), 200, 'office can correct any time');
   const audit = await env.sql`select count(*)::int as n from audit_log where method = 'UNDO'`;
   ok(audit[0].n >= 2, 'undo is audited', audit[0]);
   const after = (await c.req('GET', '/field/driver', { token: T.drv1 })).body.trips[0];

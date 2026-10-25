@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { NestFactory } from '@nestjs/core';
+import { auditStore } from './common/audit-context';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { AppModule } from './app.module';
 import { config } from './config/config';
@@ -22,6 +23,8 @@ const STATIC: { prefix: string; dir: string }[] = [
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({ bodyLimit: 15 * 1024 * 1024 }));
+  // docs/12 A-07: one audit note per request (services add before / after; the audit interceptor writes it)
+  app.getHttpAdapter().getInstance().addHook('onRequest', (_req: unknown, _res: unknown, done: () => void) => auditStore.run({}, done));
   app.setGlobalPrefix('v1', { exclude: ['health'] });
   app.enableCors({ origin: config.CORS_ORIGINS.split(','), credentials: true });
   const served: string[] = [];

@@ -6,9 +6,11 @@ import {
   apiLogin, apiToken, apiGet, apiPost, overflow, step, startJourney, must, VIEW,
 } from './lib.mjs';
 
+// The client's roster (docs/12): Daniel (director, also manages users), Kabonge (planner), Joel (KBL loader), Testfie
+// (truck follow-up, records the agreed price after loading), Asie and Yonas (receivers).
 export const PH = {
-  director: '+254700000001', planner: '+254700000002', joel: '+254700000003', tesfie: '+254700000006',
-  asie: '+250700000007', zonas: '+211900000008', accounts: '+254700000009', admin: '+254700000010',
+  director: '+254700000001', planner: '+254700000002', joel: '+254700000003', testfie: '+254700000006',
+  asie: '+250700000007', yonas: '+211900000008', admin: '+254700000001', michael: '+254700000020',
   peter: '+254702750019', hassan: '+254701811686', moses: '+211911000007', said: '+255711000006',
 };
 const text = async (page) => (await page.locator('body').innerText()).replace(/\s+/g, ' ');
@@ -32,15 +34,18 @@ export async function roleGuards(ctx) {
     await webGo(lo, '/loading', 1500); must(/Loading/i.test(await text(lo.page)), 'loading screen missing');
     for (const hash of ['/users', '/finance', '/plans/new']) {
       await webGo(lo, hash, 900);
-      must(/no access|not available|isn.t available for your role/i.test(await text(lo.page)), `loader reached ${hash}`);
+      must(/no access|not available|isn.t available for your role|Only planners and directors/i.test(await text(lo.page)), `loader reached ${hash}`);
+      if (hash === '/plans/new') must(await lo.page.locator('button:has-text("Create draft")').isDisabled(), 'loader can create a PO draft');
     }
   }, { allow: ['403'] });
   const f = await person('field-director', { kind: 'field' });
-  await step('director on the field app gets “Use the web app” with a working link', f, async () => {
+  // Office roles get the team PWA on the phone (bottom nav, read-mostly), never a driver / loader screen.
+  await step('director on the phone app gets the team PWA (Home + bottom nav), no field task screen', f, async () => {
     await fieldSignIn(f, PH.director);
-    must(/Use the web app/.test(await text(f.page)), 'no web-only screen');
-    const href = await f.page.locator('a:has-text("Open")').getAttribute('href');
-    must(href === WEB, `web link is ${href}, expected ${WEB}`);
+    const t = await text(f.page);
+    must(/Good (morning|afternoon|evening), Daniel/.test(t), `no team home: ${t.slice(0, 120)}`);
+    for (const tab of ['Home', 'Trucks', 'Orders', 'Money']) must(await f.page.locator('nav').getByText(tab, { exact: true }).count(), `no “${tab}” tab`);
+    must(!(await f.page.locator('.knob').count()), 'a slide-to-confirm task is shown to a director');
   });
   const fp = await person('field-wrong-pin', { kind: 'field' });
   await step('wrong PIN is refused with a clear message', fp, async () => {
@@ -147,19 +152,37 @@ async function checkIn(p, re, { undoFirst = false } = {}) {
   must((await knobLabel(page)) !== label || /Arrived at/.test(await text(page)), `still “${label}” after sending`);
   return label;
 }
+/** Receiver: open “Receive & sign” for truck `reg` (the focus card, or its row under the focus card). */
+async function openReceipt(page, reg) {
+  if ((await text(page)).includes(`${reg} is here`)) return page.click('button:has-text("Receive & sign")');
+  await page.locator('ul.others button', { hasText: reg }).click();
+}
+/** Receiver: sign “Everything arrived OK” for every truck already waiting (the seed leaves SSD 410K at Goma), so the
+ *  focus card shows the next arrival / send-on. */
+async function clearArrivals(page, keep = []) {
+  for (let i = 0; i < 4; i++) {
+    const reg = (await text(page)).match(/([A-Z]{1,3} ?\d{3}[A-Z]{0,3}) is here/)?.[1];
+    if (!reg || keep.includes(reg)) return;
+    await page.click('button:has-text("Receive & sign")'); await sleep(400);
+    await page.click('button:has-text("Everything arrived OK")'); await sleep(300);
+    await page.fill('input[autocomplete=name]', 'Jeanne Uwase');
+    await sign(page, page.locator('section.sheet.modal canvas'));
+    await slide(page, page.locator('section.sheet.modal')); await sleep(2500);
+  }
+}
 async function legPasses(token, legId) { const x = await legOf(token, legId); return x?.l.passes ?? []; }
 const cpPass = (passes, id) => passes.find((q) => q.checkpointId === id) ?? {};
 
 export async function fullChain(ctx) {
-  startJourney('1 · Full chain: plan → approval → PO → hand-over → trip (offline, problem, undo) → receipt');
+  startJourney('1 · Full chain: PO issued (no approval) → no-price hand-over → trip (offline, problem, undo) → receipt');
   const admin = ctx.admin ?? (ctx.admin = await person('admin'));
   if (!(await admin.page.locator('aside.side').count())) await webSignIn(admin, PH.admin);
-  await step('admin onboards driver Kanyike E (phone in the KBL queue)', admin, async () => { ctx.hassanPin = await createFieldUser(admin, { name: 'Kanyike E', phone: PH.hassan }); await admin.page.locator('dialog[open] button:has-text("Cancel")').click().catch(() => {}); return `PIN ${ctx.hassanPin}`; });
+  ctx.hassanPin = '1234'; // Kanyike E is a seeded driver (docs/12 §1) with the demo PIN
 
   // Planner → director
   const planner = await person('planner'); await webSignIn(planner, PH.planner);
-  let planHash = '';
-  await step('planner creates a plan with a mixed-load truck and submits it', planner, async () => {
+  let poRef = '', poHash = '';
+  await step('planner (Kabonge) drafts a mixed-load truck and issues the PO — no director approval (config approvals off)', planner, async () => {
     const page = planner.page;
     await webGo(planner, '/plans/new', 1200); await page.click('button:has-text("Create draft")'); await sleep(1800);
     ctx.planTitle = `E2E mixed-load order ${Date.now().toString(36)}`;
@@ -170,26 +193,18 @@ export async function fullChain(ctx) {
     const qty = page.locator('[aria-label="Quantity, truck 1"]'); must((await qty.count()) === 2, 'mixed-load line not added');
     await qty.nth(1).fill('600');
     must(/Truck 1 subtotal/.test(await text(page)), 'no truck subtotal row');
-    await page.click('button:has-text("Submit for approval")'); await sleep(2500);
-    planHash = await page.evaluate(() => location.hash.slice(1));
-    must(await page.locator('text=Submitted').count(), 'not submitted');
-    return planHash;
+    poRef = ctx.poRef = (await page.locator('h1 .mono').first().innerText()).trim();
+    must(!(await page.locator('button:has-text("Submit for approval")').count()), 'approval step shown although approvals are off');
+    await page.click('button:has-text("Issue purchase order")'); await sleep(2500);
+    poHash = await page.evaluate(() => location.hash.slice(1));
+    must(/^\/pos\//.test(poHash), `not on the PO after issuing (${poHash})`);
+    must((await page.locator('h1 .mono').first().innerText()).trim() === poRef, 'PO ref differs from the draft ref');
+    return `${poRef} · ${poHash}`;
   });
   const director = ctx.director = await person('director'); await webSignIn(director, PH.director);
-  let poRef = '';
-  await step('director approves with a drawn signature', director, async () => {
-    const page = director.page;
-    await webGo(director, planHash, 1800);
-    await page.click('button:has-text("Approve & sign")'); await sleep(400);
-    await sign(page, page.locator('dialog[open] canvas'));
-    await page.click('dialog[open] button:has-text("Approve & sign")'); await sleep(2500);
-    must(await page.locator('text=Approved').count(), 'not approved');
-    poRef = ctx.poRef = (await page.locator('h1 .mono, h1').first().innerText()).match(/[A-Z]{3}-PO-\d{4}-\d{4}/)?.[0] ?? '';
-    return poRef;
-  });
-  await step('PO letter: server PDF downloads; “Email to supplier” lands in Mailpit', director, async () => {
-    const page = director.page;
-    await page.locator('a:has-text("View purchase order")').first().click(); await sleep(1500);
+  await step('PO letter (Kabonge): server PDF downloads; “Email to supplier” lands in Mailpit', planner, async () => {
+    const page = planner.page;
+    must(poHash, 'no PO issued'); await webGo(planner, poHash, 1800);
     const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }), page.click('button:has-text("Download PDF")')]);
     const file = path.join(OUT, 'po.pdf'); await dl.saveAs(file);
     const buf = readFileSync(file); must(buf.subarray(0, 5).toString() === '%PDF-' && buf.length > 5000, `PDF bad (${buf.length} bytes)`);
@@ -216,7 +231,7 @@ export async function fullChain(ctx) {
     await fieldSignIn(joel, PH.joel);
     const t = await text(joel.page); must(t.includes(poRef), `next order is not ${poRef}: ${t.slice(0, 160)}`); must(/SSD 879T/.test(t), 'SSD 879T not first in queue');
   });
-  await step('Joel loads and hands over with a document photo and the agreed price', joel, async () => {
+  await step('Joel loads and hands over with a document photo (no price — docs/12 A-04)', joel, async () => {
     const page = joel.page;
     await page.click('button:has-text("Load this truck")'); await sleep(600);
     const sheet = page.locator('section.sheet.modal');
@@ -225,13 +240,13 @@ export async function fullChain(ctx) {
     must(vals.join() === '1200,600', `prefilled ${vals}`);
     await sheet.locator('input[type=file]').setInputFiles(PHOTO); await sleep(300);
     must(await sheet.locator('.thumb img').count(), 'photo thumbnail missing');
-    await sheet.locator('input[placeholder="e.g. 1650"]').fill('1650');
+    must(!(await sheet.locator('input[placeholder="e.g. 1650"]').count()), 'the loader still sees a price field');
     await slide(page, sheet); await sleep(2500);
     must(/handed over/.test(await toast(page)), `toast: ${await toast(page)}`);
   });
   await step('Hassan’s phone shows the trip without a reload', hassan, async () => { await waitForLabel(hassan.page, /Start trip/, 30000); });
 
-  const token = await apiToken({ username: 'dir', password: PASS });
+  const token = await apiToken({ username: 'daniel', password: PASS });
   const trip = await (async () => { for (const s of await apiGet(token, '/shipments')) for (const l of s.legs) if (l.driverId === 'd3' && l.status !== 'Acknowledged') return { s, l }; return null; })();
   ctx.chain = { shipmentId: trip?.s.id, legId: trip?.l.id };
   const H = hassan;
@@ -251,7 +266,7 @@ export async function fullChain(ctx) {
     }
     await waitForLabel(H.page, /arrived at Malaba/, 10000);
     const pill = await H.page.locator('.pill').innerText();
-    must(/Offline · 2 saved/.test(pill), `pill says “${pill}”`);
+    must(/Offline · 2 saved|Waiting to send 2/.test(pill), `pill says “${pill}”`);
     const web = cpPass(await legPasses(token, ctx.chain.legId), 'cp-webuye');
     must(!web.arrivedAt, 'server already has Webuye while phone offline');
   }, { allow: ['ERR_INTERNET_DISCONNECTED', 'Failed to fetch', 'net::'] });
@@ -288,9 +303,9 @@ export async function fullChain(ctx) {
     const k = cpPass(await legPasses(token, ctx.chain.legId), 'cp-kampala'); must(k.source === 'sms', `Kampala source ${k.source}`);
     return `${l} · reply: ${JSON.stringify(r.body).slice(0, 120)}`;
   });
-  await step('rest of the route to Kigali (Mbarara, Katuna border)', H, async () => {
-    for (const re of [/leaving Kampala/, /arrived at Mbarara/, /leaving Mbarara/, /arrived at Katuna/, /leaving Katuna/, /arrived at Asie warehouse Kigali/]) await checkIn(H, re);
-    must(/Arrived at Asie warehouse Kigali/.test(await text(H.page)), 'not at destination');
+  await step('rest of the route to Asie warehouse Gisenyi (Mbarara, Katuna border, Kigali)', H, async () => {
+    for (const re of [/leaving Kampala/, /arrived at Mbarara/, /leaving Mbarara/, /arrived at Katuna/, /leaving Katuna/]) await checkIn(H, re);
+    await driveTo(H, /Arrived at .*Gisenyi/);
   });
   await step('web: shipment detail + tracking show the driver, SMS and office sources', director, async () => {
     await webGo(director, `/shipments/${ctx.chain.shipmentId}`, 2000);
@@ -300,16 +315,19 @@ export async function fullChain(ctx) {
   });
 
   // Receiver
-  const stockBefore = (await apiGet(token, '/stock')).find((r) => r.warehouseId === 'w-kgl' && r.productId === 'p-a300');
+  const kglTotals = async () => (await apiGet(token, '/stock')).filter((r) => r.warehouseId === 'w-kgl' && r.entityId === 'e-btw').reduce((a, r) => ({ received: a.received + r.received, damaged: a.damaged + r.damaged }), { received: 0, damaged: 0 });
+  const stockBefore = await kglTotals();
   const asie = ctx.asie = await person('asie-phone', { kind: 'field' });
   await step('Asie receives with damage, photo and signature', asie, async () => {
     const page = asie.page;
     await fieldSignIn(asie, PH.asie);
+    await clearArrivals(page, ['SSD 879T']);
     must(/SSD 879T is here/.test(await text(page)), 'arrived truck not shown first');
-    await page.click('button:has-text("Receive & sign")'); await sleep(500);
+    await openReceipt(page, 'SSD 879T'); await sleep(500);
     await page.click('button:has-text("Something is short or damaged")'); await sleep(300);
     const dmg = page.locator('input[aria-label$="damaged"]').first(); await dmg.fill('6'); await dmg.press('Tab');
     await page.fill('input[placeholder="e.g. 6 crates crushed"]', '6 crates crushed');
+    await page.locator('section.sheet.modal select').first().selectOption('Breakage in transit'); // docs/14 ack reasons
     await page.locator('section.sheet.modal input[type=file]').setInputFiles(PHOTO);
     await page.click('button:has-text("Next")'); await sleep(300);
     must(/6 short or damaged/.test(await text(page)), 'summary missing discrepancy');
@@ -318,13 +336,33 @@ export async function fullChain(ctx) {
     await slide(page, page.locator('section.sheet.modal')); await sleep(2500);
     must(/Delivery received/.test(await toast(page)), `toast: ${await toast(page)}`);
   });
+  // docs/12 A-04: the loader gave no price; Testfie records the agreed transport price after loading (trip detail).
+  const testfie = ctx.testfie = await person('testfie'); await webSignIn(testfie, PH.testfie);
+  await step('Testfie records the agreed transport price (USD 1,650) on the trip', testfie, async () => {
+    const page = testfie.page;
+    await webGo(testfie, `/shipments/${ctx.chain.shipmentId}`, 1800);
+    must(/Agreed price: not recorded yet/.test(await text(page)), 'trip does not say “agreed price not recorded”');
+    await page.click('button:has-text("Record agreed price")'); await sleep(300);
+    const d = page.locator('dialog[open]');
+    await d.locator('select[aria-label="Currency"]').selectOption('USD');
+    await d.locator('input[aria-label="Agreed price"]').fill('1650');
+    await d.locator('button:has-text("Record price")').click(); await sleep(1500);
+    must(!(await page.locator('dialog[open]').count()), await page.locator('dialog[open] .error').innerText().catch(() => 'dialog still open'));
+    must(/Agreed transport USD 1,650/.test(await text(page)), 'agreed price not shown on the trip');
+    const r = await apiGet(token, '/finance/trips').catch(() => null);
+    const t = r?.find?.((x) => x.shipment?.id === ctx.chain.shipmentId);
+    if (t) must(t.agreedRecorded !== false, 'trip still “not recorded” on the server');
+  });
   await step('web: discrepancy alert, stock up, transport cost + landing cost, analytics render', director, async () => {
     const page = director.page;
     await webGo(director, '/notifications', 1500); must(/discrepanc/i.test(await text(page)), 'no discrepancy notification');
-    const after = (await apiGet(token, '/stock')).find((r) => r.warehouseId === 'w-kgl' && r.productId === 'p-a300');
-    must(after.received - (stockBefore?.received ?? 0) === 1200 && after.damaged - (stockBefore?.damaged ?? 0) === 6, `stock delta received ${after.received - (stockBefore?.received ?? 0)} damaged ${after.damaged - (stockBefore?.damaged ?? 0)}`);
+    const after = await kglTotals();
+    must(after.received - stockBefore.received === 1800 && after.damaged - stockBefore.damaged === 6, `stock delta received ${after.received - stockBefore.received} damaged ${after.damaged - stockBefore.damaged}`);
     await webGo(director, '/inventory', 1500);
-    await webGo(director, '/finance', 1800); const f = await text(page); must(/1,650/.test(f), 'transport 1,650 not on finance');
+    await webGo(director, `/shipments/${ctx.chain.shipmentId}`, 1800); must(/Agreed transport USD 1,650/.test(await text(page)), 'agreed USD 1,650 not on the trip for the director');
+    const trip = (await apiGet(token, '/finance/trips')).find((t) => t.shipment?.id === ctx.chain.shipmentId);
+    must(trip && trip.agreedRecorded !== false && Math.round(trip.transport) === 1650, `finance trip transport ${trip?.transport} recorded ${trip?.agreedRecorded}`);
+    await webGo(director, '/finance', 1800); must(!(await page.locator('.err[role=alert]').count()), 'finance error state');
     await webGo(director, '/analytics', 2000); must(!(await page.locator('.err[role=alert]').count()), 'analytics error state');
     const sh = (await apiGet(token, '/shipments')).find((s) => s.id === ctx.chain.shipmentId); must(sh.status === 'Acknowledged', `shipment ${sh.status}`);
   });
@@ -332,7 +370,7 @@ export async function fullChain(ctx) {
 }
 
 // ------------------------------------------------------------------------------------------------
-// 2. Transfer leg: Nairobi → (Kigali, unload & reload) → Goma, two drivers, two receipts.
+// 2. Transfer leg: Nairobi → (Gisenyi, unload & reload) → Goma, two drivers, two receipts.
 async function driveTo(p, destRe, max = 30, deadlineMs = 8 * 60_000) {
   const t0 = Date.now();
   for (let i = 0; i < max; i++) {
@@ -345,16 +383,18 @@ async function driveTo(p, destRe, max = 30, deadlineMs = 8 * 60_000) {
   throw new Error('destination not reached');
 }
 export async function transferLeg(ctx) {
-  startJourney('2 · Transfer leg: Nairobi → Kigali (unload, reload) → Goma, two drivers');
+  startJourney('2 · Transfer leg: Nairobi → Gisenyi (unload, reload) → Goma, two drivers');
   const admin = ctx.admin ?? (ctx.admin = await person('admin'));
   if (!(await admin.page.locator('aside.side').count())) await webSignIn(admin, PH.admin);
-  if (!ctx.hassanPin) ctx.hassanPin = await createFieldUser(admin, { name: 'Kanyike E', phone: PH.hassan });
+  if (!ctx.hassanPin) ctx.hassanPin = '1234'; // seeded driver
   if (!ctx.saidPin) ctx.saidPin = await createFieldUser(admin, { name: 'Said Juma', phone: PH.said });
   await admin.page.locator('dialog[open] button:has-text("Cancel")').click().catch(() => {});
-  const token = await apiToken({ username: 'dir', password: PASS });
+  const token = await apiToken({ username: 'daniel', password: PASS });
   const director = ctx.director ?? (ctx.director = await person('director'));
   if (!(await director.page.locator('aside.side').count())) await webSignIn(director, PH.director);
 
+  const testfie = ctx.testfie ?? (ctx.testfie = await person('testfie'));
+  if (!(await testfie.page.locator('aside.side').count())) await webSignIn(testfie, PH.testfie);
   const joel = await person('joel-phone-2', { kind: 'field' });
   await step('Joel hands over PO truck 4 (Nairobi → Goma) to Hassan', joel, async () => {
     const page = joel.page; await fieldSignIn(joel, PH.joel);
@@ -362,7 +402,6 @@ export async function transferLeg(ctx) {
     await page.click('button:has-text("Load this truck")'); await sleep(600);
     const sheet = page.locator('section.sheet.modal');
     await sheet.locator('select').selectOption({ label: 'Kanyike E' });
-    await sheet.locator('input[placeholder="e.g. 1650"]').fill('1500');
     await slide(page, sheet); await sleep(2500);
     must(/handed over/.test(await toast(page)), `toast: ${await toast(page)}`);
   });
@@ -371,35 +410,40 @@ export async function transferLeg(ctx) {
   const refb = await apiGet(token, '/ref');
   const reg1 = refb.trucks.find((t) => t.id === sh.legs[0].truckId)?.reg;
   ctx.transfer = { shipmentId: sh.id, reg1 };
-  await step('office plans the transfer: “Unload & transfer at Asie warehouse Kigali”', director, async () => {
+  await step('Testfie plans the transfer: “Unload & transfer at Asie warehouse Gisenyi” (directors only view dispatch)', [testfie, director], async () => {
     await webGo(director, `/shipments/${sh.id}`, 1800);
-    await director.page.click('button:has-text("Unload & transfer at Asie warehouse Kigali")'); await sleep(1500);
-    const x = (await apiGet(token, '/shipments')).find((y) => y.id === sh.id); must(x.legs[0].toId === 'cp-kigali', `leg 1 ends at ${x.legs[0].toId}`);
+    must(!(await director.page.locator('button:has-text("Unload & transfer at")').count()), 'director offered a dispatch action');
+    await webGo(testfie, `/shipments/${sh.id}`, 1800);
+    await testfie.page.click('button:has-text("Unload & transfer at Asie warehouse Gisenyi")'); await sleep(1500);
+    const x = (await apiGet(token, '/shipments')).find((y) => y.id === sh.id); must(x.legs[0].toId === 'cp-gisenyi-wh', `leg 1 ends at ${x.legs[0].toId}`);
   });
   const hassan = ctx.hassan ?? (ctx.hassan = await person('hassan-phone', { kind: 'field' }));
   if (!(await hassan.page.locator('.sheet').count())) await fieldSignIn(hassan, PH.hassan, ctx.hassanPin);
-  await step('Hassan drives leg 1 to Kigali (stops there, not Goma)', hassan, async () => {
+  await step('Hassan drives leg 1 to Gisenyi (stops there, not Goma)', hassan, async () => {
     await waitForLabel(hassan.page, /Start trip/, 30000);
-    await driveTo(hassan, /Arrived at Asie warehouse Kigali/);
+    await driveTo(hassan, /Arrived at .*Gisenyi/);
   });
   const asie = ctx.asie ?? (ctx.asie = await person('asie-phone', { kind: 'field' }));
   if (!(await asie.page.locator('.sheet').count())) await fieldSignIn(asie, PH.asie);
-  await step('Asie receives at Kigali as a transfer point (not into stock)', asie, async () => {
+  // Chain model: Gisenyi receives into stock; the onward move is a new shipment (“Send on”) with its own truck and driver.
+  await step('Asie receives at Gisenyi into stock (“sent on later as a new shipment”)', asie, async () => {
     const page = asie.page;
     const here = `${reg1} is here`;
     const t0 = Date.now(); while (Date.now() - t0 < 30000 && !(await text(page)).includes(here)) await sleep(1000);
+    await clearArrivals(page, [reg1]);
     must((await text(page)).includes(here), `“${here}” not shown`);
-    await page.click('button:has-text("Receive & sign")'); await sleep(400);
+    await openReceipt(page, reg1); await sleep(400);
     await page.click('button:has-text("Everything arrived OK")'); await sleep(300);
-    must(/Transfer point/.test(await text(page)), 'not marked as transfer point');
+    must(/Goes into stock here · sent on later/.test(await text(page)), 'not marked as an intermediate warehouse');
     await page.fill('input[autocomplete=name]', 'Jeanne Uwase');
     await sign(page, page.locator('section.sheet.modal canvas'));
     await slide(page, page.locator('section.sheet.modal')); await sleep(2500);
   });
-  await step('office adds leg 2 Kigali → Goma (too-small trucks not offered) with Said driving RAD 310E', director, async () => {
-    const page = director.page;
-    await webGo(director, `/shipments/${sh.id}`, 1800);
-    await page.click('button:has-text("Add next leg (transfer)")'); await sleep(800);
+  let onward;
+  await step('Testfie sends it on Gisenyi → Goma as a new shipment (too-small trucks not offered), Said driving RAD 310E', testfie, async () => {
+    const page = testfie.page;
+    await webGo(testfie, `/shipments/${sh.id}`, 1800);
+    await page.click('button:has-text("Send on — new shipment")'); await sleep(800);
     const d = page.locator('dialog[open]');
     const truckSel = d.locator('label:has-text("Truck") select');
     const small = await truckSel.locator('option', { hasText: 'T 512 DFG' }).evaluate((o) => ({ disabled: o.disabled, text: o.textContent }));
@@ -407,11 +451,18 @@ export async function transferLeg(ctx) {
     const opt = await truckSel.locator('option', { hasText: 'RAD 310E' }).getAttribute('value');
     await truckSel.selectOption(opt);
     await d.locator('label:has-text("Driver") select').selectOption({ label: 'Said Juma' });
-    await d.locator('button:has-text("Plan leg")').click(); await sleep(1500);
-    const x = (await apiGet(token, '/shipments')).find((y) => y.id === sh.id); must(x.legs.length === 2 && x.legs[1].driverId === 'd6', 'leg 2 not planned for Said');
+    const route = d.locator('label:has-text("Route") select');
+    const goma = await route.locator('option', { hasText: /Goma/ }).first().getAttribute('value').catch(() => null);
+    if (goma) await route.selectOption(goma);
+    await d.locator('button:has-text("Create shipment")').click(); await sleep(1800);
+    onward = (await apiGet(token, '/shipments')).find((y) => y.parentShipmentId === sh.id);
+    must(onward && onward.legs[0].driverId === 'd6' && onward.legs[0].fromId === 'cp-gisenyi-wh', `onward shipment ${JSON.stringify(onward?.legs?.[0] ?? null).slice(0, 160)}`);
+    ctx.transfer.onwardId = onward.id;
+    return onward.ref;
   });
   await step('Asie sends it on: “Load & hand over” → slide', asie, async () => {
     const page = asie.page;
+    await clearArrivals(page);
     const t0 = Date.now(); while (Date.now() - t0 < 30000 && !/RAD 310E to/.test(await text(page))) await sleep(1000);
     must(/RAD 310E to/.test(await text(page)), 'send-on card missing');
     await page.click('button:has-text("Load & hand over")'); await sleep(500);
@@ -422,25 +473,94 @@ export async function transferLeg(ctx) {
   if (!(await said.page.locator('.sheet').count()) || (await said.page.locator('input[type=tel]').count())) await fieldSignIn(said, PH.said, ctx.saidPin);
   await step('Said drives leg 2 through the Gisenyi/Goma border to Goma', said, async () => {
     await waitForLabel(said.page, /Gisenyi/, 30000);
-    await driveTo(said, /Arrived at Asie warehouse Goma/);
+    await driveTo(said, /Arrived at .*Goma/);
   });
   await step('Asie receives at Goma: final receipt closes the shipment', asie, async () => {
     const page = asie.page;
     const t0 = Date.now(); while (Date.now() - t0 < 30000 && !/RAD 310E is here/.test(await text(page))) await sleep(1000);
-    await page.click('button:has-text("Receive & sign")'); await sleep(400);
+    await openReceipt(page, 'RAD 310E'); await sleep(400);
     await page.click('button:has-text("Everything arrived OK")'); await sleep(300);
     must(/Goes into stock now/.test(await text(page)), 'not marked final');
     await page.fill('input[autocomplete=name]', 'Jeanne Uwase');
     await sign(page, page.locator('section.sheet.modal canvas'));
     await slide(page, page.locator('section.sheet.modal')); await sleep(2500);
-    const x = (await apiGet(token, '/shipments')).find((y) => y.id === sh.id);
-    must(x.status === 'Acknowledged' && x.legs.every((l) => l.status === 'Acknowledged'), `shipment ${x.status} / legs ${x.legs.map((l) => l.status)}`);
+    const all = await apiGet(token, '/shipments');
+    for (const id of [sh.id, onward?.id]) {
+      const x = all.find((y) => y.id === id);
+      must(x?.status === 'Acknowledged' && x.legs.every((l) => l.status === 'Acknowledged'), `shipment ${x?.ref} ${x?.status} / legs ${x?.legs.map((l) => l.status)}`);
+    }
   });
-  await step('web: shipment shows both legs reconciled', director, async () => {
+  await step('web: the first shipment shows the onward shipment in its journey', director, async () => {
     await webGo(director, `/shipments/${sh.id}`, 1800);
-    const t = await text(director.page); must(/Leg 2/i.test(t) && /Acknowledged/.test(t), 'legs not shown');
+    const t = await text(director.page); must(t.includes(onward?.ref ?? '—') && /Goma/.test(t), 'onward shipment not shown');
   });
   await joel.ctx.close();
+}
+
+// ------------------------------------------------------------------------------------------------
+// 8. Re-export Asie → Yonas (docs/14 B-03): Asie raises it from Gisenyi stock and loads it on her phone (no prices), the
+// driver drives Gisenyi → Juba, Yonas acknowledges into Juba stock.
+export async function reexport(ctx) {
+  startJourney('8 · Re-export: Asie (Gisenyi) → Yonas (Juba)');
+  const token = await apiToken({ username: 'daniel', password: PASS });
+  const asie = ctx.asie ?? (ctx.asie = await person('asie-phone', { kind: 'field' }));
+  if (!(await asie.page.locator('.sheet').count()) || (await asie.page.locator('input[type=tel]').count())) await fieldSignIn(asie, PH.asie);
+  const before = await apiGet(token, '/reexports');
+  let order;
+  await step('Asie raises a re-export order of 100 cases from Gisenyi stock', asie, async () => {
+    const page = asie.page;
+    await page.click('nav.tools button:has-text("Re-export")'); await sleep(800);
+    const sheet = page.locator('section.sheet.modal');
+    await sheet.locator('button:has-text("New re-export order")').click(); await sleep(400);
+    const qty = sheet.locator('.stepper input'); await qty.fill('100'); await qty.press('Tab'); await sleep(200);
+    await sheet.locator('button:has-text("Raise order")').click(); await sleep(1500);
+    order = (await apiGet(token, '/reexports')).find((o) => !before.some((b) => b.id === o.id));
+    must(order && order.status === 'Open' && order.lines[0].qty === 100, `order ${JSON.stringify(order)?.slice(0, 160)}`);
+    must(order.fromWarehouseId === 'w-kgl', `from ${order.fromWarehouseId}`);
+    return order.ref;
+  });
+  await step('Asie loads it on SSD 879T with Kanyike E — no price asked', asie, async () => {
+    const page = asie.page; const sheet = page.locator('section.sheet.modal');
+    await sheet.locator('li', { hasText: order.ref }).locator('button:has-text("Load")').click(); await sleep(500);
+    must(!/price/i.test(await sheet.locator('input, select').evaluateAll((els) => els.map((e) => e.getAttribute('placeholder') ?? '').join(' '))), 'a price field is shown');
+    const truck = sheet.locator('label:has-text("Truck") select');
+    await truck.selectOption(await truck.locator('option', { hasText: 'SSD 879T' }).getAttribute('value'));
+    await sheet.locator('label:has-text("Driver") select').selectOption({ label: 'Kanyike E' });
+    await sheet.locator('button:has-text("Loaded — create the shipment")').click(); await sleep(2000);
+    const o = (await apiGet(token, '/reexports')).find((x) => x.id === order.id);
+    must(o.status === 'Loaded' && o.shipmentId, `order ${o.status}`);
+    order = o; return o.shipmentId;
+  });
+  await step('Asie hands it over: “Load & hand over” → slide', asie, async () => {
+    const page = asie.page;
+    await clearArrivals(page);
+    const t0 = Date.now(); while (Date.now() - t0 < 30000 && !/SSD 879T to/.test(await text(page))) await sleep(1000);
+    must(/SSD 879T to/.test(await text(page)), 'send-on card missing');
+    await page.click('button:has-text("Load & hand over")'); await sleep(500);
+    await slide(page, page.locator('section.sheet.modal')); await sleep(2500);
+    must(/on its way/.test(await toast(page)), `toast: ${await toast(page)}`);
+  });
+  const hassan = ctx.hassan ?? (ctx.hassan = await person('hassan-phone', { kind: 'field' }));
+  if (await hassan.page.locator('input[type=tel]').count()) await fieldSignIn(hassan, PH.hassan, ctx.hassanPin ?? '1234');
+  await step('Kanyike E drives Gisenyi → Juba', hassan, async () => {
+    await waitForLabel(hassan.page, /.+/, 30000);
+    await driveTo(hassan, /Arrived at .*Juba/, 40);
+  });
+  const yonas = await person('yonas-phone', { kind: 'field' });
+  await step('Yonas receives it into Juba stock', yonas, async () => {
+    const page = yonas.page; await fieldSignIn(yonas, PH.yonas);
+    const t0 = Date.now(); while (Date.now() - t0 < 30000 && !/SSD 879T/.test(await text(page))) await sleep(1000);
+    await openReceipt(page, 'SSD 879T'); await sleep(400);
+    await page.click('button:has-text("Everything arrived OK")'); await sleep(300);
+    await page.fill('input[autocomplete=name]', 'Yonas');
+    await sign(page, page.locator('section.sheet.modal canvas'));
+    await slide(page, page.locator('section.sheet.modal')); await sleep(2500);
+    const o = (await apiGet(token, '/reexports')).find((x) => x.id === order.id);
+    const sh = (await apiGet(token, '/shipments')).find((x) => x.id === order.shipmentId);
+    must(sh?.status === 'Acknowledged', `shipment ${sh?.status}`);
+    must(o.status === 'Delivered', `order ${o.status}`);
+  });
+  await yonas.ctx.close();
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -479,7 +599,7 @@ export async function layoutSweep() {
     await p.ctx.close();
   }
   for (const [vw, w] of [['360', 360], ['390', 390], ['430', 430]]) {
-    for (const [who, phone, pin] of [['driver', PH.peter, '1234'], ['loading point', PH.joel, '1234'], ['receiver', PH.zonas, '1234']]) {
+    for (const [who, phone, pin] of [['driver', PH.peter, '1234'], ['loading point', PH.joel, '1234'], ['receiver', PH.yonas, '1234']]) {
       const f = await person(`field-${vw}-${who.replace(' ', '-')}`, { kind: 'field', viewport: { width: w, height: 800 } });
       await step(`field @${vw} ${who}: home + menu fit, focus visible on the main action`, f, async () => {
         await fieldSignIn(f, phone, pin);

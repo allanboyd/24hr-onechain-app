@@ -6,7 +6,8 @@
   import { companyLabel } from '../lib/companies';
   import { watch } from '../lib/load.svelte';
   import ErrorState from '../components/ErrorState.svelte';
-  import { amount, inventory, lookup, ref, sales, type Sale, type StockRow, type User } from '@btw/api';
+  import { amount, inventory, lookup, pricing, ref, sales, type Sale, type SellingPrice, type StockRow, type User } from '@btw/api';
+  import { sellingPriceAny } from '@btw/api/money';
   import { Badge, fmtDateTime, fmtMoney, fmtNum, say } from '@btw/ui';
   import Plus from '@lucide/svelte/icons/plus';
   import Trash from '@lucide/svelte/icons/trash-2';
@@ -26,7 +27,9 @@
   let fStatus = $state(qp('status'));
   let fKind = $state(qp('kind'));
   let fCust = $state(qp('cust'));
-  async function load() { [list, stock] = await Promise.all([sales.list(), inventory.stock()]); }
+  // docs/14 B-05: new sale lines start from the directors' selling price (warehouse price, else company price)
+  let prices = $state<SellingPrice[]>([]);
+  async function load() { [list, stock, prices] = await Promise.all([sales.list(), inventory.stock(), pricing.list().catch(() => [] as SellingPrice[])]); }
   const w = watch(load);
   const rows = $derived((list ?? []).filter((s) => (!scoped || scoped.includes(s.warehouseId)) && (!fWh || s.warehouseId === fWh) && (!fStatus || s.status === fStatus) && (!fKind || s.kind === fKind) && (!fCust || s.customer.toLowerCase().includes(fCust.toLowerCase()))));
   const total = (s: Sale) => s.lines.reduce((a, l) => a + amount(l.qty, l.price), 0);
@@ -60,8 +63,8 @@
   const avail = (pid: string) => stock.find((x) => x.warehouseId === wh && x.productId === pid)?.closing ?? 0;
   const inStock = $derived(stock.filter((x) => x.warehouseId === wh && x.closing > 0));
   const saleTotal = $derived(lines.reduce((a, l) => a + amount(l.qty || 0, l.price || 0), 0));
-  const markup = 1.35; // demo sell price = supplier price × 1.35 until sales price lists exist (Q12)
-  const sellPrice = (pid: string) => Math.round(lookup.price(pid) * markup * 100) / 100;
+  const markup = 1.35; // fallback when no selling price is set yet: supplier price × 1.35
+  const sellPrice = (pid: string) => sellingPriceAny(prices, stock.filter((x) => x.warehouseId === wh && x.productId === pid).map((x) => x.entityId), wh, pid) ?? Math.round(lookup.price(pid) * markup * 100) / 100;
   function addLine() { const p = inStock.find((x) => !lines.some((l) => l.productId === x.productId)) ?? inStock[0]; if (p) lines.push({ productId: p.productId, qty: 0, price: sellPrice(p.productId) }); }
   function openNew() { wh = warehouses[0]?.id ?? ''; customer = 'Walk-in'; kind = 'Cash'; lines = []; paid = 0; override = false; error = ''; addLine(); dialog?.showModal(); }
   function changeWh() { lines = []; addLine(); }
@@ -173,7 +176,7 @@
     </div>
     {#if user.roles.includes('director')}<label class="row small"><input type="checkbox" bind:checked={override} /> Override stock check (authorised, logged — SL-02)</label>{/if}
     {#if error}<div class="error" role="alert">{error}</div>{/if}
-    <p class="caption">Only SKUs with stock at this warehouse are offered (§7.4). Default price from the price list; changes need permission (Q12). Stock reduces automatically on save. {#if kind === 'Batch'}Batch sale definition to confirm (Q-P5).{/if}</p>
+    <p class="caption">Only SKUs with stock at this warehouse are offered (§7.4). Default price = the directors' selling price (Selling prices), else the price list × 1.35; changes need permission. Stock reduces automatically on save. {#if kind === 'Batch'}Batch sale definition to confirm (Q-P5).{/if}</p>
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn btn-ghost" onclick={() => dialog?.close()}>Cancel</button><button class="btn btn-primary" disabled={busy}>Record sale</button></div>
   </form>
 </dialog>

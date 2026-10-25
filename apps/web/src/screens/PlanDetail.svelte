@@ -11,6 +11,7 @@
   import CircleAlert from '@lucide/svelte/icons/circle-alert';
   import { planContext, type LineContext } from '../lib/planning';
   import ProductPicker from '../components/ProductPicker.svelte';
+  import { orderAccess, seesPrices } from '@btw/api/access';
   let { params, user }: { params: { id: string }; user: User } = $props();
 
   const r = ref();
@@ -27,7 +28,10 @@
 
   // config.toml [approvals] purchase_orders: true = director approves; false = the planner issues the PO directly
   const approvals = poApprovals();
-  const editor = $derived(user.roles.some((r) => r === 'planner' || r === 'director' || r === 'admin'));
+  // docs/12: a planner edits only the orders of their buyer–supplier pairs (Kabonge: not Nihna–GBI); no prices for loaders/receivers
+  const myRc = $derived([...new Set(user.warehouseIds.map((id) => lookup.warehouse(id)?.receivingCompanyId).filter((x): x is string => !!x))]);
+  const editor = $derived(!!plan && orderAccess(user, plan, myRc) === 'edit');
+  const money = $derived(!!plan && !plan.pricesHidden && seesPrices(user));
   const editable = $derived(!!plan && (plan.status === 'Draft' || plan.status === 'Returned' || (!approvals && plan.status === 'Submitted')) && editor);
   const canDecide = $derived(approvals && !!plan && plan.status === 'Submitted' && user.roles.includes('director'));
   const supplier = $derived(plan ? lookup.supplier(plan.supplierId) : undefined);
@@ -43,12 +47,12 @@
     for (const l of plan?.lines ?? []) {
       const p = lookup.product(l.productId)!;
       const cur = m.get(p.id) ?? { label: `${p.brand} · ${p.pack}`, qty: 0, amt: 0 };
-      cur.qty += l.qty; cur.amt += amount(l.qty, l.price); m.set(p.id, cur);
+      cur.qty += l.qty; cur.amt += amount(l.qty, l.price ?? 0); m.set(p.id, cur);
     }
     return [...m.values()];
   });
   const totalQty = $derived((plan?.lines ?? []).reduce((a, l) => a + l.qty, 0));
-  const totalAmt = $derived((plan?.lines ?? []).reduce((a, l) => a + amount(l.qty, l.price), 0));
+  const totalAmt = $derived((plan?.lines ?? []).reduce((a, l) => a + amount(l.qty, l.price ?? 0), 0));
   const overCap = $derived(trucks.filter((no) => (plan?.lines ?? []).filter((l) => l.truckNo === no).reduce((a, l) => a + l.qty, 0) > TRUCK_CAP));
   const problems = $derived.by(() => {
     const out: string[] = [];
@@ -168,7 +172,7 @@
         </RecordFor>
       {/if}
       {#if plan.poId}
-        {#if !plan.supersededById}<button class="btn btn-secondary" onclick={() => say('Amendment = new version with reason + director approval; v1 stays in history (PL-04) — next iteration')}>Amend</button>{/if}
+        {#if !plan.supersededById && editor}<button class="btn btn-secondary" onclick={() => say('Amendment = new version with reason + director approval; v1 stays in history (PL-04) — next iteration')}>Amend</button>{/if}
         <a class="btn btn-primary" href="#/pos/{plan.poId}">View purchase order</a>
       {/if}
     </div>
@@ -215,7 +219,7 @@
       <div class="overline">Summary</div>
       <div class="row between"><span class="muted">Trucks</span><strong class="num">{trucks.length}</strong></div>
       <div class="row between"><span class="muted">Cases</span><strong class="num">{fmtNum(totalQty)}</strong></div>
-      <div class="row between"><span class="muted">Amount</span><strong class="num">{fmtMoney(totalAmt, plan.currency)}</strong></div>
+      {#if money}<div class="row between"><span class="muted">Amount</span><strong class="num">{fmtMoney(totalAmt, plan.currency)}</strong></div>{/if}
       <div class="row between"><span class="muted">Prepared by</span><span>{lookup.user(plan.createdById)?.name}</span></div>
       <div class="row between"><span class="muted">Version</span><span>v{plan.version}</span></div>
     </section>
@@ -227,7 +231,7 @@
       {#if editable}<button class="btn btn-secondary btn-sm" onclick={addTruck}><Plus size={16} />Add truck</button>{/if}
     </header>
     <div class="table-wrap"><table class="table lines" class:editing={editable}>
-      <thead><tr><th class="num">Truck No.</th><th>Brand · Package</th><th>Route{#if !editable}{' · delivered to'}{/if}</th>{#if editable}<th>Delivered to</th>{/if}<th class="num">Quantity (cases)</th><th class="num">Price ({plan.currency})</th><th class="num">Amount ({plan.currency})</th>{#if editable}<th><span class="sr">Actions</span></th>{/if}</tr></thead>
+      <thead><tr><th class="num">Truck No.</th><th>Brand · Package</th><th>Route{#if !editable}{' · delivered to'}{/if}</th>{#if editable}<th>Delivered to</th>{/if}<th class="num">Quantity (cases)</th>{#if money}<th class="num">Price ({plan.currency})</th><th class="num">Amount ({plan.currency})</th>{/if}{#if editable}<th><span class="sr">Actions</span></th>{/if}</tr></thead>
       <tbody>
         {#each trucks as no (no)}
           {@const lines = plan.lines.filter((l) => l.truckNo === no)}
@@ -241,24 +245,24 @@
                 {:else}<span class="small">{lookup.route(l.routeId)?.name}</span><div class="caption">→ {lookup.company(l.deliveredToId)?.name}</div>{/if}</td>
               {#if editable}<td><select class="select" aria-label="Delivered to, truck {no}" bind:value={l.deliveredToId} onchange={() => (dirty = true)}>{#each r.receivingCompanies as c}<option value={c.id}>{c.name}</option>{/each}</select></td>{/if}
               <td class="num">{#if editable}<input class="input num qty" type="number" min="0" step="1" aria-label="Quantity, truck {no}" bind:value={l.qty} oninput={() => (dirty = true)} aria-invalid={tried && !(l.qty > 0)} />{:else}{fmtNum(l.qty)}{/if}</td>
-              <td class="num">{fmtNum(l.price, 2)}</td>
-              <td class="num">{fmtNum(amount(l.qty, l.price), 2)}</td>
+              {#if money}<td class="num">{fmtNum(l.price ?? 0, 2)}</td>
+              <td class="num">{fmtNum(amount(l.qty, l.price ?? 0), 2)}</td>{/if}
               {#if editable}<td><div class="row" style="flex-wrap:nowrap;gap:0">
                 {#if i === lines.length - 1}<button class="btn btn-ghost btn-sm" title="Add another brand to truck {no} (mixed load)" aria-label="Add brand to truck {no}" onclick={() => addLine(no)}><Layers size={16} /></button>{/if}
                 <button class="btn btn-ghost btn-sm" title="Remove line" aria-label="Remove line" onclick={() => remove(l.id)}><Trash size={16} /></button></div></td>{/if}
             </tr>
           {/each}
           {#if lines.length > 1 || tq > TRUCK_CAP}
-            <tr class="subtotal"><td></td><td colspan={span}>Truck {no} subtotal{#if lines.length > 1}{' · mixed load'}{/if} {#if tq > TRUCK_CAP}<Badge tone="danger">Over capacity · max {fmtNum(TRUCK_CAP)}</Badge>{/if}</td><td class="num">{fmtNum(tq)}</td><td></td><td class="num">{fmtNum(lines.reduce((a, l) => a + amount(l.qty, l.price), 0), 2)}</td>{#if editable}<td></td>{/if}</tr>
+            <tr class="subtotal"><td></td><td colspan={span}>Truck {no} subtotal{#if lines.length > 1}{' · mixed load'}{/if} {#if tq > TRUCK_CAP}<Badge tone="danger">Over capacity · max {fmtNum(TRUCK_CAP)}</Badge>{/if}</td><td class="num">{fmtNum(tq)}</td>{#if money}<td></td><td class="num">{fmtNum(lines.reduce((a, l) => a + amount(l.qty, l.price ?? 0), 0), 2)}</td>{/if}{#if editable}<td></td>{/if}</tr>
           {/if}
         {:else}
           <tr><td colspan={span + 5} class="empty">No trucks yet. {#if editable}<button class="btn btn-secondary btn-sm" onclick={addTruck}><Plus size={16} />Add the first truck</button>{/if}</td></tr>
         {/each}
         {#if byPack.length > 1}
-          {#each byPack as b}<tr class="subtotal"><td></td><td colspan={span}>Subtotal · {b.label}</td><td class="num">{fmtNum(b.qty)}</td><td></td><td class="num">{fmtNum(b.amt, 2)}</td>{#if editable}<td></td>{/if}</tr>{/each}
+          {#each byPack as b}<tr class="subtotal"><td></td><td colspan={span}>Subtotal · {b.label}</td><td class="num">{fmtNum(b.qty)}</td>{#if money}<td></td><td class="num">{fmtNum(b.amt, 2)}</td>{/if}{#if editable}<td></td>{/if}</tr>{/each}
         {/if}
         {#if plan.lines.length}
-          <tr class="grand"><td></td><td colspan={span}>Grand total · {trucks.length} truck{trucks.length === 1 ? '' : 's'}</td><td class="num">{fmtNum(totalQty)}</td><td></td><td class="num">{fmtNum(totalAmt, 2)}</td>{#if editable}<td></td>{/if}</tr>
+          <tr class="grand"><td></td><td colspan={span}>Grand total · {trucks.length} truck{trucks.length === 1 ? '' : 's'}</td><td class="num">{fmtNum(totalQty)}</td>{#if money}<td></td><td class="num">{fmtNum(totalAmt, 2)}</td>{/if}{#if editable}<td></td>{/if}</tr>
         {/if}
       </tbody>
     </table></div>

@@ -10,7 +10,9 @@
   import PhotoInput from './PhotoInput.svelte';
   import SlideToConfirm from './SlideToConfirm.svelte';
   import CheckCircle from '@lucide/svelte/icons/circle-check';
-  type Line = { productId: string; expected: number; received: number; damaged: number; remarks: string };
+  import { ACK_REASONS } from '@btw/api/money';
+  // docs/14 B-08: a reason for every short / damaged line (feeds the delivery-loss Pareto)
+  type Line = { productId: string; expected: number; received: number; damaged: number; remarks: string; reason?: string };
   let { entityId, leg, user, isFinal, onsubmit, onclose }: { entityId?: string; leg: Leg; user: User; isFinal: boolean; onsubmit: (d: { lines: Line[]; receiverName: string; signature: string; photos: string[] }) => Promise<void>; onclose: () => void } = $props();
   let step = $state<'check' | 'adjust' | 'sign'>('check');
   let lines = $state<Line[]>(untrack(() => leg.lines.map((l) => ({ productId: l.productId, expected: l.loadedQty, received: l.loadedQty, damaged: 0, remarks: '' }))));
@@ -23,15 +25,16 @@
   const expected = $derived(lines.reduce((a, l) => a + l.expected, 0));
   const good = $derived(lines.reduce((a, l) => a + l.received - l.damaged, 0));
   const issue = $derived(lines.some((l) => l.received !== l.expected || l.damaged > 0));
-  const missingRemark = $derived(lines.some((l) => (l.received !== l.expected || l.damaged > 0) && !l.remarks.trim()));
-  function allOk() { lines.forEach((l) => { l.received = l.expected; l.damaged = 0; l.remarks = ''; }); step = 'sign'; }
+  const missingRemark = $derived(lines.some((l) => (l.received !== l.expected || l.damaged > 0) && (!l.remarks.trim() || !l.reason)));
+  function allOk() { lines.forEach((l) => { l.received = l.expected; l.damaged = 0; l.remarks = ''; l.reason = undefined; }); step = 'sign'; }
   async function confirm() {
     error = '';
     if (!name.trim()) { error = 'Write your name'; return; }
     if (!signature) { error = 'Sign in the box'; return; }
     busy = true;
     try { localStorage.setItem('btw-receiver-name', name.trim()); } catch { /* ignore */ }
-    try { await onsubmit({ lines: $state.snapshot(lines), receiverName: name.trim(), signature, photos: $state.snapshot(photos) }); }
+    const out = $state.snapshot(lines).map((l) => (l.received !== l.expected || l.damaged > 0 ? l : { ...l, reason: undefined }));
+    try { await onsubmit({ lines: out, receiverName: name.trim(), signature, photos: $state.snapshot(photos) }); }
     catch (e) { error = (e as Error).message; } finally { busy = false; }
   }
 </script>
@@ -50,11 +53,14 @@
         <div class="row"><strong>{p?.brand}</strong><span class="caption">{p?.pack} · expected {l.expected}</span></div>
         <label class="field"><span>Received</span><Stepper bind:value={lines[i].received} label="{p?.brand} received" /></label>
         <label class="field"><span>Damaged</span><Stepper bind:value={lines[i].damaged} max={l.received} label="{p?.brand} damaged" /></label>
-        {#if off}<label class="field"><span>What happened?</span><input class="input" bind:value={lines[i].remarks} placeholder="e.g. 6 crates crushed" aria-invalid={!l.remarks.trim()} /></label>{/if}
+        {#if off}
+          <label class="field"><span>Why?</span><select class="select" bind:value={lines[i].reason} aria-invalid={!l.reason}><option value={undefined}>Pick the reason</option>{#each ACK_REASONS as r}<option value={r}>{r}</option>{/each}</select></label>
+          <label class="field"><span>What happened?</span><input class="input" bind:value={lines[i].remarks} placeholder="e.g. 6 crates crushed" aria-invalid={!l.remarks.trim()} /></label>
+        {/if}
       </section>
     {/each}
     <label class="field"><span>Photos of the damage</span><PhotoInput bind:names={photos} label="Add photo" /></label>
-    <button class="btn btn-primary btn-lg btn-block" disabled={missingRemark} onclick={() => (step = 'sign')}>{missingRemark ? 'Say what happened for each line' : 'Next'}</button>
+    <button class="btn btn-primary btn-lg btn-block" disabled={missingRemark} onclick={() => (step = 'sign')}>{missingRemark ? 'Pick the reason and say what happened for each line' : 'Next'}</button>
   {:else}
     <div class="summary" class:issue>
       <strong>{cases(good)} in good condition</strong>

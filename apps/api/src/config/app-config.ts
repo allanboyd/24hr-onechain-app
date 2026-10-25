@@ -30,7 +30,9 @@ export function parseToml(text: string): Record<string, Record<string, unknown>>
 }
 
 export function toAppConfig(t: Record<string, Record<string, unknown>>): AppConfig {
-  const a = t.approvals ?? {}, l = t.loading ?? {}, d = defaultConfig;
+  const a = t.approvals ?? {}, l = t.loading ?? {}, f = t.fees ?? {}, c = t.costs ?? {}, d = defaultConfig;
+  const days = (v: unknown, def: number) => (Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 365 ? (v as number) : def);
+  const amber = days(f.amber_days, d.fees!.amberDays), red = days(f.red_days, d.fees!.redDays);
   const bool = (v: unknown, def: boolean) => (typeof v === 'boolean' ? v : def);
   const pct = Number(l.allowance_pct);
   return {
@@ -40,6 +42,9 @@ export function toAppConfig(t: Record<string, Record<string, unknown>>): AppConf
       allowAlternatives: bool(l.allow_alternatives, d.loading.allowAlternatives),
       revisionSuffix: typeof l.revision_suffix === 'string' && /^[A-Za-z0-9._-]{0,12}$/.test(l.revision_suffix) ? l.revision_suffix : d.loading.revisionSuffix,
     },
+    // docs/14: unpaid transport fees amber / red after N days (red must come after amber); cost split by quantity or value
+    fees: red > amber ? { amberDays: amber, redDays: red } : { ...d.fees! },
+    costs: { allocation: c.allocation === 'value' ? 'value' : 'quantity' },
   };
 }
 

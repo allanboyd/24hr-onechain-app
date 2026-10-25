@@ -194,10 +194,34 @@ def dark(title, sub, foot=None, logo=True):
     return s
 
 
+def phone(s, img, x, y, w, cap=None, capsize=20):
+    """A phone screenshot in a dark bezel, with an optional caption underneath."""
+    iw, ih = Image.open(A(img)).size
+    h = w * ih / iw
+    rect(s, x - 8, y - 8, w + 16, h + 16, INK, r=0.07)
+    image(s, A(img), x, y, w)
+    if cap:
+        text(s, x - 30, y + h + 20, w + 60, capsize * 1.3 * 2, cap, capsize, MUTED, BODY, True, C, spacing=1.05)
+    return h
+
+
+def shot(s, img, x, y, w=None, h=None, cap=None):
+    """A web screenshot with a thin border; give w or h (or both to fit inside the box)."""
+    if w and h:
+        pic = fit_image(s, A(img), x, y, w, h)
+    else:
+        pic = image(s, A(img), x, y, w, h)
+    X, Y, W, H = (v / 6350 for v in (pic.left, pic.top, pic.width, pic.height))
+    rect(s, X, Y, W, H, None, 'D5DCE6', 2)
+    if cap:
+        text(s, X, Y + H + 12, W, 30, cap, 20, MUTED, BODY, True)
+    return X, Y, W, H
+
+
 # ---------- slides ----------
 # Cover
 s = dark('BTW Supply Chain Platform', 'How it works, what we have built, and what we still need from you',
-         'BTW Global Distributors · Nihna Unique Distributors · Kivu (Volcanic Distributors)   |   18 October 2026')
+         'BTW Global Distributors · Nihna Unique Distributors · Kivu (Volcanic Distributors)   |   25 October 2026')
 shape(s, MSO_SHAPE.OVAL, 1400, 780, 640, 640, None, ORANGE, 4)
 
 # Why
@@ -212,10 +236,10 @@ cards(s, [
 # Before and after
 s = frame('What changes', 'Before and after the platform')
 pairs = [('Where is the truck?', 'Phone calls and WhatsApp to drivers', 'Every check-in on one live board'),
-         ('Orders', 'POs typed and sent by hand', 'Planner issues the PO letter on letterhead in one click'),
+         ('Orders', 'POs typed and sent by hand', 'Kabonge issues the PO letter on letterhead in one click'),
          ('Deliveries', 'Paper delivery notes, shortages found late', 'Receiver signs on the phone; shortages recorded per leg'),
          ('Three companies', 'Separate spreadsheets for each company', 'One system, each company kept apart, group view for directors'),
-         ('Reports', 'Directors wait for month-end figures', 'Planned versus actual and stock, any day')]
+         ('Reports', 'Directors wait for month-end figures', 'Each person’s own dashboards and the margins, any day')]
 rect(s, 120, 300, 1680, 64, NAVY, r=0.15)
 text(s, 160, 300, 380, 64, 'Area', 24, WHITE, BODY, True, anchor=M)
 text(s, 560, 300, 560, 64, 'Without the platform', 24, WHITE, BODY, True, anchor=M)
@@ -231,9 +255,9 @@ for i, (a, b, c) in enumerate(pairs):
 # Three apps
 s = frame('What we built', 'Three parts, served from one place')
 cols = [
-    ('BROWSER + PHONE', 'Office apps', 'Every office role', ['Period plans and purchase orders', 'Loading queues and the Truck desk', 'Stock, sales and reports', 'Team phone app: install from /app/'], NAVY),
-    ('ANDROID PHONE', 'Field mobile app', 'Loader, driver, receiver', ['One job per screen, like Bolt or Uber', 'Big buttons, works offline', 'Sends when signal returns', 'Drivers without the app use SMS'], ORANGE),
-    ('SERVER', 'Server and API', 'Behind the scenes', ['One address serves web, app and data', 'Sign-in, roles and company access', 'SMS, email, push, PDF letters', 'Every change is logged'], NAVY),
+    ('BROWSER + PHONE', 'Office apps', 'Every office role', ['Each person’s home of dashboards', 'Plans, orders, Truck desk, fees', 'Warehouse stock, expenses, sales', 'Team phone app: install from /app/'], NAVY),
+    ('ANDROID PHONE', 'Field mobile app', 'Loader, driver, receiver', ['One job per screen, like Bolt or Uber', 'Loaders and receivers see no prices', 'Works offline, shows “last synced”', 'Drivers without the app use SMS'], ORANGE),
+    ('SERVER', 'Server and API', 'Behind the scenes', ['One address serves web, app and data', 'Who sees what: roles and own scopes', 'SMS, email, push, PDF letters', 'Every change logged, directors can search it'], NAVY),
 ]
 w = (1680 - 72) / 3
 for i, (tag, t, who, items, acc) in enumerate(cols):
@@ -260,10 +284,10 @@ bullets(s, 980, 740, 820, ['Directors pick a company or the whole group from one
 
 # Simple journey
 s = frame('The journey', 'From plan to sale in seven steps')
-steps = [('1', 'Plan', 'Planner suggests the period plan', 'Web'), ('2', 'Order', 'Planner issues the PO letter', 'Web'),
-         ('3', 'Line up', 'Truck planner orders the queue', 'Web'),
-         ('4', 'Load', 'Loader loads within ±10%, hands over', 'App'), ('5', 'Drive', 'Driver checks in on the road', 'App / SMS'),
-         ('6', 'Receive', 'Receiver checks and signs', 'App'), ('7', 'Report', 'Stock, sales and reports', 'Web')]
+steps = [('1', 'Plan', 'Kabonge suggests the period plan', 'Web'), ('2', 'Order', 'Kabonge issues the PO letter', 'Web'),
+         ('3', 'Load', 'Joel, Eric or Moses load within ±10%, no prices', 'App'),
+         ('4', 'Agree price', 'Testfie records the transport price after loading', 'Web'), ('5', 'Drive', 'Driver checks in; Testfie follows up', 'App / SMS'),
+         ('6', 'Receive', 'Asie or Yonas check, sign, give reasons', 'App'), ('7', 'Report', 'Directors see margins and dashboards', 'Web')]
 sw = (1680 - 16 * 6) / 7
 for i in range(6):
     x = 120 + i * (sw + 16) + sw / 2 + 62
@@ -274,62 +298,66 @@ for i, (n, t, who, ch) in enumerate(steps):
     dot(s, x + sw / 2 - 55, 330, 110, acc)
     text(s, x + sw / 2 - 55, 330, 110, 110, n, 52, WHITE, HEAD, True, C, M)
     text(s, x, 470, sw, 50, t, 32, NAVY, HEAD, True, C)
-    text(s, x + 6, 524, sw - 12, 80, who, 23, MUTED, align=C)
+    text(s, x + 6, 524, sw - 12, 110, who, 23, MUTED, align=C)
     pw = len(ch) * 13 + 40
-    rect(s, x + (sw - pw) / 2, 618, pw, 40, WHITE, acc, 2, 0.5)
-    text(s, x + (sw - pw) / 2, 618, pw, 40, ch, 20, ORT if ch != 'Web' else NAVY, BODY, True, C, M)
+    rect(s, x + (sw - pw) / 2, 648, pw, 40, WHITE, acc, 2, 0.5)
+    text(s, x + (sw - pw) / 2, 648, pw, 40, ch, 20, ORT if ch != 'Web' else NAVY, BODY, True, C, M)
 rect(s, 120, 740, 1680, 110, WHITE, LINE, 2, 0.15)
 dot(s, 160, 784, 22, ORANGE); text(s, 196, 772, 520, 50, 'Done on the phone, in the field', 26, anchor=M)
-dot(s, 720, 784, 22, NAVY); text(s, 756, 772, 520, 50, 'Done on the web, in the office', 26, anchor=M)
-text(s, 1260, 752, 520, 90, 'Director approval of POs is optional, a switch in the settings.', 24, MUTED, anchor=M, spacing=1.2)
-text(s, 120, 880, 1680, 60, 'If the load differs from the PO, a PO revision (for example PO-001-rev001) is created and everyone is told.', 26, INK, anchor=M)
+dot(s, 720, 784, 22, NAVY); text(s, 756, 772, 520, 50, 'Done in the office, web or phone', 26, anchor=M)
+text(s, 1260, 752, 520, 90, 'No PO approval step: Kabonge issues POs directly. Approval stays a switch, off.', 24, MUTED, anchor=M, spacing=1.2)
+text(s, 120, 880, 1680, 60, 'A load that differs from the PO makes a revision (PO-001-rev001). From Gisenyi, Asie can re-export goods to Yonas in Juba.', 26, INK, anchor=M)
 
 # Platform journey: swimlanes of actors and functions
 s = frame('Platform journey', 'Who does what, step by step')
-lanes = [('Planner', 'Web + phone', NAVY), ('Director', 'Web + phone', NAVY), ('Truck planner', 'Web + phone', NAVY),
-         ('Loader', 'App', ORANGE), ('Driver', 'App / SMS', ORANGE), ('Receiver', 'App', ORANGE), ('Accounts', 'Web + phone', NAVY)]
+lanes = [('Kabonge', 'Planner · web + phone', NAVY), ('Daniel, Michael', 'Directors · web + phone', NAVY), ('Testfie', 'Truck follow-up', NAVY),
+         ('Joel, Eric, Moses', 'Loaders · app', ORANGE), ('Drivers', 'App / SMS', ORANGE), ('Asie', 'Receiver · Gisenyi, Goma', ORANGE), ('Yonas', 'Receiver · Juba', ORANGE)]
 LY, LH, LG = 285, 92, 5
-LX, LW = 120, 250
-GX = LX + LW + 14
-ncol = 7
+LX, LW = 120, 270
+GX = LX + LW + 12
+ncol = 8
 CW = (1800 - GX) / ncol
 for i, (n, ch, acc) in enumerate(lanes):
     y = LY + i * (LH + LG)
     rect(s, GX, y, 1800 - GX, LH, WHITE if i % 2 == 0 else TINT)
     rect(s, LX, y, LW, LH, acc)
-    text(s, LX + 22, y + 12, LW - 30, 40, n, 26, WHITE, HEAD, True)
-    text(s, LX + 22, y + 54, LW - 30, 30, ch, 19, PALE if acc == NAVY else WHITE, BODY, True)
+    text(s, LX + 20, y + 12, LW - 28, 40, n, 25, WHITE, HEAD, True)
+    text(s, LX + 20, y + 54, LW - 28, 30, ch, 17, PALE if acc == NAVY else WHITE, BODY, True)
 # (lane, column, label)
-fn = [(0, 0, 'Period plan (a suggestion)'), (0, 1, 'Issue the PO, letter emailed'), (1, 1, 'Approve PO (only if switched on)'),
-      (2, 2, 'Line up trucks in the queue'), (3, 3, 'Load ±10%; a change makes a PO revision'), (4, 4, 'Check in at each stop'),
-      (2, 4, 'Follow trucks & costs'), (5, 5, 'Check, note shortages, sign'), (6, 6, 'Sales, costs, payments'), (1, 6, 'Planned vs actual')]
-BW, BH = CW - 20, LH - 18
+fn = [(0, 0, 'Period plan for his pairs'), (0, 1, 'Issue the PO, letter emailed'), (2, 2, 'Line up trucks in the queue'),
+      (3, 3, 'Load ±10%, no prices'), (2, 4, 'Record the agreed price'), (1, 4, 'Pay transport fees'), (4, 5, 'Check in at each stop'),
+      (2, 5, 'Follow trucks, expenses'), (5, 6, 'Check, give reasons, sign'), (5, 7, 'Re-export to Juba'), (6, 7, 'Receive the re-export'),
+      (1, 7, 'Dashboards, margins, prices')]
+BW, BH = CW - 16, LH - 18
 pos = {}
 for lane, col, t in fn:
-    x = GX + col * CW + 10
+    x = GX + col * CW + 8
     y = LY + lane * (LH + LG) + 9
     acc = lanes[lane][2]
-    rect(s, x, y, BW, BH, WHITE, acc, 3, 0.15, dash=(lane, col) == (1, 1))
-    text(s, x + 8, y, BW - 16, BH, t, 19, NAVY, BODY, True, C, M, spacing=1.0)
+    rect(s, x, y, BW, BH, WHITE, acc, 3, 0.15)
+    text(s, x + 6, y, BW - 12, BH, t, 18, NAVY, BODY, True, C, M, spacing=1.0)
     pos[(lane, col)] = (x, y)
-order = [(0, 0), (0, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6)]
+order = [(0, 0), (0, 1), (2, 2), (3, 3), (2, 4), (4, 5), (5, 6), (5, 7)]
 for (la, ca), (lb, cb) in zip(order, order[1:]):
     xa, ya = pos[(la, ca)]; xb, yb = pos[(lb, cb)]
-    arrow(s, xa + BW, ya + BH / 2, xb, yb + BH / 2, ORANGE, 3, dash=True, elbow=True)
-xa, ya = pos[(0, 1)]
-arrow(s, xa + BW / 2, ya + BH, xa + BW / 2, ya + LH + LG, NAVY, 2, dash=True)
-xa, ya = pos[(5, 5)]; xb, yb = pos[(1, 6)]
-arrow(s, xa + BW, ya + BH / 2, xb, yb + BH / 2, ORANGE, 3, dash=True, elbow=True)
+    if ca == cb - 1 or la != lb:
+        arrow(s, xa + BW, ya + BH / 2, xb, yb + BH / 2, ORANGE, 3, dash=True, elbow=True)
+    else:
+        arrow(s, xa + BW, ya + BH / 2, xb, yb + BH / 2, ORANGE, 3, dash=True)
+xa, ya = pos[(5, 7)]
+arrow(s, xa + BW / 2, ya + BH, xa + BW / 2, ya + LH + LG, ORANGE, 3, dash=True)
+xa, ya = pos[(2, 4)]
+arrow(s, xa + BW / 2, ya, xa + BW / 2, ya - LG - 18, NAVY, 2, dash=True)
 
 # Actors and functions
 s = frame('Actors', 'Each person sees only their own work')
-actors = [('Planner', 'Web + phone', NAVY, ['Period plans (a guide)', 'Issues POs to suppliers', 'Follows PO revisions']),
-          ('Director', 'Web + phone', NAVY, ['Approves POs (optional)', 'One company or the group', 'Planned versus actual']),
-          ('Truck planner', 'Web + phone', NAVY, ['Onboards providers and trucks', 'Orders the loading queues', 'Follows trucks and costs']),
-          ('Accounts', 'Web + phone', NAVY, ['Records sales and payments', 'Trip and extra costs', 'Stock value, landing cost']),
-          ('Loader (giver)', 'App', ORANGE, ['Sees the loading queue', 'Loads within ±10%', 'Hands over to the driver']),
-          ('Driver', 'App or SMS', ORANGE, ['Sees one trip at a time', 'Checks in on the road', 'Reports a problem']),
-          ('Receiver', 'App', ORANGE, ['Confirms the arrival', 'Notes shortages, signs', 'Sends goods onward'])]
+actors = [('Daniel, Michael', 'Directors · web + phone', NAVY, ['Everything, every company', 'Selling prices, payments, sales', 'Margins, dashboards, audit log']),
+          ('Kabonge', 'Planner · web + phone', NAVY, ['Plans and POs for his pairs', 'BTW–KBL, Nihna–UBL, Kivu–SBL', 'Keeps the static data']),
+          ('Testfie', 'Truck follow-up · web + phone', NAVY, ['Follows every truck and queue', 'Agreed price after loading', 'Truck expenses, fees; loads at GBI']),
+          ('Joel, Eric, Moses', 'Loaders · app', ORANGE, ['KBL Nairobi (Joel, Eric)', 'UBL Kampala (Moses)', 'Load and hand over, no prices']),
+          ('Drivers', 'App or SMS', ORANGE, ['One trip at a time', 'Check in on the road', 'Report a problem']),
+          ('Asie', 'Receiver · app + web', ORANGE, ['Gisenyi and Goma deliveries', 'Warehouse stock and expenses', 'Re-exports to Yonas in Juba']),
+          ('Yonas', 'Receiver · app + web', ORANGE, ['Juba deliveries, re-exports in', 'Warehouse stock and expenses', 'Quantities only, no values'])]
 aw, ah = (1680 - 90) / 4, 320
 for i, (n, ch, acc, items) in enumerate(actors):
     x = 120 + (i % 4) * (aw + 30)
@@ -338,68 +366,102 @@ for i, (n, ch, acc, items) in enumerate(actors):
     rect(s, x, y, 10, ah, acc)
     text(s, x + 36, y + 24, aw - 60, 46, n, 32, NAVY, HEAD, True)
     pill(s, x + 36, y + 76, ch, acc, filled=False, size=18)
-    bullets(s, x + 36, y + 136, aw - 60, items, 24, 10, h=ah - 146)
+    bullets(s, x + 36, y + 136, aw - 60, items, 23, 10, h=ah - 146)
 x = 120 + 3 * (aw + 30); y = 290 + ah + 26
 rect(s, x, y, aw, ah, OTINT, ORANGE, 2, 0.06, dash=True)
-text(s, x + 36, y + 28, aw - 72, ah - 56, [('Settings, not code', {'size': 28, 'font': HEAD, 'bold': True, 'color': NAVY, 'after': 12}),
-     ('Director approval of POs, the loading allowance (±10%) and alternatives are switches in apps/api/config.toml.', {'size': 22, 'color': INK})], spacing=1.25)
+text(s, x + 36, y + 28, aw - 72, ah - 56, [('Prices stay hidden', {'size': 28, 'font': HEAD, 'bold': True, 'color': NAVY, 'after': 12}),
+     ('Loaders, receivers and drivers never see prices or payments. Receivers see quantities, not stock values.', {'size': 22, 'color': INK})], spacing=1.25)
+
+# Access matrix summary
+s = frame('Who sees what', 'Access matrix, as built')
+F_, O_, V_, N_ = 'F', 'O', 'V', '—'
+heads = ['Feature', 'Directors', 'Kabonge', 'Testfie', 'Loaders', 'Asie', 'Yonas', 'Drivers']
+rows = [('Users, roles, audit log', F_, N_, N_, N_, N_, N_, N_),
+        ('Companies, suppliers, goods', F_, F_, N_, N_, N_, N_, N_),
+        ('Providers, trucks, drivers', F_, F_, V_, V_, V_, N_, N_),
+        ('Plans and purchase orders', F_, 'O pairs', 'V GBI', 'V', 'V', 'V', N_),
+        ('Loading', V_, 'V pairs', 'O GBI', 'O point', 'O re-export', N_, N_),
+        ('Agreed price, truck expenses, fees', F_, N_, F_, N_, N_, N_, N_),
+        ('Fleet follow-up and issues', V_, V_, F_, N_, V_, V_, 'O trip'),
+        ('Delivery acknowledgement', V_, V_, N_, N_, O_, O_, N_),
+        ('Warehouse stock and expenses', F_, N_, N_, N_, O_, O_, N_),
+        ('Re-exports Gisenyi → Juba', F_, N_, 'V follow-up', N_, O_, 'O receive', N_),
+        ('Sales, selling prices, margins', F_, N_, N_, N_, N_, N_, N_)]
+cw_ = [470] + [172] * 7
+tb = s.shapes.add_table(len(rows) + 1, 8, px(120), px(285), px(sum(cw_)), px(50 * (len(rows) + 1))).table
+for c, wv in enumerate(cw_):
+    tb.columns[c].width = px(wv)
+tone = {'F': ('DDF0E3', '14532D'), 'O': ('FFF1E6', ORT), 'V': ('EAF0F8', NAVY), '—': (WHITE, '8A97A8')}
+for r in range(len(rows) + 1):
+    tb.rows[r].height = px(50)
+    for c in range(8):
+        v = heads[c] if r == 0 else rows[r - 1][c]
+        cell = tb.cell(r, c)
+        cell.margin_left = cell.margin_right = px(12); cell.margin_top = cell.margin_bottom = px(2)
+        cell.vertical_anchor = M
+        fill, fg = (NAVY, WHITE) if r == 0 else ((WHITE if r % 2 else 'F3F6FA'), INK) if c == 0 else tone[v[0]]
+        cell.fill.solid(); cell.fill.fore_color.rgb = rgb(fill)
+        tf = cell.text_frame; tf.text = v
+        para = tf.paragraphs[0]; para.alignment = PP_ALIGN.LEFT if c == 0 else C
+        f = para.runs[0].font
+        f.size = Pt(10.5); f.bold = r == 0 or c > 0; f.name = BODY; f.color.rgb = rgb(fg)
+ly = 285 + 50 * (len(rows) + 1) + 24
+xx = 120
+for k, (lab, key) in enumerate([('F  full', 'F'), ('O  own scope only', 'O'), ('V  view only', 'V'), ('—  no access', '—')]):
+    fill, fg = tone[key]
+    w_ = len(lab) * 12 + 40
+    rect(s, xx, ly, w_, 40, fill, LINE, 1, 0.5)
+    text(s, xx, ly, w_, 40, lab, 19, fg, BODY, True, C, M)
+    xx += w_ + 16
+text(s, xx + 20, ly - 4, 1800 - xx - 20, 50, 'Own scopes: Kabonge’s buyer–supplier pairs, each loader’s loading point, each receiver’s warehouses.', 20, MUTED, anchor=M, spacing=1.1)
 
 # Field app
 s = frame('Field mobile app', 'One clear job for each person')
-phones = [('loader-handover.png', 'LOADER', 'Sees the truck that is due, counts cases per product, and hands over to the driver.'),
-          ('driver-home.png', 'DRIVER', 'Sees one trip. Taps “I’m here” at each checkpoint, or reports a problem.'),
-          ('receiver-sign.png', 'RECEIVER', 'Checks what arrived, notes any shortage, and signs. Stock updates at once.')]
+phones_ = [('phone-joel-loader.png', 'LOADER · JOEL', 'Sees the truck that is due, counts cases per product and hands over. No prices or payments.'),
+           ('phone-driver.png', 'DRIVER', 'Sees one trip. Taps “I’m here” at each checkpoint, or reports a problem.'),
+           ('phone-asie-sign.png', 'RECEIVER · ASIE', 'Checks what arrived, notes any shortage with a reason, and signs. Stock updates at once.')]
 pw_ = (1680 - 80) / 3
-for i, (img, role, cap) in enumerate(phones):
+for i, (img, role, cap) in enumerate(phones_):
     x = 120 + i * (pw_ + 40)
-    ph_w = 280; ph_h = ph_w * 1688 / 780
-    rect(s, x - 8, 292, ph_w + 16, ph_h + 16, INK, r=0.08)
-    image(s, A(img), x, 300, ph_w)
-    text(s, x + ph_w + 30, 320, pw_ - ph_w - 30, 30, role, 22, ORT, BODY, True)
-    text(s, x + ph_w + 30, 364, pw_ - ph_w - 30, 400, cap, 27, INK, spacing=1.3)
+    phone(s, img, x + 8, 300, 250)
+    text(s, x + 290, 320, pw_ - 290, 30, role, 22, ORT, BODY, True)
+    text(s, x + 290, 364, pw_ - 290, 400, cap, 24, INK, spacing=1.3)
 rect(s, 120, 940, 1500, 2, LINE)
-text(s, 120, 950, 1500, 40, 'Unchanged for field roles. Office staff who sign in at the same /app/ address get the team phone app instead (next slide).', 22, MUTED)
+text(s, 120, 950, 1500, 40, 'Every offline screen shows “Online · Synced 4 min ago” or “Waiting to send 2”. Office staff at /app/ get the team phone app.', 22, MUTED)
 
-# Team phone app (PWA)
-s = frame('New · team phone app', 'Phone app for the office team')
-shots = [('pwa-planner-home.png', 'Planner · home'), ('pwa-director-home-dark.png', 'Director · group, dark mode'), ('pwa-accounts-drawer.png', 'Accounts · side drawer')]
-ph_w = 270; ph_h = ph_w * 1688 / 780
-for i, (img, cap) in enumerate(shots):
-    x = 128 + i * (ph_w + 46)
-    rect(s, x - 8, 282, ph_w + 16, ph_h + 16, INK, r=0.08)
-    image(s, A(img), x, 290, ph_w)
-    text(s, x - 20, 290 + ph_h + 22, ph_w + 40, 34, cap, 20, MUTED, BODY, True, C)
-x2 = 1100
-bullets(s, x2, 290, 700, ['Installs from the browser at /app/, no app store', 'Same sign-in: phone + PIN', 'Home: main menu, figures at a glance, “Needs attention”',
-                          'Bottom tabs per role, side drawer for every screen', 'Light and dark mode; works for one company or the group'], 25, 12, h=380)
-label(s, x2, 690, 'Bottom tabs by role')
-tabs = [('Director', 'Home · Trucks · Orders · Money · More'), ('Planner', 'Home · Trucks · Orders · Stock · More'),
-        ('Accounts', 'Home · Trucks · Orders · Money · More'), ('Truck planner', 'Home · Queue · Trucks · Money · More')]
-for i, (r_, t_) in enumerate(tabs):
-    y = 728 + i * 56
-    rect(s, x2, y, 700, 48, WHITE if i % 2 == 0 else TINT, r=0.2)
-    text(s, x2 + 20, y, 190, 48, r_, 21, NAVY, BODY, True, anchor=M)
-    text(s, x2 + 215, y, 480, 48, t_, 21, INK, anchor=M)
+# Phone home screens
+s = frame('New · phone home screens', 'Each person opens on their own work')
+homes = [('phone-daniel-home.png', 'Daniel, Michael', 'Scorecard, top exceptions'), ('phone-kabonge-home.png', 'Kabonge', 'Order pipeline, follow-up'),
+         ('phone-testfie-home.png', 'Testfie', 'Load at GBI, live fleet'), ('phone-asie-receiver.png', 'Asie, Yonas', 'Next truck + warehouse strip'),
+         ('phone-joel-today.png', 'Joel, Eric, Moses', 'Today’s list, no prices')]
+ph_w = 250
+gap = (1680 - 5 * ph_w) / 4
+for i, (img, who, cap) in enumerate(homes):
+    x = 120 + i * (ph_w + gap)
+    h = phone(s, img, x, 290, ph_w)
+    text(s, x - 20, 290 + h + 22, ph_w + 40, 34, who, 23, NAVY, HEAD, True, C)
+    text(s, x - 20, 290 + h + 58, ph_w + 40, 30, cap, 19, MUTED, BODY, False, C)
+text(s, 120, 945, 1500, 30, 'One list or chart per screen · status with an icon and a word · tap a number for its list · no new download, it lives at /app/', 19, MUTED)
 
-# Office web
-s = frame('Office web app', 'Plans, orders and reports in the browser')
-image(s, A('web-dashboard.png'), 120, 300, 1000)
-rect(s, 120, 300, 1000, 625, None, 'D5DCE6', 2)
-bullets(s, 1170, 300, 630, ['Period plans as suggestions, no overlaps', 'Planners issue POs; revisions shown as a chain', 'Planned versus actual, with warnings',
-                            'Live board of every shipment', 'Interactive charts you can filter and zoom', 'Product list and truck list from your data',
-                            'Each role sees only its own screens'], 27, 14)
+# Web home screens
+s = frame('New · web home screens', 'Your own dashboards when you sign in')
+webs = [('web-home-daniel.png', 'Daniel, Michael · executive overview first'), ('web-home-kabonge.png', 'Kabonge · purchasing'),
+        ('web-home-testfie.png', 'Testfie · trucks and fees'), ('web-home-joel.png', 'Joel, Eric, Moses · today’s loading'),
+        ('web-home-asie.png', 'Asie · deliveries, warehouse, re-exports'), ('web-home-yonas.png', 'Yonas · deliveries, warehouse')]
+ww, wg = 470, 135
+for i, (img, cap) in enumerate(webs):
+    x = 120 + (i % 3) * (ww + wg)
+    y = 282 + (i // 3) * 350
+    shot(s, img, x, y, ww, cap=cap)
 
 # Loading allowance and PO revisions
-s = frame('New · loading', 'Loading with an allowance and PO revisions')
+s = frame('Loading', 'Loading with an allowance and PO revisions')
 for i, (img, cap) in enumerate([('loader-allowance.png', 'Allowance meter'), ('loader-alternative.png', 'Load an alternative')]):
     x = 128 + i * 300
-    ph_w = 260; ph_h = ph_w * 1688 / 780
-    rect(s, x - 8, 282, ph_w + 16, ph_h + 16, INK, r=0.08)
-    image(s, A(img), x, 290, ph_w)
-    text(s, x - 20, 290 + ph_h + 22, ph_w + 40, 34, cap, 20, MUTED, BODY, True, C)
+    phone(s, img, x, 290, 260, cap)
 fx = 760
-steps_ = [('PO-001', 'Issued by the planner', NAVY), ('Loader changes', 'a quantity, a missing item or an alternative, within ±10%', ORANGE),
-          ('PO-001-rev001', 'Created and issued at once, in the same step', ORANGE), ('Everyone follows', 'Planners and directors told; shipments use the latest revision', NAVY)]
+steps_ = [('PO-001', 'Issued by Kabonge, no approval step', NAVY), ('Loader changes', 'a quantity, a missing item or an alternative, within ±10%', ORANGE),
+          ('PO-001-rev001', 'Created and issued at once, in the same step', ORANGE), ('Everyone follows', 'Kabonge and the directors told; shipments use the latest revision', NAVY)]
 fw_ = (1800 - fx - 3 * 36) / 4
 for i, (t_, sub_, acc_) in enumerate(steps_):
     x = fx + i * (fw_ + 36)
@@ -408,31 +470,25 @@ for i, (t_, sub_, acc_) in enumerate(steps_):
     text(s, x + 18, 362, fw_ - 36, 150, sub_, 20, MUTED, spacing=1.25)
     if i < 3:
         arrow(s, x + fw_ + 3, 405, x + fw_ + 33, 405, ORANGE, 4)
-bullets(s, fx, 570, 500, ['Beyond ±10%, or over the truck’s size, the app refuses: ask the planner to change the PO', 'A second change makes -rev002, always numbered from the original',
-                          'Old versions stay viewable; nothing is counted twice'], 22, 12, h=360)
+bullets(s, fx, 570, 500, ['Beyond ±10%, or over the truck’s size, the app refuses: ask Kabonge to change the PO', 'A second change makes -rev002, always numbered from the original',
+                          'Loaders count cases only: no prices or payments on their screens'], 22, 12, h=360)
 cx = 1300
 rect(s, cx, 570, 500, 360, NAVY, r=0.06)
 text(s, cx + 30, 592, 440, 30, 'SETTINGS · apps/api/config.toml', 18, ORANGE, BODY, True)
 text(s, cx + 30, 640, 440, 280, ['[approvals]', 'purchase_orders = false', '', '[loading]', 'allowance_pct = 10', 'allow_alternatives = true', 'revision_suffix = "-rev"'],
      20, WHITE, MONO, spacing=1.2)
 
-# Truck planner
-s = frame('New · role', 'Truck planner')
-fit_image(s, A('web-truck-desk.png'), 120, 290, 840, 600)
-rect(s, 120, 290 + (600 - 840 * 1000 / 1440) / 2, 840, 840 * 1000 / 1440, None, 'D5DCE6', 2)
-text(s, 120, 905, 840, 34, 'Truck desk on the web: every truck by state, queue waits, delays, costs', 20, MUTED, BODY, True)
-ph_h = 600; ph_w = ph_h * 780 / 1300
-x = 1000
-rect(s, x - 8, 282, ph_w + 16, ph_h + 16, INK, r=0.06)
-image(s, A('pwa-truck-planner-home.png'), x, 290, ph_w)
-text(s, x - 20, 905, ph_w + 40, 34, 'Team phone app', 20, MUTED, BODY, True, C)
-bx = x + ph_w + 50
-bullets(s, bx, 290, 1800 - bx, ['Onboards providers, saccos, trucks and drivers', 'Orders the loading queues; loaders are told of every change',
-                                'Sees where each truck is, delays and issues', 'Expenses per truck and per provider', 'No access to POs, plans or sales'], 23, 12, h=400)
-rect(s, bx, 690, 1800 - bx, 200, OTINT, ORANGE, 2, 0.08, dash=True)
-text(s, bx + 24, 708, 1800 - bx - 48, 170, [('DEMO SIGN-INS', {'size': 18, 'bold': True, 'color': ORT, 'after': 6}),
-     ('btw-trucks (BTW only)', {'size': 20, 'bold': True}), ('+254700000017', {'size': 20, 'font': MONO, 'after': 8}),
-     ('trucks (all three companies)', {'size': 20, 'bold': True}), ('+254700000018', {'size': 20, 'font': MONO})], 20, INK)
+# Truck follow-up officer
+s = frame('Role · Testfie', 'Truck follow-up officer')
+shot(s, 'dash-fleet.png', 120, 290, 700, 600, cap='Live fleet board: every truck by status, grouped by route')
+x = 880
+h = phone(s, 'phone-testfie-agreed.png', x, 290, 270, 'Agreed price, after loading')
+bx = x + 270 + 50
+bullets(s, bx, 290, 1800 - bx, ['Follows every truck and queue; delayed, silent and stopped trucks first', 'Records the agreed transport price after loading (no longer the loader)',
+                                'Truck expenses; fees paid / part / unpaid against a reference', 'Unpaid fees turn amber at 14 days, red at 30', 'Loads at GBI Mombasa only; static data view only'], 22, 12, h=440)
+rect(s, bx, 760, 1800 - bx, 130, OTINT, ORANGE, 2, 0.08, dash=True)
+text(s, bx + 24, 774, 1800 - bx - 48, 110, [('DEMO SIGN-IN', {'size': 18, 'bold': True, 'color': ORT, 'after': 6}),
+     ('testfie', {'size': 22, 'bold': True, 'font': MONO}), ('+254700000006 · PIN 1234', {'size': 20, 'font': MONO})], 20, INK)
 
 # Legs
 s = frame('Long trips', 'Each leg is its own shipment')
@@ -446,31 +502,98 @@ for i, lbl in enumerate(['Shipment 1', 'Shipment 2 · new truck']):
     arrow(s, x, 375, x + 290, 375, ORANGE, 6)
 cards(s, [('Arrive, then store', 'When goods reach the first stop they are signed in as that warehouse’s stock.', ORANGE),
           ('Send on as new', 'The next leg is a new shipment with its own truck and driver, still linked to the first.', NAVY),
-          ('Add warehouses', 'Today: Congo – Goma, Rwanda – Gisenyi, South Sudan – Juba. Owners can add more towns.', ORANGE)], y=510, h=400)
+          ('Re-exports', 'Asie re-exports from Gisenyi to Yonas in Juba as a new shipment (ASIE-RX-…). Warehouses can be added.', ORANGE)], y=510, h=400)
+
+# Warehouse money
+s = frame('New · warehouse money', 'What the warehouses record')
+mshots = [('money-asie-expense.png', 'Expenses', 'Offloading, storage, salary, rent, utilities, damaged goods; receipt photo'),
+          ('money-asie-stock-count.png', 'Stock counts', 'Count, damaged write-off, moved out, found; quantities only'),
+          ('money-asie-reexport-load.png', 'Re-exports', 'Asie raises and loads ASIE-RX-… for Yonas in Juba'),
+          ('money-yonas-receive-reason.png', 'Reasons for losses', 'Every shortage or damage needs a reason (feeds the Pareto)'),
+          ('money-testfie-money-ageing.png', 'Transport fees', 'Paid / part / unpaid by reference; amber 14, red 30 days')]
+ph_w = 230
+gap = (1680 - 5 * ph_w) / 4
+for i, (img, t_, cap) in enumerate(mshots):
+    x = 120 + i * (ph_w + gap)
+    h = phone(s, img, x, 286, ph_w)
+    text(s, x - 30, 286 + h + 20, ph_w + 60, 34, t_, 23, NAVY, HEAD, True, C)
+    text(s, x - 40, 286 + h + 56, ph_w + 80, 70, cap, 18, MUTED, align=C, spacing=1.1)
+text(s, 120, 935, 1500, 30, 'Directors also set selling prices per product (company default or per warehouse), with a target-margin helper.', 19, INK, BODY, True)
+
+# Landed cost v2
+s = frame('New · landed cost', 'What a case really costs us')
+parts = [('Goods', 'cases loaded × PO price', NAVY), ('Truck', 'all trip costs of every leg, split by cases', ORANGE),
+         ('Warehouse share', 'month’s warehouse expenses ÷ good cases received', ORANGE), ('Landed cost per case', '÷ good cases received (received − damaged)', NAVY)]
+bw_ = 360
+xs = [120, 120 + bw_ + 80, 120 + 2 * (bw_ + 80), 120 + 3 * (bw_ + 80)]
+for i, ((t_, sub_, acc_), x) in enumerate(zip(parts, xs)):
+    filled = i == 3
+    rect(s, x, 290, bw_, 160, NAVY if filled else WHITE, acc_, 3, 0.1)
+    text(s, x + 20, 306, bw_ - 40, 46, t_, 28, WHITE if filled else NAVY, HEAD, True, C)
+    text(s, x + 20, 356, bw_ - 40, 84, sub_, 20, PALE if filled else MUTED, align=C, spacing=1.15)
+    if i < 3:
+        text(s, x + bw_, 330, 80, 80, '=' if i == 2 else '+', 54, ORANGE, HEAD, True, C, M)
+rect(s, 120, 486, 760, 440, WHITE, LINE, 2, 0.05)
+text(s, 156, 506, 700, 40, 'Worked example · product A', 26, NAVY, HEAD, True)
+ex = [('Goods', '1,000 cases × $10', '$10,000'), ('Truck', '$2,700 split by cases', '$1,800'), ('Warehouse', '$1 per good case × 985', '$985'),
+      ('Landed', '$12,785 ÷ 985 good cases', '$12.98 / case'), ('Sold', '600 at $15 → profit $1,212', 'margin 13.5 %'), ('Target 20 %', '$12.98 ÷ (1 − 0.20)', 'price $16.22')]
+for k, (a_, b_, c_) in enumerate(ex):
+    y = 560 + k * 58
+    if k % 2 == 0: rect(s, 140, y - 4, 720, 54, TINT, r=0.2)
+    text(s, 160, y, 170, 46, a_, 21, NAVY, BODY, True, anchor=M)
+    text(s, 330, y, 330, 46, b_, 21, INK, anchor=M)
+    text(s, 660, y, 190, 46, c_, 21, ORT if k >= 3 else INK, BODY, True, PP_ALIGN.RIGHT, M)
+PX, PY, PW, PH = shot(s, 'web-performance.png', 930, 486, 870, 400, cap='Performance and margins, from product to whole business')
+text(s, PX, 940, 1800 - PX, 30, 'Split by cases today; “by value” is one switch in config.toml ([costs] allocation).', 19, MUTED)
+
+# Dashboards 1
+s = frame('New · dashboards', '28 first-release dashboards + 3 showcase')
+shot(s, 'dash-exec-overview.png', 120, 290, 960, cap='Directors · executive overview: scorecard and the exceptions to act on')
+groups = [('Business', 'overview, profit bridge, landed cost, prices, fast / slow'), ('Purchasing', 'PO pipeline, ordered vs loaded vs delivered'),
+          ('Loading', 'today’s list, loading status'), ('Fleet', 'live board, delays, issues, border heatmap'),
+          ('Fees', 'agreed vs actual, payments, ageing, per truck'), ('Deliveries', 'incoming, damaged / short, loss Pareto'),
+          ('Warehouse', 'stock cover, in transit, expenses, re-exports'), ('Sales · Admin', 'sales, balances, users, audit, alerts')]
+gx = 1130
+for k, (g, d) in enumerate(groups):
+    y = 290 + k * 82
+    rect(s, gx, y, 670, 72, WHITE if k % 2 == 0 else TINT, LINE, 1, 0.15)
+    text(s, gx + 20, y + 6, 630, 30, g, 21, NAVY, HEAD, True)
+    text(s, gx + 20, y + 36, 630, 30, d, 17, MUTED)
+text(s, gx, 950, 670, 30, 'One endpoint: GET /v1/dashboards, cut to each person’s scope', 18, MUTED, BODY, True)
+
+# Dashboards 2
+s = frame('New · dashboards', 'Every chart: definition, period, freshness, export')
+X1, Y1, W1, H1 = shot(s, 'dash-profit.png', 120, 285, None, 560)
+shot(s, 'dash-stock.png', X1 + W1 + 36, 285, 1800 - (X1 + W1 + 36), 560)
+text(s, 120, 862, 680, 30, 'Profit bridge, profit by month, landed cost per case', 19, MUTED, BODY, True)
+text(s, X1 + W1 + 36, 862, 900, 30, 'Stock cover bands and days of stock against the minimum', 19, MUTED, BODY, True)
+xx = 120
+for lab in ['ⓘ definition', 'unit + period', 'freshness', 'View data', 'PDF · Excel · CSV', '“No data yet”', 'colour + icon + word']:
+    xx += pill(s, xx, 912, lab, NAVY, filled=False, size=18) + 14
 
 # ---------- technical ----------
 # T1 Technical architecture
 s = frame('Technical · 1 of 3', 'Architecture')
 L = 1200
 label(s, 120, 290, 'Clients')
-cl = [('Office web app', 'Svelte 5 · about 113 KB', NAVY), ('Team phone app (PWA)', 'Office roles · /app/', NAVY), ('Field app', 'Capacitor 7 · Android', ORANGE), ('SMS / USSD', 'Africa’s Talking', ORANGE)]
+cl = [('Office web app', 'Svelte 5 · about 100 KB', NAVY), ('Team phone app (PWA)', 'Office roles · /app/', NAVY), ('Field app', 'Capacitor 7 · about 79 KB', ORANGE), ('SMS / USSD', 'Africa’s Talking', ORANGE)]
 bw = (L - 60) / 4
 for i, (t, sub, b) in enumerate(cl):
     box(s, 120 + i * (bw + 20), 324, bw, 92, t, sub, border=b, size=22, subsize=18)
 for i in range(4):
     cx = 120 + i * (bw + 20) + bw / 2
     arrow(s, cx, 418, cx, 452, ORANGE, 4)
-box(s, 120, 456, L, 112, 'One server · NestJS 11 on Fastify', 'Serves web, apps and /v1 API · sign-in (JWT) · roles · company scope · audit log · sync · settings from config.toml', NAVY, NAVY, WHITE, 28, 21)
+box(s, 120, 456, L, 112, 'One server · NestJS 11 on Fastify', 'Web, apps and /v1 API · sign-in (JWT) · roles + own scopes (pairs, points, warehouses) · audit log · sync', NAVY, NAVY, WHITE, 28, 21)
 arrow(s, 120 + L / 2, 570, 120 + L / 2, 604, ORANGE, 4)
 label(s, 120, 606, 'Business modules')
-mods = ['Plans', 'POs', 'Trucks', 'Stock', 'Sales', 'Finance', 'Reports']
-mw = (L - 12 * 6) / 7
+mods = ['Access', 'Plans · POs', 'Trucks', 'Warehouse', 'Sales', 'Finance', 'Reports', 'Dashboards']
+mw = (L - 12 * 7) / 8
 for i, m in enumerate(mods):
-    box(s, 120 + i * (mw + 12), 640, mw, 70, m, size=22)
+    box(s, 120 + i * (mw + 12), 640, mw, 70, m, size=19)
 arrow(s, 120 + L / 2, 712, 120 + L / 2, 746, ORANGE, 4)
 box(s, 120, 750, L, 96, 'PostgreSQL 17 + PostGIS', 'Drizzle migrations · every record tagged by company · checkpoints as map areas', size=28, subsize=21)
 rect(s, 120, 866, L, 70, OTINT, ORANGE, 2, 0.2, dash=True)
-text(s, 150, 866, L - 60, 70, 'Shared package: one typed client and one set of business rules used by the web app, the field app and the server.', 22, INK, anchor=M)
+text(s, 150, 866, L - 60, 70, 'Shared package: one set of rules (access, landed cost, dashboards) for the web, phone apps and server.', 22, INK, anchor=M)
 x2 = 120 + L + 50
 rect(s, x2, 290, 1800 - x2, 646, WHITE, LINE, 2, 0.05)
 rect(s, x2, 290, 10, 646, ORANGE)
@@ -503,7 +626,7 @@ for i, (t, w_) in enumerate(zip(chain, cw2)):
         arrow(s, x + w_ + 3, 760, x + w_ + 37, 760, NAVY, 4)
     x += w_ + 40
 rect(s, 120, 830, 1680, 110, TINT, r=0.15)
-text(s, 160, 830, 1600, 110, 'Each leg is its own shipment, linked to the one before. Shortages show on the leg where they happen, and costs carry forward into the final landing cost.', 24, INK, anchor=M, spacing=1.3)
+text(s, 160, 830, 1600, 110, 'Each leg is its own shipment, linked to the one before. Shortages show on the leg where they happen; landed cost = goods + truck + warehouse share, carried forward when goods move on.', 24, INK, anchor=M, spacing=1.3)
 
 # T3 Setup
 s = frame('Technical · 3 of 3', 'Set-up, hosting and security')
@@ -526,128 +649,156 @@ rect(s, 120, 725, 1270, 220, WHITE, LINE, 2, 0.08)
 text(s, 160, 740, 1190, 40, 'Today and at go-live', 26, NAVY, HEAD, True)
 text(s, 160, 784, 1190, 160, [('Today: runs on one machine; shared through a secure tunnel for the demo.', {'after': 8}),
                               ('Go-live: the same set-up on a cloud server in a region you choose, with a fixed web address and daily backups.', {'after': 8}),
-                              'Switches in apps/api/config.toml: PO approval on or off, loading allowance, alternatives, revision suffix.'], 22, MUTED, spacing=1.2)
+                              'Switches in config.toml: PO approval (off), loading allowance, fee ageing (14 / 30 days), cost split.'], 22, MUTED, spacing=1.2)
 x2 = 1430
 rect(s, x2, 290, 370, 640, WHITE, LINE, 2, 0.05)
 rect(s, x2, 290, 370, 10, ORANGE)
 text(s, x2 + 28, 316, 320, 40, 'Security', 30, NAVY, HEAD, True)
-bullets(s, x2 + 28, 372, 320, ['Password (web) or phone + PIN (phone apps)', 'Short-lived sign-in tokens; lock-out after wrong tries', 'Each role sees only its screens', 'Staff see only their company', 'Every change logged: who and when', 'Database company rules ready as a second net'], 21, 10)
+bullets(s, x2 + 28, 372, 320, ['Password (web) or phone + PIN (phone apps)', 'Short-lived sign-in tokens; lock-out after wrong tries', 'Each person sees only their features', 'Own scopes: pairs, points, warehouses', 'Every change logged: who and when', 'Database company rules ready as a second net'], 21, 10)
 
 # Why trust it
 s = frame('Why it fits you', 'Built for the roads you use')
 cards(s, [('Works on weak signal', 'The app saves work offline and sends it later. Drivers without a smartphone use SMS.', ORANGE),
-          ('Light and fast', 'Web app about 113 KB, phone app about 74 KB, so it loads quickly even on slow connections.', NAVY),
+          ('Light and fast', 'Web app about 100 KB, phone app about 79 KB, so it loads quickly even on slow connections.', NAVY),
           ('No licence fees', 'Built on proven open-source tools. Your data stays in your own database.', ORANGE),
           ('Ready to grow', 'Add warehouses, routes, trucks and providers yourself. GPS can be added later.', NAVY)], h=420)
 rect(s, 120, 760, 1680, 150, NAVY, r=0.1)
 text(s, 170, 760, 1580, 150, [('Tested before you see it', {'size': 30, 'font': HEAD, 'bold': True, 'color': ORANGE, 'after': 8}),
-                              ('638 automated checks run against the platform, covering rules, security, each company’s data and load. All pass today.', {'size': 25, 'color': WHITE})], anchor=M)
+                              ('1,108 automated checks run against the platform: access for each person, money, dashboards, security, load. All pass today.', {'size': 25, 'color': WHITE})], anchor=M)
 
 # Done
 s = frame('Progress', 'What is done today')
-stats = [('131', 'products loaded from your price list'), ('30', 'ETS Sabrina trucks and drivers'), ('638', 'automated quality checks, all passing'), ('3', 'companies with their own letterheads')]
+stats = [('9', 'named people, each with their own access'), ('31', 'dashboards: 28 first-release + 3 showcase'),
+         ('1,108', 'automated quality checks, all passing'), ('131', 'products loaded from your price list')]
 sw = (1680 - 90) / 4
 for i, (n, t) in enumerate(stats):
     x = 120 + i * (sw + 30)
     rect(s, x, 300, sw, 230, NAVY, r=0.08)
     text(s, x + 34, 330, sw - 68, 90, n, 72, ORANGE, HEAD, True)
     text(s, x + 34, 425, sw - 68, 90, t, 25, 'E3EAF4', spacing=1.25)
-text(s, 120, 548, 1680, 30, 'Web app 112.7 KB · phone app 73.5 KB', 22, MUTED, BODY, True)
-bullets(s, 120, 600, 820, ['Office web app, field app and server all working together', 'Android app built and installed on a phone', 'Three months of sample data, end to end',
-                           'Period plans, POs and planned versus actual', 'Legs as new shipments, warehouses you can add', 'Architecture document in PDF and Word'], 26, 12, h=360)
-label(s, 980, 600, 'New', color=ORT)
-bullets(s, 980, 640, 820, ['Plans are suggestions; planners issue POs (director approval is a switch)', 'Loading within ±10% with automatic PO revisions',
-                           'Truck planner role and the office team phone app'], 26, 12, h=320)
+text(s, 120, 548, 1680, 30, 'Web app 100.3 KB (budget 130 KB) · phone app 79.4 KB (budget 90 KB)', 22, MUTED, BODY, True)
+bullets(s, 120, 600, 820, ['Office web app, field app, team phone app and server working together', 'Three companies, letterheads, group view', 'Plans, POs with ±10% revisions, legs as new shipments',
+                           '30 ETS Sabrina trucks and drivers; three months of sample data', 'Architecture document v1.2 in PDF and Word'], 25, 12, h=360)
+label(s, 980, 600, 'New since 18 October', color=ORT)
+bullets(s, 980, 640, 820, ['Your roster and access matrix; no prices for loaders, receivers, drivers', 'Agreed price after loading (Testfie); fee ageing',
+                           'Warehouse expenses, stock counts, re-exports Asie → Yonas', 'Selling prices, landed cost v2, combined performance',
+                           'Dashboards and home screens on the web and the phone'], 25, 12, h=330)
 
 # Demo
 s = frame('Try it', 'Demo link and sign-ins')
-rect(s, 120, 300, 760, 330, NAVY, r=0.08)
-text(s, 156, 334, 690, 30, 'OFFICE WEB APP', 22, ORANGE, BODY, True)
-text(s, 156, 374, 690, 80, 'Demo link: shared on the day', 30, WHITE, HEAD, True)
-text(s, 156, 490, 690, 30, 'ON A PHONE (FIELD AND OFFICE TEAM)', 22, ORANGE, BODY, True)
-text(s, 156, 530, 690, 50, '<demo link>/app/', 28, WHITE, MONO)
-text(s, 120, 660, 760, 200, 'The link is temporary. On the web, tap a demo account to sign in: password demo1234. On a phone, sign in with the phone number and PIN 1234, including office staff.', 24, MUTED, spacing=1.35)
-logins = [('Director', '+254700000001', 'all companies'), ('Planner', 'btw-plan', 'also nud-plan, kvd-plan'), ('Accounts', 'btw-acc', 'also nud-acc, kvd-acc'),
-          ('Truck planner', 'btw-trucks', '+254700000017 · also trucks'), ('Receiver', 'asie', 'Gisenyi and Goma'), ('Driver', '+254702750019', 'Mawazi K, KBV 894T'), ('Driver', '+254701811686', 'Kanyike E, SSD 879T')]
-tbl = s.shapes.add_table(len(logins), 3, px(930), px(300), px(870), px(70 * len(logins))).table
-for c, wv in enumerate([210, 280, 380]):
+rect(s, 120, 300, 700, 330, NAVY, r=0.08)
+text(s, 156, 334, 630, 30, 'OFFICE WEB APP', 22, ORANGE, BODY, True)
+text(s, 156, 374, 630, 80, 'Demo link: shared on the day', 30, WHITE, HEAD, True)
+text(s, 156, 490, 630, 30, 'ON A PHONE (FIELD AND OFFICE TEAM)', 22, ORANGE, BODY, True)
+text(s, 156, 530, 630, 50, '<demo link>/app/', 28, WHITE, MONO)
+text(s, 120, 660, 700, 260, [('Web: username and password demo1234.', {'after': 10}), ('Phone: phone number and PIN 1234, office staff included.', {'after': 10}),
+                             'The link is temporary and runs on demo data.'], 24, MUTED, spacing=1.3)
+logins = [('Who', 'Web username', 'Phone'), ('Daniel · director', 'daniel', '+254700000001'), ('Michael · director', 'michael', '+254700000020'),
+          ('Kabonge · planner', 'kabonge', '+254700000002'), ('Testfie · truck follow-up', 'testfie', '+254700000006'),
+          ('Joel, Eric · loaders, KBL', 'joel, eric', '+254700000003 / 04'), ('Moses · loader, UBL', 'moses', '+256700000005'),
+          ('Asie · receiver, re-export', 'asie', '+250700000007'), ('Yonas · receiver, Juba', 'yonas', '+211900000008'),
+          ('Driver · Mawazi K', '—', '+254702750019')]
+tbl = s.shapes.add_table(len(logins), 3, px(870), px(300), px(930), px(62 * len(logins))).table
+for c, wv in enumerate([400, 230, 300]):
     tbl.columns[c].width = px(wv)
 for r, row in enumerate(logins):
+    tbl.rows[r].height = px(62)
     for c, v in enumerate(row):
         cell = tbl.cell(r, c)
-        cell.fill.solid(); cell.fill.fore_color.rgb = rgb(WHITE if r % 2 == 0 else 'EEF2F7')
+        cell.fill.solid(); cell.fill.fore_color.rgb = rgb(NAVY if r == 0 else WHITE if r % 2 else 'EEF2F7')
         cell.vertical_anchor = M
         tf = cell.text_frame; tf.text = v
         f = tf.paragraphs[0].runs[0].font
-        f.size = Pt(12.5); f.bold = c == 0; f.name = MONO if c == 1 else BODY
-        f.color.rgb = rgb(MUTED if c == 2 else INK)
+        f.size = Pt(12); f.bold = r == 0 or c == 0; f.name = MONO if (c > 0 and r > 0) else BODY
+        f.color.rgb = rgb(WHITE if r == 0 else MUTED if c == 2 else INK)
 
 # Next
 s = frame('Next phase', 'What comes after this demo')
-cards(s, [('Truck planning', 'Fill one truck from several POs, with subtotals per truck.', ORANGE),
-          ('KBL receipt', 'Match the columns and totals on the KBL receipt.', NAVY),
-          ('Go live', 'Real SMS and email accounts, hosting, then GPS trackers later.', ORANGE)], h=400)
+cards(s, [('More dashboards', '20 second-release and 8 third-release dashboards, once a few weeks of real data exist.', NAVY),
+          ('Company accounts', 'Receiving-company P&L, retained earnings, dividends (B-09), once the scope is agreed.', ORANGE),
+          ('Truck planning', 'Fill one truck from several POs, with subtotals per truck. Needs your sheet.', NAVY),
+          ('KBL receipt', 'Match the columns and totals on the KBL receipt. Needs a sample.', ORANGE),
+          ('Go live', 'Real SMS and email accounts, hosting, backups; GPS later.', NAVY)], h=460, tsize=32, bsize=25)
 
 # Questions divider
 s = new(NAVY)
 dot(s, 1320, -200, 800, NAVY2)
 rect(s, 140, 300, 120, 10, ORANGE)
 text(s, 140, 350, 1300, 130, 'Questions for you', 96, WHITE, HEAD, True)
-text(s, 140, 500, 1300, 220, 'Everything we asked since the project started and still need answered. Where we had to guess, the platform uses a safe default marked “to confirm”.', 36, PALE, spacing=1.35)
-text(s, 140, 930, 1640, 40, 'Branding · Roles · Process · Timeline and services · Data', 28, PALE)
+text(s, 140, 500, 1300, 220, 'Everything still open, grouped. Where we had to guess, the platform uses a safe default marked “to confirm”; answered ones (PO and plan approval) are gone.', 36, PALE, spacing=1.35)
+text(s, 140, 930, 1640, 40, 'People and access · Money and costs · Dashboards · Branding · How the work runs · Services · Data', 26, PALE)
 
 
-def qslide(kicker, title, left, right):
+def qslide(kicker, title, left, right, size=28):
     s = frame(kicker, title)
-    bullets(s, 120, 300, 805, left, 30, 24, mark='?')
-    bullets(s, 995, 300, 805, right, 30, 24, mark='?')
+    bullets(s, 120, 290, 805, left, size, 18, mark='?', h=680)
+    bullets(s, 995, 290, 805, right, size, 18, mark='?', h=680)
 
 
-qslide('Questions · 1 of 6', 'Companies and branding', [
+qslide('Questions · 1 of 8', 'People and access', [
+    'Who raises Nihna–GBI POs? (today: a director)',
+    'Who loads at SBL Tanzania? (today: a placeholder loader)',
+    'Who follows up the Rwanda → Juba re-export trucks? (today: Testfie)',
+    'Who approves truck payments, and who handles sales and trip money? (today: directors)',
+    'Do other Asie and Yonas staff need logins?'], [
+    'Spelling Testfie and Yonas? Do Daniel and Michael have the same access?',
+    'Loading queue order: Testfie, Kabonge or both? (today: both)',
+    'Does Kabonge keep companies, suppliers and goods?',
+    'Should directors also operate trucks (load, check in, acknowledge)?',
+    'Phone numbers for Michael and the SBL loader?'])
+qslide('Questions · 2 of 8', 'Money and costs', [
+    'Split truck and warehouse costs by cases or by value? (today: cases)',
+    'Who sets selling prices when the directors are away?',
+    'Receiving-company accounts (P&L, retained earnings, dividends): Asie and Yonas only, or every company? Who records it?',
+    'Unpaid fee flag: amber 2 weeks, red 1 month. OK?',
+    'Which charges count as “actual transport”? (today: no duties or clearing)'], [
+    'Warehouse expenses spread over every company’s goods received that month. OK?',
+    'A month with expenses and no goods: show as “Other” or carry to next month?',
+    'Damaged goods: count as an expense as well as in the cost per case?',
+    'Selling price per warehouse, per company, in local currency?',
+    'Re-export orders from one company’s stock, or mixed?'])
+qslide('Questions · 3 of 8', 'Dashboards and alerts', [
+    'Showcase item 7 did not come through: please resend it',
+    'Reasons for shortage and damage: is our list right?',
+    'Hours before a quiet truck is flagged? (web 6 / 12 h, phone 12 / 24 h)',
+    'Stock cover: minimum 14 days, slow above 60, for every product?'], [
+    'Customer payment terms: 14 days for all, or per customer?',
+    'Should alerts be assigned and closed by hand?',
+    'Directors also see today’s loading lists. OK?',
+    'Should Yonas see re-exports coming to Juba on his phone strip?',
+    'Room for 5 companies and 7 suppliers: keep as a limit?'])
+qslide('Questions · 4 of 8', 'Companies and branding', [
     'Some reference documents mentioned in the requirements are missing. Can you send them?',
-    'What is the platform called, and does it carry the BTW brand or a neutral one?',
-    'Can you send NUD and Kivu logos as vector files, plus dark versions?',
-    'Do you approve the dark logo versions we made?',
+    'What is the platform called: BTW brand or a neutral one?',
+    'NUD and Kivu logos as vector files, plus dark versions? Are our dark versions OK?',
     'Is there a group logo for the directors’ view?'], [
-    'Are Asie and Zonas separate companies, or sites of one company?',
     'What does “branches” mean: towns, warehouses or companies?',
-    'Kivu’s letterhead shows NUD’s email. Which is correct, and what is Kivu’s full legal name?',
+    'Kivu’s letterhead shows NUD’s email. Which is right, and Kivu’s full legal name?',
     'KRA PINs and registration numbers for each company’s letters?',
     'Correct full names for GBI and SBL?'])
-qslide('Questions · 2 of 6', 'People and access', [
-    'Who besides the truck planner may add transport providers?',
-    'Who may remove a truck from the waiting list?',
-    'Does a loading point see only its own trucks, or all trucks?',
-    'Do drivers of market (hired) trucks get the app, or SMS only?'], [
-    'Whose name goes on a PO as “prepared by”?',
-    'Can you confirm which role sees which screens (our role list)?',
-    'Are staff or trucks shared between the three companies?',
-    'Should loading points see trucks already on the road?',
-    'Office phone app: Play Store, or install from the browser only?'])
-qslide('Questions · 3 of 6', 'How the work runs (part 1)', [
+qslide('Questions · 5 of 8', 'How the work runs (part 1)', [
     'How is truck capacity measured: cases, weight or pallets?',
-    'How are landing costs shared across products on a truck?',
     'Which currencies, and where do exchange rates come from?',
-    'Are sales recorded one by one or in batches?',
-    'How detailed should management accounts be?'], [
-    'What sales speed counts as slow-moving stock?',
     'If two people change the same record offline, whose change wins?',
-    'How long after delivery is the transport fee followed up?',
     'How often must reports refresh?',
     'Loading allowance: one % for all, or per supplier?',
-    'Should a PO revision need anyone’s acknowledgement?'])
-qslide('Questions · 4 of 6', 'How the work runs (part 2)', [
+    'Should a PO revision need anyone’s acknowledgement?'], [
+    'Whose name goes on a PO as “prepared by”?',
+    'Are staff or trucks shared between the three companies?',
+    'Do drivers of market (hired) trucks get the app, or SMS only?',
+    'Who may remove a truck from the waiting list?',
+    'Office phone app: Play Store, or install from the browser only?'])
+qslide('Questions · 6 of 8', 'How the work runs (part 2)', [
     'How do sales between the three companies work, and at what price?',
     'Should prices be hidden between companies?',
     'Can customers be shared between companies?',
     'Is Kigali a stop on the way, or a destination?',
-    'Planned versus actual warnings: we use below 85% and above 105%. OK?'], [
+    'Planned versus actual warnings below 85% and above 105%. OK?'], [
     'A missed check-in alerts after 3 hours. OK?',
     'Are the transfer points fixed for each route?',
-    'On an onward leg, who records the transport price?',
     'Can the sender change the truck after loading?',
-    'Do you want subtotals per truck on the PO? What SMS short code and keywords?'])
-qslide('Questions · 5 of 6', 'Timeline and outside services', [
+    'What SMS short code and keywords?'])
+qslide('Questions · 7 of 8', 'Timeline and outside services', [
     'What is the target go-live date?',
     'When should GPS tracking come in, and will trucks have trackers?',
     'Should we import past records? From when?',
@@ -657,16 +808,16 @@ qslide('Questions · 5 of 6', 'Timeline and outside services', [
     'Which accounting software must it connect to?',
     'Which languages: English, French, Swahili?',
     'Can we have live Africa’s Talking and Firebase accounts?'])
-qslide('Questions · 6 of 6', 'Data and next-phase files', [
+qslide('Questions · 8 of 8', 'Data and next-phase files', [
     'Real prices for each product, and in which currency?',
     'Truck capacity for each truck? (we assumed 2,000 cases)',
     'Drivers’ phone country codes? (we assumed +254 Kenya)',
     'Pack sizes for the 61 products without one?',
     'Who drives truck 22 (UAY 563H)?'], [
     'Lists for other transport providers (Joly and others)?',
-    'Please send the truck planning sheet (image)',
-    'Please send a KBL receipt so we can match its columns',
-    'Please send the newest requirements document',
+    'The truck planning sheet (one truck, several POs)',
+    'A KBL receipt, so we can match its columns',
+    'The newest requirements document',
     'Sacco details: contacts and payment terms?'])
 
 # Thanks

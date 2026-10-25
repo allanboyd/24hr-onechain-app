@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import path from 'node:path';
 
-const BUDGET = { web: 120, field: 80 }; // KB gzipped, entry chunk (lazy chunks such as the map are excluded)
+const BUDGET = { web: 130, field: 90 }; // raised +10 KB each on 25 Oct 2026 (user decision) — KB gzipped, entry chunk (lazy chunks such as the map are excluded)
 let failed = false;
 for (const [app, kb] of Object.entries(BUDGET)) {
   // The entry chunk is the module script in dist/index.html (several index-*.js chunks may exist).

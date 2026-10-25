@@ -10,6 +10,9 @@ export { amount } from './rules';
 export const mode: 'mock' | 'http' = impl.mode;
 export const {
   ready, configure, onChange, auth, ref, lookup, plans, pos, loading, shipments, inventory, sales, finance, analytics,
-  notifications, demo, queue, tracking, field, masterdata, users, devices, files, sync, reports, entities, settings, periodPlans,
+  notifications, demo, queue, tracking, field, masterdata, users, devices, files, sync, reports, entities, settings, periodPlans, audit,
+  warehouse, reexports, pricing, dashboards,
 } = impl;
 export type * from './reports';
+export type { DashKey, DashFilter, DashResponse, DashResult, DashDef, DashGroup, DashAlert } from './dashboards';
+export type { PerformanceReport, PerfRow, PerfFilter, PerfLevel, ReceiptLine, FastSlow, WarehouseRate } from './performance';

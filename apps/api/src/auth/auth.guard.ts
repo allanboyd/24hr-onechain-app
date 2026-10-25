@@ -42,7 +42,7 @@ export class AuthGuard implements CanActivate {
     const access = await accessOf(u!);
     // X-Entity-Id is checked against the user's companies on every request (403 outside them)
     const { activeEntityId, scope } = scopeOf(access.allowedEntityIds, req.headers['x-entity-id']);
-    const principal: Principal = { id: u!.id, name: u!.name, phone: u!.phone, roles: u!.roles as Role[], entityIds: u!.entityIds, loadingPointIds: u!.loadingPointIds, warehouseIds: u!.warehouseIds, driverId: u!.driverId, channel: ['web', 'app', 'sms'].includes(channel) ? channel : 'web', deviceId: payload.dev, sessionId: payload.sid, ...access, activeEntityId, scope };
+    const principal: Principal = { id: u!.id, name: u!.name, phone: u!.phone, roles: u!.roles as Role[], entityIds: u!.entityIds, loadingPointIds: u!.loadingPointIds, warehouseIds: u!.warehouseIds, pairs: u!.pairs ?? [], routeIds: u!.routeIds ?? [], driverId: u!.driverId, channel: ['web', 'app', 'sms'].includes(channel) ? channel : 'web', deviceId: payload.dev, sessionId: payload.sid, ...access, activeEntityId, scope };
     req.user = principal;
     const roles = this.reflector.getAllAndOverride<Role[] | undefined>(ROLES, [ctx.getHandler(), ctx.getClass()]);
     if (roles?.length && !isGlobal(principal) && !principal.roles.some((r) => roles.includes(r))) fail('Not allowed for your role', 403, 'forbidden');

@@ -14,6 +14,7 @@ export interface Theme {
   text: string; muted: string; subtle: string; grid: string; axis: string; surface: string; tipBg: string; tipBorder: string;
   series: string[]; other: string; seq: string[]; success: string; warning: string; danger: string; info: string; font: string;
   /** subtle status fills (state heatmaps) — pair with `text` ink */ tint: { success: string; info: string; warning: string; danger: string };
+  /** status text colours (readable on the surface; `warning` above is the solid fill) */ ink?: { success: string; warning: string; danger: string };
 }
 export function readTheme(): Theme {
   const cs = getComputedStyle(document.documentElement);
@@ -26,6 +27,7 @@ export function readTheme(): Theme {
     success: v('--success'), warning: v('--warning-solid'), danger: v('--danger'), info: v('--info'),
     font: "'Inter Variable', Inter, system-ui, sans-serif",
     tint: { success: v('--success-subtle'), info: v('--info-subtle'), warning: v('--warning-subtle'), danger: v('--danger-subtle') },
+    ink: { success: v('--success'), warning: v('--warning'), danger: v('--danger') },
   };
 }
 /** #rrggbb → rgba() with alpha (area washes). */

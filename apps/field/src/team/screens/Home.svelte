@@ -1,10 +1,11 @@
 <script lang="ts">
-  // Home: greeting · main menu (big buttons for the role) · analysis (KPI cards) · needs attention.
+  // Home: greeting, then the person's own home (docs/11 D-A1, dashboards document §10) — directors, Kabonge and Testfie
+  // get their lazy persona home (homes/*); other office roles keep main menu · KPI cards · needs attention.
   import { analytics, finance, plans, shipments, type User } from '@btw/api';
   import { reportsApi } from '../reports';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import CircleCheck from '@lucide/svelte/icons/circle-check';
-  import { can, canIssuePO, canTransport, mayApprovePOs, menuFor } from '../access';
+  import { can, canIssuePO, canTransport, loadLabel, mayApprovePOs, menuFor } from '../access';
   import { loadDesk } from '../desk';
   import { ICONS, TINT } from '../icons';
   import { activeBrand, co } from '../company.svelte';
@@ -17,12 +18,20 @@
   import WebButton from '../components/WebButton.svelte';
   let { user, pending = 0 }: { user: User; pending?: number } = $props();
 
+  const HOMES = {
+    director: () => import('../homes/DirectorHome.svelte'),
+    planner: () => import('../homes/PlannerHome.svelte'),
+    truck_planner: () => import('../homes/TruckHome.svelte'),
+  } as const;
+  const persona = (Object.keys(HOMES) as (keyof typeof HOMES)[]).find((r) => user.roles.includes(r));
+
   const r = new Res<HomeData>(async () => {
+    if (persona) return { sum: null, dash: null, trips: null, ships: null, inv: null, drafts: null };
     const reports = await reportsApi();
     const [sum, dash, trips, ships, inv, drafts, desk] = await Promise.all([
       settle(analytics.summary(), null),
       can(user, 'dashboard') ? settle(reports.dashboard(), null) : null,
-      can(user, 'finance') ? settle(finance.trips(), null) : null,
+      can(user, 'finance') || can(user, 'truck-expenses') ? settle(finance.trips(), null) : null,
       can(user, 'logistics') ? settle(shipments.list(), null) : null,
       can(user, 'inventory') ? settle(reports.inventory(), null) : null,
       can(user, 'purchase-orders') && (canIssuePO(user) || mayApprovePOs(user)) ? settle(plans.list(), null) : null,
@@ -31,8 +40,8 @@
     if (!sum && !dash) throw new Error('Could not load your numbers. Check your connection.');
     return { sum, dash, trips: desk?.trips ?? trips, ships, inv, drafts, desk };
   });
-  $effect(() => r.live(60_000));
-  $effect(() => onRefresh(() => r.reload()));
+  $effect(() => { if (!persona) return r.live(60_000); });
+  $effect(() => { if (!persona) return onRefresh(() => r.reload()); });
 
   const menu = $derived(menuFor(user, pending));
   const kpis = $derived(r.data ? kpisFor(user, r.data) : []);
@@ -46,6 +55,15 @@
   <p class="t-sub">{b ? b.short : 'Group · all companies'}{co.active === null ? ' · read-only overview' : ''}</p>
 </section>
 
+{#if persona}
+  {#await HOMES[persona]()}
+    <Skeleton kind="kpis" rows={6} />
+  {:then m}
+    <m.default {user} {pending} />
+  {:catch}
+    <ErrorNote error="Couldn't open your home screen. Check your connection." onretry={() => location.reload()} />
+  {/await}
+{:else}
 <section aria-labelledby="menu-h">
   <h3 class="t-title" id="menu-h">Main menu</h3>
   <div class="menu">
@@ -53,7 +71,7 @@
       {@const Icon = ICONS[m.id]}
       <a class="tile t-press" href="#{m.path}" style:--tint={TINT[m.id]}>
         <span class="ic"><Icon size={26} /></span>
-        <span class="name">{m.label}</span>
+        <span class="name">{m.id === 'load' ? loadLabel(user) : m.label}</span>
         {#if m.id === 'approvals' && pending}<span class="badge-n">{pending}</span>{/if}
       </a>
     {/each}
@@ -103,6 +121,7 @@
     <span class="t-meta">Bigger forms work best on a computer.</span>
     <WebButton path="/plans/new" label="New purchase order" />
   </section>
+{/if}
 {/if}
 
 <style>

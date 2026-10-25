@@ -2,7 +2,8 @@
   import CompanyChip from './CompanyChip.svelte';
   import { untrack } from 'svelte';
   // Hand-over (giver → driver): used at a loading point (LD-01..04, §17.5) and when sending a transfer leg on (DS-02).
-  // Truck + driver, cases per brand (prefilled), document photos, agreed transport price, then ONE slide.
+  // Truck + driver, cases per brand (prefilled), document photos, then ONE slide. No prices here (docs/12 A-04):
+  // the agreed transport price is recorded later by the truck follow-up officer.
   import { lookup, ref } from '@btw/api';
   import { cases } from '../lib';
   import Sheet from './Sheet.svelte';
@@ -11,16 +12,15 @@
   import SlideToConfirm from './SlideToConfirm.svelte';
   type Line = { key: string; productId: string; qty: number };
   type TruckOpt = { truckId: string; driverId: string; note?: string };
-  let { entityId, title, subtitle = '', trucks, lines, editable = true, askPrice = true, qtyLabel = 'ordered', onsubmit, onclose }: {
-    entityId?: string; title: string; subtitle?: string; qtyLabel?: string; trucks: TruckOpt[]; lines: Line[]; editable?: boolean; askPrice?: boolean;
-    onsubmit: (d: { truckId: string; driverId: string; qty: Record<string, number>; price: number; photos: string[] }) => Promise<void>; onclose: () => void;
+  let { entityId, title, subtitle = '', trucks, lines, editable = true, qtyLabel = 'ordered', onsubmit, onclose }: {
+    entityId?: string; title: string; subtitle?: string; qtyLabel?: string; trucks: TruckOpt[]; lines: Line[]; editable?: boolean;
+    onsubmit: (d: { truckId: string; driverId: string; qty: Record<string, number>; photos: string[] }) => Promise<void>; onclose: () => void;
   } = $props();
   const drivers = ref().drivers;
   // The sheet mounts fresh each time it opens, so the initial props are the starting values.
   let truckId = $state(untrack(() => trucks[0]?.truckId ?? ''));
   let driverId = $state(untrack(() => trucks[0]?.driverId ?? ''));
   let qty = $state<Record<string, number>>(untrack(() => Object.fromEntries(lines.map((l) => [l.key, l.qty]))));
-  let price = $state<number | null>(null);
   let photos = $state<string[]>([]);
   let error = $state('');
   let choosing = $state(false);
@@ -30,14 +30,12 @@
   const total = $derived(Object.values(qty).reduce((a, b) => a + (b || 0), 0));
   const ordered = $derived(lines.reduce((a, l) => a + l.qty, 0));
   const over = $derived(!!truck && total > truck.capacityCases);
-  const priceMissing = $derived(askPrice && !(price && price > 0));
   function pickTruck(t: TruckOpt) { truckId = t.truckId; driverId = t.driverId; }
   async function go() {
     tried = true; error = '';
     if (over) { error = `Too many cases for ${truck?.reg}: ${total} of ${truck?.capacityCases}`; return; }
-    if (priceMissing) { error = 'Enter the agreed transport price'; return; }
     busy = true;
-    try { await onsubmit({ truckId, driverId, qty: $state.snapshot(qty), price: price ?? 0, photos: $state.snapshot(photos) }); }
+    try { await onsubmit({ truckId, driverId, qty: $state.snapshot(qty), photos: $state.snapshot(photos) }); }
     catch (e) { error = (e as Error).message; }
     finally { busy = false; }
   }
@@ -82,15 +80,13 @@
     <PhotoInput bind:names={photos} label="Delivery note" />
   </section>
 
-  {#if askPrice}
-    <label class="field"><span>Agreed transport price (USD)</span>
-      <input class="input" type="number" inputmode="decimal" min="0" bind:value={price} placeholder="e.g. 1650" aria-invalid={tried && priceMissing} /></label>
-  {/if}
+  <p class="note">The agreed transport price is recorded later by the truck follow-up officer.</p>
 
   {#if error}<p class="error-box" role="alert">{error}</p>{/if}
   <SlideToConfirm label={busy ? 'Sending…' : 'Hand over to driver'} disabled={busy} onconfirm={go} />
 </Sheet>
 <style>
+  .note { margin: 0; padding: 10px 12px; border-radius: var(--radius-md); background: var(--accent-subtle); color: var(--text); font-size: 14px; }
   .group { display: flex; flex-direction: column; gap: var(--space-2); }
   .choices { display: flex; flex-direction: column; gap: var(--space-2); }
   .choice { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); min-height: 56px; padding: 0 14px; border-radius: var(--radius-md); border: 2px solid var(--border); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; text-align: left; }

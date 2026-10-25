@@ -13,12 +13,13 @@
   let error = $state('');
   let busy = $state(false);
   const demo = fieldUsers();
-  // Office staff (directors, planners, accounts …) sign in with the same phone + PIN and get the BTW Team app.
-  // One account per office role first (so every role is one tap away — truck planners included), then the rest.
-  const officeAll = auth.demoUsers().filter((u) => !fieldRole(u));
-  const firstOfRole = officeAll.filter((u, i) => officeAll.findIndex((x) => x.roles.join() === u.roles.join()) === i);
-  const office = [...new Set([...firstOfRole, ...officeAll.filter((u) => u.roles.includes('truck_planner')), ...officeAll])].slice(0, 10);
-  const cap = (r: string) => (r === 'truck_planner' ? 'Truck planner' : r.charAt(0).toUpperCase() + r.slice(1));
+  // Office staff (Daniel and Michael, Kabonge, Testfie) sign in with the same phone + PIN and get the BTW Team app.
+  const RANK = ['director', 'planner', 'truck_planner', 'fleet', 'operations', 'accounts', 'sales', 'admin'];
+  const rank = (u: User) => Math.min(...u.roles.map((r) => RANK.indexOf(r) + 1 || 99));
+  const office = auth.demoUsers().filter((u) => !fieldRole(u)).sort((a, b) => rank(a) - rank(b)).slice(0, 10);
+  const LABEL: Record<string, string> = { director: 'Director', planner: 'Purchase planner · static data', truck_planner: 'Truck follow-up officer' };
+  const cap = (r: string) => LABEL[r] ?? r.charAt(0).toUpperCase() + r.slice(1);
+  const officeLine = (u: User) => `${u.roles.map(cap).join(' · ')}${u.roles.includes('truck_planner') && u.loadingPointIds.length ? ' · loads at GBI Mombasa' : ''}`;
   function next(e?: Event) { e?.preventDefault(); error = ''; if (phone.replace(/\D/g, '').length < 9) { error = 'Enter your phone number'; return; } step = 'pin'; }
   async function key(d: string) {
     if (busy) return;
@@ -46,12 +47,12 @@
         <div class="overline">Demo accounts · PIN {DEMO_PIN}</div>
         {#each demo as u (u.id)}
           {@const r = fieldRole(u)!}
-          <button type="button" class="demo-row" onclick={() => { phone = u.phone; next(); }}><span class="grow"><strong>{u.name}</strong><br /><span class="caption">{ROLE_LABEL[r]}</span></span><span class="caption mono">{u.phone}</span></button>
+          <button type="button" class="demo-row" onclick={() => { phone = u.phone; next(); }}><span class="grow"><strong>{u.name}</strong><br /><span class="caption">{ROLE_LABEL[r]}{u.roles.includes('reexport') ? ' · re-export planner' : ''}{r === 'loader' && u.loadingPointIds[0] ? ` · ${u.loadingPointIds[0].replace('s-', '').toUpperCase()}` : ''}</span></span><span class="caption mono">{u.phone}</span></button>
         {/each}
         {#if office.length}
           <div class="overline office">Office team · BTW Team app</div>
           {#each office as u (u.id)}
-            <button type="button" class="demo-row" onclick={() => { phone = u.phone; next(); }}><span class="grow"><strong>{u.name}</strong><br /><span class="caption">{u.roles.map(cap).join(' · ')}</span></span><span class="caption mono">{u.phone}</span></button>
+            <button type="button" class="demo-row" onclick={() => { phone = u.phone; next(); }}><span class="grow"><strong>{u.name}</strong><br /><span class="caption">{officeLine(u)}</span></span><span class="caption mono">{u.phone}</span></button>
           {/each}
         {/if}
       </div>

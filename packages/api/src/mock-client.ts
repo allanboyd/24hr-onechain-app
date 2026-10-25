@@ -3,9 +3,10 @@
 import * as m from './mock/db';
 import * as seed from './mock/seed';
 import * as R from './rules';
+import * as A from './access';
 import * as RP from './reports';
 import type {
-  AckLine, AppConfig, Checkpoint, LoadingAlternative, PeriodPlanLine, PurchaseOrder, CheckpointPass, Device, DriverWork, Entity, FeatureKey, FxRate, GiverWork, ID, Leg, LegView, PeriodKind, PeriodPlan, Plan, PlanLine,
+  AckLine, AppConfig, AuditFilter, AuditPage, Checkpoint, EntityInput, PriceListItem, Product, ProductInput, ReceivingCompany, ReceivingCompanyInput, Supplier, SupplierInput, UserPair, LoadingAlternative, PeriodPlanLine, PurchaseOrder, CheckpointPass, Device, DriverWork, Entity, FeatureKey, FxRate, GiverWork, ID, Leg, LegView, PeriodKind, PeriodPlan, Plan, PlanLine,
   PlanLineContext, PvThresholds, ReceiverWork, Role, RouteStop, Sale, Shipment, StoredFile, SyncResult, TripCost, TruckIssue, User, UserAdmin, Warehouse, WarehouseInput,
   Driver, DriverInput, Provider, ProviderInput, SavedDriver, Truck, TruckInput,
 } from './types';
@@ -51,10 +52,13 @@ function writeEntity(explicit?: ID | null): ID {
 const assertScope = (e: ID | undefined) => { if (!inScope(e)) throw notAllowed(); };
 
 const auth0 = {
-  demoUsers: () => allUsers(),
+  demoUsers: () => allUsers().filter((u) => mockUsers.find((x) => x.id === u.id)?.active !== false),
   me: () => current,
   async login(userId: ID, _pin: string) {
     ensure(); current = allUsers().find((u) => u.id === userId) ?? null;
+    if (current && mockUsers.find((x) => x.id === current!.id)?.active === false) { current = null; throw Object.assign(new Error('This account is deactivated — ask a director'), { status: 403 }); }
+    if (current) { const admin = mockUsers.find((x) => x.id === current!.id); if (admin) current = { ...current, roles: admin.roles, entityIds: admin.entityIds, loadingPointIds: admin.loadingPointIds, warehouseIds: admin.warehouseIds, pairs: admin.pairs, routeIds: admin.routeIds, ...R.entityAccess(admin, ALL_ENTITIES), features: R.featuresFor(admin.roles) }; }
+    if (current) { (m.db.lastLogin ??= {})[current.id] = new Date().toISOString(); m.save(); }
     try { localStorage.setItem('btw-user', userId); } catch { /* ignore */ }
     restoreEntity();
     return wait(current);
@@ -67,14 +71,14 @@ const auth0 = {
 /** Business settings: approvals.purchaseOrders (director approves POs), loading allowance / alternatives / revision suffix.
  *  Demo override: localStorage 'btw-config' (JSON, same shape) or demo.setConfig(). */
 const mockConfig: AppConfig = structuredClone(R.defaultConfig);
-try { const raw = localStorage.getItem('btw-config'); if (raw) { const c = JSON.parse(raw); Object.assign(mockConfig.approvals, c.approvals ?? {}); Object.assign(mockConfig.loading, c.loading ?? {}); } } catch { /* ignore */ }
+try { const raw = localStorage.getItem('btw-config'); if (raw) { const c = JSON.parse(raw); for (const k of ['approvals', 'loading', 'fees', 'costs'] as const) Object.assign(mockConfig[k]!, c[k] ?? {}); } } catch { /* ignore */ }
 
 // ---- Reference / master data (MD-*) ---------------------------------------
 export function ref() {
   ensure();
   return {
     config: mockConfig,
-    entities: seed.entities, suppliers: seed.suppliers, products: seed.products, priceList: seed.priceList,
+    entities: seed.entities, suppliers: seed.suppliers, products: seed.products, priceList: !current || A.seesPrices(current) ? seed.priceList : [],
     providers: m.db.providers, trucks: m.db.trucks, drivers: m.db.drivers, checkpoints: seed.checkpoints,
     routes: m.db.routes, warehouses: seed.warehouses, receivingCompanies: seed.receivingCompanies, users: allUsers(),
   };
@@ -95,29 +99,45 @@ export const lookup = {
   price: (productId: ID) => seed.priceList.find((p) => p.productId === productId)?.price ?? 0,
 };
 
+// ---- Access (roles document §7 — same rules as the API: ./access.ts) ----------------------------------------------
+const me = (): A.Subject => (current ? { ...current, driverId: current.roles.includes('driver') ? m.db.drivers.find((d) => d.phone === current!.phone)?.id ?? null : null } : { roles: [], loadingPointIds: [], warehouseIds: [] });
+/** Receiving companies of the user's warehouses (receivers see orders delivering to them). */
+const myRc = () => [...new Set(seed.warehouses.filter((w) => current?.warehouseIds.includes(w.id)).map((w) => w.receivingCompanyId))];
+const myWhCps = () => seed.warehouses.filter((w) => current?.warehouseIds.includes(w.id)).map((w) => w.checkpointId);
+const myLpCps = () => seed.suppliers.filter((x) => current?.loadingPointIds.includes(x.id)).map((x) => x.checkpointId);
+const lpOfShipment = (sh: Shipment) => m.db.pos.find((p) => p.id === sh.poId)?.supplierId ?? null;
+const seesSh = (sh: Shipment) => !!current && inScope(sh.entityId) && A.seesShipment(me(), sh, { loadingPointId: lpOfShipment(sh), myWarehouseCps: myWhCps() });
+const forbid = (msg = 'Not available for your role') => Object.assign(new Error(msg), { status: 403 });
+const planAccess = (p: Pick<Plan, 'entityId' | 'supplierId' | 'lines'>) => (current ? A.orderAccess(me(), p, myRc()) : null);
+const planOut = (p: Plan) => A.orderFor(me(), p, myRc());
+/** Audit row for a change made in the mock (same paths as the API). */
+const log = (method: string, path: string, x: Parameters<typeof m.audit>[3] = {}) => m.audit(current?.id ?? null, method, path, { entityId: activeEntity, ...x });
+
 // ---- Plans & approvals (PL-*) ---------------------------------------------
 const plans0 = {
   /** Orders (PO drafts). Revision copies made at loading are reached from their PO, not listed. */
-  async list() { ensure(); if (!R.hasFeature(current!.roles, 'purchase-orders')) return wait([] as Plan[]); return wait(m.db.plans.filter((p) => !p.revisionOf && inScope(p.entityId)).sort((a, b) => b.date.localeCompare(a.date))); },
-  async get(id: ID) { ensure(); feat('purchase-orders'); const p = m.db.plans.find((x) => x.id === id); return wait(p && inScope(p.entityId) ? p : null); },
+  async list() { ensure(); if (!R.hasFeature(current!.roles, 'purchase-orders')) return wait([] as Plan[]); return wait(m.db.plans.filter((p) => !p.revisionOf && inScope(p.entityId) && planAccess(p)).sort((a, b) => b.date.localeCompare(a.date)).map(planOut)); },
+  async get(id: ID) { ensure(); feat('purchase-orders'); const p = m.db.plans.find((x) => x.id === id); return wait(p && inScope(p.entityId) && planAccess(p) ? planOut(p) : null); },
   async create(entityId: ID, supplierId: ID): Promise<Plan> {
     ensure(); canEditPO(); entityId = writeEntity(entityId);
+    if (!A.seesPair(me(), entityId, supplierId) && !A.isDirector(me())) throw forbid(`${seed.entities.find((e) => e.id === entityId)?.shortName}–${seed.suppliers.find((x) => x.id === supplierId)?.code} is not one of your buyer–supplier pairs`);
     const plan: Plan = {
       id: m.uid('plan'), ref: m.nextRef(entityId), title: '', entityId, supplierId, currency: 'USD',
       date: new Date().toISOString().slice(0, 10), requiredBy: new Date(Date.now() + 10 * 864e5).toISOString().slice(0, 10),
       status: 'Draft', version: 1, lines: [], history: [], createdById: current?.id ?? 'u-kabonge',
     };
-    m.db.plans.push(plan); return commit(plan);
+    m.db.plans.push(plan); log('POST', '/plans', { recordType: 'plan', recordId: plan.id, entityId, summary: `${plan.ref} created` }); return commit(plan);
   },
   async save(plan: Plan) {
     ensure(); canEditPO();
     const i = m.db.plans.findIndex((p) => p.id === plan.id);
-    assertScope(m.db.plans[i]?.entityId);
+    assertScope(m.db.plans[i]?.entityId); canEditPlan(m.db.plans[i]);
     if (plan.entityId !== m.db.plans[i].entityId) throw new Error('A plan cannot move to another company');
     if (m.db.plans[i].status === 'Approved') throw new Error('Approved plans are locked — create an amendment (PL-04)');
     if ((m.db.plans[i].status === 'Submitted' && mockConfig.approvals.purchaseOrders) || m.db.plans[i].status === 'Rejected') throw Object.assign(new Error(`A ${m.db.plans[i].status.toLowerCase()} plan cannot be edited`), { status: 409 });
     const cleaned = { ...plan, lines: plan.lines.map((l) => ({ ...l, qty: Math.max(0, Math.round(l.qty)) })) };
     m.db.plans[i] = R.applyPlanLinks(cleaned, m.db.periodPlans ?? [], m.db.plans, destOf); // PO-06/07
+    log('PUT', `/plans/${plan.id}`, { recordType: 'plan', recordId: plan.id, entityId: plan.entityId });
     return commit(m.db.plans[i]);
   },
   newLine(plan: Plan, truckNo: number): PlanLine {
@@ -127,8 +147,9 @@ const plans0 = {
   /** approvals.purchaseOrders = true: send for director approval. false (default): "Issue purchase order" — the PO is
    *  created at once (approvedBy = the issuer) with its loadings, exactly as on approval. Period plans gate nothing. */
   async submit(id: ID) {
-    ensure(); canEditPO(); const p = m.db.plans.find((x) => x.id === id)!; assertScope(p?.entityId);
+    ensure(); canEditPO(); const p = m.db.plans.find((x) => x.id === id)!; assertScope(p?.entityId); canEditPlan(p);
     const issue = !mockConfig.approvals.purchaseOrders;
+    log('POST', `/plans/${id}/submit`, { recordType: 'plan', recordId: id, entityId: p.entityId, summary: `${p.ref} ${issue ? 'issued' : 'submitted'}` });
     if (!(issue ? ['Draft', 'Returned', 'Submitted'] : ['Draft', 'Returned']).includes(p.status)) throw Object.assign(new Error(`Only draft or returned plans can be ${issue ? 'issued' : 'submitted'} (now ${p.status})`), { status: 409 });
     if (!p.lines.length) throw new Error('Add at least one line');
     if (p.lines.some((l) => l.qty <= 0)) throw new Error('Every line needs a quantity above zero');
@@ -174,6 +195,18 @@ const ppPrefix = (entityId: ID) => (seed.entities.find((e) => e.id === entityId)
 /** Purchase orders are raised and edited by planners (and directors); directors approve (docs/07 §E). */
 const canEditPO = () => { if (!current?.roles.some((r) => R.PO_EDITORS.includes(r))) throw Object.assign(new Error('Only planners raise purchase orders'), { status: 403 }); };
 const canEditPP = () => { if (!current?.roles.some((r) => R.PERIOD_PLAN_EDITORS.includes(r))) throw Object.assign(new Error('Only planners, directors and admins edit period plans'), { status: 403 }); };
+/** A planner changes only the orders of their buyer–supplier pairs (Kabonge: not Nihna–GBI). */
+const canEditPlan = (p: Pick<Plan, 'entityId' | 'supplierId' | 'lines'> | undefined) => { if (!p || planAccess(p) !== 'edit') throw forbid('This order is not one of your buyer–supplier pairs'); };
+/** Period-plan lines this user may see and change (pair-scoped planners: their pairs only). */
+const ppLineMine = (entityId: ID) => (l: PeriodPlanLine) => A.periodLineVisible(me(), entityId, l.supplierId);
+const ppOut = (p: PeriodPlan): PeriodPlan => ({ ...p, lines: p.lines.filter(ppLineMine(p.entityId)) });
+/** Lines a pair-scoped planner sends must be theirs; lines they cannot see are kept as they were. */
+function ppMerge(entityId: ID, incoming: PeriodPlanLine[], current0: PeriodPlanLine[] = []): PeriodPlanLine[] {
+  const mine = ppLineMine(entityId);
+  const bad = incoming.find((l) => !mine(l));
+  if (bad) throw forbid(`${seed.suppliers.find((x) => x.id === bad.supplierId)?.code ?? bad.supplierId} lines are not one of your buyer–supplier pairs`);
+  return [...current0.filter((l) => !mine(l)), ...incoming];
+}
 /** Plans never overlap per company: 409 with the conflicting refs, unless `replace` (then they become Replaced). */
 function claimPeriod(plan: Pick<PeriodPlan, 'id' | 'entityId' | 'from' | 'to' | 'ref'>, replace?: boolean) {
   const hits = R.overlapsOf(plan, pp());
@@ -187,18 +220,18 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** §8.3 PL-06..PL-12: period plans per company (Group view reads only). */
 export const periodPlans = {
   /** Active plans; `{ all: true }` also lists Replaced ones (kept for history). */
-  async list(opts: { all?: boolean } = {}): Promise<PeriodPlan[]> { ensure(); feat('period-plans'); return wait(pp().filter((p) => inScope(p.entityId) && (opts.all || p.status === 'Active')).sort((a, b) => b.from.localeCompare(a.from))); },
-  async get(id: ID): Promise<PeriodPlan | null> { ensure(); feat('period-plans'); const p = pp().find((x) => x.id === id); return wait(p && inScope(p.entityId) ? p : null); },
+  async list(opts: { all?: boolean } = {}): Promise<PeriodPlan[]> { ensure(); feat('period-plans'); return wait(pp().filter((p) => inScope(p.entityId) && (opts.all || p.status === 'Active')).sort((a, b) => b.from.localeCompare(a.from)).map(ppOut)); },
+  async get(id: ID): Promise<PeriodPlan | null> { ensure(); feat('period-plans'); const p = pp().find((x) => x.id === id); return wait(p && inScope(p.entityId) ? ppOut(p) : null); },
   /** A new plan is Active at once (suggestions — no approval). `replace: true` overwrites overlapping plans. */
   async create(input: { entityId?: ID; periodKind: PeriodKind; from: string; to: string; title: string; lines?: PeriodPlanLine[]; replace?: boolean }): Promise<PeriodPlan> {
     ensure(); feat('period-plans'); canEditPP();
     const entityId = writeEntity(input.entityId);
     if (!DATE.test(input.from) || !DATE.test(input.to) || input.from > input.to) throw Object.assign(new Error('Give a period with a start and an end date'), { status: 422 });
     const plan: PeriodPlan = { id: m.uid('pp'), ref: R.nextRef(pp().map((x) => x.ref), ppPrefix(entityId), Number(input.from.slice(0, 4))), entityId, title: input.title ?? '',
-      periodKind: input.periodKind ?? 'custom', from: input.from, to: input.to, status: 'Active', version: 1, lines: ppLines(input.lines ?? []), history: [{ at: new Date().toISOString(), byUserId: current!.id, action: 'created' }], createdById: current!.id };
+      periodKind: input.periodKind ?? 'custom', from: input.from, to: input.to, status: 'Active', version: 1, lines: ppLines(ppMerge(entityId, input.lines ?? [])), history: [{ at: new Date().toISOString(), byUserId: current!.id, action: 'created' }], createdById: current!.id };
     const replaced = claimPeriod(plan, input.replace);
     if (replaced.length) plan.history[0].comment = `replaces ${replaced.map((x) => x.ref).join(', ')}`;
-    pp().push(plan); return commit(plan);
+    pp().push(plan); log('POST', '/period-plans', { recordType: 'period-plan', recordId: plan.id, entityId, summary: `${plan.ref} created` }); return commit(ppOut(plan));
   },
   /** Save an Active plan (each save = next version). New dates overlapping another Active plan → 409 unless `replace`. */
   async save(plan: PeriodPlan, opts: { replace?: boolean } = {}): Promise<PeriodPlan> {
@@ -208,11 +241,12 @@ export const periodPlans = {
     if (plan.entityId !== cur.entityId) throw new Error('A plan cannot move to another company');
     if (cur.status === 'Replaced') throw Object.assign(new Error('This plan was replaced by a newer one and is kept for history'), { status: 409 });
     if (!DATE.test(plan.from) || !DATE.test(plan.to) || plan.from > plan.to) throw Object.assign(new Error('Give a period with a start and an end date'), { status: 422 });
-    const next: PeriodPlan = { ...cur, title: plan.title, periodKind: plan.periodKind, from: plan.from, to: plan.to, lines: ppLines(plan.lines), version: cur.version + 1, history: [...cur.history] };
+    const next: PeriodPlan = { ...cur, title: plan.title, periodKind: plan.periodKind, from: plan.from, to: plan.to, lines: ppLines(ppMerge(cur.entityId, plan.lines, cur.lines)), version: cur.version + 1, history: [...cur.history] };
     const replaced = next.from !== cur.from || next.to !== cur.to ? claimPeriod(next, opts.replace) : [];
     next.history.push({ at: new Date().toISOString(), byUserId: current!.id, action: 'edited', ...(replaced.length ? { comment: `replaces ${replaced.map((x) => x.ref).join(', ')}` } : {}) });
     pp()[i] = next;
-    return commit(next);
+    log('PUT', `/period-plans/${cur.id}`, { recordType: 'period-plan', recordId: cur.id, entityId: cur.entityId, summary: `${cur.ref} v${next.version}` });
+    return commit(ppOut(next));
   },
   async copy(fromId: ID, to: { from: string; to: string; title?: string; replace?: boolean }): Promise<PeriodPlan> {
     ensure(); feat('period-plans'); canEditPP();
@@ -220,8 +254,9 @@ export const periodPlans = {
     writeEntity(src.entityId);
     if (!DATE.test(to.from) || !DATE.test(to.to) || to.from > to.to) throw Object.assign(new Error('Give a period with a start and an end date'), { status: 422 });
     const plan = R.copyPeriodPlan(src, to, { id: m.uid('pp'), ref: R.nextRef(pp().map((x) => x.ref), ppPrefix(src.entityId), Number(to.from.slice(0, 4))), lineId: () => m.uid('ppl') }, current!.id);
+    if (!A.isDirector(me())) plan.lines = plan.lines.filter(ppLineMine(plan.entityId));
     claimPeriod(plan, to.replace);
-    pp().push(plan); return commit(plan);
+    pp().push(plan); return commit(ppOut(plan));
   },
   /** Active plans of the same company whose period overlaps (preview of the 409 a save would get). */
   async overlaps(plan: Pick<PeriodPlan, 'id' | 'entityId' | 'from' | 'to'>): Promise<PeriodPlan[]> { ensure(); return wait(R.overlapsOf(plan, pp().filter((x) => inScope(x.entityId)))); },
@@ -229,18 +264,20 @@ export const periodPlans = {
 };
 
 const pos0 = {
-  async list() { ensure(); if (!current || !R.hasFeature(current.roles, 'purchase-orders')) return wait([] as PurchaseOrder[]); return wait(m.db.pos.filter((p) => inScope(p.entityId)).reverse()); },
+  async list() { ensure(); if (!current || !R.hasFeature(current.roles, 'purchase-orders')) return wait([] as PurchaseOrder[]); return wait(m.db.pos.filter((p) => inScope(p.entityId) && planAccess(poPlan(p))).reverse().map((p) => (A.seesPrices(me()) ? p : { ...p, pricesHidden: true }))); },
   /** The PO, its order lines and — for a PO revised at loading — the whole chain (original first, latest last). */
   async get(id: ID) {
     ensure(); const po = m.db.pos.find((p) => p.id === id);
-    if (!po || !inScope(po.entityId) || !current || !R.hasFeature(current.roles, 'purchase-orders')) return wait(null);
+    if (!po || !inScope(po.entityId) || !current || !R.hasFeature(current.roles, 'purchase-orders') || !planAccess(poPlan(po))) return wait(null);
     const base = po.revisionOf ?? po.id;
     const chain = m.db.pos.filter((x) => x.id === base || x.revisionOf === base).sort((a, b) => (a.revision ?? 0) - (b.revision ?? 0));
-    return wait({ po, plan: m.db.plans.find((p) => p.id === po.planId)!, revisions: chain.length > 1 ? chain : [] as PurchaseOrder[] });
+    const hide = !A.seesPrices(me());
+    return wait({ po: hide ? { ...po, pricesHidden: true } : po, plan: planOut(m.db.plans.find((p) => p.id === po.planId)!), revisions: chain.length > 1 ? chain : [] as PurchaseOrder[] });
   },
-  async markSent(id: ID) { ensure(); const po = m.db.pos.find((p) => p.id === id)!; assertScope(po?.entityId); po.sentAt = new Date().toISOString(); return commit(po); },
+  async markSent(id: ID) { ensure(); const po = m.db.pos.find((p) => p.id === id)!; assertScope(po?.entityId); canEditPlan(poPlan(po)); po.sentAt = new Date().toISOString(); log('POST', `/pos/${id}/sent`, { recordType: 'po', recordId: id, entityId: po.entityId }); return commit(po); },
 };
 
+const poPlan = (po: PurchaseOrder) => m.db.plans.find((p) => p.id === po.planId) ?? { entityId: po.entityId, supplierId: po.supplierId, lines: [] };
 // ---- Loading & waiting list (LD-*, §17.4) ---------------------------------
 /** Pending trucks carry the PO ref a deviation would create ("This will create BTW-PO-…-rev001"). */
 function withNextRevision<T extends import('./types').Loading>(l: T): T {
@@ -254,12 +291,14 @@ function withNextRevision<T extends import('./types').Loading>(l: T): T {
 const waitingEntity = (loadingPointId: ID, entityId?: ID) => writeEntity(entityId ?? (scopeIds().length > 1 ? seed.ENTITY_OF_SUPPLIER[loadingPointId] : undefined));
 const httpErr = (msg: string, code: number) => Object.assign(new Error(msg), { status: code });
 /** Loading-point scope (same rule as the API): loaders and truck planners see the points on their profile. */
-const seesLp = (lp: ID) => !!current && R.seesLoadingPoint(current, lp);
+/** Queues and loadings this user may see: their loading points, and a planner's pairs (Kabonge: not Nihna–GBI). */
+const seesLp = (lp: ID, entityId?: ID) => !!current && R.seesLoadingPoint(current, lp) && (!entityId || !current.roles.includes('planner') || A.seesPair(me(), entityId, lp));
 const assertLp = (lp: ID) => { if (!seesLp(lp)) throw httpErr('Not your loading point', 403); };
-const canQueue = (lp: ID) => { assertLp(lp); if (!current!.roles.some((r) => R.QUEUE_EDITORS.includes(r))) throw httpErr('Only loading-point and truck planning staff change the waiting list', 403); };
+const canQueue = (lp: ID) => { assertLp(lp); if (!A.canEditQueue(me(), lp)) throw httpErr('Only the truck follow-up officer, the planner of that loading point and its loaders change the waiting list', 403); };
+const loadingOut = <T extends import('./types').Loading>(l: T): T => (A.seesPrices(me()) ? l : (A.loadingWithoutPrice(l) as T));
 const queueAt = (lp: ID) => m.db.waiting.filter((w) => w.loadingPointId === lp && w.status === 'Waiting').sort((a, b) => a.position - b.position);
 export const loading = {
-  async waiting(loadingPointId?: ID) { ensure(); return wait(m.db.waiting.filter((w) => inScope(w.entityId) && seesLp(w.loadingPointId) && (!loadingPointId || w.loadingPointId === loadingPointId)).sort((a, b) => a.position - b.position)); },
+  async waiting(loadingPointId?: ID) { ensure(); if (!current || !R.hasFeature(current.roles, 'loading')) return wait([]); return wait(m.db.waiting.filter((w) => inScope(w.entityId) && seesLp(w.loadingPointId, w.entityId) && (!loadingPointId || w.loadingPointId === loadingPointId)).sort((a, b) => a.position - b.position)); },
   async addWaiting(loadingPointId: ID, truckId: ID, driverId: ID, entityId?: ID) {
     ensure(); canQueue(loadingPointId); const company = waitingEntity(loadingPointId, entityId);
     if (!seed.suppliers.some((x) => x.id === loadingPointId)) throw httpErr('Loading point not found', 404);
@@ -269,17 +308,21 @@ export const loading = {
     if (m.db.waiting.some((w) => w.truckId === truckId && w.status === 'Waiting')) throw httpErr(`${truck.reg} is already in a waiting list`, 409);
     const pos = queueAt(loadingPointId).length + 1;
     const e = { id: m.uid('wl'), entityId: company, loadingPointId, truckId, driverId, arrivedAt: new Date().toISOString(), position: pos, status: 'Waiting' as const };
-    m.db.waiting.push(e); return commit(e);
+    m.db.waiting.push(e); log('POST', `/loading-points/${loadingPointId}/waiting`, { recordType: 'waiting', recordId: e.id, entityId: company }); return commit(e);
   },
-  async list(loadingPointId?: ID) { ensure(); return wait(m.db.loadings.filter((l) => inScope(l.entityId) && seesLp(l.loadingPointId) && (!loadingPointId || l.loadingPointId === loadingPointId)).map(withNextRevision).map((l) => ({ ...l, poRef: lookup.poRef(l.poId) }))); },
+  async list(loadingPointId?: ID) { ensure(); if (!current || !R.hasFeature(current.roles, 'loading')) return wait([]); return wait(m.db.loadings.filter((l) => inScope(l.entityId) && seesLp(l.loadingPointId, l.entityId) && (!loadingPointId || l.loadingPointId === loadingPointId)).map(withNextRevision).map((l) => loadingOut({ ...l, poRef: lookup.poRef(l.poId) }))); },
   /** Loading against the PO: per-line quantities and (config loading.allowAlternatives) substitutes from the supplier's
    *  price list; the total must stay within ±allowancePct of the order and the truck's capacity. Any difference writes
    *  a PO revision (…-rev001, -rev002 …) that every truck of the order then follows. */
-  async confirm(id: ID, input: { truckId: ID; driverId: ID; loadedQty: Record<ID, number>; agreedTransport: number; documents: string[]; alternatives?: LoadingAlternative[] }) {
+  /** docs/12 A-04: no price at hand-over — the agreed transport price is recorded afterwards (finance.setAgreedPrice).
+   *  `agreedTransport` is accepted only from someone with truck expenses (Testfie loading at GBI); from a loader it is ignored. */
+  async confirm(id: ID, input: { truckId: ID; driverId: ID; loadedQty: Record<ID, number>; agreedTransport?: number | null; transportCurrency?: string; documents: string[]; alternatives?: LoadingAlternative[] }) {
     ensure(); const ld = m.db.loadings.find((l) => l.id === id)!; assertScope(ld?.entityId);
+    if (!A.canRecordLoading(me(), ld.loadingPointId)) throw forbid('Only the loaders of this loading point record its loadings');
     if (ld.status === 'Loaded') throw Object.assign(new Error('This truck is already loaded'), { status: 409 });
     const truck = m.db.trucks.find((t) => t.id === input.truckId)!;
-    if (!(Number(input.agreedTransport) > 0)) throw new Error('Enter the agreed transport price (§17.5)');
+    const price = R.hasFeature(current!.roles, 'truck-expenses') && Number(input.agreedTransport) > 0 ? Number(input.agreedTransport) : null;
+    if (price !== null && input.transportCurrency) ld.transportCurrency = input.transportCurrency as typeof ld.transportCurrency;
     const po = m.db.pos.find((p) => p.id === ld.poId)!;
     const alternatives = (input.alternatives ?? []).slice(0, 20);
     const check = R.loadingCheck(ld.lines, input.loadedQty, alternatives, truck.capacityCases, mockConfig.loading, { supplierId: po.supplierId, products: seed.products });
@@ -306,16 +349,17 @@ export const loading = {
       m.notify('PO revised at loading', `PO ${po.ref} revised → ${ref} at loading${summary ? ` (${summary})` : ''} · ${truck.reg}`, `#/pos/${poId}`, ['planner', 'director'], po.entityId);
     }
     ld.documents = input.documents.map((n) => ({ id: m.uid('doc'), kind: 'delivery-note', name: n }));
-    const sh = m.completeLoading(ld, input.truckId, input.driverId, input.agreedTransport);
-    m.notify('Truck loaded', `${truck.reg} · ${check.loaded} cases · ${sh.ref}`, `#/shipments/${sh.id}`, ['operations', 'fleet', 'director'], sh.entityId);
+    const sh = m.completeLoading(ld, input.truckId, input.driverId, price);
+    m.notify('Truck loaded', `${truck.reg} · ${check.loaded} cases · ${sh.ref}${price === null ? ' · agreed price not recorded yet' : ''}`, `#/shipments/${sh.id}`, ['operations', 'fleet', 'director', 'truck_planner'], sh.entityId);
+    log('POST', `/loadings/${id}/confirm`, { recordType: 'loading', recordId: id, entityId: ld.entityId, summary: `${truck.reg} loaded · ${sh.ref}` });
     return commit(sh);
   },
 };
 
 // ---- Shipments, legs, tracking (DS-*, TR-*) --------------------------------
 const shipments0 = {
-  async list() { ensure(); m.db.shipments.forEach((s) => (s.status = m.deriveShipmentStatus(s))); return wait(m.db.shipments.filter((s) => inScope(s.entityId)).reverse()); },
-  async get(id: ID) { ensure(); const sh = m.db.shipments.find((s) => s.id === id); if (sh) sh.status = m.deriveShipmentStatus(sh); return wait(sh && inScope(sh.entityId) ? sh : null); },
+  async list() { ensure(); m.db.shipments.forEach((s) => (s.status = m.deriveShipmentStatus(s))); return wait(m.db.shipments.filter(seesSh).reverse()); },
+  async get(id: ID) { ensure(); const sh = m.db.shipments.find((s) => s.id === id); if (sh) sh.status = m.deriveShipmentStatus(sh); return wait(sh && seesSh(sh) ? sh : null); },
   eta: (leg: Parameters<typeof m.etaOf>[0]) => { ensure(); return m.etaOf(leg); },
   async forDriver(driverId: ID) { ensure(); return wait(m.db.shipments.flatMap((s) => s.legs.filter((l) => l.driverId === driverId && l.status !== 'Acknowledged').map((leg) => ({ shipment: s, leg })))); },
   async incoming(warehouseIds: ID[]) {
@@ -323,37 +367,55 @@ const shipments0 = {
     const cps = warehouseIds.map((w) => lookup.warehouse(w)!.checkpointId);
     return wait(m.db.shipments.flatMap((s) => s.legs.filter((l) => cps.includes(l.toId) && l.status !== 'Acknowledged').map((leg) => ({ shipment: s, leg }))));
   },
-  async pass(legId: ID, checkpointId: ID, kind: 'arrived' | 'departed', source: CheckpointPass['source'] = 'driver') { ensure(); m.recordPass(legId, checkpointId, kind, source); return commit(m.findLeg(legId).leg); },
-  async issue(legId: ID, issue: Omit<TruckIssue, 'id'>) { ensure(); m.addIssue(legId, issue); return commit(m.findLeg(legId).leg); },
-  async fixIssue(legId: ID, issueId: ID) { ensure(); const { leg } = m.findLeg(legId); const i = leg.issues.find((x) => x.id === issueId)!; i.fixedAt = new Date().toISOString(); return commit(leg); },
+  async pass(legId: ID, checkpointId: ID, kind: 'arrived' | 'departed', source: CheckpointPass['source'] = 'driver') {
+    ensure(); const { sh, leg } = tripLeg(legId);
+    const dispatching = kind === 'departed' && leg.passes[0]?.checkpointId === checkpointId && ['Planned', 'Loaded'].includes(leg.status);
+    if (!(dispatching ? A.canDispatch(me(), leg, { myLoadingCps: myLpCps(), myWarehouseCps: myWhCps() }) : A.canUpdateTrip(me(), leg))) throw forbid('Your role can view this trip but not change it');
+    m.recordPass(legId, checkpointId, kind, source); log('POST', `/legs/${legId}/passes`, { recordType: 'leg', recordId: legId, entityId: sh.entityId, summary: `${kind} ${lookup.checkpoint(checkpointId)?.name ?? ''}` }); return commit(m.findLeg(legId).leg);
+  },
+  async issue(legId: ID, issue: Omit<TruckIssue, 'id'>) { ensure(); const { sh, leg } = tripLeg(legId); if (!A.canUpdateTrip(me(), leg)) throw forbid('Your role can view this trip but not change it'); m.addIssue(legId, issue); log('POST', `/legs/${legId}/issues`, { recordType: 'issue', recordId: legId, entityId: sh.entityId, summary: issue.reason }); return commit(m.findLeg(legId).leg); },
+  async fixIssue(legId: ID, issueId: ID) { ensure(); const { leg } = tripLeg(legId); if (!A.canUpdateTrip(me(), leg)) throw forbid('Your role can view this trip but not change it'); const i = leg.issues.find((x) => x.id === issueId)!; i.fixedAt = new Date().toISOString(); return commit(leg); },
   async acknowledge(legId: ID, input: { receiverName: string; lines: AckLine[]; signature?: string; photos?: string[] }) {
-    ensure(); const ack = m.acknowledge(legId, { ...input, photos: (input.photos ?? []).map((n) => ({ id: m.uid('doc'), kind: 'photo' as const, name: n })) });
+    ensure(); const { sh, leg } = tripLeg(legId);
+    if (!A.canAcknowledge(me(), leg, myWhCps())) throw forbid('This truck is not coming to your warehouse');
+    if (input.lines?.some((l) => l.reason)) (await money()).checkAckReasons({ httpErr }, input.lines);
+    const ack = m.acknowledge(legId, { ...input, photos: (input.photos ?? []).map((n) => ({ id: m.uid('doc'), kind: 'photo' as const, name: n })) });
+    log('POST', `/legs/${legId}/acknowledgement`, { recordType: 'ack', recordId: ack.id, entityId: sh.entityId, summary: `${sh.ref} received` });
     return commit(ack);
   },
   /** Doc 08 §2: onward move from the warehouse where the shipment was received = a NEW shipment (returned). */
   async sendOn(fromShipmentId: ID, input: { routeId: ID; truckId: ID; driverId: ID; lines?: Leg['lines'] }) {
-    ensure(); const from = m.db.shipments.find((s) => s.id === fromShipmentId && inScope(s.entityId));
+    ensure(); const from = m.db.shipments.find((s) => s.id === fromShipmentId && seesSh(s));
     if (!from) throw new Error('Shipment not found');
-    return commit(m.sendOn(from.id, input, Date.now() + 2 * 36e5));
+    const fromWh = seed.warehouses.find((w) => w.checkpointId === from.legs.at(-1)?.toId);
+    if (!A.canSendOn(me(), fromWh?.id ?? '')) throw forbid('Only the truck follow-up officer (or the re-export planner of that warehouse) sends goods on');
+    const out = m.sendOn(from.id, input, Date.now() + 2 * 36e5);
+    log('POST', `/shipments/${fromShipmentId}/send-on`, { recordType: 'shipment', recordId: out.id, entityId: out.entityId, summary: `${out.ref} from ${fromWh?.name ?? ''}` });
+    return commit(out);
   },
   /** @deprecated use sendOn — kept for older screens: sends the goods on and returns the new shipment's first leg. */
   async addLeg(shipmentId: ID, routeId: ID, truckId: ID, driverId: ID) { const sh = await shipments.sendOn(shipmentId, { routeId, truckId, driverId }); return sh.legs[0]; },
   /** The whole journey containing a shipment, origin first, each with loaded / received / damaged cases. */
-  async journey(id: ID) { ensure(); return wait(R.journeyOf(m.db.shipments.filter((s) => inScope(s.entityId)), m.db.acks, id)); },
-  async ack(id: ID) { ensure(); return wait(m.db.acks.find((a) => a.id === id) ?? null); },
+  async journey(id: ID) { ensure(); return wait(R.journeyOf(m.db.shipments.filter(seesSh), m.db.acks, id)); },
+  async ack(id: ID) { ensure(); const a = m.db.acks.find((x) => x.id === id); const sh = a && m.db.shipments.find((x) => x.id === a.shipmentId); return wait(a && sh && seesSh(sh) && seesAcks() ? a : null); },
 };
 
+/** §7: acknowledgement records for directors, the planner and receivers (not truck follow-up, loaders, drivers). */
+const seesAcks = () => !!current && (A.isDirector(current) || current.roles.some((r) => ['planner', 'receiver', 'fleet', 'operations', 'accounts', 'sales'].includes(r)));
+/** A leg the user may see (404/403 like the API). */
+function tripLeg(legId: ID) { const x = m.findLeg(legId); if (!seesSh(x.sh)) throw forbid('Not your trip'); return x; }
 // ---- Inventory & sales (IN-*, SL-*) ---------------------------------------
-/** Stock and sales of a warehouse (same rule as the API): office roles, or staff of that warehouse. Truck planners: none. */
-const seesWh = (wh: ID) => !current || current.roles.some((r) => ['director', 'admin', 'planner', 'fleet', 'operations', 'accounts'].includes(r)) || current.warehouseIds.includes(wh);
+/** Stock of a warehouse (same rule as the API, access.seesWarehouseStock): directors; receivers their own warehouses. */
+const seesWh = (wh: ID) => !current || A.seesWarehouseStock(me(), wh);
+const stockOut = (r: import('./types').StockRow) => (A.seesPrices(me()) ? r : { ...r, landedCostPerCase: undefined as unknown as number });
 export const inventory = {
-  async stock() { ensure(); return wait(m.stock().filter((r) => inScope(r.entityId) && seesWh(r.warehouseId))); },
+  async stock() { ensure(); return wait(m.stock().filter((r) => inScope(r.entityId) && seesWh(r.warehouseId)).map(stockOut)); },
   async ledger(warehouseId: ID, productId: ID) { ensure(); if (!seesWh(warehouseId)) throw httpErr('Not available for your role', 403); return wait(m.db.stockMoves.filter((x) => inScope(x.entityId) && x.warehouseId === warehouseId && x.productId === productId).slice(-50).reverse()); },
 };
 export const sales = {
-  async list(warehouseId?: ID) { ensure(); return wait(m.db.sales.filter((s) => inScope(s.entityId) && seesWh(s.warehouseId) && (!warehouseId || s.warehouseId === warehouseId)).slice(-200).reverse()); },
+  async list(warehouseId?: ID) { ensure(); if (!current || !R.hasFeature(current.roles, 'sales')) return wait([] as Sale[]); return wait(m.db.sales.filter((s) => inScope(s.entityId) && seesWh(s.warehouseId) && (!warehouseId || s.warehouseId === warehouseId)).slice(-200).reverse()); },
   async create(input: Omit<Sale, 'id' | 'ref' | 'status' | 'entityId'> & { entityId?: ID }, override = false) {
-    ensure();
+    ensure(); if (!A.canSell(me(), input.warehouseId)) throw forbid('Sales are recorded by the directors');
     const entityId = writeEntity(input.entityId);
     if (input.counterpartyEntityId && (input.counterpartyEntityId === entityId || !ALL_ENTITIES.includes(input.counterpartyEntityId))) throw new Error('An intercompany sale must name a different sibling company');
     const st = m.stock();
@@ -372,42 +434,53 @@ export const sales = {
 };
 
 // ---- Trip financials & landing cost (FN-*, §17.6) -------------------------
+const tripsAllowed = () => !!current && (R.hasFeature(current.roles, 'finance') || R.hasFeature(current.roles, 'truck-expenses'));
 export const finance = {
+  /** Trip costs, payments and transport owed. Truck expenses (Testfie) see the transport side, not goods value / landed cost.
+   *  `agreedRecorded: false` = the agreed transport price is not recorded yet (counted, never shown as zero). */
   async trips() {
-    ensure(); feat('finance');
-    return wait(m.db.shipments.filter((s) => inScope(s.entityId)).map((s) => {
+    ensure(); if (!tripsAllowed()) throw roleError();
+    const full = R.hasFeature(current!.roles, 'finance');
+    return wait(m.db.shipments.filter((s) => inScope(s.entityId) && seesSh(s)).map((s) => {
       const costs = m.db.costs.filter((c) => c.shipmentId === s.id).map((c) => ({ ...c, amountUsd: c.amountUsd ?? c.amount }));
       const pays = m.db.payments.filter((p) => p.shipmentId === s.id);
       const transport = costs.filter((c) => c.kind === 'Transport').reduce((a, c) => a + c.amountUsd, 0);
       const paid = pays.filter((p) => p.status !== 'Pending approval').reduce((a, p) => a + (p.amountUsd ?? p.amount), 0);
-      const plan = m.db.plans.find((p) => p.poId === s.poId)!;
-      const goods = s.legs[0].lines.reduce((a, l) => a + l.loadedQty * (plan.lines.find((pl) => pl.productId === l.productId)?.price ?? 0), 0);
+      const plan = m.db.plans.find((p) => p.poId === s.poId);
+      const goods = s.legs[0].lines.reduce((a, l) => a + l.loadedQty * (plan?.lines.find((pl) => pl.productId === l.productId)?.price ?? 0), 0);
       const cases = s.legs[0].lines.reduce((a, l) => a + l.loadedQty, 0);
       const expenses = costs.reduce((a, c) => a + c.amountUsd, 0);
-      return { shipment: s, costs, payments: pays, transport, paid, balance: transport - paid, goods, expenses, landing: goods + expenses, cases, perCase: cases ? (goods + expenses) / cases : 0 };
+      const agreedRecorded = costs.some((c) => c.kind === 'Transport');
+      const row = { shipment: s, costs, payments: pays, transport, paid, balance: transport - paid, goods, expenses, landing: goods + expenses, cases, perCase: cases ? (goods + expenses) / cases : 0, agreedRecorded };
+      return full ? row : { ...row, goods: undefined as unknown as number, landing: undefined as unknown as number, perCase: undefined as unknown as number };
     }));
   },
+  /** docs/12 A-04: the agreed transport price of a loaded truck, recorded after loading (Testfie, directors). Creates the
+   *  Transport cost line of the trip, or corrects it while nothing has been paid against it. */
+  async setAgreedPrice(shipmentId: ID, input: { amount: number; currency?: import('./types').Currency; docRef?: string }) { ensure(); feat('truck-expenses'); const sh = m.db.shipments.find((x) => x.id === shipmentId); if (!sh || !seesSh(sh)) throw httpErr('Shipment not found', 404); return (await admin()).setAgreedPrice(adminCtx(), sh, input); },
   async addCost(c: Omit<TripCost, 'id' | 'entityId'> & { entityId?: ID }) {
-    ensure(); feat('finance'); if (!(c.amount > 0)) throw httpErr('Amount must be above zero', 422);
+    ensure(); feat('truck-expenses'); if (!(c.amount > 0)) throw httpErr('Amount must be above zero', 422);
     const sh = m.db.shipments.find((x) => x.id === c.shipmentId); assertScope(sh?.entityId);
     if (c.entityId && c.entityId !== sh!.entityId) throw notAllowed();
     const currency = c.currency ?? 'USD'; const rate = R.fxFor(m.db.fxRates ?? seed.seedFxRates(), currency, Date.now());
     const x: TripCost = { ...c, currency, entityId: sh!.entityId, id: m.uid('cost'), fxRate: rate, amountUsd: Math.round((c.amount / rate) * 100) / 100 };
-    m.db.costs.push(x); return commit(x);
+    m.db.costs.push(x); log('POST', '/finance/costs', { recordType: 'cost', recordId: x.id, entityId: x.entityId, summary: `${x.kind} ${x.currency} ${x.amount}`, after: { kind: x.kind, amount: x.amount, currency: x.currency } }); return commit(x);
   },
   async pay(shipmentId: ID, costId: ID, amount: number, reference: string, threshold = 500) {
-    ensure(); if (!current?.roles.some((r) => r === 'accounts' || r === 'director')) throw httpErr('Only accounts record payments', 403);
+    ensure(); if (!current || !A.canRecordPayment(me())) throw httpErr('Only the directors record payments', 403);
     const sh = m.db.shipments.find((x) => x.id === shipmentId); assertScope(sh?.entityId);
     const cost = m.db.costs.find((c) => c.id === costId);
     if (!cost || cost.shipmentId !== shipmentId || cost.entityId !== sh!.entityId) throw new Error('Pick a cost line of this trip');
     const rate = cost.fxRate ?? 1; const amountUsd = Math.round((amount / rate) * 100) / 100;
     const status = amountUsd > threshold ? 'Pending approval' as const : 'Paid' as const;
     const p = { id: m.uid('pay'), entityId: sh!.entityId, shipmentId, costId, amount, at: new Date().toISOString(), reference, status, fxRate: rate, amountUsd };
-    m.db.payments.push(p);
+    m.db.payments.push(p); log('POST', '/finance/payments', { recordType: 'payment', recordId: p.id, entityId: p.entityId, summary: `${reference} · ${amount}` });
     if (status === 'Pending approval') m.notify('Payment needs approval', `USD ${amountUsd} · ${reference}`, '#/finance', ['director'], sh!.entityId);
     return commit(p);
   },
-  async approve(paymentId: ID) { ensure(); if (!current?.roles.includes('director')) throw httpErr('Only directors approve payments above the threshold (FN-03)', 403); const p = m.db.payments.find((x) => x.id === paymentId)!; assertScope(p?.entityId); p.status = 'Paid'; p.approvedById = current?.id; return commit(p); },
+  /** docs/14 B-04: each trip's transport fee — paid / part paid / unpaid against references, with its age (Testfie, directors). */
+  fees: mo('fees'),
+  async approve(paymentId: ID) { ensure(); if (!current?.roles.includes('director')) throw httpErr('Only directors approve payments above the threshold (FN-03)', 403); const p = m.db.payments.find((x) => x.id === paymentId)!; assertScope(p?.entityId); p.status = 'Paid'; p.approvedById = current?.id; log('POST', `/finance/payments/${paymentId}/approve`, { recordType: 'payment', recordId: paymentId, entityId: p.entityId }); return commit(p); },
 };
 
 // ---- Analytics & notifications --------------------------------------------
@@ -419,16 +492,17 @@ const analytics0 = {
     ensure();
     const st = m.stock().filter((r) => inScope(r.entityId) && seesWh(r.warehouseId));
     const since = Date.now() - 30 * 864e5;
-    const scopedSales = m.db.sales.filter((s) => inScope(s.entityId) && seesWh(s.warehouseId));
+    const money = A.seesPrices(me()), seesSales = !!current && R.hasFeature(current.roles, 'sales');
+    const scopedSales = seesSales ? m.db.sales.filter((s) => inScope(s.entityId) && seesWh(s.warehouseId)) : [];
     const sales30 = scopedSales.filter((s) => Date.parse(s.at) >= since).reduce((a, s) => a + s.lines.reduce((b, l) => b + l.qty * l.price, 0), 0);
     const daily = Array.from({ length: 30 }, (_, i) => {
       const day = new Date(Date.now() - (29 - i) * 864e5).toISOString().slice(0, 10);
       return { day, cases: scopedSales.filter((s) => s.at.slice(0, 10) === day).reduce((a, s) => a + s.lines.reduce((b, l) => b + l.qty, 0), 0) };
     });
     m.db.shipments.forEach((x) => (x.status = m.deriveShipmentStatus(x)));
-    const active = m.db.shipments.filter((s) => s.status !== 'Acknowledged' && inScope(s.entityId));
+    const active = m.db.shipments.filter((s) => s.status !== 'Acknowledged' && seesSh(s));
     return wait({
-      stockValue: st.reduce((a, r) => a + r.closing * r.landedCostPerCase, 0),
+      stockValue: money ? st.reduce((a, r) => a + r.closing * r.landedCostPerCase, 0) : 0,
       stockCases: st.reduce((a, r) => a + r.closing, 0),
       inTransitCases: st.reduce((a, r) => a + r.inTransit, 0),
       sales30, daily,
@@ -436,7 +510,7 @@ const analytics0 = {
       trucksDelayed: active.filter((s) => s.status === 'Delayed').length,
       trucksAtBorder: active.filter((s) => s.legs.some((l) => l.status === 'At border')).length,
       plansPending: mockConfig.approvals.purchaseOrders ? m.db.plans.filter((p) => p.status === 'Submitted' && inScope(p.entityId)).length : 0,
-      paymentsPending: m.db.payments.filter((p) => p.status === 'Pending approval' && inScope(p.entityId)).length,
+      paymentsPending: R.hasFeature(current?.roles ?? [], 'finance') ? m.db.payments.filter((p) => p.status === 'Pending approval' && inScope(p.entityId)).length : 0,
       unpaidBalance: scopedSales.reduce((a, s) => a + s.lines.reduce((b, l) => b + l.qty * l.price, 0) - s.paid, 0),
     });
   },
@@ -448,9 +522,9 @@ export const notifications = {
 };
 
 export const demo = {
-  reset() { m.reset(); emit(); },
+  reset() { m.reset(); emit(); if (typeof document !== 'undefined') void ready().then(emit); /* browser: add the money history (lazy); node tests call ready() */ },
   /** Mock only: change the config.toml stand-in (e.g. turn director approval of POs on) for demos and tests. */
-  setConfig(c: { approvals?: Partial<AppConfig['approvals']>; loading?: Partial<AppConfig['loading']> }) { Object.assign(mockConfig.approvals, c.approvals ?? {}); Object.assign(mockConfig.loading, c.loading ?? {}); emit(); },
+  setConfig(c: { approvals?: Partial<AppConfig['approvals']>; loading?: Partial<AppConfig['loading']>; fees?: Partial<NonNullable<AppConfig['fees']>>; costs?: Partial<NonNullable<AppConfig['costs']>> }) { for (const k of ['approvals', 'loading', 'fees', 'costs'] as const) Object.assign(mockConfig[k]!, c[k] ?? {}); emit(); },
 };
 
 // ---- Additions for the logistics review (append-only) -----------------------
@@ -471,6 +545,7 @@ export const queue = {
     const q = queueAt(e.loadingPointId); const before = q.indexOf(e) + 1;
     const ids = R.reorderQueue(q.map((w) => w.id), entryId, position);
     ids.forEach((id, k) => (m.db.waiting.find((w) => w.id === id)!.position = k + 1));
+    if (e.position !== before) log('POST', `/waiting/${entryId}/move`, { recordType: 'waiting', recordId: entryId, entityId: e.entityId, before: { position: before }, after: { position: e.position } });
     if (e.position !== before) m.notify('Loading queue changed', `${seed.suppliers.find((x) => x.id === e.loadingPointId)?.code ?? ''}: ${m.truckReg(e.truckId)} moved from #${before} to #${e.position} by ${current?.name ?? ''}`, `#/loading?lp=${e.loadingPointId}`, ['loader'], e.entityId);
     return commit(e);
   },
@@ -482,6 +557,7 @@ export const queue = {
     assertScope(e.entityId); canQueue(e.loadingPointId);
     if (reason !== undefined && (typeof reason !== 'string' || reason.length > 200)) throw httpErr('The reason must be text (200 characters at most)', 422);
     m.db.waiting = m.db.waiting.filter((w) => w.id !== entryId);
+    log('DELETE', `/waiting/${entryId}`, { recordType: 'waiting', recordId: entryId, entityId: e.entityId, summary: reason?.trim() || 'removed' });
     queueAt(e.loadingPointId).forEach((w, k) => (w.position = k + 1));
     m.notify('Truck removed from the queue', `${seed.suppliers.find((x) => x.id === e.loadingPointId)?.code ?? ''}: ${m.truckReg(e.truckId)} removed by ${current?.name ?? ''}${reason?.trim() ? ` — ${reason.trim()}` : ''}`, `#/loading?lp=${e.loadingPointId}`, ['loader'], e.entityId);
     return commit(true);
@@ -510,13 +586,17 @@ export const queue = {
 const tracking0 = {
   /** Explicit dispatch of a planned/loaded leg = departure from its first checkpoint. */
   async dispatch(legId: ID, source: CheckpointPass['source'] = 'office') {
-    ensure(); const { leg } = m.findLeg(legId);
+    ensure(); const { sh, leg } = tripLeg(legId);
+    if (!A.canDispatch(me(), leg, { myLoadingCps: myLpCps(), myWarehouseCps: myWhCps() })) throw forbid('Your role can view this trip but not dispatch it');
+    if (!['Planned', 'Loaded'].includes(leg.status)) throw httpErr('This leg has already left', 409);
     m.recordPass(legId, leg.passes[0].checkpointId, 'departed', source);
+    log('POST', `/legs/${legId}/dispatch`, { recordType: 'leg', recordId: legId, entityId: sh.entityId, summary: `${m.truckReg(leg.truckId)} dispatched` });
     return commit(m.findLeg(legId).leg);
   },
   /** DS-02: end this leg at an intermediate warehouse where goods are unloaded and reloaded onto another truck. */
   async splitAt(legId: ID, checkpointId: ID) {
-    ensure(); const { sh, leg } = m.findLeg(legId);
+    ensure(); const { sh, leg } = tripLeg(legId);
+    if (!A.canSplitLeg(me())) throw forbid('Only the truck follow-up officer sets a transfer point');
     const k = leg.passes.findIndex((p) => p.checkpointId === checkpointId);
     if (k <= 0 || k >= leg.passes.length - 1) throw new Error('Pick a point between origin and destination');
     if (leg.passes[k].arrivedAt) throw new Error('The truck has already reached that point');
@@ -525,7 +605,7 @@ const tracking0 = {
     sh.status = m.deriveShipmentStatus(sh);
     return commit(leg);
   },
-  async acks(shipmentId: ID) { ensure(); return wait(m.db.acks.filter((a) => a.shipmentId === shipmentId)); },
+  async acks(shipmentId: ID) { ensure(); const sh = m.db.shipments.find((x) => x.id === shipmentId); if (!sh || !seesSh(sh) || !seesAcks()) return wait([]); return wait(m.db.acks.filter((a) => a.shipmentId === shipmentId)); },
   /** Truck currently stopped at a checkpoint: how long, versus planned dwell (border dwell visibility). */
   dwell(leg: import('./types').Leg) {
     ensure();
@@ -553,7 +633,7 @@ const tracking0 = {
 // ---- Additions for the real API (same names exist in http.ts) -------------------------------
 export const mode = 'mock' as const;
 /** Load what the synchronous helpers (ref, lookup, auth.me) need. Mock: nothing to load. */
-export async function ready() { ensure(); }
+export async function ready() { ensure(); if (!m.db.reexports) (await money()).fill(); }
 /** Channel/app version headers for the API (no-op in the mock) and the active company (`entityId`, null = Group /
  *  all allowed companies). Persisted per user, like the HTTP client. */
 export function configure(o: { channel?: 'web' | 'app'; appVersion?: string; baseUrl?: string; entityId?: ID | null }) {
@@ -601,7 +681,7 @@ export const field = {
     return wait({
       loadingPoints: lps,
       waiting: m.db.waiting.filter((w) => inScope(w.entityId) && u.loadingPointIds.includes(w.loadingPointId) && w.status === 'Waiting').sort((a, b) => a.position - b.position),
-      toLoad: m.db.loadings.filter((l) => l.status === 'Pending' && inScope(l.entityId) && u.loadingPointIds.includes(l.loadingPointId)).map(withNextRevision).map((l) => ({ ...l, poRef: lookup.poRef(l.poId), poTitle: m.db.pos.find((p) => p.id === l.poId)?.title ?? '' })),
+      toLoad: m.db.loadings.filter((l) => l.status === 'Pending' && inScope(l.entityId) && u.loadingPointIds.includes(l.loadingPointId)).map(withNextRevision).map((l) => loadingOut({ ...l, poRef: lookup.poRef(l.poId), poTitle: m.db.pos.find((p) => p.id === l.poId)?.title ?? '' })),
       handover: m.db.shipments.filter((s) => inScope(s.entityId)).flatMap((s) => s.legs.filter((l) => ['Planned', 'Loaded'].includes(l.status) && cps.includes(l.fromId)).map((l) => legView(s, l))),
     });
   },
@@ -640,7 +720,8 @@ export const shipments = Object.assign(shipments0, {
   async ackPdf(_ackId: ID): Promise<Blob | null> { return null; },
   /** Correct the latest check-in after it was synced (audited on the server). */
   async undoPass(legId: ID, checkpointId: ID, kind: 'arrived' | 'departed') {
-    ensure(); const { sh, leg } = m.findLeg(legId);
+    ensure(); const { sh, leg } = tripLeg(legId);
+    if (!A.canUpdateTrip(me(), leg)) throw forbid('Your role can view this trip but not change it');
     R.undoPass(leg, checkpointId, kind, (id) => lookup.checkpoint(id)?.kind ?? 'town');
     sh.status = m.deriveShipmentStatus(sh);
     m.notify('Check-in corrected', `${m.truckReg(leg.truckId)}: ${kind} at ${lookup.checkpoint(checkpointId)?.name} undone`, `#/shipments/${sh.id}`, ['fleet', 'operations']);
@@ -660,110 +741,49 @@ export const masterdata = {
   /** Doc 08 §3: add a warehouse (admin, director); its geofence becomes a warehouse checkpoint. */
   async addWarehouse(input: WarehouseInput) { return masterdata.saveWarehouse(null, input); },
   async updateWarehouse(id: ID, input: Partial<WarehouseInput>) { return masterdata.saveWarehouse(id, input); },
-  async saveWarehouse(id: ID | null, input: Partial<WarehouseInput>): Promise<Warehouse> {
-    ensure();
-    if (!current || !current.roles.some((r) => r === 'admin' || r === 'director')) throw Object.assign(new Error('Only an admin or director manages warehouses'), { status: 403 });
-    const cur = id ? seed.warehouses.find((w) => w.id === id) : null;
-    if (id && !cur) throw Object.assign(new Error('Warehouse not found'), { status: 404 });
-    const cp = cur ? seed.checkpoints.find((c) => c.id === cur.checkpointId) : null;
-    const v = { name: cur?.name, country: cur?.country, town: cur?.town, receivingCompanyId: cur?.receivingCompanyId, lat: cp?.lat, lng: cp?.lng, radiusM: cp?.radiusM, active: cur?.active ?? true, ...input };
-    const errs = R.validateWarehouse(v, seed.receivingCompanies.map((r) => r.id));
-    if (errs.length) throw Object.assign(new Error(errs.join('; ')), { status: 422 });
-    const name = v.name!.trim(), country = v.country!.trim(), town = v.town!.trim();
-    const codes = R.checkpointCodes(`${name} ${town}`, 'warehouse');
-    const ncp: Checkpoint = { ...(cp ?? { id: m.uid('cp-wh'), kind: 'warehouse' as const, code: codes[0], aliases: codes }), name, country: R.countryCode(country), lat: v.lat!, lng: v.lng!, radiusM: v.radiusM ?? 500 };
-    const nw: Warehouse = { ...(cur ?? { id: m.uid('w'), checkpointId: ncp.id }), name, country, town, receivingCompanyId: v.receivingCompanyId!, active: v.active !== false };
-    const up = <T extends { id: ID }>(list: T[] | undefined, x: T) => [...(list ?? []).filter((y) => y.id !== x.id), x];
-    m.db.warehouseEdits = up(m.db.warehouseEdits, nw); m.db.checkpointEdits = up(m.db.checkpointEdits, ncp);
-    m.applyMasterEdits();
-    return commit(nw);
-  },
-  /** Doc 08 §3: a new route (checkpoints in order), e.g. ending at a new warehouse. */
-  async addRoute(input: { name: string; code?: string; distanceKm?: number; stops: RouteStop[] }) {
-    ensure();
-    const errs = R.validateRoute(input, seed.checkpoints.map((c) => c.id));
-    if (errs.length) throw Object.assign(new Error(errs.join('; ')), { status: 422 });
-    const short = (id: ID) => (seed.checkpoints.find((c) => c.id === id)?.code ?? R.checkpointCodes(seed.checkpoints.find((c) => c.id === id)?.name ?? 'X', 'town')[0]).slice(0, 3);
-    const r = { id: m.uid('r'), code: input.code?.trim() || `${short(input.stops[0].checkpointId)}-${short(input.stops.at(-1)!.checkpointId)}`, name: input.name.trim(), distanceKm: input.distanceKm ?? 0, stops: input.stops };
-    m.db.routes.push(r); return commit(r);
-  },
-  async updateRouteStops(routeId: ID, stops: RouteStop[]) {
-    ensure(); const r = m.db.routes.find((x) => x.id === routeId)!;
-    if (stops.some((s, i) => i > 0 && s.plannedHours < stops[i - 1].plannedHours + stops[i - 1].plannedDwellHours)) throw new Error('Planned hours must increase along the route (including dwell)');
-    r.stops = stops; return commit(r);
-  },
+  async saveWarehouse(id: ID | null, input: Partial<WarehouseInput>): Promise<Warehouse> { return (await admin()).saveWarehouse(adminCtx(), id, input); },
+  async addRoute(input: { name: string; code?: string; distanceKm?: number; stops: RouteStop[] }) { return (await admin()).addRoute(adminCtx(), input); },
+  async updateRouteStops(routeId: ID, stops: RouteStop[]) { return (await admin()).updateRouteStops(adminCtx(), routeId, stops); },
   // ---- Transport onboarding (docs/10): providers, trucks, drivers — truck planners, fleet, planners, directors, admins ----
   async addTruck(input: TruckInput) { return masterdata.saveTruck(null, input); },
   async addDriver(input: DriverInput & { appLogin?: boolean }) { return masterdata.saveDriver(null, input); },
   async addProvider(input: Partial<ProviderInput> & { name: string }) { return masterdata.saveProvider(null, { kind: input.regular === false ? 'market' : 'company', ...input }); },
   /** Add (id null) or edit a transport provider. `active: false` deactivates it (kept for history). */
-  async saveProvider(id: ID | null, input: Partial<ProviderInput>): Promise<Provider> {
-    ensure(); canTransport();
-    const cur = id ? m.db.providers.find((p) => p.id === id) : null;
-    if (id && !cur) throw httpErr('Provider not found', 404);
-    const v = { name: cur?.name, kind: cur?.kind ?? (cur && !cur.regular ? 'market' : 'company'), regular: cur?.regular, phone: cur?.phone, contactName: cur?.contactName, email: cur?.email, notes: cur?.notes, active: cur?.active ?? true, ...input } as Partial<ProviderInput>;
-    const errs = R.validateProvider(v, m.db.providers, id); if (errs.length) throw httpErr(errs.join('; '), 422);
-    const x: Provider = { id: cur?.id ?? m.uid('pr'), name: v.name!.trim(), kind: v.kind!, regular: v.regular ?? v.kind !== 'market', phone: v.phone ? R.normPhone(v.phone) : '', contactName: (v.contactName ?? '').trim(), email: (v.email ?? '').trim(), notes: (v.notes ?? '').trim(), active: v.active !== false };
-    if (cur) Object.assign(cur, x); else m.db.providers.push(x);
-    return commit(x);
-  },
-  /** Add or edit a truck: unique registration, capacity in cases, default driver; `active: false` takes it off queues. */
-  async saveTruck(id: ID | null, input: Partial<TruckInput>): Promise<Truck> {
-    ensure(); canTransport();
-    const cur = id ? m.db.trucks.find((t) => t.id === id) : null;
-    if (id && !cur) throw httpErr('Truck not found', 404);
-    const v = { providerId: cur?.providerId, reg: cur?.reg, trailer: cur?.trailer ?? '', capacityCases: cur?.capacityCases, defaultDriverId: cur?.defaultDriverId ?? null, active: cur?.active ?? true, note: cur?.note ?? null, documents: cur?.documents ?? [], ...input } as Partial<TruckInput>;
-    const errs = R.validateTruck(v, { providers: m.db.providers, trucks: m.db.trucks, drivers: m.db.drivers }, id); if (errs.length) throw httpErr(errs.join('; '), 422);
-    if (cur && v.active === false && cur.active !== false && m.db.waiting.some((w) => w.truckId === cur.id && w.status === 'Waiting')) throw httpErr(`${cur.reg} is in a loading queue — remove it from the queue first`, 409);
-    const x: Truck = { ...(cur ?? {}), id: cur?.id ?? m.uid('t'), providerId: v.providerId!, reg: R.normReg(v.reg), trailer: (v.trailer ?? '').trim().toUpperCase(), capacityCases: v.capacityCases!, active: v.active !== false, note: v.note ?? null, documents: (v.documents ?? []).map((d) => ({ id: d.id || m.uid('doc'), kind: d.kind ?? 'photo', name: d.name })) };
-    if (v.defaultDriverId) x.defaultDriverId = v.defaultDriverId; else delete x.defaultDriverId;
-    if (cur) Object.assign(cur, x); else m.db.trucks.push(x);
-    return commit(x);
-  },
-  /** Add or edit a driver (unique phone). `appLogin: true` with `hasApp` gives the driver a field-app login (PIN). */
-  async saveDriver(id: ID | null, input: Partial<DriverInput> & { appLogin?: boolean }): Promise<SavedDriver> {
-    ensure(); canTransport();
-    const cur = id ? m.db.drivers.find((d) => d.id === id) : null;
-    if (id && !cur) throw httpErr('Driver not found', 404);
-    const v = { providerId: cur?.providerId, name: cur?.name, phone: cur?.phone, licence: cur?.licence ?? '', hasApp: cur?.hasApp ?? false, active: cur?.active ?? true, ...input };
-    const errs = R.validateDriver(v, { providers: m.db.providers, drivers: m.db.drivers }, id); if (errs.length) throw httpErr(errs.join('; '), 422);
-    const phone = R.normPhone(v.phone);
-    const x: Driver = { ...(cur ?? {}), id: cur?.id ?? m.uid('d'), providerId: v.providerId!, name: v.name!.trim(), phone, licence: (v.licence ?? '').trim(), hasApp: v.hasApp === true, active: v.active !== false };
-    if (cur && cur.phone !== phone) { delete x.localPhone; delete x.phoneNote; }
-    let login: SavedDriver['login'];
-    if (input.appLogin && x.hasApp) {
-      const owner = allUsers().find((u) => R.normPhone(u.phone) === phone);
-      if (owner && !owner.roles.includes('driver')) throw httpErr('This phone number belongs to an office user — use another number for the driver', 409);
-      if (owner) login = { userId: owner.id, username: owner.id.replace(/^u-/, '') };
-      else {
-        const u: User = { id: m.uid('u'), name: x.name, phone, roles: ['driver'], entityIds: [], loadingPointIds: [], warehouseIds: [], ...R.entityAccess({ roles: ['driver'], entityIds: [] }, ALL_ENTITIES), features: [] };
-        (m.db.extraUsers ??= []).push(u);
-        mockUsers.push({ ...u, username: u.id.replace(/^u-/, ''), email: null, active: true, hasPassword: false, hasPin: true, driverId: x.id });
-        login = { userId: u.id, username: u.id.replace(/^u-/, ''), pin: '1234' }; // demo PIN (mock)
-      }
-    }
-    if (cur) Object.assign(cur, x); else m.db.drivers.push(x);
-    return commit({ ...x, ...(login ? { login } : {}) });
-  },
+  async saveProvider(id: ID | null, input: Partial<ProviderInput>): Promise<Provider> { return (await admin()).saveProvider(adminCtx(), id, input); },
+  async saveTruck(id: ID | null, input: Partial<TruckInput>): Promise<Truck> { return (await admin()).saveTruck(adminCtx(), id, input); },
+  async saveDriver(id: ID | null, input: Partial<DriverInput> & { appLogin?: boolean }): Promise<SavedDriver> { return (await admin()).saveDriver(adminCtx(), id, input); },
+  // ---- Static data (docs/12 A-05): companies, suppliers, goods, receiving companies — lazy chunk (./mock/admin) ----
+  async saveEntity(id: ID | null, input: Partial<EntityInput>): Promise<Entity> { return (await admin()).saveEntity(adminCtx(), id, input); },
+  async saveSupplier(id: ID | null, input: Partial<SupplierInput>): Promise<Supplier> { return (await admin()).saveSupplier(adminCtx(), id, input); },
+  async saveProduct(id: ID | null, input: Partial<ProductInput>): Promise<Product> { return (await admin()).saveProduct(adminCtx(), id, input); },
+  async saveReceivingCompany(id: ID | null, input: Partial<ReceivingCompanyInput>): Promise<ReceivingCompany> { return (await admin()).saveReceivingCompany(adminCtx(), id, input); },
 };
-const canTransport = () => { if (!current || !R.canEditTransport(current.roles)) throw httpErr('Only truck planners, fleet, planners, directors and admins manage transport providers', 403); };
 
 const mockUsers: UserAdmin[] = seed.users.map((u) => ({ ...u, username: u.id.replace(/^u-/, ''), email: `${u.id.replace(/^u-/, '')}@btw.local`, active: true, hasPassword: true, hasPin: true, driverId: seed.drivers.find((d) => d.phone === u.phone)?.id ?? null }));
 let mockUsersLoaded = false;
 /** Field-app logins created for new drivers in this demo join the admin list once. */
 const adminUsers = () => { if (!mockUsersLoaded) { ensure(); mockUsersLoaded = true; for (const u of m.db.extraUsers ?? []) if (!mockUsers.some((x) => x.id === u.id)) mockUsers.push({ ...u, username: u.id.replace(/^u-/, ''), email: null, active: true, hasPassword: false, hasPin: true, driverId: m.db.drivers.find((d) => d.phone === u.phone)?.id ?? null }); } return mockUsers; };
+type UserScopeInput = { entityIds?: ID[]; loadingPointIds?: ID[]; warehouseIds?: ID[]; pairs?: UserPair[]; routeIds?: ID[] };
+/** Admin-only operations live in a lazy chunk (./mock/admin) so the apps' entry stays small. */
+const admin = () => import('./mock/admin');
+// docs/14: warehouse money lives in a lazy chunk too; `mo(name)` forwards a call to it with the mock's context.
+const money = () => import('./mock/money');
+type MoneyMod = typeof import('./mock/money');
+type MoneyFn<K extends keyof MoneyMod> = MoneyMod[K] extends (c: never, ...a: infer A) => infer T ? (...a: A) => T : never;
+function mo<K extends keyof MoneyMod>(k: K): MoneyFn<K> {
+  return (async (...a: unknown[]) => ((await money())[k] as (...x: unknown[]) => unknown)({ current, me, ensure, log, commit, wait, httpErr, inScope, writeEntity, config: mockConfig, seesSh, reportData }, ...a)) as MoneyFn<K>;
+}
+const adminCtx = (): import('./mock/admin').Ctx => ({ current, me, ensure, price: lookup.price, log, commit, wait, httpErr, allUsers, adminUsers, mockUsers, ALL_ENTITIES });
 export const users = {
-  async list() { return wait(adminUsers()); },
-  async create(input: { name: string; phone: string; username?: string; email?: string; roles: Role[]; entityIds?: ID[]; loadingPointIds?: ID[]; warehouseIds?: ID[]; password?: string; pin?: string }) {
-    if (!input.name?.trim() || !input.phone?.trim()) throw new Error('Name and phone are required');
-    if (!input.roles?.length) throw new Error('Pick at least one valid role');
-    const u: UserAdmin = { id: m.uid('u'), name: input.name, phone: input.phone, username: input.username ?? input.name.split(' ')[0].toLowerCase(), email: input.email ?? null, roles: input.roles, entityIds: input.entityIds ?? [], ...R.entityAccess({ roles: input.roles, entityIds: input.entityIds ?? [] }, ALL_ENTITIES), loadingPointIds: input.loadingPointIds ?? [], warehouseIds: input.warehouseIds ?? [], active: true, hasPassword: !!input.password, hasPin: !!input.pin, driverId: null };
-    mockUsers.push(u); return wait(u);
-  },
-  async update(id: ID, input: Partial<Pick<UserAdmin, 'name' | 'email' | 'roles' | 'entityIds' | 'loadingPointIds' | 'warehouseIds' | 'active'>>) { const u = mockUsers.find((x) => x.id === id)!; Object.assign(u, input); return wait(u); },
+  async list() { return (await admin()).listUsers(adminCtx()); },
+  async create(input: { name: string; phone: string; username?: string; email?: string; roles: Role[]; password?: string; pin?: string } & UserScopeInput) { return (await admin()).createUser(adminCtx(), input); },
+  async update(id: ID, input: Partial<Pick<UserAdmin, 'name' | 'email' | 'roles' | 'entityIds' | 'loadingPointIds' | 'warehouseIds' | 'pairs' | 'routeIds' | 'active'>>) { return (await admin()).updateUser(adminCtx(), id, input); },
   async setSecret(id: ID, input: { pin?: string; password?: string }) { if (input.pin && !/^\d{4,6}$/.test(input.pin)) throw new Error('PIN must be 4–6 digits'); const u = mockUsers.find((x) => x.id === id)!; if (input.pin) u.hasPin = true; if (input.password) u.hasPassword = true; return wait(true); },
   async devices(_id: ID) { return wait([] as Device[]); },
 };
+/** docs/12 A-07: the audit log — search by user, feature, date and text; newest first, paged (directors). */
+export const audit = { async list(f: AuditFilter = {}): Promise<AuditPage> { return (await admin()).auditList(adminCtx(), f); } };
+
 export const devices = {
   async register(_input: { pushToken?: string; platform?: string; appVersion?: string }) { return wait({ id: 'dev-mock' }); },
   async revoke(_deviceId: ID) { return wait(true); },
@@ -827,9 +847,16 @@ export const sync = {
 // ---- Reports (same pure functions as the server: packages/api/src/reports.ts) -------------------
 function reportData(): RP.ReportData {
   ensure(); const r = ref();
+  // Own scope (docs/12): a planner's pairs; the truck follow-up officer every truck; the rest as their features allow
+  const u = me(), director = A.isDirector(u);
+  const shipments = m.db.shipments.filter((s) => director || seesSh(s));
+  const shipIds = new Set(shipments.map((s) => s.id));
+  const pairOk = (o: { entityId: ID; supplierId: ID }) => director || A.seesPair(u, o.entityId, o.supplierId);
+  const pos = m.db.pos.filter(pairOk); const poIds = new Set(pos.map((p) => p.id));
+  const seesSales = director || R.hasFeature(u.roles, 'sales') || u.roles.includes('planner');
   return {
-    now: Date.now(), sales: m.db.sales, shipments: m.db.shipments.map((s) => ({ ...s, status: m.deriveShipmentStatus(s) })), acks: m.db.acks,
-    costs: m.db.costs, payments: m.db.payments, plans: m.db.plans, pos: m.db.pos, loadings: m.db.loadings, moves: m.db.stockMoves, stock: m.stock(),
+    now: Date.now(), sales: seesSales ? m.db.sales : [], shipments: shipments.map((s) => ({ ...s, status: m.deriveShipmentStatus(s) })), acks: m.db.acks.filter((a) => shipIds.has(a.shipmentId)),
+    costs: m.db.costs.filter((c) => shipIds.has(c.shipmentId)), payments: m.db.payments.filter((x) => shipIds.has(x.shipmentId)), plans: m.db.plans.filter(pairOk), pos, loadings: m.db.loadings.filter((l) => poIds.has(l.poId)), moves: m.db.stockMoves, stock: m.stock(),
     products: r.products, priceList: r.priceList, warehouses: r.warehouses, routes: r.routes, checkpoints: r.checkpoints, suppliers: r.suppliers,
     trucks: r.trucks, drivers: r.drivers, providers: r.providers, entities: r.entities,
     fxRates: m.db.fxRates ?? seed.seedFxRates(), entityScope: scopeIds(),
@@ -857,6 +884,26 @@ export const reports = {
   /** §8.14 PV-01..07: planned vs ordered for approved period plans (Group: + byEntity). */
   plannedVsActual: (f: RP.PvFilter = {}) => { assertFilter(f, 'planned-vs-actual'); return wait(RP.plannedVsActual(reportData(), f)); },
   group: (f: RP.ReportFilter = {}) => { assertGroup(); return wait(RP.groupReport({ ...reportData(), entityScope: current!.allowedEntityIds }, f)); },
+  /** docs/14 B-07: combined performance + margins at product / warehouse / company / receiving company / business level (directors). */
+  performance: mo('performance'),
+};
+
+// ---- docs/14 workstream B: warehouse money and data (lazy chunk mock/money.ts) ----------------------------------------
+/** Warehouse expenses (B-01) and inventory recording (B-02): receivers their own warehouses (no values), directors all. */
+export const warehouse = {
+  expenses: mo('expenses'), addExpense: mo('addExpense'), updateExpense: mo('updateExpense'), deleteExpense: mo('deleteExpense'),
+  stock: mo('warehouseStock'), adjust: mo('adjust'), adjustments: mo('adjustments'),
+};
+/** Re-export orders Asie → Yonas (B-03). */
+export const reexports = { list: mo('listReexports'), get: mo('getReexport'), create: mo('createReexport'), load: mo('loadReexport'), cancel: mo('cancelReexport') };
+/** Selling prices per product (B-05, directors). */
+export const pricing = { list: mo('listPrices'), set: mo('setPrice') };
+
+/** docs/15: P1 dashboards (lazy chunk mock/dash.ts, same builders as GET /v1/dashboards). */
+export const dashboards = {
+  async get(keys: import('./dashboards').DashKey[], f: import('./dashboards').DashFilter = {}) {
+    return (await import('./mock/dash')).dashboards({ current, me, ensure, wait, httpErr, scopeIds, config: mockConfig, people: allUsers, fees: () => finance.fees(), users: () => users.list() }, keys, f);
+  },
 };
 
 // ---- Companies & settings ------------------------------------------------------------------------------

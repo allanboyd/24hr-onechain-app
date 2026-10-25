@@ -53,14 +53,15 @@ async function main() {
     ok(api.ref().config?.approvals.purchaseOrders === false && api.ref().config.loading.allowancePct === 10, 'GET /ref carries config.toml (no PO approval, ±10 % loading allowance)');
     p = await api.plans.save(p); p = await api.plans.submit(p.id);
     ok(p.status === 'Approved' && p.poId && p.history.at(-1)?.action === 'issued', `"Issue purchase order" → PO ${p.poId} at once (no director approval)`);
-    await api.auth.signIn({ username: 'dir', password: 'demo1234' });
+    await api.auth.signIn({ username: 'daniel', password: 'demo1234' });
     await rejects(api.plans.decide(p.id, 'approved', '', 'x'), /switched off|409/, 'director decision refused while approvals are off');
     await api.auth.signIn({ username: 'kabonge', password: 'demo1234' });
     await rejects(api.plans.save(p), /locked/, 'issued plan locked (409)');
 
-    await api.auth.signIn({ phone: '+254700000006', pin: '1234' }); // Tesfie: loader at SBL/GBI
-    ok(api.auth.me()?.id === 'u-tesfie', 'loader signs in with phone + PIN');
+    await api.auth.signIn({ phone: '+255700000021', pin: '1234' }); // the SBL loader (to confirm, roles document Q2)
+    ok(api.auth.me()?.id === 'u-sbl-loader', 'loader signs in with phone + PIN');
     const ld = (await api.loading.list('s-sbl')).find((l) => l.poId === p.poId)!;
+    ok(ld && !('agreedTransport' in ld) && api.ref().priceList.length === 0, 'loader: loadings and reference data carry no prices (A-04)');
     await rejects(api.loading.confirm(ld.id, { truckId: 't6', driverId: 'd6', loadedQty: { [ld.lines[0].planLineId]: 1900 }, agreedTransport: 900, documents: [] }), /capacity/, 'truck capacity enforced (1800 max)');
     const sh = await api.loading.confirm(ld.id, { truckId: 't6', driverId: 'd6', loadedQty: { [ld.lines[0].planLineId]: 1780 }, agreedTransport: 900, documents: ['dn.jpg'] });
     ok(sh.legs[0].lines[0].loadedQty === 1780 && sh.legs[0].status === 'Loaded', 'shipment created with loaded qty');
@@ -72,8 +73,9 @@ async function main() {
     await api.auth.signIn({ username: 'asie', password: 'demo1234' });
     const before = (await api.inventory.stock()).find((r) => r.warehouseId === 'w-kgl' && r.productId === 'p-e330')!;
 
-    await api.auth.signIn({ phone: '+254700000006', pin: '1234' });
-    await api.tracking.dispatch(leg.id, 'office');
+    await api.auth.signIn({ phone: '+255700000021', pin: '1234' });
+    await api.tracking.dispatch(leg.id, 'office'); // the loader marks the shipment dispatched (§4)
+    await api.auth.signIn({ phone: '+254700000006', pin: '1234' }); // Testfie follows the truck
     // GPS pings into the geofences (PostGIS) at Nyakanazi, then away from it
     const g = await api.tracking.positions([{ legId: leg.id, lat: -3.0301, lng: 31.2502 }, { legId: leg.id, lat: -2.9, lng: 31.0 }]);
     ok(g.events.some((e) => e.checkpointId === 'cp-nyakanazi' && e.kind === 'arrived') && g.events.some((e) => e.kind === 'departed'), 'geofence: arrival + departure from GPS pings');
@@ -90,7 +92,7 @@ async function main() {
     ok(s2.legs[0].status === 'Arrived', 'leg arrived at destination');
     ok(['Early', 'On time', 'Late'].includes(api.shipments.eta(s2.legs[0]).state), `ETA state ${api.shipments.eta(s2.legs[0]).state}`);
 
-    await api.auth.signIn({ username: 'zonas', password: 'demo1234' });
+    await api.auth.signIn({ username: 'yonas', password: 'demo1234' });
     await rejects(api.shipments.acknowledge(leg.id, { receiverName: 'X', lines: [{ productId: 'p-e330', expected: 1780, received: 1780, damaged: 0 }] }), /Not allowed|not coming to your warehouse/, 'receiver of another warehouse cannot acknowledge (403)');
 
     await api.auth.signIn({ username: 'asie', password: 'demo1234' });
@@ -112,7 +114,7 @@ async function main() {
     ok(jr.length === 2 && jr[0].shipmentId === sh.id && jr[0].received === 1770 && jr[1].loaded === 100, 'journey origin → onward');
     // doc 08 §3: flexible warehouses (admin/director only) + a route ending there
     await rejects(api.masterdata.addWarehouse({ name: 'Nope', country: 'Congo', town: 'Bukavu', receivingCompanyId: 'rc-asie', lat: -2.5, lng: 28.86 }), /admin or director/, 'receiver cannot add a warehouse (403)');
-    await api.auth.signIn({ username: 'dir', password: 'demo1234' });
+    await api.auth.signIn({ username: 'daniel', password: 'demo1234' });
     await rejects(api.masterdata.addWarehouse({ name: 'X', country: 'Congo', town: '', receivingCompanyId: 'rc-asie', lat: -2.5, lng: 28.86 }), /town/, 'warehouse form validated (422)');
     const bk = await api.masterdata.addWarehouse({ name: 'Asie Bukavu', country: 'Congo', town: 'Bukavu', receivingCompanyId: 'rc-asie', lat: -2.5083, lng: 28.8608, radiusM: 400 });
     const bkCp = api.ref().checkpoints.find((c) => c.id === bk.checkpointId);
@@ -125,19 +127,25 @@ async function main() {
     ok(api.ref().warehouses.find((w) => w.id === bk.id)?.active === false && api.ref().checkpoints.find((c) => c.id === bk.checkpointId)?.name === 'Asie Bukavu (old)', 'warehouse edited and deactivated');
     await api.auth.signIn({ username: 'asie', password: 'demo1234' });
 
-    await api.auth.signIn({ username: 'dir', password: 'demo1234' });
+    await api.auth.signIn({ username: 'daniel', password: 'demo1234' });
     const n = await api.notifications.list();
     ok(n.some((x) => x.title === 'Delivery discrepancy' && x.body.includes(s2.ref)), 'discrepancy alert raised');
 
     await api.auth.signIn({ username: 'asie', password: 'demo1234' });
-    await rejects(api.sales.create({ entityId: 'e-kivu', at: new Date().toISOString(), warehouseId: 'w-kgl', customer: 'X', salespersonId: 'u-asie', kind: 'Cash', lines: [{ productId: 'p-e330', qty: 999999, price: 1 }], currency: 'USD', paid: 0 }), /in stock/, 'sale above stock blocked (SL-02)');
-    await rejects(api.sales.create({ entityId: 'e-kivu', at: new Date().toISOString(), warehouseId: 'w-kgl', customer: 'X', salespersonId: 'u-asie', kind: 'Cash', lines: [{ productId: 'p-e330', qty: 999999, price: 1 }], currency: 'USD', paid: 0 }, true), /director/, 'override only for directors');
+    await rejects(api.sales.create({ entityId: 'e-kivu', at: new Date().toISOString(), warehouseId: 'w-kgl', customer: 'X', salespersonId: 'u-asie', kind: 'Cash', lines: [{ productId: 'p-e330', qty: 1, price: 1 }], currency: 'USD', paid: 0 }), /directors|403/, 'receivers do not record sales (§7: directors only)');
+    await api.auth.signIn({ username: 'daniel', password: 'demo1234' });
+    await rejects(api.sales.create({ entityId: 'e-kivu', at: new Date().toISOString(), warehouseId: 'w-kgl', customer: 'X', salespersonId: 'u-daniel', kind: 'Cash', lines: [{ productId: 'p-e330', qty: 999999, price: 1 }], currency: 'USD', paid: 0 }), /in stock/, 'sale above stock blocked (SL-02)');
 
-    await api.auth.signIn({ username: 'dir', password: 'demo1234' });
+    await api.auth.signIn({ username: 'daniel', password: 'demo1234' });
     const v = await api.analytics.velocity();
     ok(v.length > 0 && v.every((r) => ['Fast', 'Normal', 'Slow', 'Stagnant'].includes(r.cls)), `velocity rows ${v.length}`);
-    const t = (await api.finance.trips()).find((x) => x.shipment.id === sh.id)!;
-    ok(t.transport === 900 && t.landing > t.goods, 'landing cost = goods + expenses');
+    let t = (await api.finance.trips()).find((x) => x.shipment.id === sh.id)!;
+    ok(t.transport === 0 && t.agreedRecorded === false, 'loaded without a price → agreed transport "not recorded yet" (A-04)');
+    await api.auth.signIn({ phone: '+254700000006', pin: '1234' });
+    await api.finance.setAgreedPrice(sh.id, { amount: 900, currency: 'USD' });
+    await api.auth.signIn({ username: 'daniel', password: 'demo1234' });
+    t = (await api.finance.trips()).find((x) => x.shipment.id === sh.id)!;
+    ok(t.transport === 900 && t.agreedRecorded && t.landing > t.goods, 'Testfie records the agreed price after loading; landing cost = goods + expenses');
 
     // ---- platform checks ----
     const drv = await raw('POST', '/auth/login', { phone: '+254702750019', pin: '1234' });
@@ -153,10 +161,10 @@ async function main() {
     const pend = (await raw('GET', '/loadings?loadingPointId=s-kbl', undefined, jh)).body.find((l: { status: string }) => l.status === 'Pending');
     const handed = await raw('POST', `/loadings/${pend.id}/confirm`, { truckId: 't2', driverId: 'd1', loadedQty: {}, agreedTransport: 1500, documents: [] }, jh);
     ok(handed.status === 201, `giver records loading for Peter's truck (${handed.status})`);
-    await new Promise((r) => setTimeout(r, 300));
-    const pushes = (await raw('GET', '/dev/push')).body as { tokens?: string[]; title?: string; to?: string[] }[];
-    ok(JSON.stringify(pushes).includes('tok-peter-e2e') && JSON.stringify(pushes).includes('trip assigned'), 'hand-over pushes the driver');
-    ok((await raw('GET', '/notifications', undefined, dh)).body.some((n: { title: string }) => /trip assigned/.test(n.title)), 'driver gets a personal in-app notification');
+    // pushToDriver runs after the response (fire-and-forget): poll for up to 5 s instead of a fixed sleep
+    const poll = async (f: () => Promise<boolean>) => { for (let i = 0; i < 25; i++) { if (await f()) return true; await new Promise((r) => setTimeout(r, 200)); } return f(); };
+    ok(await poll(async () => { const s = JSON.stringify((await raw('GET', '/dev/push')).body); return s.includes('tok-peter-e2e') && s.includes('trip assigned'); }), 'hand-over pushes the driver');
+    ok(await poll(async () => (await raw('GET', '/notifications', undefined, dh)).body.some((n: { title: string }) => /trip assigned/.test(n.title))), 'driver gets a personal in-app notification');
 
     // Undo an already-synced check-in (driver, within 10 min) — audited, status recomputed
     const legId = work.body.trips[0].leg.id;
@@ -175,7 +183,7 @@ async function main() {
     ok(issues.filter((i: { reason: string }) => i.reason === 'Breakdown').length === 1, 'replayed issue stored once');
 
     // ---- reports & planning (shared pure functions, role-scoped) ----
-    const dirH = { authorization: `Bearer ${(await raw('POST', '/auth/login', { username: 'dir', password: 'demo1234' })).body.accessToken}` };
+    const dirH = { authorization: `Bearer ${(await raw('POST', '/auth/login', { username: 'daniel', password: 'demo1234' })).body.accessToken}` };
     const dash = await raw('GET', '/reports/dashboard', undefined, dirH);
     ok(dash.status === 200 && dash.body.kpis.revenue30 > 0 && dash.body.trend.length === 12, `dashboard report (${dash.status}): 30-day revenue + 12-month trend`);
     const yr = new Date(Date.now() - 365 * 864e5).toISOString(), nw = new Date().toISOString();
@@ -191,20 +199,19 @@ async function main() {
     const cc = await raw('GET', `/reports/capture-check?from=${new Date(Date.now() - 90 * 864e5).toISOString()}`, undefined, dirH);
     ok(cc.status === 200 && cc.body.kinds.some((k: { kind: string }) => k.kind === 'PO not sent to supplier') && cc.body.kinds.some((k: { kind: string }) => k.kind === 'Arrived, not acknowledged'), 'capture check finds planted gaps via the API');
     const asieH = { authorization: `Bearer ${(await raw('POST', '/auth/login', { username: 'asie', password: 'demo1234' })).body.accessToken}` };
-    const as = await raw('GET', `/reports/sales?from=${yr}&to=${nw}`, undefined, asieH);
-    ok(as.status === 200 && as.body.byWarehouse.every((w: { warehouseId: string }) => ['w-kgl', 'w-goma'].includes(w.warehouseId)), 'receiver sees only their warehouses in reports (scope)');
+    ok((await raw('GET', `/reports/sales?from=${yr}&to=${nw}`, undefined, asieH)).status === 403, 'receiver: no sales report (sales are the directors\', §7)');
+    const ast = (await raw('GET', '/stock', undefined, asieH)).body as { warehouseId: string; landedCostPerCase?: number }[];
+    ok(ast.length > 0 && ast.every((r) => ['w-kgl', 'w-goma'].includes(r.warehouseId) && r.landedCostPerCase === undefined), 'receiver: own warehouses only, no landed cost (A-04)');
     ok((await raw('GET', '/reports/dashboard', undefined, dh)).status === 403, 'driver cannot open reports (403)');
 
     // ---- companies (tenants): per-company scope, Group, intercompany, FX ----
     const tok = async (username: string) => ({ authorization: `Bearer ${(await raw('POST', '/auth/login', { username, password: 'demo1234' })).body.accessToken}` });
-    for (const [user, ent] of [['btw-plan', 'e-btw'], ['nud-plan', 'e-nud'], ['kvd-plan', 'e-kivu']] as const) {
+    for (const [user, ent, lp] of [['joel', 'e-btw', 's-kbl'], ['moses', 'e-nud', 's-ubl'], ['sbl-loader', 'e-kivu', 's-sbl']] as const) {
       const h = await tok(user);
       const me = (await raw('GET', '/me', undefined, h)).body;
       ok(JSON.stringify(me.allowedEntityIds) === JSON.stringify([ent]) && me.canGroup === false, `${user}: one company (${ent}), no group`);
       const [shs, pls, st] = await Promise.all([raw('GET', '/shipments', undefined, h), raw('GET', '/plans', undefined, h), raw('GET', '/stock', undefined, h)]);
-      ok(shs.body.length > 0 && shs.body.every((x: { entityId: string }) => x.entityId === ent) && pls.body.every((x: { entityId: string }) => x.entityId === ent) && st.body.every((x: { entityId: string }) => x.entityId === ent), `${user}: shipments/plans/stock only ${ent}`);
-      const rep = await raw('GET', `/reports/sales?from=${yr}&to=${nw}`, undefined, h);
-      ok(rep.status === 200 && rep.body.totals.revenue > 0, `${user}: own sales report (${Math.round(rep.body.totals?.revenue ?? 0)} USD)`);
+      ok(shs.body.every((x: { entityId: string }) => x.entityId === ent) && pls.body.every((x: { entityId: string; supplierId: string; lines: { price?: number }[] }) => x.entityId === ent && x.supplierId === lp && x.lines.every((l) => l.price === undefined)) && st.body.length === 0, `${user}: own company and loading point only; orders without prices; no stock`);
       const other = ent === 'e-btw' ? 'e-nud' : 'e-btw';
       ok((await raw('GET', `/reports/sales?entityId=${other}`, undefined, h)).status === 403, `${user}: report for ${other} → 403`);
       ok((await raw('GET', '/shipments', undefined, { ...h, 'x-entity-id': other })).status === 403, `${user}: X-Entity-Id ${other} → 403`);
@@ -216,7 +223,7 @@ async function main() {
     ok(ents.length === 3 && ents.every((e: { shortName: string; colors: { primary: string }; kraPin: string; address: string[] }) => e.shortName && e.colors.primary && /to confirm/.test(e.kraPin) && e.address.length), '/entities: company records with brand/contact/legal fields');
     const nudShs = await raw('GET', '/shipments', undefined, { ...dirH, 'x-entity-id': 'e-nud' });
     ok(nudShs.body.length > 0 && nudShs.body.every((x: { entityId: string }) => x.entityId === 'e-nud'), 'director with X-Entity-Id e-nud sees only NUD');
-    const sale = { at: new Date().toISOString(), warehouseId: 'w-kgl', customer: 'Kivu sister co', salespersonId: 'u-dir', kind: 'Credit', lines: [{ productId: 'p-c200', qty: 10, price: 11 }], currency: 'USD', paid: 0 };
+    const sale = { at: new Date().toISOString(), warehouseId: 'w-kgl', customer: 'Kivu sister co', salespersonId: 'u-daniel', kind: 'Credit', lines: [{ productId: 'p-c200', qty: 10, price: 11 }], currency: 'USD', paid: 0 };
     ok((await raw('POST', '/sales', sale, dirH)).status === 422, 'Group view: a new sale must name its company (422)');
     const gr0 = (await raw('GET', '/reports/group?from=' + new Date(Date.now() - 30 * 864e5).toISOString(), undefined, dirH)).body;
     const ic = await raw('POST', '/sales', { ...sale, counterpartyEntityId: 'e-btw' }, { ...dirH, 'x-entity-id': 'e-nud' });
@@ -229,22 +236,22 @@ async function main() {
     ok(Math.abs(gr.body.lessIntercompany.revenue - gr0.lessIntercompany.revenue - 110) < 0.01 && Math.abs(gr.body.total.revenue - gr0.total.revenue) < 0.01, 'the new intercompany sale is eliminated from the group total');
     ok(gr.body.league.length === 3 && gr.body.trend.length === 13 && /USD/.test(gr.body.fxBasis), 'group league table, 13-month trend, FX basis');
     ok((await raw('PUT', '/settings/fx', { currency: 'KES', month: '2026-10', avg: 129.5, closing: 129.9 }, dirH)).status === 200, 'director approves an exchange rate');
-    ok((await raw('PUT', '/settings/fx', { currency: 'KES', month: '2026-10', avg: 1, closing: 1 }, await tok('btw-acc'))).status === 403, 'accounts cannot change exchange rates (403)');
+    ok((await raw('PUT', '/settings/fx', { currency: 'KES', month: '2026-10', avg: 1, closing: 1 }, await tok('kabonge'))).status === 403, 'only directors change exchange rates (403)');
     ok((await raw('GET', '/settings/fx', undefined, dirH)).body.some((r: { currency: string; month: string; avg: number }) => r.currency === 'KES' && r.month === '2026-10' && r.avg === 129.5), 'exchange rate stored');
     // the HTTP client honours the active company like the mock
-    await api.auth.signIn({ username: 'dir', password: 'demo1234' });
+    await api.auth.signIn({ username: 'daniel', password: 'demo1234' });
     api.configure({ entityId: 'e-kivu' });
     ok((await api.shipments.list()).every((x) => x.entityId === 'e-kivu') && api.entities.active() === 'e-kivu', 'client configure({ entityId }) scopes every call (X-Entity-Id)');
     ok((await api.reports.group()).league.length === 3, 'client reports.group works while a company is active');
     api.configure({ entityId: null });
-    await api.auth.signIn({ username: 'kvd-acc', password: 'demo1234' });
-    ok(api.entities.active() === 'e-kivu' && (await api.finance.trips()).every((x) => x.shipment.entityId === 'e-kivu'), 'single-company user starts in their company');
+    await api.auth.signIn({ username: 'sbl-loader', password: 'demo1234' });
+    ok(api.entities.active() === 'e-kivu' && (await api.shipments.list()).every((x) => x.entityId === 'e-kivu'), 'single-company user starts in their company');
     let threw = false; try { api.configure({ entityId: 'e-btw' }); } catch { threw = true; } ok(threw, 'client refuses a company outside the allowed set');
 
     // ---- period plans (PL-06..12), orders against the plan (PO-06..08), planned vs actual (PV-01..07), features ----
-    const me = await raw('GET', '/me', undefined, await tok('nud-plan'));
-    ok(me.body.features?.includes('period-plans') && !me.body.features.includes('finance') && !me.body.features.includes('period-plans.approve'), 'me.features: planner plans, no finance');
-    ok(!(await raw('POST', '/auth/login', { username: 'dir', password: 'demo1234' })).body.user.features.includes('period-plans.approve'), 'no period-plan approval feature any more');
+    const me = await raw('GET', '/me', undefined, await tok('kabonge'));
+    ok(me.body.features?.includes('period-plans') && me.body.features.includes('master-data.static') && !me.body.features.includes('finance') && !me.body.features.includes('period-plans.approve') && me.body.pairs?.length === 3, 'me.features: Kabonge plans + static data, no finance; three buyer–supplier pairs');
+    ok(!(await raw('POST', '/auth/login', { username: 'daniel', password: 'demo1234' })).body.user.features.includes('period-plans.approve'), 'no period-plan approval feature any more');
     const nudH = { ...dirH, 'x-entity-id': 'e-nud' };
     const pps = (await raw('GET', '/period-plans', undefined, nudH)).body as PeriodPlan[];
     const nudLive = pps.find((x) => x.status === 'Active')!;
@@ -290,10 +297,9 @@ async function main() {
     const pvK = (await raw('GET', '/reports/planned-vs-actual', undefined, kD)).body;
     ok(pvK.measures.planned === pvK.lines.reduce((a: number, l: { planned: number }) => a + l.planned, 0) && pvK.months.at(-1).cumPlanned === pvK.measures.planned && pvK.today, 'PV measures, running totals, today marker');
     ok((await raw('GET', '/reports/planned-vs-actual', undefined, await tok('asie'))).status === 403, 'receiver: no planned vs actual (403)');
-    ok((await raw('GET', '/reports/sales', undefined, await tok('asie'))).status === 200, 'receiver/sales still open the sales overview');
-    ok((await raw('GET', '/period-plans', undefined, await tok('btw-acc'))).status === 200 && (await raw('POST', '/period-plans', { periodKind: 'month', ...range, title: 'x', entityId: 'e-btw' }, await tok('btw-acc'))).status === 403, 'accounts view period plans but cannot create (403)');
-    ok((await raw('GET', '/finance/trips', undefined, await tok('nud-plan'))).status === 403, 'planner: no finance (role × feature matrix)');
-    ok((await raw('PUT', '/settings/pv-thresholds', { behind: 0.9, over: 1.1 }, await tok('btw-acc'))).status === 403, 'only directors change PV thresholds');
+    ok((await raw('GET', '/period-plans', undefined, await tok('testfie'))).status === 403 && (await raw('POST', '/period-plans', { periodKind: 'month', ...range, title: 'x', entityId: 'e-btw' }, await tok('testfie'))).status === 403, 'truck follow-up: no period plans (403)');
+    ok((await raw('GET', '/finance/trips', undefined, await tok('kabonge'))).status === 403, 'planner: no trip financials (§7)');
+    ok((await raw('PUT', '/settings/pv-thresholds', { behind: 0.9, over: 1.1 }, await tok('kabonge'))).status === 403, 'only directors change PV thresholds');
     ok((await raw('PUT', '/settings/pv-thresholds', { behind: 1.5, over: 1.1 }, dirH)).status === 400, 'PV thresholds validated');
     ok((await raw('PUT', '/settings/pv-thresholds', { behind: 0.9, over: 1.1 }, dirH)).status === 200 && (await raw('GET', '/reports/planned-vs-actual', undefined, kD)).body.thresholds.behind === 0.9, 'director sets thresholds; the report uses them');
 

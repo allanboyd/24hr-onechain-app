@@ -48,6 +48,6 @@ await shot(s, 'D11-field-driver-dark', 'Driver · dark mode', 'Same screen at ni
 await finish(s);
 
 // Office roles are sent to the web app
-s = await open({ app: 'field', user: 'u-dir', outDir: out });
+s = await open({ app: 'field', user: 'u-daniel', outDir: out });
 await shot(s, 'D12-field-web-only', 'Office roles → web app', 'Directors, planners and accounts are not in the phone app; they get a link to the web app (works on phones too).');
 await finish(s);

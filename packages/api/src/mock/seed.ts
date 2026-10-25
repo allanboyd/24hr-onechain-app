@@ -10,43 +10,40 @@ import { ETS_FLEET } from './ets';
 
 const ALL = ['e-btw', 'e-nud', 'e-kivu'];
 type RawUser = Omit<User, 'allowedEntityIds' | 'canGroup' | 'features'>;
+// The client's roster (roles document §3–§5, docs/12-roles-access.md). Spellings as the client wrote them (to confirm).
 const rawUsers: RawUser[] = [
-  // Group-wide
-  { id: 'u-dir', name: 'Director (Group)', phone: '+254700000001', roles: ['director'], entityIds: ALL, loadingPointIds: [], warehouseIds: [] },
-  { id: 'u-kabonge', name: 'Kabonge', phone: '+254700000002', roles: ['planner', 'fleet'], entityIds: ALL, loadingPointIds: ['s-kbl', 's-ubl', 's-sbl', 's-gbi'], warehouseIds: [] },
-  { id: 'u-acc', name: 'Accounts (all companies)', phone: '+254700000009', roles: ['accounts'], entityIds: ALL, loadingPointIds: [], warehouseIds: [] },
-  { id: 'u-admin', name: 'System Admin', phone: '+254700000010', roles: ['admin'], entityIds: ALL, loadingPointIds: [], warehouseIds: [] },
-  // BTW Global Distributors
+  // Directors — full access, group-wide (read-only on loading, dispatch, fleet and acknowledgement: §7 "View")
+  { id: 'u-daniel', name: 'Daniel', phone: '+254700000001', roles: ['director'], entityIds: ALL, loadingPointIds: [], warehouseIds: [] },
+  { id: 'u-michael', name: 'Michael', phone: '+254700000020', roles: ['director'], entityIds: ALL, loadingPointIds: [], warehouseIds: [] },
+  // Kabonge — purchase planner for BTW–KBL, Nihna–UBL and Kivu–SBL (not Nihna–GBI) + static-data manager
+  { id: 'u-kabonge', name: 'Kabonge', phone: '+254700000002', roles: ['planner'], entityIds: ALL, loadingPointIds: [], warehouseIds: [],
+    pairs: [{ entityId: 'e-btw', supplierId: 's-kbl' }, { entityId: 'e-nud', supplierId: 's-ubl' }, { entityId: 'e-kivu', supplierId: 's-sbl' }] },
+  // Testfie — truck follow-up officer (role id truck_planner): every truck and route, truck expenses, agreed price; loads at GBI Mombasa only
+  { id: 'u-testfie', name: 'Testfie', phone: '+254700000006', roles: ['truck_planner'], entityIds: ALL, loadingPointIds: ['s-gbi'], warehouseIds: [] },
+  // Loaders
   { id: 'u-joel', name: 'Joel', phone: '+254700000003', roles: ['loader'], entityIds: ['e-btw'], loadingPointIds: ['s-kbl'], warehouseIds: [] },
   { id: 'u-eric', name: 'Eric', phone: '+254700000004', roles: ['loader'], entityIds: ['e-btw'], loadingPointIds: ['s-kbl'], warehouseIds: [] },
-  { id: 'u-btw-plan', name: 'Wanjiru Kamau (BTW planner)', phone: '+254700000011', roles: ['planner'], entityIds: ['e-btw'], loadingPointIds: ['s-kbl'], warehouseIds: [] },
-  { id: 'u-btw-acc', name: 'Grace Achieng (BTW accounts)', phone: '+254700000012', roles: ['accounts'], entityIds: ['e-btw'], loadingPointIds: [], warehouseIds: [] },
-  // Nihna Unique Distributors
   { id: 'u-moses', name: 'Moses', phone: '+256700000005', roles: ['loader'], entityIds: ['e-nud'], loadingPointIds: ['s-ubl'], warehouseIds: [] },
-  { id: 'u-nud-plan', name: 'Brian Okello (NUD planner)', phone: '+254700000013', roles: ['planner'], entityIds: ['e-nud'], loadingPointIds: ['s-ubl', 's-gbi'], warehouseIds: [] },
-  { id: 'u-nud-acc', name: 'Aisha Nalwoga (NUD accounts)', phone: '+254700000014', roles: ['accounts'], entityIds: ['e-nud'], loadingPointIds: [], warehouseIds: [] },
-  // Kivu Volcanic Distributors
-  { id: 'u-tesfie', name: 'Tesfie', phone: '+254700000006', roles: ['loader', 'fleet', 'operations'], entityIds: ['e-nud', 'e-kivu'], loadingPointIds: ['s-gbi', 's-sbl'], warehouseIds: [] },
-  { id: 'u-kvd-plan', name: 'Neema Mushi (Kivu planner)', phone: '+254700000015', roles: ['planner'], entityIds: ['e-kivu'], loadingPointIds: ['s-sbl'], warehouseIds: [] },
-  { id: 'u-kvd-acc', name: 'Daniel Mwakyusa (Kivu accounts)', phone: '+254700000016', roles: ['accounts'], entityIds: ['e-kivu'], loadingPointIds: [], warehouseIds: [] },
-  // Truck planners (docs/10): onboard providers / trucks, run the loading queues, follow trucks and their costs
-  { id: 'u-btw-trucks', name: 'Peter Njoroge (BTW truck planner)', phone: '+254700000017', roles: ['truck_planner'], entityIds: ['e-btw'], loadingPointIds: ['s-kbl'], warehouseIds: [] },
-  { id: 'u-trucks', name: 'Halima Yusuf (truck planner, all companies)', phone: '+254700000018', roles: ['truck_planner'], entityIds: ALL, loadingPointIds: [], warehouseIds: [] },
-  // Receiving companies handle goods for all three siblings (scoped by warehouse)
-  { id: 'u-asie', name: 'Asie Receiving (Gisenyi)', phone: '+250700000007', roles: ['receiver', 'sales'], entityIds: ALL, loadingPointIds: [], warehouseIds: ['w-kgl', 'w-goma'] },
-  { id: 'u-zonas', name: 'Zonas Receiving (Juba)', phone: '+211900000008', roles: ['receiver', 'sales'], entityIds: ALL, loadingPointIds: [], warehouseIds: ['w-juba'] },
+  // Who loads at SBL Tanzania is still to confirm (Q2): a placeholder so the Kivu flow works in the demo
+  { id: 'u-sbl-loader', name: 'SBL loader (to confirm)', phone: '+255700000021', roles: ['loader'], entityIds: ['e-kivu'], loadingPointIds: ['s-sbl'], warehouseIds: [] },
+  // Receiving companies: they receive for all three buyers (scoped by warehouse). Asie also plans re-exports Rwanda → Juba.
+  { id: 'u-asie', name: 'Asie', phone: '+250700000007', roles: ['receiver', 'reexport'], entityIds: ALL, loadingPointIds: [], warehouseIds: ['w-kgl', 'w-goma'] },
+  { id: 'u-yonas', name: 'Yonas', phone: '+211900000008', roles: ['receiver'], entityIds: ALL, loadingPointIds: [], warehouseIds: ['w-juba'] },
   // Drivers work for whichever company's trip they are on
   { id: 'u-drv1', name: 'Mawazi K', phone: '+254702750019', roles: ['driver'], entityIds: [], loadingPointIds: [], warehouseIds: [] }, // ETS Sabrina truck 1
   { id: 'u-drv3', name: 'Kanyike E', phone: '+254701811686', roles: ['driver'], entityIds: [], loadingPointIds: [], warehouseIds: [] }, // ETS Sabrina truck 2
   { id: 'u-drv2', name: 'Joseph Mugisha', phone: '+256711000002', roles: ['driver'], entityIds: [], loadingPointIds: [], warehouseIds: [] },
 ];
+/** Who acts for the "to confirm" steps in the seeded history: Nihna–GBI orders are raised by a director (Q2). */
+export const DIRECTOR_ID = 'u-daniel';
+export const PLANNER_ID = 'u-kabonge';
 export const users: User[] = rawUsers.map((u) => ({ ...u, ...entityAccess(u, ALL), features: featuresFor(u.roles) }));
 
 /** Facts from the client's letterheads (docs/inspiration/*.pdf). Statutory numbers are placeholders until confirmed. */
 const SHARED_PHONES = ['+254 707 617 460', '+254 701 570 356'];
 export const entities: Entity[] = [
   {
-    id: 'e-btw', code: 'BTW', name: 'BTW Global Distributors Ltd', shortName: 'BTW Global Distributors', poPrefix: 'BTW-PO',
+    id: 'e-btw', code: 'BTW', name: 'BTW Global Distributors Ltd', shortName: 'BTW', poPrefix: 'BTW-PO',
     address: ['P.O Box 18051 - 00100 Nairobi, Kenya', 'Elgeyo Marakwet Road, Elgeyo Garden'], phones: SHARED_PHONES, email: 'info@btwglobal.co.ke',
     tagline: 'Your global supply partner', footerLine: 'People · Products · Partnerships · Progress',
     colors: { primary: '#062953', accent: '#FE7514', ink: '#0B1B33' }, logoKey: 'btw',
@@ -54,7 +51,7 @@ export const entities: Entity[] = [
     letterhead: { header: 'entities/btw/letterhead-header.png', footer: 'entities/btw/letterhead-footer.png', watermark: 'entities/btw/letterhead-watermark.png' },
   },
   {
-    id: 'e-nud', code: 'NUD', name: 'Nihna Unique Distributors Ltd', shortName: 'Nihna Unique Distributors', poPrefix: 'NUD-PO',
+    id: 'e-nud', code: 'NUD', name: 'Nihna Unique Distributors Ltd', shortName: 'Nihna', poPrefix: 'NUD-PO',
     address: ['P.O. Box 18051 - 00100 Nairobi, Kenya'], phones: SHARED_PHONES, email: 'info@NihnaUnique.co.ke',
     tagline: 'Distributors, Transporters & Manufacturers', footerLine: 'Distributors, Transporters & Manufacturers',
     colors: { primary: '#414142', accent: '#C4982B', ink: '#1F1F20' }, logoKey: 'nud',
@@ -64,7 +61,7 @@ export const entities: Entity[] = [
   {
     // Legal name as on the letterhead ("Volcanic Distributors Limited", KIVU mark); requirements call it "Kivu Volcanic
     // Distributors Ltd" — TO CONFIRM. The letterhead email is NUD's — TO CONFIRM.
-    id: 'e-kivu', code: 'KVD', name: 'Volcanic Distributors Limited', shortName: 'Kivu Volcanic Distributors', poPrefix: 'KVD-PO',
+    id: 'e-kivu', code: 'KVD', name: 'Volcanic Distributors Limited', shortName: 'Kivu', poPrefix: 'KVD-PO',
     address: ['P.O Box 18051 - 00100 Nairobi, Kenya', 'Elgeyo Marakwet Road, Elgeyo Garden'], phones: SHARED_PHONES, email: 'info@NihnaUnique.co.ke',
     tagline: 'Manufacturers · Transporters · Distributors · Importers · Exporters', footerLine: 'Manufacturers · Transporters · Distributors · Importers · Exporters',
     colors: { primary: '#2E3092', accent: '#ED1C24', ink: '#1B1C55' }, logoKey: 'kvd',
@@ -76,8 +73,8 @@ export const entities: Entity[] = [
 export const ENTITY_OF_SUPPLIER: Record<string, string> = { 's-kbl': 'e-btw', 's-ubl': 'e-nud', 's-sbl': 'e-kivu', 's-gbi': 'e-nud' };
 
 export const receivingCompanies: ReceivingCompany[] = [
-  { id: 'rc-asie', name: 'Asie', countries: ['Rwanda', 'DR Congo'] },
-  { id: 'rc-zonas', name: 'Zonas', countries: ['South Sudan'] },
+  { id: 'rc-asie', name: 'Asie Company', countries: ['Rwanda', 'DR Congo'] },
+  { id: 'rc-yonas', name: 'Yonas Company', countries: ['South Sudan'] },
 ];
 
 export const checkpoints: Checkpoint[] = [
@@ -102,7 +99,7 @@ export const checkpoints: Checkpoint[] = [
   { id: 'cp-goma', name: 'Asie warehouse Goma', kind: 'warehouse', country: 'CD', lat: -1.6585, lng: 29.2205, radiusM: 500 },
   { id: 'cp-gulu', name: 'Gulu', kind: 'town', country: 'UG', lat: 2.7724, lng: 32.2881, radiusM: 3000 },
   { id: 'cp-nimule', name: 'Elegu/Nimule border (UG/SS)', kind: 'border', country: 'UG', lat: 3.5900, lng: 32.0600, radiusM: 2500 },
-  { id: 'cp-juba', name: 'Zonas warehouse Juba', kind: 'warehouse', country: 'SS', lat: 4.8594, lng: 31.5713, radiusM: 500 },
+  { id: 'cp-juba', name: 'Yonas warehouse Juba', kind: 'warehouse', country: 'SS', lat: 4.8594, lng: 31.5713, radiusM: 500 },
   { id: 'cp-nyakanazi', name: 'Nyakanazi', kind: 'town', country: 'TZ', lat: -3.0300, lng: 31.2500, radiusM: 2000 },
   { id: 'cp-rusumo', name: 'Rusumo border (TZ/RW)', kind: 'border', country: 'TZ', lat: -2.3800, lng: 30.7830, radiusM: 1500 },
   { id: 'cp-kayonza', name: 'Kayonza', kind: 'town', country: 'RW', lat: -1.9000, lng: 30.5000, radiusM: 2000 },
@@ -111,15 +108,23 @@ export const checkpoints: Checkpoint[] = [
 // plannedHours = hours after departure; plannedDwellHours = expected stop (borders dominate). Seed values — replace with historical medians.
 const s = (checkpointId: string, plannedHours: number, plannedDwellHours = 0) => ({ checkpointId, plannedHours, plannedDwellHours });
 const westKE = [s('cp-gilgil', 3, 0.5), s('cp-eldoret', 8), s('cp-webuye', 10, 0.5), s('cp-malaba', 12, 14), s('cp-kampala', 31, 2)];
+// Names follow the roles document §3 ("Nairobi → Congo"); ids are stable (w-kgl / *-kgl predate the move to Gisenyi).
+// Goma is reached through the Gisenyi/Rubavu – Goma border.
+const toGoma = (h: number) => [s('cp-gisenyi-wh', h), s('cp-gisenyi', h + 1, 10), s('cp-goma', h + 12)];
+const msaWest = [s('cp-gbi', 0), s('cp-mariakani', 1, 1), s('cp-voi', 5), s('cp-athi', 11, 0.5), s('cp-gilgil', 15, 0.5), s('cp-eldoret', 20), s('cp-malaba', 24, 14), s('cp-kampala', 43, 2), s('cp-katuna', 55, 8), s('cp-kigali', 67, 1)];
 export const routes: Route[] = [
-  { id: 'r-nbo-kgl', code: 'NBO-GIS', name: 'Nairobi → Gisenyi', distanceKm: 1340, stops: [s('cp-kbl', 0), ...westKE, s('cp-mbarara', 38), s('cp-katuna', 43, 8), s('cp-kigali', 55, 1), s('cp-gisenyi-wh', 60)] },
-  { id: 'r-nbo-goma', code: 'NBO-GOM', name: 'Nairobi → Goma', distanceKm: 1340, stops: [s('cp-kbl', 0), ...westKE, s('cp-mbarara', 38), s('cp-katuna', 43, 8), s('cp-kigali', 55, 2), s('cp-gisenyi-wh', 60), s('cp-gisenyi', 61, 10), s('cp-goma', 72)] },
+  { id: 'r-nbo-kgl', code: 'NBO-GIS', name: 'Nairobi → Rwanda (Gisenyi)', distanceKm: 1340, stops: [s('cp-kbl', 0), ...westKE, s('cp-mbarara', 38), s('cp-katuna', 43, 8), s('cp-kigali', 55, 1), s('cp-gisenyi-wh', 60)] },
+  { id: 'r-nbo-goma', code: 'NBO-GOM', name: 'Nairobi → Congo (Goma)', distanceKm: 1340, stops: [s('cp-kbl', 0), ...westKE, s('cp-mbarara', 38), s('cp-katuna', 43, 8), s('cp-kigali', 55, 2), s('cp-gisenyi-wh', 60), s('cp-gisenyi', 61, 10), s('cp-goma', 72)] },
   { id: 'r-nbo-juba', code: 'NBO-JUB', name: 'Nairobi → Juba', distanceKm: 1520, stops: [s('cp-kbl', 0), ...westKE, s('cp-gulu', 39), s('cp-nimule', 44, 16), s('cp-juba', 66)] },
-  { id: 'r-kla-kgl', code: 'KLA-GIS', name: 'Kampala → Gisenyi', distanceKm: 680, stops: [s('cp-ubl', 0), s('cp-mbarara', 6), s('cp-katuna', 11, 8), s('cp-kigali', 23, 1), s('cp-gisenyi-wh', 28)] },
-  { id: 'r-msa-kgl', code: 'MSA-GIS', name: 'Mombasa → Gisenyi', distanceKm: 1820, stops: [s('cp-gbi', 0), s('cp-mariakani', 1, 1), s('cp-voi', 5), s('cp-athi', 11, 0.5), s('cp-gilgil', 15, 0.5), s('cp-eldoret', 20), s('cp-malaba', 24, 14), s('cp-kampala', 43, 2), s('cp-katuna', 55, 8), s('cp-kigali', 67, 1), s('cp-gisenyi-wh', 72)] },
+  { id: 'r-kla-kgl', code: 'KLA-GIS', name: 'Uganda → Rwanda (Gisenyi)', distanceKm: 680, stops: [s('cp-ubl', 0), s('cp-mbarara', 6), s('cp-katuna', 11, 8), s('cp-kigali', 23, 1), s('cp-gisenyi-wh', 28)] },
+  { id: 'r-msa-kgl', code: 'MSA-GIS', name: 'Mombasa → Rwanda (Gisenyi)', distanceKm: 1820, stops: [...msaWest, s('cp-gisenyi-wh', 72)] },
   { id: 'r-msa-juba', code: 'MSA-JUB', name: 'Mombasa → Juba', distanceKm: 2000, stops: [s('cp-gbi', 0), s('cp-mariakani', 1, 1), s('cp-voi', 5), s('cp-athi', 11, 0.5), s('cp-eldoret', 20), s('cp-malaba', 24, 14), s('cp-gulu', 51), s('cp-nimule', 56, 16), s('cp-juba', 78)] },
-  { id: 'r-mwz-kgl', code: 'MWZ-GIS', name: 'Mwanza → Gisenyi', distanceKm: 800, stops: [s('cp-sbl', 0), s('cp-nyakanazi', 6), s('cp-rusumo', 10, 10), s('cp-kayonza', 22), s('cp-kigali', 24, 1), s('cp-gisenyi-wh', 29)] },
-  { id: 'r-kgl-juba', code: 'GIS-JUB', name: 'Gisenyi → Juba (Asie re-export)', distanceKm: 1410, stops: [s('cp-gisenyi-wh', 0), s('cp-kigali', 4, 1), s('cp-katuna', 7, 8), s('cp-mbarara', 19), s('cp-kampala', 25, 2), s('cp-gulu', 33), s('cp-nimule', 38, 16), s('cp-juba', 60)] },
+  { id: 'r-mwz-kgl', code: 'MWZ-GIS', name: 'Tanzania → Rwanda (Gisenyi)', distanceKm: 800, stops: [s('cp-sbl', 0), s('cp-nyakanazi', 6), s('cp-rusumo', 10, 10), s('cp-kayonza', 22), s('cp-kigali', 24, 1), s('cp-gisenyi-wh', 29)] },
+  { id: 'r-kgl-juba', code: 'GIS-JUB', name: 'Rwanda → Juba (Asie re-export)', distanceKm: 1410, stops: [s('cp-gisenyi-wh', 0), s('cp-kigali', 4, 1), s('cp-katuna', 7, 8), s('cp-mbarara', 19), s('cp-kampala', 25, 2), s('cp-gulu', 33), s('cp-nimule', 38, 16), s('cp-juba', 60)] },
+  // docs/12 A-06: routes to Congo from Uganda, Mombasa and Tanzania (roles document §3)
+  { id: 'r-kla-goma', code: 'KLA-GOM', name: 'Uganda → Congo (Goma)', distanceKm: 700, stops: [s('cp-ubl', 0), s('cp-mbarara', 6), s('cp-katuna', 11, 8), s('cp-kigali', 23, 2), ...toGoma(28)] },
+  { id: 'r-msa-goma', code: 'MSA-GOM', name: 'Mombasa → Congo (Goma)', distanceKm: 1840, stops: [...msaWest, ...toGoma(72)] },
+  { id: 'r-mwz-goma', code: 'MWZ-GOM', name: 'Tanzania → Congo (Goma)', distanceKm: 820, stops: [s('cp-sbl', 0), s('cp-nyakanazi', 6), s('cp-rusumo', 10, 10), s('cp-kayonza', 22), s('cp-kigali', 24, 2), ...toGoma(29)] },
 ];
 
 export const suppliers: Supplier[] = [
@@ -133,7 +138,7 @@ export const warehouses: Warehouse[] = [
   // Destinations (docs/07 §D): Congo – Goma, Rwanda – Gisenyi, South Sudan – Juba. Ids are stable (w-kgl predates the move to Gisenyi).
   { id: 'w-kgl', name: 'Asie Gisenyi', receivingCompanyId: 'rc-asie', checkpointId: 'cp-gisenyi-wh', country: 'Rwanda', town: 'Gisenyi' },
   { id: 'w-goma', name: 'Asie Goma', receivingCompanyId: 'rc-asie', checkpointId: 'cp-goma', country: 'Congo', town: 'Goma' },
-  { id: 'w-juba', name: 'Zonas Juba', receivingCompanyId: 'rc-zonas', checkpointId: 'cp-juba', country: 'South Sudan', town: 'Juba' },
+  { id: 'w-juba', name: 'Yonas Juba', receivingCompanyId: 'rc-yonas', checkpointId: 'cp-juba', country: 'South Sudan', town: 'Juba' },
 ];
 
 // Products = the client's 131 SKUs (docs/inspiration/Source.xlsx → ./catalogue.ts, docs/08 §1).
@@ -225,14 +230,14 @@ export const plans: Plan[] = [
     date: '2026-09-08', requiredBy: '2026-09-20', status: 'Approved', version: 1, createdById: 'u-kabonge', poId: 'po-1',
     lines: [
       line(1, 'p-a300', 2000, 11.5, 'rc-asie', 'r-nbo-kgl'),
-      line(2, 'p-a300', 1200, 11.5, 'rc-zonas', 'r-nbo-juba'),
-      line(2, 'p-b500', 800, 18.2, 'rc-zonas', 'r-nbo-juba'),
+      line(2, 'p-a300', 1200, 11.5, 'rc-yonas', 'r-nbo-juba'),
+      line(2, 'p-b500', 800, 18.2, 'rc-yonas', 'r-nbo-juba'),
       line(3, 'p-b500', 2000, 18.2, 'rc-asie', 'r-nbo-goma'),
       line(4, 'p-a300', 2000, 11.5, 'rc-asie', 'r-nbo-goma'),
     ],
     history: [
       { at: '2026-09-08T07:20:00Z', byUserId: 'u-kabonge', action: 'submitted' },
-      { at: '2026-09-08T10:02:00Z', byUserId: 'u-dir', action: 'approved', signature: 'sig:director' },
+      { at: '2026-09-08T10:02:00Z', byUserId: 'u-daniel', action: 'approved', signature: 'sig:director' },
     ],
   },
   {
@@ -254,20 +259,20 @@ export const plans: Plan[] = [
   // Live trips for NUD (Kampala lane) and Kivu (Mwanza lane), so every company has trucks on the road.
   {
     id: 'plan-4', ref: 'NUD-PO-2026-0008', title: 'Order No. 8', entityId: 'e-nud', supplierId: 's-ubl', currency: 'USD',
-    date: '2026-10-01', requiredBy: '2026-10-09', status: 'Approved', version: 1, createdById: 'u-nud-plan', poId: 'po-2',
+    date: '2026-10-01', requiredBy: '2026-10-09', status: 'Approved', version: 1, createdById: 'u-kabonge', poId: 'po-2',
     lines: [line(1, 'p-c200', 1200, 8.9, 'rc-asie', 'r-kla-kgl'), line(1, 'p-d300', 800, 12.4, 'rc-asie', 'r-kla-kgl')],
     history: [
-      { at: '2026-10-01T07:40:00Z', byUserId: 'u-nud-plan', action: 'submitted' },
-      { at: '2026-10-01T09:05:00Z', byUserId: 'u-dir', action: 'approved', signature: 'sig:director' },
+      { at: '2026-10-01T07:40:00Z', byUserId: 'u-kabonge', action: 'submitted' },
+      { at: '2026-10-01T09:05:00Z', byUserId: 'u-michael', action: 'approved', signature: 'sig:director' },
     ],
   },
   {
     id: 'plan-5', ref: 'KVD-PO-2026-0010', title: 'Order No. 10', entityId: 'e-kivu', supplierId: 's-sbl', currency: 'USD',
-    date: '2026-10-02', requiredBy: '2026-10-12', status: 'Approved', version: 1, createdById: 'u-kvd-plan', poId: 'po-3',
+    date: '2026-10-02', requiredBy: '2026-10-12', status: 'Approved', version: 1, createdById: 'u-kabonge', poId: 'po-3',
     lines: [line(1, 'p-e330', 1750, 13.1, 'rc-asie', 'r-mwz-kgl')],
     history: [
-      { at: '2026-10-02T06:55:00Z', byUserId: 'u-kvd-plan', action: 'submitted' },
-      { at: '2026-10-02T08:30:00Z', byUserId: 'u-dir', action: 'approved', signature: 'sig:director' },
+      { at: '2026-10-02T06:55:00Z', byUserId: 'u-kabonge', action: 'submitted' },
+      { at: '2026-10-02T08:30:00Z', byUserId: 'u-daniel', action: 'approved', signature: 'sig:director' },
     ],
   },
 ];
@@ -347,7 +352,7 @@ export function seedSales(now = Date.now()): Sale[] {
         out.push({
           id: `sale-${k}`, entityId: entityOfProduct(pid), ref: `SAL-${String(k).padStart(5, '0')}`, at: new Date(at0 + Math.floor(r() * 8) * 36e5 - 3 * 36e5).toISOString(),
           warehouseId: wh, customer: cust[Math.floor(r() * cust.length)],
-          salespersonId: wh === 'w-juba' ? 'u-zonas' : 'u-asie', kind, lines: [{ productId: pid, qty, price }], currency: 'USD',
+          salespersonId: wh === 'w-juba' ? 'u-yonas' : 'u-asie', kind, lines: [{ productId: pid, qty, price }], currency: 'USD',
           paid, status: paid >= total ? 'Paid' : paid > 0 ? 'Part-paid' : 'Unpaid',
         });
       }

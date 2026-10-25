@@ -27,7 +27,8 @@
   let ships = $state<Shipment[]>([]);
   let trips = $state<Trip[] | null>(null);
   let now = $state(Date.now());
-  const canMoney = $derived(can(user, 'finance'));
+  // docs/12: truck expenses, the agreed transport price and fees — Testfie and the directors (Kabonge: desk without money)
+  const canMoney = $derived(can(user, 'truck-expenses'));
   const w = watch(async () => {
     const [wq, sh, tr] = await Promise.all([loading.waiting(), shipments.list(), canMoney ? finance.trips() : Promise.resolve(null)]);
     waiting = wq; ships = sh; trips = tr; now = Date.now();
@@ -80,7 +81,23 @@
   const selCosts = $derived(sel && trips ? costsByTruck(tripsOf(sel.truck.id), ref().trucks)[0] ?? null : null);
 
   // ---- add a trip expense (goes through the existing payment / approval rules) ----
-  const KINDS: CostKind[] = ['Clearing & forwarding', 'Taxes & duties', 'Loading & offloading', 'Storage', 'Other', 'Transport'];
+  const KINDS: CostKind[] = ['Clearing & forwarding', 'Taxes & duties', 'Loading & offloading', 'Storage', 'Other'];
+  // ---- agreed transport price, recorded after loading (docs/12 A-04) ----
+  const missingTrips = $derived((trips ?? []).filter((t) => t.agreedRecorded === false));
+  let aDlg = $state<HTMLDialogElement>();
+  let aTrip = $state(''); let aAmount = $state<number | ''>(''); let aCur = $state<'USD' | 'KES' | 'UGX' | 'TZS' | 'RWF'>('USD'); let aDoc = $state(''); let aErr = $state('');
+  function openAgreed(shipmentId?: string) {
+    aTrip = shipmentId ?? missingTrips[0]?.shipment.id ?? ''; aAmount = ''; aCur = 'USD'; aDoc = ''; aErr = '';
+    aDlg?.showModal();
+  }
+  async function saveAgreed(e: Event) {
+    e.preventDefault(); aErr = '';
+    if (!aTrip) { aErr = 'Pick the trip'; return; }
+    if (!(Number(aAmount) > 0)) { aErr = 'Enter the agreed transport price (above zero)'; return; }
+    busy = true;
+    try { await finance.setAgreedPrice(aTrip, { amount: Number(aAmount), currency: aCur, docRef: aDoc.trim() || undefined }); aDlg?.close(); say('Agreed transport price recorded — it is now the trip\'s transport cost'); }
+    catch (err) { aErr = describe(err).message; } finally { busy = false; }
+  }
   let cDlg = $state<HTMLDialogElement>();
   let cTrip = $state(''); let cKind = $state<CostKind>('Other'); let cAmount = $state(0); let cCur = $state<'USD' | 'KES' | 'UGX' | 'TZS' | 'RWF'>('USD'); let cDoc = $state(''); let cErr = $state(''); let busy = $state(false);
   const tripChoices = $derived((trips ?? []).filter((t) => !sel || tripTruck(t) === sel.truck.id).slice(0, 60));
@@ -95,7 +112,7 @@
     if (!cTrip) { cErr = 'Pick the trip'; return; }
     if (!(cAmount > 0)) { cErr = 'Enter an amount above zero'; return; }
     busy = true;
-    try { await finance.addCost({ shipmentId: cTrip, kind: cKind, amount: Number(cAmount), currency: cCur, docRef: cDoc.trim() || undefined } as never); cDlg?.close(); say('Expense added to the trip — accounts pay it; above the limit a director approves'); }
+    try { await finance.addCost({ shipmentId: cTrip, kind: cKind, amount: Number(cAmount), currency: cCur, docRef: cDoc.trim() || undefined } as never); cDlg?.close(); say('Expense added to the trip — payments are recorded and approved by the directors'); }
     catch (err) { cErr = describe(err).message; } finally { busy = false; }
   }
 
@@ -113,7 +130,7 @@
   <div class="row">
     <a class="btn btn-secondary" href="#/loading"><ListOrdered size={16} />Loading queues</a>
     {#if can(user, 'master-data.transport')}<a class="btn btn-secondary" href="#/master?tab=providers"><Building size={16} />Providers & trucks</a>{/if}
-    {#if canMoney}<RecordFor what="a trip expense" cue={false}><button class="btn btn-primary" onclick={() => { sel = null; openCost(); }}><Plus size={16} />Trip expense</button></RecordFor>{/if}
+    {#if canMoney}<RecordFor what="an agreed price" cue={false}><button class="btn btn-secondary" onclick={() => openAgreed()}>Record agreed price</button></RecordFor><RecordFor what="a trip expense" cue={false}><button class="btn btn-primary" onclick={() => { sel = null; openCost(); }}><Plus size={16} />Trip expense</button></RecordFor>{/if}
     <ExportMenu name={view.tab === 'expenses' ? 'transport-costs' : 'truck-desk'} rows={view.tab === 'expenses' ? exportCosts : exportTrucks} />
   </div>
 </div>
@@ -125,6 +142,7 @@
   <StatTile label="Delayed" value={w.loaded ? String(k.delayed) : '…'} hint="6 h or more behind, or an open issue" active={stf === 'Delayed'} onclick={() => { view.tab = 'trucks'; pick('Delayed'); }} />
   <StatTile label="Open issues" value={w.loaded ? String(k.openIssues) : '…'} hint="breakdowns, documents, police …" onclick={() => { view.tab = 'trucks'; pick('Delayed'); }} />
   <StatTile label="Average queue wait" value={w.loaded ? waitLabel(k.avgWaitHours) : '…'} hint="trucks waiting now" onclick={() => { view.tab = 'trucks'; pick('Waiting'); }} />
+  {#if canMoney}<StatTile label="Agreed price not recorded" value={trips ? String(k.agreedMissing) : '…'} hint={k.agreedMissing ? 'loaded trucks without a transport price — record it' : 'every loaded truck has its price'} onclick={() => (k.agreedMissing ? openAgreed() : null)} />{/if}
   {#if canMoney}<StatTile label="Transport owed" value={trips ? usd(k.owed) : '…'} hint={k.pending ? `${usd(k.pending)} waiting for a director` : 'agreed − paid, all trips'} active={view.tab === 'expenses'} onclick={() => (view.tab = 'expenses')} />{/if}
 </div>
 
@@ -185,7 +203,7 @@
     <header><div><h3>By provider</h3><div class="caption">All trips in scope · amounts in USD at the approved month-average rate</div></div></header>
     <div class="table-wrap"><table class="table">
       <thead><tr><th>Provider</th><th class="num">Trips</th><th class="num">Agreed transport</th><th class="num">Extra costs</th><th class="num">Paid</th><th class="num">Waiting approval</th><th class="num">Balance owed</th><th class="num">Cases</th><th class="num">Trip cost / case</th></tr></thead>
-      <tbody>{#each provCosts as c (c.id)}<tr class:sel={provider === c.id}><td><button class="linkish" onclick={() => (provider = provider === c.id ? '' : c.id)}>{c.label}</button></td><td class="num">{c.trips}</td><td class="num">{fmtMoney(c.agreed)}</td><td class="num">{fmtMoney(c.extras)}</td><td class="num">{fmtMoney(c.paid)}</td><td class="num">{c.pending ? fmtMoney(c.pending) : '—'}</td><td class="num"><strong class:owed={c.balance > 0}>{fmtMoney(c.balance)}</strong></td><td class="num">{fmtNum(c.cases)}</td><td class="num">{fmtMoney(c.perCase)}</td></tr>
+      <tbody>{#each provCosts as c (c.id)}<tr class:sel={provider === c.id}><td><button class="linkish" onclick={() => (provider = provider === c.id ? '' : c.id)}>{c.label}</button></td><td class="num">{c.trips}</td><td class="num">{fmtMoney(c.agreed)}{#if c.notRecorded}<div class="caption nr">{c.notRecorded} not recorded</div>{/if}</td><td class="num">{fmtMoney(c.extras)}</td><td class="num">{fmtMoney(c.paid)}</td><td class="num">{c.pending ? fmtMoney(c.pending) : '—'}</td><td class="num"><strong class:owed={c.balance > 0}>{fmtMoney(c.balance)}</strong></td><td class="num">{fmtNum(c.cases)}</td><td class="num">{fmtMoney(c.perCase)}</td></tr>
       {:else}<tr><td colspan="9" class="empty">{trips ? 'No trips yet.' : 'Loading…'}</td></tr>{/each}</tbody>
     </table></div>
   </section>
@@ -194,7 +212,7 @@
     <div class="table-wrap"><table class="table">
       <thead><tr><th>Truck</th><th>Provider</th><th class="num">Trips</th><th class="num">Agreed transport</th><th class="num">Extra costs</th><th class="num">Paid</th><th class="num">Balance owed</th><th class="num">Trip cost / case</th><th></th></tr></thead>
       <tbody>{#each truckCosts.filter((c) => !provider || lookup.truck(c.id)?.providerId === provider) as c (c.id)}{@const row = rows.find((x) => x.truck.id === c.id)}
-        <tr><td><strong>{c.label}</strong></td><td class="small">{lookup.provider(lookup.truck(c.id)?.providerId ?? '')?.name ?? '—'}</td><td class="num">{c.trips}</td><td class="num">{fmtMoney(c.agreed)}</td><td class="num">{fmtMoney(c.extras)}</td><td class="num">{fmtMoney(c.paid)}</td><td class="num"><strong class:owed={c.balance > 0}>{fmtMoney(c.balance)}</strong></td><td class="num">{fmtMoney(c.perCase)}</td>
+        <tr><td><strong>{c.label}</strong></td><td class="small">{lookup.provider(lookup.truck(c.id)?.providerId ?? '')?.name ?? '—'}</td><td class="num">{c.trips}</td><td class="num">{fmtMoney(c.agreed)}{#if c.notRecorded}<div class="caption nr">{c.notRecorded} not recorded</div>{/if}</td><td class="num">{fmtMoney(c.extras)}</td><td class="num">{fmtMoney(c.paid)}</td><td class="num"><strong class:owed={c.balance > 0}>{fmtMoney(c.balance)}</strong></td><td class="num">{c.notRecorded === c.trips ? 'not recorded' : fmtMoney(c.perCase)}</td>
           <td>{#if row}<button class="btn btn-ghost btn-sm" onclick={() => open(row)}>Details</button>{/if}</td></tr>
       {:else}<tr><td colspan="9" class="empty">No trips.</td></tr>{/each}</tbody>
     </table></div>
@@ -214,7 +232,7 @@
       {#if sel.issues.length}<div class="issues">{#each sel.issues as i}<div class="row small"><TriangleAlert size={16} /><span><strong>{i.reason}</strong> · {i.place} · {fmtDateTime(i.at)}{#if i.newDueDate} · new due {fmtDate(i.newDueDate)}{/if}</span></div>{/each}</div>{/if}
       {#if selCosts}
         <div class="facts money">
-          <div><span class="caption">Agreed transport</span><strong>{fmtMoney(selCosts.agreed)}</strong><span class="caption">{selCosts.trips} trips</span></div>
+          <div><span class="caption">Agreed transport</span><strong>{fmtMoney(selCosts.agreed)}</strong><span class="caption">{selCosts.trips} trips{selCosts.notRecorded ? ` · ${selCosts.notRecorded} not recorded yet` : ''}</span></div>
           <div><span class="caption">Extra costs</span><strong>{fmtMoney(selCosts.extras)}</strong></div>
           <div><span class="caption">Paid</span><strong>{fmtMoney(selCosts.paid)}</strong>{#if selCosts.pending}<span class="caption">{fmtMoney(selCosts.pending)} waiting approval</span>{/if}</div>
           <div><span class="caption">Balance owed</span><strong class:owed={selCosts.balance > 0}>{fmtMoney(selCosts.balance)}</strong><span class="caption">{fmtMoney(selCosts.perCase)} per case</span></div>
@@ -226,7 +244,7 @@
           <thead><tr><th>Shipment</th><th>Route</th><th>Departed</th><th>Status</th><th class="num">Cases</th>{#if canMoney}<th class="num">Costs</th><th class="num">Owed</th>{/if}</tr></thead>
           <tbody>{#each tripHist.slice(0, 12) as h (h.s.id)}{@const t = (trips ?? []).find((x) => x.shipment.id === h.s.id)}
             <tr><td><a class="mono" href="#/shipments/{h.s.id}" onclick={() => dlg?.close()}>{h.s.ref}</a></td><td class="small">{lookup.route(h.leg.routeId)?.name ?? '—'}</td><td class="small">{h.leg.departedAt ? fmtDate(h.leg.departedAt) : '—'}</td><td><Badge status={h.s.status} /></td><td class="num">{fmtNum(h.leg.lines.reduce((a, l) => a + l.loadedQty, 0))}</td>
-              {#if canMoney}<td class="num small">{t ? fmtMoney(t.expenses) : '—'}{#if t?.costs.length}<div class="caption">{t.costs.map((c) => c.kind).join(', ')}</div>{/if}</td><td class="num small">{t ? fmtMoney(Math.max(0, t.balance)) : '—'}</td>{/if}</tr>
+              {#if canMoney}<td class="num small">{t ? fmtMoney(t.expenses) : '—'}{#if t?.costs.length}<div class="caption">{t.costs.map((c) => c.kind).join(', ')}</div>{/if}{#if t && t.agreedRecorded === false}<div><button class="btn btn-ghost btn-sm nr" onclick={() => openAgreed(t.shipment.id)}>Agreed price not recorded · record</button></div>{/if}</td><td class="num small">{t ? fmtMoney(Math.max(0, t.balance)) : '—'}</td>{/if}</tr>
           {:else}<tr><td colspan="7" class="empty small">No trips yet.</td></tr>{/each}</tbody>
         </table></div>
         {#if tripHist.length > 12}<p class="caption">Latest 12 of {tripHist.length} trips — export the trip financials for the rest.</p>{/if}
@@ -241,9 +259,23 @@
   {/if}
 </dialog>
 
+<dialog class="sheet" bind:this={aDlg} aria-labelledby="ap-title">
+  <form class="body stack" onsubmit={saveAgreed}>
+    <div><h3 id="ap-title">Record the agreed transport price</h3><div class="caption">Agreed with the transporter after loading (the loader records no price). It becomes the trip's transport cost; the directors record and approve payments.</div></div>
+    <label class="field"><span>Trip</span><select class="select" bind:value={aTrip}>
+      {#if missingTrips.length}<optgroup label="Not recorded yet">{#each missingTrips as t (t.shipment.id)}<option value={t.shipment.id}>{tripLabel(t)}</option>{/each}</optgroup>{/if}
+      <optgroup label="Correct a recorded price (only while unpaid)">{#each (trips ?? []).filter((t) => t.agreedRecorded !== false).slice(0, 60) as t (t.shipment.id)}<option value={t.shipment.id}>{tripLabel(t)} · USD {fmtMoney(t.transport)}</option>{/each}</optgroup>
+    </select></label>
+    <label class="field"><span>Agreed price</span><span class="row"><select class="select cur" bind:value={aCur} aria-label="Currency">{#each ['USD', 'KES', 'UGX', 'TZS', 'RWF'] as c}<option>{c}</option>{/each}</select><input class="input num" type="number" min="0" step="0.01" bind:value={aAmount} aria-label="Agreed price" /></span></label>
+    <label class="field"><span>Agreement reference (optional)</span><input class="input" bind:value={aDoc} placeholder="e.g. ETS rate card Oct 2026 / SMS from the provider" /></label>
+    {#if aErr}<p class="error" role="alert">{aErr}</p>{/if}
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn btn-ghost" onclick={() => aDlg?.close()}>Cancel</button><button class="btn btn-primary" disabled={busy}>Record price</button></div>
+  </form>
+</dialog>
+
 <dialog class="sheet" bind:this={cDlg} aria-labelledby="cost-title">
   <form class="body stack" onsubmit={saveCost}>
-    <div><h3 id="cost-title">Add a trip expense</h3><div class="caption">Goes into the trip's landing cost. Accounts record the payment; payments above the limit wait for a director.</div></div>
+    <div><h3 id="cost-title">Add a trip expense</h3><div class="caption">Goes into the trip's landing cost. The directors record and approve payments.</div></div>
     <label class="field"><span>Trip</span><select class="select" bind:value={cTrip}>{#each tripChoices as t (t.shipment.id)}<option value={t.shipment.id}>{tripLabel(t)}</option>{/each}</select></label>
     <div class="form-grid">
       <label class="field"><span>Kind</span><select class="select" bind:value={cKind}>{#each KINDS as kd}<option>{kd}</option>{/each}</select></label>
@@ -272,6 +304,7 @@
   .stale { color: var(--warning); font-weight: 600; }
   .issue { display: inline-flex; align-items: center; gap: 4px; color: var(--danger); font-weight: 600; }
   .owed { color: var(--danger); }
+  .nr { color: var(--warning); font-weight: 600; }
   .linkish { background: none; border: 0; padding: 0; color: var(--link); font: inherit; cursor: pointer; text-align: left; }
   dialog.wide { width: min(860px, calc(100vw - 32px)); }
   .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-3); padding: var(--space-3); background: var(--surface-sunken); border-radius: var(--radius-md); }

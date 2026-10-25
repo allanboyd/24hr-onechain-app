@@ -11,11 +11,14 @@
   // The ordering company (letterhead) is the active company; Group view is read-only.
   const entityId = $derived(company.active === GROUP ? '' : company.active);
   const co = $derived(entityId ? companyBrand(entityId) : null);
+  // docs/12: a planner orders only for their buyer–supplier pairs (Kabonge: BTW–KBL, Nihna–UBL, Kivu–SBL); directors any.
+  const choices = $derived(r.suppliers.filter((s) => s.active !== false && (user.roles.some((x) => x === 'director' || x === 'admin') || !user.pairs?.length || user.pairs.some((p) => p.entityId === entityId && p.supplierId === s.id))));
   let supplierId = $state('s-kbl');
+  $effect(() => { if (choices.length && !choices.some((s) => s.id === supplierId)) supplierId = choices[0].id; });
   let busy = $state(false);
   const supplier = $derived(r.suppliers.find((s) => s.id === supplierId)!);
   const lanes = $derived(r.routes.filter((rt) => rt.stops[0].checkpointId === supplier.checkpointId));
-  const canCreate = $derived(user.roles.includes('planner'));
+  const canCreate = $derived(user.roles.some((x) => x === 'planner' || x === 'director' || x === 'admin') && choices.length > 0);
   async function create(e: Event) {
     e.preventDefault(); busy = true;
     const p = await plans.create(entityId, supplierId);
@@ -31,10 +34,10 @@
         {#if co}<div class="co"><CompanyMark entityId={entityId} size={32} /><div><strong>{co.name}</strong><div class="caption">The PO is issued on {co.shortName}'s letterhead. Switch company in the top bar to order for another company.</div></div></div>
         {:else}<RecordFor what="a purchase order"><span></span></RecordFor>{/if}</div>
       <label class="field"><span>Addressed to (supplier export section)</span>
-        <select class="select" bind:value={supplierId}>{#each r.suppliers as s}<option value={s.id}>{s.code} — {s.city}, {s.country}</option>{/each}</select></label>
+        <select class="select" bind:value={supplierId}>{#each choices as s}<option value={s.id}>{s.code} — {s.city}, {s.country}</option>{:else}<option value="" disabled>None of your buyer–supplier pairs is for this company</option>{/each}</select></label>
     </div>
     <p class="caption">The reference number (e.g. <span class="mono">{r.entities.find((e) => e.id === entityId)?.poPrefix}-2026-00NN</span>) is generated per entity and year when the draft is created (PO-02).</p>
-    {#if !canCreate}<p class="error">Only planners can create plans.</p>{/if}
+    {#if !canCreate}<p class="error">{choices.length ? 'Only planners and directors raise purchase orders.' : 'None of your buyer–supplier pairs is for this company (e.g. Nihna–GBI orders are raised by the directors — to confirm).'}</p>{/if}
     <div class="row"><button class="btn btn-primary" disabled={busy || !canCreate || !entityId}>Create draft <ArrowRight size={16} /></button><a class="btn btn-ghost" href="#/plans">Cancel</a></div>
   </form>
   <aside class="card stack-sm">
@@ -42,7 +45,7 @@
     {#each lanes as rt}
       <div class="row between small"><span>{rt.name}</span><span class="caption">{rt.distanceKm.toLocaleString()} km · ~{Math.round(rt.stops.at(-1)!.plannedHours / 24 * 10) / 10} days</span></div>
     {:else}<p class="small muted">No routes start here yet — add one in Master data.</p>{/each}
-    <p class="caption">Each line picks one of these lanes; the receiving company (Asie / Zonas) follows the destination (§17.2).</p>
+    <p class="caption">Each line picks one of these lanes; the receiving company (Asie / Yonas) follows the destination (§17.2).</p>
   </aside>
 </div>
 <style>

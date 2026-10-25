@@ -1,12 +1,12 @@
 // Integrations end-to-end with the REAL inbound handler (tracking), Mailpit, push store and files.
-import { client, expectStatus, ok, section, type Env } from './harness';
+import { client, expectStatus, ok, section, waitFor, type Env } from './harness';
 
 const MAILPIT = process.env.MAILPIT_URL ?? 'http://localhost:18025';
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
 export async function integrationsSuite(env: Env) {
   const c = client(env.base);
-  const T = { dir: (await c.login('dir')).accessToken, plan: (await c.login('kabonge')).accessToken, joel: (await c.login('joel')).accessToken, drv1: (await c.login('+254702750019', '1234')).accessToken };
+  const T = { dir: (await c.login('daniel')).accessToken, plan: (await c.login('kabonge')).accessToken, joel: (await c.login('joel')).accessToken, drv1: (await c.login('+254702750019', '1234')).accessToken };
   const legOf = async (token: string) => (await c.req('GET', '/field/driver', { token })).body.trips[0];
 
   section('Integrations · driver SMS (Africa\'s Talking format) → tracking');
@@ -89,11 +89,13 @@ export async function integrationsSuite(env: Env) {
   const truck = ref.trucks.find((t: any) => t.reg === 'KCX 220D');
   r = await c.req('POST', `/loadings/${pend.id}/confirm`, { token: T.joel, body: { truckId: truck.id, driverId: 'd1', loadedQty: Object.fromEntries(pend.lines.map((l: any) => [l.planLineId, l.orderedQty])), agreedTransport: 900 } });
   ok(r.status === 201, 'hand-over (loading) to drv1', r.body);
-  await new Promise((res) => setTimeout(res, 300));
-  const pushes = (await c.req('GET', '/dev/push')).body as any[];
-  ok(pushes.some((p) => p.tokens?.includes?.('qa-push-token-drv1') || JSON.stringify(p).includes('qa-push-token-drv1')), 'push recorded for the driver on hand-over', pushes.slice(0, 2));
-  const inApp = (await c.req('GET', '/notifications', { token: T.drv1 })).body as any[];
-  ok(inApp.some((n) => /trip assigned|loaded/i.test(n.title)), 'driver gets a personal in-app notification', inApp.map((n) => n.title));
+  // The driver's push + in-app row are sent after the response (NotifyService.pushToDriver is fire-and-forget): poll, don't sleep.
+  let pushes: any[] = [];
+  const pushed = await waitFor(async () => { pushes = (await c.req('GET', '/dev/push')).body as any[]; return pushes.some((p) => p.tokens?.includes?.('qa-push-token-drv1') || JSON.stringify(p).includes('qa-push-token-drv1')); });
+  ok(pushed, 'push recorded for the driver on hand-over', pushes.slice(0, 2));
+  let inApp: any[] = [];
+  const noted = await waitFor(async () => { inApp = (await c.req('GET', '/notifications', { token: T.drv1 })).body as any[]; return inApp.some((n) => /trip assigned|loaded/i.test(n.title)); });
+  ok(noted, 'driver gets a personal in-app notification', inApp.map((n) => n.title));
 
   r = await c.req('POST', '/files', { token: T.drv1, body: { kind: 'photo', name: 'damage.png', contentType: 'image/png', dataBase64: PNG } });
   ok([200, 201].includes(r.status) && r.body.url && r.body.id, 'photo upload', r.body);

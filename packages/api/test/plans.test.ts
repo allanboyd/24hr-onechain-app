@@ -84,13 +84,13 @@ ok(rv.plan.lines.map((l) => `${l.id}:${l.qty}`).join() === 'b:1000,c:500,n1:900'
 
 // role × feature matrix
 ok(!R.featuresFor(['director']).includes('period-plans.approve' as never) && R.PERIOD_PLAN_EDITORS.join() === 'planner,director,admin' && R.PO_EDITORS.includes('admin'), 'no period-plan approval feature; planners, directors and admins edit plans and issue POs');
-ok(R.hasFeature(['accounts'], 'finance') && !R.hasFeature(['planner'], 'finance') && !R.hasFeature(['admin'], 'finance'), 'finance: accounts yes, planner/admin no');
+ok(R.hasFeature(['director'], 'finance') && !R.hasFeature(['planner'], 'finance') && !R.hasFeature(['truck_planner'], 'finance') && !R.hasFeature(['receiver'], 'sales'), 'trip financials and sales: directors (not planners, truck follow-up or receivers)');
 ok(!R.hasFeature(['driver'], 'dashboard') && !R.hasFeature(['loader'], 'reports') && R.hasFeature(['loader'], 'logistics'), 'field roles: no dashboard/reports');
 ok(R.canOpenReport(['sales'], 'sales') && !R.canOpenReport(['sales'], 'finance') && !R.canOpenReport(['driver'], 'sales'), 'reports gated by feature');
 ok(R.canOpenReport(['planner'], 'planned-vs-actual') && !R.canOpenReport(['fleet'], 'planned-vs-actual'), 'planned vs actual: planner yes, fleet no');
 
 // ---- mock client: the demo cycle and the flows ------------------------------------------------------------
-await api.auth.login('u-dir', '');
+await api.auth.login('u-daniel', '');
 ok(api.ref().config.approvals.purchaseOrders === false && api.ref().config.loading.allowancePct === 10, 'ref().config: defaults (PO approval off, ±10 %)');
 api.entities.setActive('e-btw');
 const list = await api.periodPlans.list();
@@ -129,7 +129,7 @@ const old = (await api.periodPlans.list({ all: true })).find((x) => x.id === p.i
 ok(repl.status === 'Active' && !after.some((x) => x.id === p.id) && old.status === 'Replaced' && old.replacedById === repl.id, 'replace: true → the old plan is Replaced (hidden by default, kept for history)');
 await rejects(() => api.periodPlans.save(old), 409, 'a replaced plan cannot be edited');
 await rejects(() => api.periodPlans.save({ ...repl, from: live.from, to: live.to }), 409, 'moving a plan onto another plan\'s period is refused');
-await api.auth.login('u-dir', ''); api.entities.setActive('e-kivu');
+await api.auth.login('u-daniel', ''); api.entities.setActive('e-kivu');
 ok((await api.periodPlans.save({ ...repl, title: 'Edited by the director' })).title === 'Edited by the director', 'directors edit plans directly (no approval)');
 
 // Orders against the plan: over the remaining needs a reason (PO-07)
@@ -156,14 +156,14 @@ let d = await api.plans.create('e-kivu', 's-sbl');
 d = await api.plans.save({ ...d, lines: [{ ...api.plans.newLine(d, 1), qty: 1000, routeId: 'r-mwz-kgl' }] });
 d = await api.plans.submit(d.id);
 ok(d.status === 'Submitted' && !d.poId && R.planStatusLabel(d, api.ref().config) === 'Submitted', 'approvals on: submit waits for the director');
-await api.auth.login('u-dir', ''); api.entities.setActive('e-kivu');
+await api.auth.login('u-daniel', ''); api.entities.setActive('e-kivu');
 d = await api.plans.decide(d.id, 'approved', '', 'sig:director');
 ok(d.status === 'Approved' && d.poId && (await api.pos.get(d.poId!))!.po.approval === 'director' && R.planStatusLabel(d) === 'Approved', 'approvals on: director approves → PO');
 api.demo.setConfig({ approvals: { purchaseOrders: false } });
 await rejects(() => api.plans.decide(pending.id, 'approved', '', 'sig'), 409, 'approvals off: no director decision');
 
 // Loading against the PO: allowance, alternatives, automatic revisions (rule 3)
-await api.auth.login('u-tesfie', ''); api.entities.setActive('e-kivu');
+await api.auth.login('u-sbl-loader', ''); api.entities.setActive('e-kivu');
 const lds = (await api.loading.list('s-sbl')).filter((l) => l.poId === o.poId).sort((a, b) => a.truckNo - b.truckNo);
 const baseRef = issued.po.ref;
 ok(lds.length === 3 && lds[0].nextRevisionRef === `${baseRef}-rev001`, 'pending trucks say which revision a change would create');
@@ -173,7 +173,7 @@ const alt2 = seed2Alt();
 function seed2Alt() { const prods = api.ref().products.filter((x) => x.supplierId === 's-sbl' && x.id !== l1.productId); return prods[0]; }
 const sh1 = await api.loading.confirm(lds[0].id, { truckId: 't5', driverId: 'd5', loadedQty: { [l1.planLineId]: 1700 }, agreedTransport: 900, documents: [], alternatives: [{ productId: alt2.id, qty: 100, replacesPlanLineId: l1.planLineId }] });
 const r1 = (await api.pos.get(sh1.poId))!;
-ok(r1.po.ref === `${baseRef}-rev001` && r1.po.revision === 1 && r1.po.revisionOf === issued.po.id && r1.po.approval === 'revision' && r1.po.createdBy === 'system' && r1.po.onBehalfOfId === 'u-tesfie', 'deviation at loading → rev001 (system, on behalf of the loader)');
+ok(r1.po.ref === `${baseRef}-rev001` && r1.po.revision === 1 && r1.po.revisionOf === issued.po.id && r1.po.approval === 'revision' && r1.po.createdBy === 'system' && r1.po.onBehalfOfId === 'u-sbl-loader', 'deviation at loading → rev001 (system, on behalf of the loader)');
 ok(r1.po.changes?.length === 2 && r1.po.changes.some((c) => c.kind === 'qty' && c.ordered === 2000 && c.loaded === 1700) && r1.po.changes.some((c) => c.kind === 'alternative' && c.loaded === 100), 'rev001 lists the changes (qty, alternative)');
 ok(sh1.legs[0].lines.reduce((a, l) => a + l.loadedQty, 0) === 1800 && sh1.legs[0].lines.some((l) => l.productId === alt2.id), 'shipment carries the loaded + alternative cases and links to rev001');
 const orig = (await api.pos.get(issued.po.id))!;
@@ -198,14 +198,16 @@ ok(pv2.lines.flatMap((l) => l.pos).filter((x) => x.ref.startsWith(baseRef)).redu
 await rejects(() => api.plans.amend(o.id, 'more'), 409, 'a revised order is not amended');
 
 // Feature gating: accounts read plans, can't edit; sales/drivers don't see them; thresholds are directors'
-await api.auth.login('u-acc', '');
-ok((await api.periodPlans.list()).length > 0, 'accounts can view period plans');
-await rejects(() => api.periodPlans.create({ periodKind: 'month', from: '2026-12-01', to: '2026-12-31', title: 'x', entityId: 'e-btw' } as never), 403, 'accounts cannot create period plans');
-await rejects(() => api.settings.setPvThresholds({ behind: 0.9 }), 403, 'accounts cannot change PV thresholds');
+await api.auth.login('u-kabonge', '');
+ok((await api.periodPlans.list()).length > 0, 'Kabonge views period plans');
+await rejects(() => api.settings.setPvThresholds({ behind: 0.9 }), 403, 'Kabonge cannot change PV thresholds');
+await api.auth.login('u-testfie', '');
+await rejects(() => api.periodPlans.list(), 403, 'the truck follow-up officer has no period plans');
+await rejects(() => api.periodPlans.create({ periodKind: 'month', from: '2026-12-01', to: '2026-12-31', title: 'x', entityId: 'e-btw' } as never), 403, 'the truck follow-up officer cannot create period plans');
 await api.auth.login('u-asie', '');
 await rejects(() => api.periodPlans.list(), 403, 'receiver has no period plans');
 await rejects(() => api.reports.plannedVsActual({}), 403, 'receiver has no planned vs actual');
-await api.auth.login('u-dir', '');
+await api.auth.login('u-daniel', '');
 await rejects(() => api.settings.setPvThresholds({ behind: 1.4 }), 422, 'thresholds validated');
 ok((await api.settings.setPvThresholds({ behind: 0.9, over: 1.1 })).over === 1.1, 'director sets PV thresholds');
 

@@ -12,7 +12,9 @@
   import PageTabs from '../components/PageTabs.svelte';
   import LoadingOverview from '../components/overview/LoadingOverview.svelte';
   import { currentTab, qp } from '../lib/tab';
-  import { defaultConfig, loadingCheck, QUEUE_EDITORS, QUEUE_REMOVE_REASONS, seesLoadingPoint } from '@btw/api/rules';
+  import { defaultConfig, loadingCheck, QUEUE_REMOVE_REASONS, seesLoadingPoint } from '@btw/api/rules';
+  import { canEditQueue, canRecordLoading } from '@btw/api/access';
+  import { can } from '../lib/features';
   import { waitLabel } from '@btw/api/trucks';
   import GripVertical from '@lucide/svelte/icons/grip-vertical';
   import type { LoadingAlternative } from '@btw/api';
@@ -22,11 +24,20 @@
 
   const r = ref();
   // Loading points this user works (same rule as the API): office roles all; loaders and truck planners their own.
-  const points = $derived(r.suppliers.filter((s) => user.roles.some((x) => x === 'director' || x === 'admin') || seesLoadingPoint(user, s.id)));
-  const canQueue = $derived(user.roles.some((x) => QUEUE_EDITORS.includes(x)));
+  // A pair-scoped planner (Kabonge) sees the points of his pairs only; the user's own loading points come first.
+  const points = $derived(r.suppliers.filter((s) => (user.roles.some((x) => x === 'director' || x === 'admin') || seesLoadingPoint(user, s.id))
+    && (!user.roles.includes('planner') || !user.pairs?.length || user.pairs.some((p) => p.supplierId === s.id)))
+    .sort((a, b) => Number(user.loadingPointIds.includes(b.id)) - Number(user.loadingPointIds.includes(a.id))));
+
   const LONG_WAIT_H = 24;
   const waitH = (w: WaitingEntry) => Math.max(0, (Date.now() - Date.parse(w.arrivedAt)) / 36e5);
   let lp = $state(qp('lp'));
+  // docs/12 §7: queues — Testfie anywhere, Kabonge on his pairs' points, loaders at their own (Q11 to confirm); directors view.
+  const canQueue = $derived(!!lp && canEditQueue(user, lp));
+  // Loadings are recorded only by the loaders of that point (and Testfie at GBI Mombasa); directors and Kabonge view.
+  const canRecord = $derived(!!lp && canRecordLoading(user, lp));
+  // The agreed transport price is recorded after loading by the truck follow-up officer (A-04) — never by a loader.
+  const priceAtLoading = $derived(can(user, 'truck-expenses'));
   $effect(() => { if (!lp && points.length) lp = points[0].id; });
 
   let waiting = $state<WaitingEntry[]>([]);
@@ -110,7 +121,8 @@
     altOpen = false; altProduct = ''; altQty = 0; altFor = '';
   }
   function missing(id: string) { qty[id] = 0; altFor = id; altQty = cur?.lines.find((x) => x.planLineId === id)?.orderedQty ?? 0; altOpen = true; }
-  let transport = $state(0);
+  let transport = $state<number | ''>('');
+  let transportCurrency = $state<'USD' | 'KES' | 'UGX' | 'TZS' | 'RWF'>('USD');
   let docs = $state<Record<string, string>>({ 'Delivery note': '', Invoice: '', 'Gate pass': '' });
   let busy = $state(false);
   let recErr = $state('');
@@ -121,18 +133,17 @@
     driverId = top?.driverId ?? lookup.truck(truckId)?.defaultDriverId ?? r.drivers[0].id;
     qty = Object.fromEntries(l.lines.map((x) => [x.planLineId, x.orderedQty]));
     alts = []; altOpen = false; altProduct = ''; altQty = 0; altFor = '';
-    recErr = ''; transport = 0; docs = { 'Delivery note': '', Invoice: '', 'Gate pass': '' };
+    recErr = ''; transport = ''; transportCurrency = 'USD'; docs = { 'Delivery note': '', Invoice: '', 'Gate pass': '' };
     recDlg?.showModal();
   }
   const total = $derived(check?.loaded ?? 0);
   const cap = $derived(lookup.truck(truckId)?.capacityCases ?? 0);
   async function confirm() {
     recErr = '';
-    if (!transport) { recErr = 'Enter the agreed transport price (§17.5)'; return; }
     if (check?.error) { recErr = check.error; return; }
     busy = true;
     try {
-      const sh = await loading.confirm(cur!.id, { truckId, driverId, loadedQty: $state.snapshot(qty), alternatives: $state.snapshot(alts), agreedTransport: transport, documents: Object.entries(docs).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`) });
+      const sh = await loading.confirm(cur!.id, { truckId, driverId, loadedQty: $state.snapshot(qty), alternatives: $state.snapshot(alts), ...(priceAtLoading && Number(transport) > 0 ? { agreedTransport: Number(transport), transportCurrency } : {}), documents: Object.entries(docs).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`) });
       recDlg?.close(); say(`Loading confirmed — ${sh.ref} created${check?.deviates && cur?.nextRevisionRef ? ` · PO revised → ${cur.nextRevisionRef}` : ''}`); router.go(`/shipments/${sh.id}`);
     } catch (e) { recErr = (e as Error).message; } finally { busy = false; }
   }
@@ -191,7 +202,7 @@
             <td class="mono"><a href="#/pos/{l.poId}">{poRef(l.poId)}</a></td>
             <td class="num"><strong>{l.truckNo}</strong></td>
             <td class="small">{#each l.lines as x}<div>{lookup.product(x.productId)?.brand} · {lookup.product(x.productId)?.pack} — <span class="num">{fmtNum(x.orderedQty)}</span></div>{/each}</td>
-            <td><RecordFor entityId={poEntity(l)} cue={false}><button class="btn btn-accent btn-sm" onclick={() => openRecord(l)}>Record loading</button></RecordFor></td>
+            <td>{#if canRecord}<RecordFor entityId={poEntity(l)} cue={false}><button class="btn btn-accent btn-sm" onclick={() => openRecord(l)}>Record loading</button></RecordFor>{:else}<span class="caption">Recorded by the loader</span>{/if}</td>
           </tr>
         {:else}<tr><td colspan="4" class="empty">{ready ? 'Nothing to load here — new lines appear when a plan for this supplier is approved' : 'Loading…'}</td></tr>{/each}
       </tbody>
@@ -308,7 +319,12 @@
           {:else}<p class="small muted">Exactly as ordered — no PO revision.</p>{/if}
         </div>
       {/if}
-      <label class="field"><span>Agreed transport price (USD)</span><input class="input num" type="number" min="0" step="0.01" bind:value={transport} /><span class="help">Carried to trip financials as the transport cost (§17.5).</span></label>
+      {#if priceAtLoading}
+        <div class="form-grid">
+          <label class="field"><span>Agreed transport price (optional)</span><input class="input num" type="number" min="0" step="0.01" bind:value={transport} /><span class="help">Can be recorded later on the Truck desk.</span></label>
+          <label class="field"><span>Currency</span><select class="select" bind:value={transportCurrency}>{#each ['USD', 'KES', 'UGX', 'TZS', 'RWF'] as c}<option>{c}</option>{/each}</select></label>
+        </div>
+      {:else}<p class="caption">No prices here — the agreed transport price is recorded after loading by the truck follow-up officer.</p>{/if}
       <div class="stack-sm">
         <span class="label">Supplier documents (LD-04)</span>
         {#each Object.keys(docs) as k}
