@@ -31,9 +31,10 @@ const mo = (k: keyof typeof import('./screens/money')) => () => import('./screen
 export type WebRoute = Omit<RouteDef, 'component'> & { component?: RouteDef['component']; load?: () => Promise<{ default: any }> };
 export const routes: WebRoute[] = [
   { path: '/', load: () => import('./screens/dash/Home.svelte'), title: 'Home' },
-  { path: '/dashboards', load: () => import('./screens/dash/Area.svelte'), title: 'Dashboards' },
-  { path: '/dashboards/:group', load: () => import('./screens/dash/Area.svelte'), title: 'Dashboards' },
-  { path: '/overview', load: () => import('./screens/Dashboard.svelte'), title: 'Command view' },
+  // One home with tabs (own dashboards, feature groups, companies side by side) — old links land on the right tab
+  { path: '/dashboards', load: () => import('./screens/dash/Home.svelte'), title: 'Home' },
+  { path: '/dashboards/:group', load: () => import('./screens/dash/Home.svelte'), title: 'Home' },
+  { path: '/overview', load: () => import('./screens/dash/Home.svelte'), title: 'Home' },
   { path: '/period-plans', load: () => import('./screens/PeriodPlans.svelte'), title: 'Period plans' },
   { path: '/period-plans/new', load: () => import('./screens/PeriodPlanNew.svelte'), title: 'New period plan' },
   { path: '/period-plans/:id', load: () => import('./screens/PeriodPlanDetail.svelte'), title: 'Period plan' },
@@ -69,7 +70,7 @@ export const routes: WebRoute[] = [
 
 type NavItem = { href: string; label: string; icon: any; feature?: Feature | Feature[] };
 export const nav: { label: string; items: NavItem[] }[] = [
-  { label: 'Overview', items: [{ href: '#/', label: 'Home', icon: LayoutDashboard }, { href: '#/dashboards', label: 'Dashboards', icon: ChartArea }] },
+  { label: 'Overview', items: [{ href: '#/', label: 'Home', icon: LayoutDashboard }] },
   { label: 'Procurement', items: [
     { href: '#/period-plans', label: 'Period plans', icon: CalendarRange, feature: 'period-plans' },
     { href: '#/plans', label: 'PO drafts & approvals', icon: ClipboardList, feature: 'purchase-orders' },

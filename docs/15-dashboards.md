@@ -9,9 +9,9 @@ The phone app's home screens (D-A1) are a separate piece of work.
 
 | Route | What |
 |---|---|
-| `#/` **Home** | Each person's own dashboards (§10 of the proposal) — see §3. Every web user starts here. |
-| `#/dashboards` · `#/dashboards/<group>` | **Dashboards** area by feature group: `business`, `purchasing`, `loading`, `fleet`, `fees`, `deliveries`, `warehouse`, `sales`, `admin`. Only the groups and dashboards the person may open. |
-| `#/overview` | The earlier command view (directors) and, in the Group view, the companies side by side — linked from the directors' home. |
+| `#/` **Home** | **One page with tabs** (26 Oct 2026): *My dashboards* (the person's own set, §3) first, then one tab per feature group they may open (Business, Purchasing, Loading, Fleet, Fees & expenses, Deliveries, Warehouse, Sales, Alerts & admin), and for directors in the Group view *Companies* (side by side). Every web user starts here. |
+| `#/dashboards/<group>` | Opens Home on that group's tab (`business`, `purchasing`, `loading`, `fleet`, `fees`, `deliveries`, `warehouse`, `sales`, `admin`). |
+| `#/overview` | Opens Home on the *Companies* tab (directors, Group view); the separate command view page was removed. |
 
 Every panel uses `DashboardPanel`: metric definition (ⓘ), unit / currency, date range, freshness ("Updated …" = time of the
 **newest underlying record**, amber after 30 days without a new record; live panels 6–12 h), **View data**, **Export** CSV / Excel / PDF,

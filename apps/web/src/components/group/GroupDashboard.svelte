@@ -12,7 +12,8 @@
   import { can } from '../../lib/features';
   import { allowedIds, setCompany } from '../../lib/company.svelte';
   import { companyBrand, companyLabel } from '../../lib/companies';
-  let { user }: { user: User } = $props();
+  // embedded: shown as the "Companies side by side" tab of Home, which has its own heading
+  let { user, embedded = false }: { user: User; embedded?: boolean } = $props();
 
   type Kpis = GroupReport['total'];
   let g = $state<GroupReport | null>(null);
@@ -47,11 +48,15 @@
   const go = (id: string) => setCompany(user, id);
 </script>
 
+{#if embedded}
+  <p class="caption">BTW Global · Nihna Unique · Kivu combined · last 30 days{g ? ` · ${g.fxBasis}` : ''}</p>
+{:else}
 <div class="page-head">
   <div><div class="overline crumb">Group command view</div><h1>Good day, {user.name.split(' ')[0]}</h1>
     <p class="caption">BTW Global · Nihna Unique · Kivu combined · last 30 days{g ? ` · ${g.fxBasis}` : ''}</p></div>
   <div class="row"><a class="btn btn-secondary" href="#/reports">Group reports</a></div>
 </div>
+{/if}
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
 
 {#if !g}
