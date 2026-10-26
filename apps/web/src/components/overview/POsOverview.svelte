@@ -4,7 +4,7 @@
   import { BarChart, ChartCard, Donut, StatTile, byMonth, monthLabel, usd } from '../charts';
   import { drill } from '../../lib/tab';
   let { list, plans, loads, ships }: { list: PurchaseOrder[]; plans: Plan[]; loads: Loading[]; ships: Shipment[] } = $props();
-  const value = (po: PurchaseOrder) => plans.find((p) => p.id === po.planId)?.lines.reduce((a, l) => a + amount(l.qty, l.price), 0) ?? 0;
+  const value = (po: PurchaseOrder) => po.amount ?? plans.find((p) => p.id === po.planId)?.lines.reduce((a, l) => a + amount(l.qty, l.price), 0) ?? 0;
   const prog = (po: PurchaseOrder) => {
     const ld = loads.filter((l) => l.poId === po.id), sh = ships.filter((s) => s.poId === po.id);
     const delivered = sh.filter((s) => s.status === 'Acknowledged').length, moving = sh.length - delivered;
@@ -23,7 +23,7 @@
 
 <div class="tiles">
   <StatTile label="Purchase orders" value={String(list.length)} hint={usd(list.reduce((a, p) => a + value(p), 0))} />
-  <StatTile label="Not yet sent" value={String(list.filter((p) => !p.sentAt).length)} hint="to the supplier export section" onclick={() => drill('/pos', {})} />
+  <StatTile label="Not yet sent" value={String(list.filter((p) => !p.sentAt && p.status === 'Issued').length)} hint="to the supplier export section" onclick={() => drill('/pos', { stage: 'Created' })} />
   <StatTile label="Trucks to load" value={String(tot.toLoad)} hint="on open orders" />
   <StatTile label="Trucks delivered" value={`${tot.delivered} of ${tot.trucks}`} hint="{tot.moving} on the road" />
 </div>

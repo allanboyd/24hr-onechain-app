@@ -53,10 +53,9 @@ await rejects(api.finance.trips(), /role|403/, 'Yonas: no trip money');
 
 // ---- loading without a price → Testfie records it afterwards ------------------------------------------------------------------
 await as('u-kabonge'); api.entities.setActive('e-btw');
-let o = await api.plans.create('e-btw', 's-kbl');
-o = await api.plans.save({ ...o, title: 'QA', lines: [{ ...api.plans.newLine(o, 1), qty: 1000, routeId: 'r-nbo-kgl' }] });
-o = await api.plans.submit(o.id);
-await rejects(api.plans.create('e-nud', 's-gbi'), /pairs|403/, 'Kabonge cannot raise a Nihna–GBI order');
+const o0 = await api.pos.create({ entityId: 'e-btw', supplierId: 's-kbl', title: 'QA', lines: [{ ...api.pos.newLine('s-kbl', 1), qty: 1000, routeId: 'r-nbo-kgl' }] });
+const o = { poId: o0.id };
+await rejects(api.pos.create({ entityId: 'e-nud', supplierId: 's-gbi', title: 'QA', lines: [{ ...api.pos.newLine('s-gbi', 1), qty: 1000 }] }), /pairs|403/, 'Kabonge cannot raise a Nihna–GBI order');
 await as('u-daniel');
 const ld0 = (await api.loading.list('s-kbl')).find((l) => l.poId === o.poId)!;
 await rejects(api.loading.confirm(ld0.id, { truckId: 't2', driverId: 'd3', loadedQty: {}, documents: [] }), /loaders|403/, 'a director views loadings but does not record them');

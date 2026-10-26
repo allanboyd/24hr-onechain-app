@@ -1,5 +1,6 @@
 // Team app routes (hash router from @btw/ui, so the Android back button and browser history work).
-// Links in notifications use the web app's paths (#/shipments/:id, #/plans/:id …); they map onto team screens.
+// Links in notifications use the web app's paths (#/shipments/:id, #/pos/:id …); they map onto team screens.
+// Old order-draft links (#/plans/:id, #/orders/draft/:id) parse as kind 'draft'; Team.svelte redirects them to the PO.
 import type { SectionId } from './access';
 
 export type View =

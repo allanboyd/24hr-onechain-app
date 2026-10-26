@@ -51,7 +51,7 @@ export function setCompany(u: User, id: string) {
   const q = new URLSearchParams(qs); q.set('co', id === GROUP ? GROUP : companyBrand(id).code);
   // A detail page (plan, PO, shipment) belongs to the previous company: leave it for its list FIRST, then switch,
   // so the old page never refetches its record under the new company (which would be a "not found").
-  const detail = path.match(/^\/(plans|pos|shipments)\/(?!new$)[^/]+$/);
+  const detail = path.match(/^\/(plans|pos|shipments)\/(?!new$)[^/]+(?:\/edit)?$/);
   if (detail) { location.hash = `/${detail[1]}?${q}`; setTimeout(() => apply(id), 0); return; }
   apply(id);
   history.replaceState(null, '', `#${path}?${q}`);

@@ -1,11 +1,11 @@
 <script lang="ts">
   // Home: greeting, then the person's own home (docs/11 D-A1, dashboards document §10) — directors, Kabonge and Testfie
   // get their lazy persona home (homes/*); other office roles keep main menu · KPI cards · needs attention.
-  import { analytics, finance, plans, shipments, type User } from '@btw/api';
+  import { analytics, finance, shipments, type User } from '@btw/api';
   import { reportsApi } from '../reports';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import CircleCheck from '@lucide/svelte/icons/circle-check';
-  import { can, canIssuePO, canTransport, loadLabel, mayApprovePOs, menuFor } from '../access';
+  import { can, canIssuePO, canTransport, loadLabel, menuFor } from '../access';
   import { loadDesk } from '../desk';
   import { ICONS, TINT } from '../icons';
   import { activeBrand, co } from '../company.svelte';
@@ -26,19 +26,18 @@
   const persona = (Object.keys(HOMES) as (keyof typeof HOMES)[]).find((r) => user.roles.includes(r));
 
   const r = new Res<HomeData>(async () => {
-    if (persona) return { sum: null, dash: null, trips: null, ships: null, inv: null, drafts: null };
+    if (persona) return { sum: null, dash: null, trips: null, ships: null, inv: null };
     const reports = await reportsApi();
-    const [sum, dash, trips, ships, inv, drafts, desk] = await Promise.all([
+    const [sum, dash, trips, ships, inv, desk] = await Promise.all([
       settle(analytics.summary(), null),
       can(user, 'dashboard') ? settle(reports.dashboard(), null) : null,
       can(user, 'finance') || can(user, 'truck-expenses') ? settle(finance.trips(), null) : null,
       can(user, 'logistics') ? settle(shipments.list(), null) : null,
       can(user, 'inventory') ? settle(reports.inventory(), null) : null,
-      can(user, 'purchase-orders') && (canIssuePO(user) || mayApprovePOs(user)) ? settle(plans.list(), null) : null,
       can(user, 'trucks') && user.roles.includes('truck_planner') ? settle(loadDesk(user), null) : null,
     ]);
     if (!sum && !dash) throw new Error('Could not load your numbers. Check your connection.');
-    return { sum, dash, trips: desk?.trips ?? trips, ships, inv, drafts, desk };
+    return { sum, dash, trips: desk?.trips ?? trips, ships, inv, desk };
   });
   $effect(() => { if (!persona) return r.live(60_000); });
   $effect(() => { if (!persona) return onRefresh(() => r.reload()); });
@@ -119,7 +118,7 @@
   <section class="t-card make">
     <strong>Need to raise a new purchase order or period plan?</strong>
     <span class="t-meta">Bigger forms work best on a computer.</span>
-    <WebButton path="/plans/new" label="New purchase order" />
+    <WebButton path="/pos/new" label="New purchase order" />
   </section>
 {/if}
 {/if}

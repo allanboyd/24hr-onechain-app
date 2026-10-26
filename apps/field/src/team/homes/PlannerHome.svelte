@@ -69,7 +69,7 @@
     <a class="t-item card" href="#/notifications">
       <span class="t-main">
         <span class="t-line1"><span class="t-ellipsis">Alerts</span><StatusChip tone={unread ? 'info' : 'success'} label={unread ? `${unread} new` : 'All read'} /></span>
-        <span class="t-meta t-ellipsis">{firstAlert ? firstAlert.title : 'Revisions at loading, returned orders and plan warnings arrive here'}</span>
+        <span class="t-meta t-ellipsis">{firstAlert ? firstAlert.title : 'Revisions at loading, updates and plan warnings arrive here'}</span>
       </span>
       <ChevronRight class="t-chev" size={20} />
     </a>
@@ -81,7 +81,7 @@
   <section class="t-card make">
     <strong>Need to raise a new purchase order or period plan?</strong>
     <span class="t-meta">Bigger forms work best on a computer.</span>
-    <WebButton path="/plans/new" label="New purchase order" />
+    <WebButton path="/pos/new" label="New purchase order" />
   </section>
 {/if}
 <SyncLine refreshing={r.refreshing} />

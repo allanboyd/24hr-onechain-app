@@ -14,7 +14,7 @@ export const DEMO_PIN = '1234';
 
 const TABLES = [
   'users', 'entities', 'receiving_companies', 'warehouses', 'suppliers', 'products', 'price_list', 'providers', 'trucks', 'drivers',
-  'checkpoints', 'routes', 'plans', 'plan_versions', 'period_plans', 'period_plan_versions', 'pos', 'waiting_entries', 'loadings', 'shipments', 'legs', 'acks', 'positions',
+  'checkpoints', 'routes', 'plans', 'plan_versions', 'period_plans', 'period_plan_versions', 'pos', 'po_versions', 'waiting_entries', 'loadings', 'shipments', 'legs', 'acks', 'positions',
   'stock_moves', 'sales', 'trip_costs', 'trip_payments', 'notifications', 'notification_reads', 'audit_log', 'idempotency_keys',
   'devices', 'refresh_tokens', 'files', 'settings', 'fx_rates', 'warehouse_expenses', 'selling_prices', 'reexport_orders',
 ];
@@ -56,7 +56,10 @@ export async function seedDemo(db: Db) {
     if (pps.length) await tx.insert(t.periodPlans).values(pps.map((x) => ({ ...x, copiedFromId: x.copiedFromId ?? null, amendReason: null, replacedById: x.replacedById ?? null })));
     for (const x of pps)
       await tx.insert(t.periodPlanVersions).values({ planId: x.id, version: x.version, snapshot: x, byUserId: x.createdById });
-    if (d.pos.length) await tx.insert(t.pos).values(d.pos.map((p) => ({ ...p, sentAt: p.sentAt ?? null, signature: p.signature ?? null, approval: p.approval ?? 'director', revisionOf: p.revisionOf ?? null, revision: p.revision ?? null, changes: p.changes ?? null, revisionReason: p.revisionReason ?? null, createdBy: p.createdBy ?? null, onBehalfOfId: p.onBehalfOfId ?? null, supersededById: p.supersededById ?? null })));
+    if (d.pos.length) await tx.insert(t.pos).values(d.pos.map((p) => ({ ...p, sentAt: p.sentAt ?? null, signature: p.signature ?? null, approval: p.approval ?? 'director', revisionOf: p.revisionOf ?? null, revision: p.revision ?? null, changes: p.changes ?? null, revisionReason: p.revisionReason ?? null, createdBy: p.createdBy ?? null, onBehalfOfId: p.onBehalfOfId ?? null, supersededById: p.supersededById ?? null,
+      status: p.status ?? 'Issued', revisionKind: p.revisionKind ?? null, lineChanges: p.lineChanges ?? null, deletedAt: p.deletedAt ?? null, deletedById: p.deletedById ?? null, deleteReason: p.deleteReason ?? null })));
+    // docs/09 §4: immutable snapshot of every PO version (original + office updates + loading revisions)
+    if (d.poVersions?.length) await tx.insert(t.poVersions).values(d.poVersions.map((v) => ({ ...v, entityId: d.pos.find((x) => x.id === v.poId)?.entityId ?? '', reason: v.reason ?? null })));
     if (d.waiting.length) await tx.insert(t.waitingEntries).values(d.waiting);
     const poSupplier = new Map(d.pos.map((p) => [p.id, p]));
     if (d.loadings.length) await tx.insert(t.loadings).values(d.loadings.map((l) => ({ ...l, loadedAt: l.loadedAt ?? null })));

@@ -1,8 +1,8 @@
 // Per-person phone home screens (docs/11 D-A1, client dashboards document §10) and their drill-down lists.
 // Everything is derived here from the client calls the API already scopes to the signed-in person (analytics.summary,
-// reports.*, loading.list, shipments.list, plans/pos, finance.fees, notifications, the truck desk) — no new endpoint.
+// reports.*, loading.list, shipments.list, pos, finance.fees, notifications, the truck desk) — no new endpoint.
 // Pure builders + small loaders; lazy chunk shared by the persona homes (homes/*) and the list screen (screens/Glance).
-import { analytics, finance, loading, notifications, plans, pos, shipments, type Loading, type Notification, type Plan, type PurchaseOrder, type Shipment, type TransportFeeRow, type User } from '@btw/api';
+import { analytics, finance, loading, notifications, pos, shipments, type Loading, type Notification, type PurchaseOrder, type Shipment, type TransportFeeRow, type User } from '@btw/api';
 import type { DashboardReport, InventoryReport, PerformanceReport, PlannedVsActual } from '@btw/api';
 import { ON_ROAD, TRUCK_STATES, type TruckRow, type TruckState } from '@btw/api/trucks';
 import { lookup } from '@btw/api';
@@ -88,7 +88,7 @@ export function directorKpis(u: User, d: DirectorData): Kpi[] {
   }
   if (d.loadings) {
     const p = pendingLoads(d.loadings); const orders = new Set(p.map((l) => l.poId)).size;
-    out.push({ key: 'toload', label: 'Awaiting loading', value: num(orders), hint: `${plural(p.length, 'truck')} still to load`, tone: orders ? 'warning' : undefined, href: '/glance/pipeline?stage=toload' });
+    out.push({ key: 'toload', label: 'Awaiting loading', value: num(orders), hint: `${plural(p.length, 'truck')} still to load`, tone: orders ? 'warning' : undefined, href: '/glance/pipeline?stage=sent' });
   }
   if (k || s) out.push({ key: 'stock', label: 'Stock value', value: usd(k?.stockValue ?? s!.stockValue), hint: k?.stockCover ? `${k.stockCover} days of cover` : 'at landed cost', href: can(u, 'inventory') ? '/stock' : undefined });
   const cur = d.perf?.totals, prev = d.perfPrev?.totals;
@@ -171,63 +171,53 @@ export function agreedList(fees: TransportFeeRow[]): GList {
 // =====================================================================================================================
 // Kabonge (purchase planner): PO pipeline, ordered vs loaded vs delivered, ageing, plan vs actual, alerts
 // =====================================================================================================================
-export type StageId = 'draft' | 'approval' | 'issued' | 'toload' | 'loading' | 'road' | 'delivered';
+export type StageId = 'approval' | 'created' | 'sent' | 'loading' | 'road' | 'delivered';
+// The PO's own stage (pos.list → stage); "Awaiting approval" only exists when config approvals.purchaseOrders is on.
 export const STAGES: { id: StageId; label: string; tone: Tone }[] = [
-  { id: 'draft', label: 'Draft', tone: 'neutral' },
-  // With PO approval switched off (config.toml) a submitted draft is simply ready for the planner to issue
-  { id: 'approval', get label() { return poApprovalRequired() ? 'Waiting approval' : 'Ready to issue'; }, tone: 'warning' },
-  { id: 'issued', label: 'Issued, not sent', tone: 'warning' },
-  { id: 'toload', label: 'Waiting to load', tone: 'info' },
+  { id: 'approval', label: 'Awaiting approval', tone: 'warning' },
+  { id: 'created', label: 'Created, not sent', tone: 'warning' },
+  { id: 'sent', label: 'Sent to supplier', tone: 'info' },
   { id: 'loading', label: 'Loading', tone: 'info' },
   { id: 'road', label: 'On the road', tone: 'info' },
   { id: 'delivered', label: 'Delivered (30 days)', tone: 'success' },
 ];
+const stagesShown = () => STAGES.filter((s) => s.id !== 'approval' || poApprovalRequired());
+const STAGE_OF: Record<string, StageId> = { 'Awaiting approval': 'approval', Created: 'created', Sent: 'sent', Loading: 'loading', 'On the road': 'road', Delivered: 'delivered' };
 export interface OrderFlow { id: string; ref: string; href: string; entityId: string; supplierId: string; date: string; stage: StageId; gap: Gap; trucks: number; trucksLoaded: number; ageDays: number }
 export interface PlannerData { flows: OrderFlow[]; pv: PlannedVsActual | null; notes: Notification[] | null }
 export async function loadPlanner(u: User): Promise<PlannerData> {
   const rp = await reportsApi();
-  const [ps, os, ls, ss, pv, notes] = await Promise.all([
-    settle(plans.list(), [] as Plan[]), settle(pos.list(), [] as PurchaseOrder[]), can(u, 'loading') ? settle(loading.list(), [] as Loading[]) : ([] as Loading[]),
+  const [os, ls, ss, pv, notes] = await Promise.all([
+    settle(pos.list(), [] as PurchaseOrder[]), can(u, 'loading') ? settle(loading.list(), [] as Loading[]) : ([] as Loading[]),
     can(u, 'logistics') ? settle(shipments.list(), [] as Shipment[]) : ([] as Shipment[]),
     can(u, 'planned-vs-actual') ? settle(rp.plannedVsActual(), null) : null, settle(notifications.list(), null),
   ]);
-  return { flows: orderFlows(ps, os, ls, ss), pv, notes };
+  return { flows: orderFlows(os, ls, ss), pv, notes };
 }
-/** One row per order (latest revision): its stage and ordered → loaded → delivered cases. */
-export function orderFlows(ps: Plan[], os: PurchaseOrder[], ls: Loading[], ss: Shipment[], now = Date.now()): OrderFlow[] {
-  const poById = new Map(os.map((p) => [p.id, p]));
-  const base = (poId: string) => poById.get(poId)?.revisionOf ?? poId;
-  const planById = new Map(ps.map((p) => [p.id, p]));
+/** One row per effective PO (latest revision): its stage and ordered → loaded → delivered cases. */
+export function orderFlows(os: PurchaseOrder[], ls: Loading[], ss: Shipment[], now = Date.now()): OrderFlow[] {
   const out: OrderFlow[] = [];
-  for (const p of ps) {
-    if (p.poId || p.revisionOf || p.status === 'Approved' || p.status === 'Rejected') continue; // ordered ones come from their PO below
-    const ordered = sumOf(p.lines, (l) => l.qty);
-    out.push({ id: p.id, ref: p.ref, href: `/orders/draft/${p.id}`, entityId: p.entityId, supplierId: p.supplierId, date: p.date, stage: p.status === 'Submitted' ? 'approval' : 'draft', gap: { ordered, loaded: 0, delivered: 0 }, trucks: new Set(p.lines.map((l) => l.truckNo)).size, trucksLoaded: 0, ageDays: Math.max(0, Math.floor((now - t(p.date)) / DAY)) });
-  }
   for (const po of os) {
-    if (po.supersededById) continue;
-    const b = base(po.id); const basePo = poById.get(b) ?? po;
-    const plan = planById.get(basePo.planId) ?? planById.get(po.planId);
-    const lds = ls.filter((l) => base(l.poId) === b);
-    const shs = ss.filter((s) => !s.parentShipmentId && base(s.poId) === b && s.status !== 'Cancelled');
-    const ordered = plan ? sumOf(plan.lines, (l) => l.qty) : sumOf(lds, (l) => sumOf(l.lines, (x) => x.orderedQty));
+    const stage = po.stage ? STAGE_OF[po.stage] : po.status === 'Deleted' ? undefined : po.sentAt ? 'sent' : 'created';
+    if (!stage || po.supersededById || (stage === 'approval' && !poApprovalRequired())) continue;
+    // Revisions move loadings and shipments onto the new PO; match older ids of the chain by the base id / ref too.
+    const ofChain = (x: { poId: string; poRef?: string }) => x.poId === po.id || (!!po.revisionOf && x.poId === po.revisionOf) || (!!x.poRef && !!po.baseRef && (x.poRef === po.baseRef || x.poRef.startsWith(`${po.baseRef}-rev`)));
+    const lds = ls.filter(ofChain);
+    const shs = ss.filter((s) => !s.parentShipmentId && s.status !== 'Cancelled' && ofChain(s as Shipment & { poRef?: string }));
+    const ordered = po.cases ?? sumOf(lds, (l) => sumOf(l.lines, (x) => x.orderedQty));
     const done = lds.filter((l) => l.status === 'Loaded');
     const loaded = sumOf(done, (l) => sumOf(l.lines, (x) => x.loadedQty));
-    const acked = shs.filter((s) => s.status === 'Acknowledged');
-    const delivered = sumOf(acked, (s) => sumOf(s.legs[0]?.lines ?? [], (x) => x.loadedQty));
-    const pending = lds.length - done.length;
-    const stage: StageId = !done.length ? (po.sentAt ? 'toload' : 'issued') : pending > 0 ? 'loading' : !shs.length || acked.length < shs.length ? 'road' : 'delivered';
+    const delivered = sumOf(shs.filter((s) => s.status === 'Acknowledged'), (s) => sumOf(s.legs[0]?.lines ?? [], (x) => x.loadedQty));
     const ageDays = Math.max(0, Math.floor((now - t(po.date)) / DAY));
     if (stage === 'delivered' && ageDays > 45) continue; // keep the pipeline about recent and open orders
-    out.push({ id: po.id, ref: po.ref, href: `/orders/po/${po.id}`, entityId: po.entityId, supplierId: po.supplierId, date: po.date, stage, gap: { ordered, loaded, delivered }, trucks: lds.length || (plan ? new Set(plan.lines.map((l) => l.truckNo)).size : 0), trucksLoaded: done.length, ageDays });
+    out.push({ id: po.id, ref: po.ref, href: `/orders/po/${po.id}`, entityId: po.entityId, supplierId: po.supplierId, date: po.date, stage, gap: { ordered, loaded, delivered }, trucks: Math.max(lds.length, po.trucks ?? 0), trucksLoaded: done.length, ageDays });
   }
   return out.sort((a, b) => b.date.localeCompare(a.date));
 }
-export const OPEN: StageId[] = ['issued', 'toload', 'loading', 'road'];
+export const OPEN: StageId[] = ['created', 'sent', 'loading', 'road'];
 export const AGE_BUCKETS = [{ id: 'lt3', label: 'Under 3 days', min: 0, max: 3, tone: 'success' as Tone }, { id: '3to7', label: '3–7 days', min: 3, max: 8, tone: 'warning' as Tone }, { id: 'gt7', label: 'Over 7 days', min: 8, max: Infinity, tone: 'danger' as Tone }];
 export function stageTiles(flows: OrderFlow[]): CountTile[] {
-  return STAGES.map((s) => ({ id: s.id, label: s.label, count: flows.filter((f) => f.stage === s.id).length, tone: s.tone, href: `/glance/pipeline?stage=${s.id}` }))
-    .filter((x) => x.count || !['approval', 'draft'].includes(x.id));
+  return stagesShown().map((s) => ({ id: s.id, label: s.label, count: flows.filter((f) => f.stage === s.id).length, tone: s.tone, href: `/glance/pipeline?stage=${s.id}` }));
 }
 export function ageTiles(flows: OrderFlow[]): CountTile[] {
   const open = flows.filter((f) => OPEN.includes(f.stage));
@@ -239,7 +229,7 @@ const flowRow = (f: OrderFlow): GRow => {
 };
 export function pipelineList(flows: OrderFlow[], stage: string): GList {
   const tiles = stageTiles(flows);
-  const shown = STAGES.filter((s) => !stage || stage === 'all' || s.id === stage);
+  const shown = stagesShown().filter((s) => !stage || stage === 'all' || s.id === stage);
   return {
     title: 'Purchase order pipeline', sub: 'Every open order by stage — tap one to open it',
     filters: [{ id: 'all', label: 'All', count: flows.length, href: '/glance/pipeline', on: !stage || stage === 'all' }, ...tiles.map((x) => ({ id: x.id, label: x.label, count: x.count, href: x.href, on: stage === x.id }))],

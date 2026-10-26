@@ -3,8 +3,8 @@
 # If this file is missing, the defaults shown here apply. The apps receive these values in GET /v1/ref as `config`.
 
 [approvals]
-purchase_orders = false     # true = a director must approve (and sign) a PO before it is issued
-                            # false = the planner's "Issue purchase order" creates the PO at once
+purchase_orders = false     # true = a created PO is "Awaiting approval" until a director approves (and signs) it
+                            # false = "Create purchase order" issues it at once ("Approved automatically"); POs are never drafted
 
 [loading]
 allowance_pct = 10          # how far a truck's loaded total may differ from the PO (± %) before the office must step in

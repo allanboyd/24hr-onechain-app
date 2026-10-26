@@ -10,10 +10,9 @@ export async function loadSuite(env: Env, opts = { drivers: 50, seconds: 60 }) {
   const N = opts.drivers;
   section(`Load · setting up ${N} drivers with their own trucks`);
   const dir = (await c.login('daniel')).accessToken; const planner = (await c.login('kabonge')).accessToken; const joel = (await c.login('joel')).accessToken; // §7: the KBL loader records and dispatches
-  let plan = (await c.req('POST', '/plans', { token: planner, body: { entityId: 'e-btw', supplierId: 's-kbl' } })).body;
-  plan = (await c.req('PUT', `/plans/${plan.id}`, { token: planner, body: { title: 'QA load', lines: Array.from({ length: N }, (_, i) => ({ truckNo: i + 1, productId: 'p-a300', qty: 100, price: 1, routeId: 'r-nbo-kgl', deliveredToId: 'rc-asie', exceptionReason: 'QA load test (over plan by design)' })) } })).body;
-  const sub = (await c.req('POST', `/plans/${plan.id}/submit`, { token: planner })).body; // approvals off (default config): issued at once
-  const po = sub.poId ?? (await c.req('POST', `/plans/${plan.id}/decision`, { token: dir, body: { action: 'approved', signature: SIG } })).body.poId;
+  const created = (await c.req('POST', '/pos', { token: planner, body: { entityId: 'e-btw', supplierId: 's-kbl', title: 'QA load', lines: Array.from({ length: N }, (_, i) => ({ truckNo: i + 1, productId: 'p-a300', qty: 100, price: 1, routeId: 'r-nbo-kgl', deliveredToId: 'rc-asie', exceptionReason: 'QA load test (over plan by design)' })) } })).body; // approvals off: issued at once
+  if (created.status === 'Awaiting approval') await c.req('POST', `/pos/${created.id}/decision`, { token: dir, body: { action: 'approved', signature: SIG } });
+  const po = created.id;
   const provider = (await c.req('POST', '/masterdata/providers', { token: dir, body: { name: 'QA Load Haulage' } })).body;
   const loadings = ((await c.req('GET', '/loadings?loadingPointId=s-kbl', { token: joel })).body as any[]).filter((l) => l.poId === po).sort((a, b) => a.truckNo - b.truckNo);
   const drivers: { phone: string; legId: string; token?: string }[] = [];

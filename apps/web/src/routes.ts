@@ -2,7 +2,6 @@ import type { Role, User } from '@btw/api';
 import { canAny, type Feature } from './lib/features';
 import type { RouteDef } from '@btw/ui';
 import LayoutDashboard from '@lucide/svelte/icons/layout-dashboard';
-import ClipboardList from '@lucide/svelte/icons/clipboard-list';
 import FileText from '@lucide/svelte/icons/file-text';
 import ListOrdered from '@lucide/svelte/icons/list-ordered';
 import Truck from '@lucide/svelte/icons/truck';
@@ -38,10 +37,13 @@ export const routes: WebRoute[] = [
   { path: '/period-plans', load: () => import('./screens/PeriodPlans.svelte'), title: 'Period plans' },
   { path: '/period-plans/new', load: () => import('./screens/PeriodPlanNew.svelte'), title: 'New period plan' },
   { path: '/period-plans/:id', load: () => import('./screens/PeriodPlanDetail.svelte'), title: 'Period plan' },
-  { path: '/plans', load: () => import('./screens/Plans.svelte'), title: 'PO drafts & approvals' },
-  { path: '/plans/new', load: () => import('./screens/PlanNew.svelte'), title: 'New purchase order' },
-  { path: '/plans/:id', load: () => import('./screens/PlanDetail.svelte'), title: 'Purchase order draft' },
+  // docs/09 §4: one Purchase orders area (no drafts). Old /plans links (bookmarks, notifications) redirect to it.
+  { path: '/plans', load: () => import('./screens/PlanRedirect.svelte'), title: 'Purchase orders' },
+  { path: '/plans/new', load: () => import('./screens/PlanRedirect.svelte'), title: 'Create purchase order' },
+  { path: '/plans/:id', load: () => import('./screens/PlanRedirect.svelte'), title: 'Purchase order' },
   { path: '/pos', load: () => import('./screens/POs.svelte'), title: 'Purchase orders' },
+  { path: '/pos/new', load: () => import('./screens/PoEdit.svelte'), title: 'Create purchase order' },
+  { path: '/pos/:id/edit', load: () => import('./screens/PoEdit.svelte'), title: 'Update purchase order' },
   { path: '/pos/:id', load: () => import('./screens/POView.svelte'), title: 'Purchase order' },
   { path: '/loading', load: () => import('./screens/Loading.svelte'), title: 'Loading' },
   { path: '/shipments', load: () => import('./screens/Shipments.svelte'), title: 'Shipments' },
@@ -73,8 +75,7 @@ export const nav: { label: string; items: NavItem[] }[] = [
   { label: 'Overview', items: [{ href: '#/', label: 'Home', icon: LayoutDashboard }] },
   { label: 'Procurement', items: [
     { href: '#/period-plans', label: 'Period plans', icon: CalendarRange, feature: 'period-plans' },
-    { href: '#/plans', label: 'PO drafts & approvals', icon: ClipboardList, feature: 'purchase-orders' },
-    { href: '#/pos', label: 'Issued purchase orders', icon: FileText, feature: 'purchase-orders' },
+    { href: '#/pos', label: 'Purchase orders', icon: FileText, feature: 'purchase-orders' },
   ] },
   { label: 'Logistics', items: [
     { href: '#/trucks', label: 'Truck desk', icon: Container, feature: 'trucks' },
@@ -117,7 +118,7 @@ export function homeOf(_u: User | null): string { return '/'; }
 export const FIELD_ONLY: Role[] = ['driver'];
 export const isFieldOnly = (roles: Role[]) => roles.length > 0 && roles.every((r) => FIELD_ONLY.includes(r));
 
-/** Who may open a path: the feature of its nav entry (detail pages inherit from their list, e.g. /plans/:id → Plans).
+/** Who may open a path: the feature of its nav entry (detail pages inherit from their list, e.g. /pos/:id → Purchase orders).
  *  The dashboard and notifications are open to every web user; the dashboard adapts to the features. */
 export function canOpen(path: string, u: User | null): boolean {
   const seg = path.split('?')[0].split('/')[1] ?? '';

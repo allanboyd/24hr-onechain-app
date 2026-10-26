@@ -22,7 +22,7 @@ import { StockService } from '../domain/stock.service';
 import { SyncService, type SyncItem } from '../domain/sync.service';
 import { ReportsService } from '../domain/reports.service';
 import * as RP from '@btw/api/reports';
-import type { CheckpointPass, DriverInput, Leg, ProviderInput, TruckInput, WarehouseInput, PeriodPlan, Plan, RouteStop, Sale, TripCost, TruckIssue } from '@btw/api/types';
+import type { CheckpointPass, DriverInput, Leg, ProviderInput, TruckInput, WarehouseInput, PeriodPlan, PoInput, PoUpdateInput, RouteStop, Sale, TripCost, TruckIssue } from '@btw/api/types';
 import { defaultPvThresholds, featuresFor } from '@btw/api/rules';
 import { seesPrices } from '@btw/api/access';
 import { eq } from 'drizzle-orm';
@@ -141,17 +141,20 @@ export class UsersController {
 @Controller()
 export class PlanningController {
   constructor(private planning: PlanningService) {}
+  /** Orders behind the POs (read-only). POs are created, updated and deleted under /pos (docs/09 §4) — no drafts. */
   @Get('plans') list(@Me() p: Principal) { return this.planning.list(p); }
-  @Post('plans') create(@Me() p: Principal, @Body() b: { entityId: string; supplierId: string }) { return this.planning.create(p, b?.entityId, b?.supplierId); }
   @Get('plans/:id') get(@Me() p: Principal, @Param('id') id: string) { return this.planning.get(p, id); }
-  @Put('plans/:id') save(@Me() p: Principal, @Param('id') id: string, @Body() b: Partial<Plan>) { return this.planning.save(p, id, b ?? {}); }
-  @Post('plans/:id/submit') @HttpCode(200) submit(@Me() p: Principal, @Param('id') id: string) { return this.planning.submit(p, id); }
-  @Post('plans/:id/decision') @HttpCode(200) decide(@Me() p: Principal, @Param('id') id: string, @Body() b: { action: 'approved' | 'returned' | 'rejected'; comment?: string; signature?: string }) { return this.planning.decide(p, id, b?.action, b?.comment, b?.signature); }
-  @Post('plans/:id/amendments') amend(@Me() p: Principal, @Param('id') id: string, @Body() b: { reason: string }) { return this.planning.amend(p, id, b?.reason); }
-  @Get('plans/:id/versions') versions(@Me() p: Principal, @Param('id') id: string) { return this.planning.versions(p, id); }
   @Get('plans/:id/plan-context') planContext(@Me() p: Principal, @Param('id') id: string) { return this.planning.planContext(p, id); }
-  @Get('pos') pos(@Me() p: Principal) { return this.planning.listPos(p); }
+  /** Effective POs (latest revision) with their stage; `?all=1` also lists deleted ones. */
+  @Get('pos') pos(@Me() p: Principal, @Query('all') all?: string) { return this.planning.listPos(p, all === '1' || all === 'true'); }
+  @Post('pos') createPo(@Me() p: Principal, @Body() b: PoInput) { return this.planning.createPo(p, b); }
   @Get('pos/:id') po(@Me() p: Principal, @Param('id') id: string) { return this.planning.getPo(p, id); }
+  /** Update = the next revision (reason required); never an overwrite. */
+  @Put('pos/:id') updatePo(@Me() p: Principal, @Param('id') id: string, @Body() b: PoUpdateInput) { return this.planning.updatePo(p, id, b); }
+  /** Soft delete with a reason, only while nothing has been loaded. */
+  @Post('pos/:id/delete') @HttpCode(200) deletePo(@Me() p: Principal, @Param('id') id: string, @Body() b: { reason?: string }) { return this.planning.deletePo(p, id, b?.reason ?? ''); }
+  /** Approvals on: a director approves (signature) or rejects (comment → deleted) a PO awaiting approval. */
+  @Post('pos/:id/decision') @HttpCode(200) decide(@Me() p: Principal, @Param('id') id: string, @Body() b: { action: 'approved' | 'rejected'; comment?: string; signature?: string }) { return this.planning.decidePo(p, id, b?.action, b?.comment, b?.signature); }
   @Post('pos/:id/sent') @HttpCode(200) sent(@Me() p: Principal, @Param('id') id: string) { return this.planning.markSent(p, id); }
   @Post('pos/:id/send') @HttpCode(200) send(@Me() p: Principal, @Param('id') id: string) { return this.planning.sendPo(p, id); }
   @Get('pos/:id/pdf') async pdf(@Me() p: Principal, @Param('id') id: string, @Res() res: FastifyReply) { const { po } = await this.planning.getPo(p, id); return sendPdf(res, po.ref, await this.planning.poPdf(p, id)); }

@@ -3,13 +3,14 @@
 import * as seed from './seed';
 import { buildHistory } from './history';
 import { buildPeriodPlans } from './period';
+import * as PO from './po';
 import * as R from '../rules';
 import type {
   Acknowledgement, AckLine, AuditEntry, ReexportOrder, SellingPrice, WarehouseExpense, Checkpoint, CheckpointPass, Entity, PriceListItem, Product, ReceivingCompany, Supplier, EtaInfo, Flag, FxRate, ID, Leg, LegStatus, Loading, Notification, PeriodPlan, Plan,
-  PurchaseOrder, PvThresholds, Role, Sale, Shipment, StockRow, TripCost, TripPayment, TruckIssue, User, VelocityRow, Warehouse, WaitingEntry,
+  PoVersion, PurchaseOrder, PvThresholds, Role, Sale, Shipment, StockRow, TripCost, TripPayment, TruckIssue, User, VelocityRow, Warehouse, WaitingEntry,
 } from '../types';
 
-const KEY = 'btw-mock-v6'; // v6: warehouse money (expenses, selling prices, re-exports, ack reasons — docs/14); v5: client roster + access matrix, editable static data, audit log (docs/12); v4: editable providers / drivers (truck planner, docs/10); v3: client master data (doc 08) + shipment chains; v2: rows carry entityId
+const KEY = 'btw-mock-v7'; // v7: POs never drafted — created / updated (revisions with version snapshots) / deleted (docs/09 §4); v6: warehouse money (expenses, selling prices, re-exports, ack reasons — docs/14); v5: client roster + access matrix, editable static data, audit log (docs/12); v4: editable providers / drivers (truck planner, docs/10); v3: client master data (doc 08) + shipment chains; v2: rows carry entityId
 // Browser storage when present (the server imports this module only for the demo snapshot).
 const ls = () => (globalThis as { localStorage?: { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void } }).localStorage;
 const H = 36e5;
@@ -19,6 +20,8 @@ export const uid = (p: string) => `${p}-${(++seq).toString(36)}`;
 
 export interface DB {
   plans: Plan[]; pos: PurchaseOrder[]; waiting: WaitingEntry[]; loadings: Loading[]; shipments: Shipment[];
+  /** docs/09 §4: immutable snapshot of every PO version (original + each revision). Optional so older saved data still loads. */
+  poVersions?: PoVersion[];
   acks: Acknowledgement[]; sales: Sale[]; costs: TripCost[]; payments: TripPayment[]; notifications: Notification[];
   stockMoves: R.StockMove[];
   /** Approved monthly FX rates (units per USD); directors edit them. Optional so older saved data still loads. */
@@ -184,10 +187,9 @@ function initial(): DB {
   // docs/14: the warehouse-money history (expenses, ack reasons, selling prices, counts, re-exports) is added by
   // mock/money-history.ts — lazily (mock-client ready() / the money module) so it stays out of the apps' entry chunks
   { const sh3Ack = d.acks.find((x) => x.shipmentId === sh3.id); if (sh3Ack) sh3Ack.lines[0].reason = 'Poor stacking'; }
+  seedPurchaseOrders(d, now); // docs/09 §4: no drafts — issued, updated (revisions), deleted
   d.builtAt = now;
 
-  notify('Order ready', 'NUD-PO-2026-0009 · October ’26 Order · 4,000 cases · over plan', '#/plans/plan-2', ['planner', 'director'], 'e-nud');
-  notify('Order ready', `${d.plans.find((x) => x.id === 'plan-6')!.ref} · top-up · 2,000 cases`, '#/plans/plan-6', ['planner', 'director'], 'e-btw');
   notify('Truck stopped at border', 'UBA 789C at Elegu/Nimule for 20 h — clearing documents pending', `#/shipments/${d.shipments.find((x) => x.legs[0]?.truckId === 't3' && x.status !== 'Acknowledged')?.id}`, ['director', 'fleet', 'operations'], 'e-btw');
   notify('Delivery discrepancy', `${sh3.ref} leg 1: 6 cases damaged at Asie Gisenyi`, `#/shipments/${sh3.id}`, ['director', 'operations', 'accounts'], sh3.entityId);
   notify('Payment needs approval', 'USD 850 transport balance · KBV 894T', '#/finance', ['director', 'accounts'], sh1.entityId);
@@ -197,12 +199,58 @@ function initial(): DB {
   return d;
 }
 
+/**
+ * docs/09 §4 demo: purchase orders are never drafted. The orders seeded as submitted / draft become POs issued on create
+ * ("Approved automatically"); then a few office updates and a loading revision so the Versions panel has content:
+ * - BTW-PO-2026-0002: trucks 1–3 loaded, the office adds a fifth truck → rev001 (updated).
+ * - NUD-PO-2026-0009: office update → rev001 (truck 2 less, truck 3 added), then truck 1 loads short → rev002 (revised at loading).
+ * - KVD-PO-2026-0011: deleted before loading (raised twice).
+ */
+function seedPurchaseOrders(d: DB, now: number) {
+  db = d;
+  const kab = seed.users.find((u) => u.id === 'u-kabonge')!;
+  const ctx = (at: number, by: { id: string; name: string; roles: Role[] } = kab): PO.PoCtx => ({ d, by, config: R.defaultConfig, price: (pid) => seed.priceList.find((x) => x.productId === pid)?.price ?? 0, at: iso(at) });
+  for (const id of ['plan-2', 'plan-3', 'plan-6']) {
+    const pl = d.plans.find((x) => x.id === id)!;
+    const at = pl.history[0]?.at ?? `${pl.date}T08:00:00Z`;
+    pl.status = 'Approved';
+    pl.history = [{ at, byUserId: pl.createdById, action: 'created' }, { at, byUserId: pl.createdById, action: 'issued', comment: 'Approved automatically' }];
+    const po: PurchaseOrder = { id: `po-${id.slice(5) === '2' ? 4 : id.slice(5) === '3' ? 5 : 6}`, ref: pl.ref, planId: pl.id, entityId: pl.entityId, supplierId: pl.supplierId, currency: pl.currency, date: pl.date, title: pl.title,
+      instruction: PO.INSTRUCTION, version: 1, approvedById: pl.createdById, approvedAt: at, approval: 'issued', status: 'Issued', ...(id === 'plan-2' ? { sentAt: iso(Date.parse(at) + H) } : {}) };
+    pl.poId = po.id; d.pos.push(po); createLoadingsForPO(po);
+  }
+  for (const po of d.pos) { po.status ??= 'Issued'; PO.snapshotOriginal(d, po); }
+  // BTW-PO-2026-0002: three trucks on the road; the office adds a fifth truck
+  const po1 = d.pos.find((x) => x.id === 'po-1')!;
+  const pl1 = d.plans.find((x) => x.id === po1.planId)!;
+  PO.updatePo(ctx(now - 30 * H), po1.id, { title: pl1.title, lines: [...pl1.lines, { truckNo: 5, productId: 'p-b500', qty: 1500, deliveredToId: 'rc-asie', routeId: 'r-nbo-kgl' }], reason: 'Asie Gisenyi needs more Tusker Malt — fifth truck added' });
+  audit('u-kabonge', 'PUT', `/pos/${po1.id}`, { at: now - 30 * H, recordType: 'po', recordId: po1.id, entityId: po1.entityId, summary: `${po1.ref} updated → ${po1.ref}-rev001: fifth truck added (Tusker Malt for Gisenyi)`, after: { truck5: 1500 } });
+  // NUD-PO-2026-0009: office update (rev001), then truck 1 loads 50 cases short (rev002, revised at loading)
+  const po4 = d.pos.find((x) => x.id === 'po-4')!;
+  const pl4 = d.plans.find((x) => x.id === po4.planId)!;
+  const lines = pl4.lines.map((l) => (l.truckNo === 2 ? { ...l, qty: 1800 } : l));
+  const rev1 = PO.updatePo(ctx(now - 26 * H), po4.id, { title: pl4.title, lines: [...lines, { truckNo: 3, productId: 'p-c200', qty: 1500, deliveredToId: 'rc-asie', routeId: 'r-kla-kgl' }], reason: 'UBL can load a third truck of Bell Lager; Guinness truck 2 reduced to 1,800' });
+  audit('u-kabonge', 'PUT', `/pos/${po4.id}`, { at: now - 26 * H, recordType: 'po', recordId: rev1.id, entityId: po4.entityId, summary: `${po4.ref} updated → ${rev1.ref}: third truck added, truck 2 reduced` });
+  const ld = d.loadings.find((l) => l.poId === rev1.id && l.truckNo === 1)!;
+  const short = ld.lines.find((l) => l.productId === 'p-c200')!;
+  const loadedQty = { [short.planLineId]: short.orderedQty - 50 };
+  const truck = d.trucks.find((x) => x.id === 't5')!;
+  const check = R.loadingCheck(ld.lines, loadedQty, [], truck.capacityCases, R.defaultConfig.loading);
+  for (const l of ld.lines) l.loadedQty = loadedQty[l.planLineId] ?? l.orderedQty;
+  const moses = seed.users.find((u) => u.id === 'u-moses') ?? kab;
+  PO.reviseAtLoading(ctx(now - 5 * H, moses), ld, { loadedQty }, check, truck.reg);
+  completeLoading(ld, 't5', 'd5', 3_050_000, now - 5 * H); ld.transportCurrency = 'UGX';
+  // KVD-PO-2026-0011: raised twice — deleted before anything was loaded (kept with its ref and reason)
+  PO.deletePo(ctx(now - 20 * H), 'po-5', 'Raised twice — duplicate of KVD-PO-2026-0010; the trucks are on that order');
+  audit('u-kabonge', 'POST', '/pos/po-5/delete', { at: now - 20 * H, recordType: 'po', recordId: 'po-5', entityId: 'e-kivu', summary: 'KVD-PO-2026-0011 deleted: raised twice' });
+}
+
 /** A few weeks of plausible audit rows so the directors' audit screen has something to search (docs/12 A-07). */
 function seedAudit(d: DB, now: number) {
   db = d;
   const r = seed.rng(1207);
   const who: [string, string, string, string][] = [
-    ['u-kabonge', 'PUT', '/plans/plan-3', 'plan'], ['u-kabonge', 'POST', '/plans/plan-2/submit', 'plan'], ['u-kabonge', 'PATCH', '/masterdata/trucks/t3', 'truck'],
+    ['u-kabonge', 'PUT', '/pos/po-1', 'po'], ['u-kabonge', 'POST', '/pos', 'po'], ['u-kabonge', 'PATCH', '/masterdata/trucks/t3', 'truck'],
     ['u-testfie', 'POST', '/waiting/wl1/move', 'waiting'], ['u-testfie', 'POST', '/finance/costs', 'cost'], ['u-testfie', 'POST', '/legs/leg/issues', 'issue'],
     ['u-joel', 'POST', '/loadings/ld/confirm', 'loading'], ['u-eric', 'POST', '/legs/leg/dispatch', 'leg'], ['u-moses', 'POST', '/loadings/ld/confirm', 'loading'],
     ['u-asie', 'POST', '/legs/leg/acknowledgement', 'ack'], ['u-yonas', 'POST', '/legs/leg/acknowledgement', 'ack'], ['u-daniel', 'POST', '/finance/payments/pay/approve', 'payment'],

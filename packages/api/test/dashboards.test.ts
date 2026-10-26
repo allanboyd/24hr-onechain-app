@@ -12,7 +12,9 @@ ok(DASHBOARDS.length >= 31 && new Set(DASHBOARDS.map((d) => d.key)).size === DAS
 const p1 = DASHBOARDS.filter((d) => /^C-P1-\d\d$/.test(d.id)).map((d) => d.id);
 ok(new Set(p1).size === 28, 'catalogue: all 28 P1 dashboards (C-P1-01…28)', p1.length);
 ok(['C-X-01', 'C-X-02', 'C-X-03'].every((id) => DASHBOARDS.some((d) => d.id === id)), 'catalogue: the three pulled-forward visuals (C-X-01…03)');
-ok(homeFor(R('director'))[0] === 'exec-overview' && ['profit-margin', 'landed-product', 'fleet-board', 'truck-expenses', 'stock-on-hand', 'sales-summary', 'alerts'].every((k) => homeFor(R('director')).includes(k as DashKey)), 'directors: executive overview first, then profit, landed cost, fleet, expenses, stock, sales, alerts', homeFor(R('director')));
+ok(JSON.stringify(homeFor(R('director'))) === '["director-today"]', "directors: one curated home (Today); the other dashboards stay on their feature tabs", homeFor(R('director')));
+ok(canSeeDash(R('director'), 'director-today') && canSeeDash(R('admin'), 'director-today') && ['planner', 'truck_planner', 'loader', 'receiver', 'reexport', 'driver'].every((r) => !canSeeDash(R(r as Role), 'director-today')), 'Today: directors (and admins) only');
+ok(['exec-overview', 'profit-margin', 'stock-on-hand', 'sales-summary', 'alerts'].every((k) => canSeeDash(R('director'), k)), 'directors keep every feature dashboard (tabs)');
 ok(JSON.stringify(homeFor(R('planner'))) === JSON.stringify(HOME.kab), 'Kabonge: PO pipeline, ordered vs loaded vs delivered, open orders, plan vs actual, alerts', homeFor(R('planner')));
 ok(JSON.stringify(homeFor(R('truck_planner'))) === JSON.stringify(HOME.tf), 'Testfie: fleet board, delayed, issues, driver updates, agreed prices, fees, expenses per truck, Mombasa loading list');
 ok(JSON.stringify(homeFor(R('loader'))) === JSON.stringify(['loading-list', 'dispatched-today']), "loaders: today's loading list and dispatched today");
@@ -42,6 +44,29 @@ ok(filled.every((k) => dir.results[k]!.freshness === null || Date.parse(dir.resu
 const ex = dir.results['exec-overview']!.data as { kpis: { key: string; value: number | null; prev: number | null }[]; exceptions: { severity: string }[] };
 ok(ex.kpis.length >= 7 && ex.kpis.find((k) => k.key === 'sales')!.value! > 0 && ex.kpis.find((k) => k.key === 'sales')!.prev !== undefined, 'executive overview: KPIs with the previous period', ex.kpis.map((k) => [k.key, k.value, k.prev]));
 ok(ex.exceptions.every((e) => ['critical', 'high'].includes(e.severity) || true) && Array.isArray(ex.exceptions), 'executive overview: exception list');
+// ---- directors' Today view (director-today) ----
+type TD = import('../src/dashboards').TodayData;
+const td = dir.results['director-today']!.data as TD;
+ok(td.sales.value! > 0 && td.sales.prev !== undefined && (td.sales.spark?.length ?? 0) >= 2, 'Today: sales month to date with the same days of last month and a sparkline', [td.sales.value, td.sales.prev]);
+ok(td.mtd && td.period.from.slice(8, 10) === '01' && Date.parse(td.prev.to) - Date.parse(td.prev.from) <= Date.parse(td.period.to) - Date.parse(td.period.from) + 1000, 'Today: month to date vs the same number of days last month', [td.period, td.prev]);
+const pmM = (await api.dashboards.get(['combined-performance'], { from: td.period.from, to: new Date(Date.parse(td.period.to) + 1).toISOString() })).results['combined-performance']!.data as { revenue: number };
+ok(Math.abs(td.sales.value! - pmM.revenue) < 1, 'Today: sales = the performance report revenue for the same days (landed cost v2 source)', [td.sales.value, pmM.revenue]);
+ok(td.profit.value !== null && td.profit.margin !== null && Math.abs(td.profit.margin - (td.profit.value + 0) / td.sales.value!) < 0.02, 'Today: profit and margin (landed cost based)', [td.profit.value, td.profit.margin]);
+ok(td.cash.value! > 0 && td.cash.overdue! <= td.cash.value! && td.cash.spark?.length === 8, 'Today: cash to collect with the overdue part (never more than the total)', [td.cash.value, td.cash.overdue]);
+ok(td.trucks.value !== null && td.trucks.delayed <= td.trucks.value && td.trucks.spark?.length === 14 && td.trucks.spark.at(-1) === td.trucks.value, 'Today: trucks on the road, delayed, 14-day trend ending at now', td.trucks);
+ok(td.daily.length >= 90 && td.daily.every((x, i) => i === 0 || x.day > td.daily[i - 1].day) && td.daily.at(-1)!.sales !== 0, 'Today: daily series ≥ 90 days, ordered, no zero "today" tail', td.daily.length);
+const sumDaily = td.daily.filter((x) => x.day >= td.period.from.slice(0, 10)).reduce((a, x) => a + (x.sales ?? 0), 0);
+ok(Math.abs(sumDaily - td.sales.value!) < 1, 'Today: daily sales add up to the month-to-date figure', [sumDaily, td.sales.value]);
+ok(td.decisions.length === 6 && td.decisions.every((x) => x.href.startsWith('#/') && x.owner && x.label) && td.decisions.some((x) => x.key === 'approvals' && x.count! >= 1 && x.value! > 0), 'Today: decision list with counts, owners and links (pending payment approval found)', td.decisions.map((x) => [x.key, x.count]));
+const firstZero = td.decisions.findIndex((x) => !(x.count ?? 0));
+ok(firstZero === -1 || td.decisions.slice(firstZero).every((x) => !(x.count ?? 0)), 'Today: open decisions first, then the clear ones');
+ok(!!td.stock && Math.abs(td.stock.bands.reduce((a, b) => a + b.cases, 0) - td.stock.cases) < 1 && td.stock.value! > 0, 'Today: stock bands add up to the cases held; value at landed cost', td.stock?.bands.map((b) => [b.key, b.cases]));
+ok(td.distribution.companies.length === 3 && td.distribution.warehouses.length === 3 && Math.abs(td.distribution.warehouses.reduce((a, x) => a + (x.month ?? 0), 0) - td.sales.value!) < 1, 'Today: sales by company (3) and warehouse (3), warehouses add up to the total', td.distribution);
+ok(td.top.length > 0 && td.top.length <= 8 && td.top.every((x, i) => i === 0 || td.top[i - 1].revenue >= x.revenue) && td.top.every((x) => x.perWeek > 0 && x.warehouses.length), 'Today: top products by revenue with cases per week and warehouses', td.top.map((x) => [x.brand, x.revenue]));
+api.entities.setActive('e-btw');
+const tdB = (await api.dashboards.get(['director-today'])).results['director-today']!.data as TD;
+ok(tdB.distribution.companies.length === 1 && tdB.distribution.companies[0].entityId === 'e-btw' && tdB.sales.value! < td.sales.value!, 'Today: BTW selected → BTW only, less than the Group view', [tdB.sales.value, td.sales.value]);
+api.entities.setActive(null);
 const pm = dir.results['profit-margin']!.data as { waterfall: { label: string; value: number }[]; months: { month: string; revenue: number; margin: number | null }[] };
 ok(pm.waterfall[0].label === 'Revenue' && pm.waterfall.at(-1)!.label === 'Profit' && pm.months.length === 6, 'profit and margin: waterfall sales → profit, 6 months', pm.months);
 const wfSum = pm.waterfall.slice(1, -1).reduce((a, s) => a + s.value, pm.waterfall[0].value);
@@ -49,7 +74,7 @@ ok(Math.abs(wfSum - pm.waterfall.at(-1)!.value) < 1, 'waterfall steps add up to 
 const lp = dir.results['landed-product']!.data as { rows: { goods: number; truck: number; warehouse: number; total: number | null }[] };
 ok(lp.rows.length > 0 && lp.rows.every((r) => r.total === null || Math.abs(r.goods + r.truck + r.warehouse - r.total) < 0.05), 'landed cost per product: goods + truck + warehouse = landed per case', lp.rows[0]);
 const pipe = dir.results['po-pipeline']!.data as { stages: { label: string; count: number; value: number | null; items: unknown[] }[] };
-ok(pipe.stages.map((s) => s.label).join() === 'Planned,Raised,Loading,Dispatched,Delivered' && pipe.stages.every((s) => s.items.length === s.count) && pipe.stages.some((s) => (s.value ?? 0) > 0), 'PO pipeline: five stages, count = its orders, value in USD', pipe.stages.map((s) => [s.label, s.count, s.value]));
+ok(pipe.stages.map((s) => s.label).join() === 'Created,Sent to supplier,Loading,On the road,Delivered' && pipe.stages.every((s) => s.items.length === s.count) && pipe.stages.some((s) => (s.value ?? 0) > 0), 'PO pipeline (no drafts, approvals off): Created → Sent → Loading → On the road → Delivered; count = its orders, value in USD', pipe.stages.map((s) => [s.label, s.count, s.value]));
 const fb = dir.results['fleet-board']!.data as { cards: { column: string; group: string; stale: boolean }[] };
 ok(fb.cards.length > 0 && fb.cards.every((c) => c.group), 'fleet board: cards by status, grouped by route', fb.cards.length);
 const al = dir.results['alerts']!.data as { items: { owner: string | null; due: string | null; severity: string; impact: string }[]; counts: number[][] };
@@ -142,6 +167,10 @@ ok(Object.values(empty.results).every((r) => r!.empty), 'no records → every pa
 const pmE = empty.results['profit-margin']!.data as { waterfall: unknown[] };
 ok(pmE.waterfall.length === 0, 'no sales → no waterfall (not a row of zeros)');
 ok(empty.results['sales-summary']!.freshness === null, 'no records → freshness null');
+const emptyT = buildDashboards({ ...src, shipments: [], costs: [] }, { id: 'u', roles: ['director'], loadingPointIds: [], warehouseIds: [] }, ['director-today']).results['director-today']!;
+const eT = emptyT.data as import('../src/dashboards').TodayData;
+ok(emptyT.empty && eT.sales.value === null && eT.profit.value === null && eT.cash.value === null && eT.trucks.value === null && eT.stock === null && eT.daily.every((x) => x.sales === null), 'Today with no records: null everywhere ("No data yet"), never zeros', { s: eT.sales, t: eT.trucks.value });
+ok(buildDashboards(src, { id: 'u', roles: ['planner'], loadingPointIds: [], warehouseIds: [] }, ['director-today']).results['director-today'] === undefined, 'Today is not built for a planner');
 
 console.log(fails ? `\n${fails} dashboard check(s) FAILED` : '\nall dashboard checks passed');
 if (fails) process.exitCode = 1;

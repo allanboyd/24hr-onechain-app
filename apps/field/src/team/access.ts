@@ -9,7 +9,7 @@ export const can = (u: User | null, f: Feature) => features(u).has(f);
 export const hasRole = (u: User | null, ...roles: Role[]) => !!u && u.roles.some((r) => roles.includes(r));
 
 /** Does a purchase order need a director's approval before it is issued? config.toml `approvals.purchaseOrders`
- *  (exposed as ref().config.approvals.purchaseOrders); default false = planners issue POs directly. Read defensively:
+ *  (exposed as ref().config.approvals.purchaseOrders); default false = a PO is issued (approved automatically) when created. Read defensively:
  *  older servers / the mock have no `config` yet. */
 export function poApprovalRequired(): boolean {
   const r = ref() as unknown as { config?: { approvals?: { purchaseOrders?: boolean } } };
@@ -45,7 +45,7 @@ export const SECTIONS: Record<SectionId, Section> = {
   fleet: { id: 'fleet', label: 'Truck desk', short: 'Trucks', path: '/fleet', feature: 'trucks', hint: 'Every truck: queue, road, border, idle — and its costs' },
   trucks: { id: 'trucks', label: 'Shipments', short: 'Trucks', path: '/trucks', feature: 'logistics', hint: 'Trucks, legs and check-ins' },
   tracking: { id: 'tracking', label: 'Tracking', short: 'Map', path: '/trucks?view=map', feature: 'fleet', hint: 'Every truck on the map' },
-  orders: { id: 'orders', label: 'Purchase orders', short: 'Orders', path: '/orders', feature: 'purchase-orders', hint: 'Issued POs and drafts' },
+  orders: { id: 'orders', label: 'Purchase orders', short: 'Orders', path: '/orders', feature: 'purchase-orders', hint: 'Purchase orders and where they stand' },
   periods: { id: 'periods', label: 'Period plans', short: 'Plans', path: '/orders?seg=period', feature: 'period-plans', hint: 'Planned vs ordered' },
   stock: { id: 'stock', label: 'Stock', short: 'Stock', path: '/stock', feature: 'inventory', hint: 'By warehouse, days of cover' },
   sales: { id: 'sales', label: 'Sales', short: 'Sales', path: '/sales', feature: 'sales', hint: 'Sales and new sale' },

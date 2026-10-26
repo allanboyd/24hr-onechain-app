@@ -43,7 +43,7 @@ await api.auth.login('u-testfie', '');
 const me = api.auth.me()!;
 ok(me.roles.includes('truck_planner') && me.allowedEntityIds.length === 3 && !me.canGroup, 'Testfie: all three companies, no Group view');
 ok((await api.plans.list()).every((x) => x.supplierId === 's-gbi') && (await api.pos.list()).every((x) => x.supplierId === 's-gbi'), 'sees only the purchase orders loading at GBI Mombasa');
-await rejects(api.plans.create('e-nud', 's-gbi'), /planners|403/, 'cannot create a purchase order');
+await rejects(api.pos.create({ entityId: 'e-nud', supplierId: 's-gbi', title: 'x', lines: [{ ...api.pos.newLine('s-gbi', 1), qty: 100 }] }), /planners|403/, 'cannot create a purchase order');
 const trips = await api.finance.trips();
 ok(trips.length > 0 && new Set(trips.map((x) => (x.shipment as { entityId: string }).entityId)).size === 3, 'reads trip costs of every company');
 ok(trips.every((x) => x.goods === undefined && x.landing === undefined), 'no goods value or landed cost (trip financials are the directors\')');

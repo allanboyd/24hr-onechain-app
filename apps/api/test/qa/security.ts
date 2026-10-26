@@ -109,12 +109,10 @@ export async function securitySuite(env: Env) {
   const acked = shipments.find((s) => s.entityId === 'e-btw' && s.warehouseId === 'w-kgl' && s.legs.every((l: any) => l.status === 'Acknowledged'));
   const pendKbl = ((await c.req('GET', '/loadings', { token: tok.dir })).body as any[]).find((l) => l.status === 'Pending' && l.loadingPointId === 's-kbl');
   const plans = (await c.req('GET', '/plans', { token: tok.dir })).body as any[];
-  const submitted = plans.find((p) => p.status === 'Submitted'); const draft = plans.find((p) => p.status === 'Draft');
-  // trucks to load at UBL (Kabonge issues the pending Nihna–UBL order) and at GBI Mombasa (a director raises a Nihna–GBI order)
-  expectStatus(await c.req('POST', '/plans/plan-2/submit', { token: tok.kabonge }), 200, 'setup: Kabonge issues the Nihna–UBL order');
-  let gp = (await c.req('POST', '/plans', { token: tok.dir, headers: { 'x-entity-id': 'e-nud' }, body: { entityId: 'e-nud', supplierId: 's-gbi' } })).body;
-  gp = (await c.req('PUT', `/plans/${gp.id}`, { token: tok.dir, headers: { 'x-entity-id': 'e-nud' }, body: { title: 'QA GBI', lines: [{ truckNo: 1, productId: 'p-f330', qty: 1000, price: 10.75, deliveredToId: 'rc-yonas', routeId: 'r-msa-juba' }] } })).body;
-  expectStatus(await c.req('POST', `/plans/${gp.id}/submit`, { token: tok.dir, headers: { 'x-entity-id': 'e-nud' } }), 200, 'setup: a director issues a Nihna–GBI order');
+  ok(!plans.some((p) => ['Draft', 'Submitted', 'Returned'].includes(p.status)), 'no drafts in the seed (docs/09 §4): every order is a PO');
+  const mine = 'po-6'; // BTW–KBL top-up, Kabonge's pair, issued and not loaded
+  // trucks to load at UBL (the seeded Nihna–UBL order) and at GBI Mombasa (a director creates a Nihna–GBI order)
+  expectStatus(await c.req('POST', '/pos', { token: tok.dir, headers: { 'x-entity-id': 'e-nud' }, body: { entityId: 'e-nud', supplierId: 's-gbi', title: 'QA GBI', lines: [{ truckNo: 1, productId: 'p-f330', qty: 1000, price: 10.75, deliveredToId: 'rc-yonas', routeId: 'r-msa-juba' }] } }), 201, 'setup: a director creates a Nihna–GBI order (issued at once)');
   const allLd = (await c.req('GET', '/loadings', { token: tok.dir })).body as any[];
   const pendUbl = allLd.find((l) => l.status === 'Pending' && l.loadingPointId === 's-ubl');
   const pendGbi = allLd.find((l) => l.status === 'Pending' && l.loadingPointId === 's-gbi');
@@ -155,7 +153,7 @@ export async function securitySuite(env: Env) {
     { feature: 'Purchase orders', levels: L('F', 'O', 'V', 'V', 'V', 'V', 'V', '-'),
       view: () => ({ method: 'GET', path: '/pos' }),
       own: (w, b) => (w === 'kabonge' ? b.every((p: any) => p.supplierId !== 's-gbi') : w === 'testfie' ? b.every((p: any) => p.supplierId === 's-gbi') : w === 'joel' || w === 'eric' ? b.every((p: any) => p.supplierId === 's-kbl' && p.pricesHidden) : w === 'moses' ? b.every((p: any) => p.supplierId === 's-ubl' && p.pricesHidden) : w === 'asie' || w === 'yonas' ? b.every((p: any) => p.pricesHidden) : true),
-      write: () => ({ method: 'PUT', path: `/plans/${draft.id}`, body: { lines: 'x' } }), other: () => ({ method: 'POST', path: '/plans', body: { entityId: 'e-nud', supplierId: 's-gbi' } }),
+      write: () => ({ method: 'PUT', path: `/pos/${mine}`, body: { lines: 'x', reason: 'x' } }), other: () => ({ method: 'POST', path: '/pos', body: { entityId: 'e-nud', supplierId: 's-gbi', title: 'x', lines: 'x' } }),
       note: 'Asie: View (orders delivering to her); her "Own" re-export orders come with workstream B' },
     { feature: 'Loading', levels: L('V', 'V', 'O', 'O', 'O', '-', '-', '-'),
       view: () => ({ method: 'GET', path: '/loadings' }),
@@ -207,7 +205,8 @@ export async function securitySuite(env: Env) {
   for (const w of ['asie', 'yonas', 'drv1'] as Who[]) ok(((await c.req('GET', '/plans', { token: as(w) })).body as any[]).every((p) => p.pricesHidden && p.lines.every((l: any) => l.price === undefined)), `${w}: orders (if any) carry no prices`);
   ok(((await c.req('GET', '/ref', { token: tok.joel })).body.priceList as any[]).length === 0 && ((await c.req('GET', '/ref', { token: tok.kabonge })).body.priceList as any[]).length > 0, 'reference data: no price list for loaders (planners keep it)');
   expectStatus(await c.req('GET', '/pos/po-1/pdf', { token: tok.joel }), 403, 'loaders cannot download the PO letter (it shows prices)');
-  expectStatus(await c.req('POST', `/plans/${submitted.id}/decision`, { token: tok.kabonge, body: { action: 'returned', comment: 'qa' } }), 403, 'only directors decide orders');
+  expectStatus(await c.req('POST', `/pos/${mine}/decision`, { token: tok.kabonge, body: { action: 'rejected', comment: 'qa' } }), 403, 'only directors decide orders');
+  expectStatus(await c.req('POST', `/pos/${mine}/delete`, { token: tok.joel, body: { reason: 'qa' } }), 403, 'loaders cannot delete a PO');
   expectStatus(await c.req('POST', '/dev/reset', { token: tok.kabonge }), 403, 'only directors reset the demo data');
 
   section('Security · data scoping (lists)');
@@ -253,10 +252,11 @@ export async function securitySuite(env: Env) {
 
   section('Security · input validation (4xx, never 500)');
   const bad: [string, string, unknown, string][] = [
-    ['POST', '/plans', { entityId: 'e-nope', supplierId: 's-kbl' }, 'unknown entity'],
-    ['PUT', `/plans/${draft.id}`, { lines: 'not-an-array' }, 'plan lines not an array'],
-    ['PUT', `/plans/${draft.id}`, { lines: [{ truckNo: 1, productId: 'p-e330', qty: -5, price: 10, deliveredToId: 'rc-asie', routeId: 'r-mwz-kgl' }] }, 'negative quantity'],
-    ['PUT', `/plans/${draft.id}`, { lines: [{ truckNo: 1, productId: 'p-a300', qty: 5, price: 10, deliveredToId: 'rc-asie', routeId: 'r-mwz-kgl' }] }, 'product from another supplier'],
+    ['POST', '/pos', { entityId: 'e-nope', supplierId: 's-kbl', title: 'x', lines: [] }, 'unknown entity'],
+    ['PUT', `/pos/${mine}`, { lines: 'not-an-array', reason: 'qa' }, 'PO lines not an array'],
+    ['PUT', `/pos/${mine}`, { title: 'x', reason: 'qa', lines: [{ truckNo: 1, productId: 'p-a300', qty: -5, price: 10, deliveredToId: 'rc-asie', routeId: 'r-nbo-kgl' }] }, 'negative quantity'],
+    ['PUT', `/pos/${mine}`, { title: 'x', reason: 'qa', lines: [{ truckNo: 1, productId: 'p-e330', qty: 5, price: 10, deliveredToId: 'rc-asie', routeId: 'r-nbo-kgl' }] }, 'product from another supplier'],
+    ['POST', `/pos/${mine}/delete`, { reason: 42 }, 'delete reason not text'],
     ['POST', `/legs/${kdaLeg.id}/passes`, { checkpointId: kdaLeg.passes.at(-1).checkpointId, kind: 'teleported' }, 'invalid pass kind'],
     ['POST', '/legs/leg-nope/passes', { checkpointId: 'cp-malaba', kind: 'arrived' }, 'unknown leg'],
     ['POST', '/positions', [{ legId: kdaLeg.id, lat: 999, lng: 30 }], 'latitude out of range'],
@@ -277,7 +277,7 @@ export async function securitySuite(env: Env) {
   const ack = await c.req('POST', `/legs/${raeLeg.id}/acknowledgement`, { token: tok.asie, body: { receiverName: 'QA', lines: [{ productId: 'p-a300', expected: 5, received: 999999, damaged: 0 }] } });
   ok(ack.status === 422, 'acknowledging a product that is not on the truck is refused', ack.body);
   // 16 MB body (limit 15 MB): the server answers 413 or closes the connection before reading it — both are fine.
-  const big = await c.req('POST', '/plans', { token: tok.kabonge, raw: JSON.stringify({ entityId: 'e-btw', supplierId: 's-kbl', pad: 'x'.repeat(16 * 1024 * 1024) }) }).catch(() => ({ status: 413 }));
+  const big = await c.req('POST', '/pos', { token: tok.kabonge, raw: JSON.stringify({ entityId: 'e-btw', supplierId: 's-kbl', pad: 'x'.repeat(16 * 1024 * 1024) }) }).catch(() => ({ status: 413 }));
   ok(big.status === 413, `oversized body refused (${big.status})`, big.status);
   expectStatus(await c.req('GET', '/health'.replace('/health', '/me'), { token: tok.dir }), 200, 'server still healthy after oversized body');
 

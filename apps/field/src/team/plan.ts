@@ -1,6 +1,6 @@
 // Orders against plans: totals of an order, and what has been ordered against each period-plan line
 // (same rule as the reports: submitted/approved orders of the company dated inside the plan's period).
-import { lookup, type PeriodPlan, type Plan } from '@btw/api';
+import { lookup, type PeriodPlan, type Plan, type PoStage, type PurchaseOrder } from '@btw/api';
 import { ORDER_COUNTS } from '@btw/api/rules';
 
 export const orderCases = (p: Plan) => p.lines.reduce((a, l) => a + l.qty, 0);
@@ -23,3 +23,12 @@ export function orderedByLine(pp: PeriodPlan, orders: Plan[]): Map<string, numbe
 }
 export const plannedCases = (pp: PeriodPlan) => pp.lines.reduce((a, l) => a + l.cases, 0);
 export const sumMap = (m: Map<string, number>) => [...m.values()].reduce((a, v) => a + v, 0);
+
+// ---- Purchase orders: stage chip and revision badge -------------------------------------------------------------
+type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
+export const STAGE_TONE: Record<PoStage, Tone> = { 'Awaiting approval': 'warning', Created: 'warning', Sent: 'info', Loading: 'info', 'On the road': 'info', Delivered: 'success', Deleted: 'danger' };
+/** Stage of a PO from the list/detail (older servers without `stage`: from status / sentAt). */
+export const stageOf = (p: Pick<PurchaseOrder, 'stage' | 'status' | 'sentAt'>): PoStage =>
+  p.stage ?? (p.status === 'Deleted' ? 'Deleted' : p.status === 'Awaiting approval' ? 'Awaiting approval' : p.sentAt ? 'Sent' : 'Created');
+/** "rev002" for revision 2; '' for the original. */
+export const revLabel = (n?: number) => (n ? `rev${String(n).padStart(3, '0')}` : '');

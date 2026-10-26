@@ -5,7 +5,7 @@
   import { BarChart, ChartCard, StatTile, compact, usd } from '../charts';
   import { watch, attempt } from '../../lib/load.svelte';
   import ErrorState from '../ErrorState.svelte';
-  import { createDraftPlans } from './draft';
+  import { openPrefilledPos } from './draft';
   import { day } from './fmt';
   let { filter }: { filter: ReportFilter } = $props();
   let horizon = $state(90);
@@ -16,7 +16,7 @@
   const tone = { overdue: 'danger', 'this week': 'warning', soon: 'info' } as const;
   async function draft(items: PlanningReport['suggestions'], key: string) {
     busy = key;
-    const err = await attempt(async () => { const refs = await createDraftPlans(items.map((s) => ({ supplierId: s.supplierId, productId: s.productId, warehouseId: s.warehouseId, trucks: s.trucks, capacity: Math.round(s.cases / s.trucks), routeIds: s.routeIds })), 'Replenishment (from planning report)'); say(`Draft ${refs.join(', ')} created — review and submit it`); });
+    const err = await attempt(async () => { const n = await openPrefilledPos(items.map((s) => ({ supplierId: s.supplierId, productId: s.productId, warehouseId: s.warehouseId, trucks: s.trucks, capacity: Math.round(s.cases / s.trucks), routeIds: s.routeIds })), 'Replenishment (from planning report)'); say(`${n} purchase order${n === 1 ? '' : 's'} prefilled — check the lines and create`); });
     busy = ''; if (err) say(err);
   }
   const risky = $derived((r?.forecasts ?? []).filter((f) => f.daysToStockOut !== null && f.daysToStockOut <= horizon));
@@ -38,13 +38,13 @@
 
   <section class="card" style="margin-top:var(--space-4)">
     <header class="row between"><div><h3>Suggested orders</h3><p class="caption">Order by = stock-out date − lane lead time (actual median transit + 4 days to order and load) − 3 days safety.</p></div>
-      {#if canPlan && r.suggestions.length}<button class="btn btn-primary" disabled={!!busy} onclick={() => draft(r!.suggestions, 'all')}>{busy === 'all' ? 'Creating…' : 'Create draft plans for all'}</button>{/if}</header>
+      {#if canPlan && r.suggestions.length}<button class="btn btn-primary" disabled={!!busy} onclick={() => draft(r!.suggestions, 'all')}>{busy === 'all' ? 'Opening…' : 'Order all (prefill purchase orders)'}</button>{/if}</header>
     <ul class="sugg">
       {#each r.suggestions as s, i}
         <li>
           <Badge tone={tone[s.urgency]}>{s.urgency === 'overdue' ? 'Order now' : s.urgency === 'this week' ? 'This week' : 'Soon'}</Badge>
           <div class="grow"><div><b>{s.text}</b></div><div class="caption">{s.lane} · lead time {s.leadTimeDays} days · arrives by {day(s.arriveBy)} · ≈ {usd(s.estValue)}</div></div>
-          {#if canPlan}<button class="btn btn-secondary btn-sm" disabled={!!busy} onclick={() => draft([s], String(i))}>{busy === String(i) ? 'Creating…' : 'Create draft plan'}</button>{/if}
+          {#if canPlan}<button class="btn btn-secondary btn-sm" disabled={!!busy} onclick={() => draft([s], String(i))}>{busy === String(i) ? 'Opening…' : 'Order this'}</button>{/if}
         </li>
       {:else}<li class="empty">No orders needed in the next 4 weeks — stock and trucks on the road cover expected demand.</li>{/each}
     </ul>

@@ -4,7 +4,7 @@
 import * as R from './rules';
 import * as RP from './reports';
 import type {
-  AckLine, Acknowledgement, CheckpointPass, Device, DriverWork, Entity, Flag, FxRate, GiverWork, ID, JourneyStep, Leg, Loading, Notification, PeriodKind, PeriodPlan, Plan, PlanLine,
+  AckLine, Acknowledgement, CheckpointPass, Device, DriverWork, Entity, Flag, FxRate, GiverWork, ID, JourneyStep, Leg, Loading, Notification, PeriodKind, PeriodPlan, Plan, PlanLine, PoDetail, PoInput, PoUpdateInput,
   PlanLineContext, PvThresholds,
   PurchaseOrder, ReceiverWork, Role, RouteStop, Sale, Shipment, StockRow, StoredFile, SyncResult, TripCost, TripPayment,
   Route, TruckIssue, User, UserAdmin, VelocityRow, WaitingEntry, Warehouse, WarehouseInput,
@@ -175,22 +175,18 @@ export const lookup = {
 const remember = <T extends { poId: ID; poRef?: string }>(x: T) => { if (x.poRef) poRefs.set(x.poId, x.poRef); return x; };
 
 // ---- domain -------------------------------------------------------------------------------------
+/** The orders behind the POs (read-only). POs are created, updated and deleted with `pos` (docs/09 §4) — no drafts. */
 export const plans = {
   list: () => get<Plan[]>('/plans'),
   get: (id: ID) => orNull(get<Plan>(`/plans/${id}`)),
-  create: (entityId: ID, supplierId: ID) => mutate(post<Plan>('/plans', { entityId, supplierId })),
-  save: (plan: Plan) => mutate(call<Plan>('PUT', `/plans/${plan.id}`, plan)),
-  newLine(plan: Plan, truckNo: number): PlanLine {
+  /** A fresh line for the PO editor: the supplier's first product at its list price, on the supplier's first lane. */
+  newLine(plan: Pick<Plan, 'supplierId'>, truckNo: number): PlanLine {
     const prod = ref().products.find((p) => p.supplierId === plan.supplierId) ?? ref().products[0];
     const supplierCp = lookup.supplier(plan.supplierId)?.checkpointId;
     const route = ref().routes.find((r) => r.stops[0].checkpointId === supplierCp) ?? ref().routes[0];
     const wh = ref().warehouses.find((w) => w.checkpointId === route?.stops.at(-1)?.checkpointId);
     return { id: `pl-${key().slice(0, 8)}`, truckNo, productId: prod?.id ?? '', qty: 0, price: lookup.price(prod?.id ?? ''), deliveredToId: wh?.receivingCompanyId ?? 'rc-asie', routeId: route?.id ?? '' };
   },
-  submit: (id: ID) => mutate(post<Plan>(`/plans/${id}/submit`)),
-  decide: (id: ID, action: 'approved' | 'returned' | 'rejected', comment?: string, signature?: string) => mutate(post<Plan>(`/plans/${id}/decision`, { action, comment, signature })),
-  amend: (id: ID, reason: string) => mutate(post<Plan>(`/plans/${id}/amendments`, { reason })),
-  versions: (id: ID) => get<{ version: number; snapshot: Plan; reason: string | null; at: string }[]>(`/plans/${id}/versions`),
   /** PO-06: each line against the approved period plan — planned, ordered before, this PO, remaining, over/unplanned. */
   planContext: (planId: ID) => get<PlanLineContext[]>(`/plans/${planId}/plan-context`),
 };
@@ -207,13 +203,23 @@ export const periodPlans = {
   versions: (id: ID) => get<{ version: number; snapshot: PeriodPlan; reason: string | null; at: string }[]>(`/period-plans/${id}/versions`),
 };
 export const pos = {
-  async list() { const r = await get<PurchaseOrder[]>('/pos'); r.forEach((p) => poRefs.set(p.id, p.ref)); return r; },
-  /** `revisions`: the whole chain of a PO revised at loading (original first), else empty. */
-  async get(id: ID) { const r = await orNull(get<{ po: PurchaseOrder; plan: Plan; revisions: PurchaseOrder[] }>(`/pos/${id}`)); if (r) { poRefs.set(r.po.id, r.po.ref); (r.revisions ?? []).forEach((x) => poRefs.set(x.id, x.ref)); } return r; },
+  /** Effective POs (latest revision) with their stage; `{ all: true }` also lists deleted ones. */
+  async list(opts: { all?: boolean } = {}) { const r = await get<PurchaseOrder[]>(`/pos${opts.all ? '?all=1' : ''}`); r.forEach((p) => poRefs.set(p.id, p.ref)); return r; },
+  /** The PO, its order lines, the whole chain (original first), every version snapshot, loaded cases and allowed actions. */
+  async get(id: ID) { const r = await orNull(get<PoDetail>(`/pos/${id}`)); if (r) { poRefs.set(r.po.id, r.po.ref); (r.revisions ?? []).forEach((x) => poRefs.set(x.id, x.ref)); } return r; },
+  /** Create: issued at once (approved automatically) — or awaiting a director when approvals are on. */
+  create: (input: PoInput) => mutate(post<PurchaseOrder>('/pos', input)),
+  /** Update = the next revision `<ref>-rev00N` (reason required); never an overwrite. */
+  update: (id: ID, input: PoUpdateInput) => mutate(call<PurchaseOrder>('PUT', `/pos/${id}`, input)),
+  /** Soft delete with a reason, only while nothing has been loaded. */
+  remove: (id: ID, reason: string) => mutate(post<PurchaseOrder>(`/pos/${id}/delete`, { reason })),
+  /** Approvals on: approve (signature) or reject (comment → deleted). */
+  decide: (id: ID, action: 'approved' | 'rejected', comment?: string, signature?: string) => mutate(post<PurchaseOrder>(`/pos/${id}/decision`, { action, comment, signature })),
   markSent: (id: ID) => mutate(post<PurchaseOrder>(`/pos/${id}/sent`)),
   send: (id: ID) => mutate(post<PurchaseOrder>(`/pos/${id}/send`)),
-  /** Server-rendered PO letter (Typst). */
+  /** Server-rendered PO letter (Typst) — any version of the chain by its id. */
   pdf: (id: ID) => call<Blob>('GET', `/pos/${id}/pdf`, undefined, { blob: true }),
+  newLine: (supplierId: ID, truckNo: number) => plans.newLine({ supplierId }, truckNo),
 };
 export const loading = {
   waiting: (loadingPointId?: ID) => get<WaitingEntry[]>(`/waiting${loadingPointId ? `?loadingPointId=${loadingPointId}` : ''}`),

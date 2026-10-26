@@ -69,7 +69,7 @@ export function scopeData(dt: ReportData, entityIds: ID[] | null): ReportData {
     shipments, acks: dt.acks.filter((a) => shipIds.has(a.shipmentId)),
     costs: dt.costs.filter((c) => shipIds.has(c.shipmentId)), payments: dt.payments.filter((p) => shipIds.has(p.shipmentId)),
     // PO revisions made at loading: only the latest revision counts (superseded orders/POs stay viewable, never counted twice)
-    plans: dt.plans.filter((x) => inSet(ids, x.entityId) && !x.supersededById), pos: dt.pos.filter((x) => inSet(ids, x.entityId) && !x.supersededById),
+    plans: dt.plans.filter((x) => inSet(ids, x.entityId) && !x.supersededById), pos: dt.pos.filter((x) => inSet(ids, x.entityId) && !x.supersededById && x.status !== 'Deleted'),
     periodPlans: (dt.periodPlans ?? []).filter((x) => inSet(ids, x.entityId)), loadings: dt.loadings.filter((x) => inSet(ids, x.entityId)),
     moves: dt.moves.filter((m) => inSet(ids, m.entityId) && !icRefs.has(m.ref)),
     stock: icRefs.size ? stockWithoutIntercompany(dt, ids, icRefs) : dt.stock.filter((r) => inSet(ids, r.entityId)),

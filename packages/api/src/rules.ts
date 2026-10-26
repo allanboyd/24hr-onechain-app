@@ -1,11 +1,12 @@
 // Pure business rules shared by the in-browser mock, the HTTP client (for derived values such as ETA)
 // and the NestJS server. No I/O, no globals: every input is a parameter, `now` included.
 import type {
-  Acknowledgement, AppConfig, CheckpointPass, Currency, EtaInfo, FeatureKey, Flag, FxRate, ID, JourneyStep, Leg, LegStatus, LoadingAlternative, LoadingLine, PeriodKind, PeriodPlan, Plan, PlanLineContext, PoRevisionChange, Product,
+  Acknowledgement, AppConfig, CheckpointPass, Currency, EtaInfo, FeatureKey, Flag, FxRate, ID, JourneyStep, Leg, LegStatus, Loading, LoadingAlternative, LoadingLine, PeriodKind, PeriodPlan, Plan, PlanLine, PlanLineContext, PoLineChange, PoLineSnap, PoRevisionChange, PoStage, Product, PurchaseOrder,
   PvThresholds, Role, RouteStop, Sale, Shipment, StockRow, VelocityClass, VelocityRow, WarehouseInput,
 } from './types';
 
 export const H = 36e5;
+const fmtN = (n: number) => n.toLocaleString('en-US');
 export const DAY = 864e5;
 const iso = (t: number) => new Date(t).toISOString();
 
@@ -47,7 +48,8 @@ export const amount = (qty: number, price: number) => Math.round(qty * price * 1
 
 /** Next sequential reference for an entity prefix and year, e.g. BTW-PO-2026-0003 (PO-02). */
 export function nextRef(existingRefs: string[], prefix: string, year: number) {
-  const nums = existingRefs.filter((r) => r.startsWith(`${prefix}-${year}`)).map((r) => +r.split('-').at(-1)!);
+  // revision refs (BTW-PO-2026-0002-rev001) share the number of their original and are skipped
+  const nums = existingRefs.filter((r) => r.startsWith(`${prefix}-${year}-`)).map((r) => +r.slice(prefix.length + 6)).filter((n) => Number.isInteger(n));
   return `${prefix}-${year}-${String(Math.max(0, ...nums) + 1).padStart(4, '0')}`;
 }
 
@@ -466,16 +468,95 @@ export const missingReasons = (ctx: PlanLineContext[]) => ctx.filter((c) => c.ex
 // ---- Server config (apps/api/config.toml) ---------------------------------------------------------------
 /** Defaults when config.toml is missing or a key is absent. The mock client uses the same. */
 export const defaultConfig: AppConfig = { approvals: { purchaseOrders: false }, loading: { allowancePct: 10, allowAlternatives: true, revisionSuffix: '-rev' }, fees: { amberDays: 14, redDays: 30 }, costs: { allocation: 'quantity' } };
-/** Label of an order's state for the UI: "Issued" when it became a PO without director approval. */
-export function planStatusLabel(p: Pick<Plan, 'status' | 'history' | 'revision' | 'supersededById'>, cfg: AppConfig = defaultConfig): string {
-  if (p.status === 'Approved') {
-    if (p.supersededById) return 'Revised';
-    const last = [...p.history].reverse().find((h) => h.action === 'approved' || h.action === 'issued' || h.action === 'revised');
-    return last?.action === 'approved' ? 'Approved' : 'Issued';
-  }
-  if (p.status === 'Submitted' && !cfg.approvals.purchaseOrders) return 'Ready to issue';
+/** Label of an order's state for the UI. POs are not drafted: Issued (approved automatically or by a director), Awaiting
+ *  approval (approvals on), Revised (a later revision replaced it) or Deleted. */
+export function planStatusLabel(p: Pick<Plan, 'status' | 'history' | 'revision' | 'supersededById'>, _cfg: AppConfig = defaultConfig): string {
+  if (p.status === 'Approved') return p.supersededById ? 'Revised' : 'Issued';
+  if (p.status === 'Submitted') return 'Awaiting approval';
+  if (p.status === 'Deleted' || p.status === 'Rejected') return 'Deleted';
   return p.status;
 }
+
+// ---- Purchase orders: create, update (= revision), delete (docs/09 §4) ------------------------------------------------
+/** The supplier-facing part of an order line. */
+export const poLineSnap = (l: Pick<PlanLine, 'truckNo' | 'productId' | 'qty' | 'price' | 'routeId' | 'deliveredToId'>): PoLineSnap =>
+  ({ truckNo: l.truckNo, productId: l.productId, qty: l.qty, ...(l.price !== undefined ? { price: l.price } : {}), routeId: l.routeId, deliveredToId: l.deliveredToId });
+/**
+ * Line-by-line difference between two versions (matched by line id): `kind` for a changed line is 'updated' (office edit)
+ * or 'revised at loading'; lines only in `next` are 'added', lines only in `prev` are 'removed'. Unchanged lines are left out.
+ */
+export function diffPoLines(prev: PlanLine[], next: PlanLine[], kind: 'updated' | 'revised at loading'): PoLineChange[] {
+  const out: PoLineChange[] = [];
+  const same = (a: PlanLine, b: PlanLine) => a.truckNo === b.truckNo && a.productId === b.productId && a.qty === b.qty && (a.price ?? null) === (b.price ?? null) && a.routeId === b.routeId && a.deliveredToId === b.deliveredToId;
+  for (const b of next) {
+    const a = prev.find((x) => x.id === b.id);
+    if (!a) out.push({ lineId: b.id, truckNo: b.truckNo, kind: 'added', after: poLineSnap(b) });
+    else if (!same(a, b)) out.push({ lineId: b.id, truckNo: b.truckNo, kind, before: poLineSnap(a), after: poLineSnap(b) });
+  }
+  for (const a of prev) if (!next.some((x) => x.id === a.id)) out.push({ lineId: a.id, truckNo: a.truckNo, kind: 'removed', before: poLineSnap(a) });
+  return out.sort((x, y) => x.truckNo - y.truckNo);
+}
+/** "Truck 4: Tusker 2,000 → 1,800; Truck 5 added: Pilsner 1,000" — one text per change (letters, notifications). */
+export function lineChangeText(c: PoLineChange, name: (productId: ID) => string): string {
+  const a = c.before, b = c.after;
+  if (c.kind === 'added' && b) return `Truck ${c.truckNo}: ${name(b.productId)} ${fmtN(b.qty)} cases added`;
+  if (c.kind === 'removed' && a) return `Truck ${c.truckNo}: ${name(a.productId)} ${fmtN(a.qty)} cases removed`;
+  if (!a || !b) return `Truck ${c.truckNo}: changed`;
+  const parts: string[] = [];
+  if (a.productId !== b.productId) parts.push(`${name(a.productId)} → ${name(b.productId)}`);
+  if (a.qty !== b.qty) parts.push(`${a.productId === b.productId ? name(b.productId) + ' ' : ''}${fmtN(a.qty)} → ${fmtN(b.qty)} cases`);
+  if ((a.price ?? null) !== (b.price ?? null) && a.price !== undefined && b.price !== undefined) parts.push(`price ${a.price} → ${b.price}`);
+  if (a.routeId !== b.routeId) parts.push('route changed');
+  if (a.deliveredToId !== b.deliveredToId) parts.push('delivered-to changed');
+  if (a.truckNo !== b.truckNo) parts.push(`moved from truck ${a.truckNo}`);
+  return `Truck ${c.truckNo}: ${parts.join(', ') || 'changed'}${c.kind === 'revised at loading' ? ' (at loading)' : ''}`;
+}
+/** Next revision number of a PO chain: one counter for office updates and loading revisions, from the ORIGINAL ref. */
+export const nextRevisionNo = (chain: Pick<PurchaseOrder, 'revision'>[]) => chain.reduce((a, x) => Math.max(a, x.revision ?? 0), 0) + 1;
+/** Where a PO stands: Deleted / Awaiting approval (stored), else Delivered (every truck acknowledged), On the road (a truck
+ *  left), Loading (a truck loaded), Sent (emailed to the supplier) or Created. Loadings and shipments are those of the chain. */
+export function poStage(po: Pick<PurchaseOrder, 'status' | 'sentAt'>, loadings: Pick<Loading, 'status'>[], shipments: Pick<Shipment, 'status' | 'fromWarehouseId' | 'legs'>[]): PoStage {
+  if (po.status === 'Deleted') return 'Deleted';
+  if (po.status === 'Awaiting approval') return 'Awaiting approval';
+  const shs = shipments.filter((s) => !s.fromWarehouseId);
+  const loaded = loadings.filter((l) => l.status === 'Loaded');
+  if (loadings.length && loaded.length === loadings.length && shs.length >= loadings.length && shs.every((s) => s.status === 'Acknowledged')) return 'Delivered';
+  const left = (s: (typeof shs)[number]) => (s.status !== 'Loaded' && s.status !== 'Planned') || s.legs.some((l) => !!l.departedAt);
+  if (shs.some(left)) return 'On the road';
+  if (loaded.length) return 'Loading';
+  return po.sentAt ? 'Sent' : 'Created';
+}
+/** A PO may be deleted only while nothing was loaded against it (no loading Loaded, no shipment). `null` = allowed. */
+export function poDeleteBlock(po: Pick<PurchaseOrder, 'status'>, loadings: Pick<Loading, 'status'>[], shipments: unknown[]): string | null {
+  if (po.status === 'Deleted') return 'This purchase order is already deleted';
+  if (loadings.some((l) => l.status === 'Loaded') || shipments.length) return 'Trucks have been loaded against this purchase order — it can no longer be deleted. Update it instead (the change is kept as a revision).';
+  return null;
+}
+/**
+ * May the office change the order to `next`? Every truck loaded → refused. On a loaded truck no line may drop below the
+ * cases loaded, change product / route / delivered-to, or be added. `loaded` = cases loaded per order line id; `loadedTrucks`
+ * = truck numbers already loaded. `null` = allowed.
+ */
+export function poUpdateBlock(po: Pick<PurchaseOrder, 'status'>, prev: PlanLine[], next: Pick<PlanLine, 'id' | 'truckNo' | 'productId' | 'qty' | 'routeId' | 'deliveredToId'>[], loadedTrucks: number[], loaded: Record<ID, number>, truckCount: number): string | null {
+  if (po.status === 'Deleted') return 'A deleted purchase order cannot be updated';
+  if (truckCount > 0 && loadedTrucks.length >= truckCount) return 'Every truck of this purchase order is loaded — it can no longer be updated';
+  for (const a of prev) {
+    if (!loadedTrucks.includes(a.truckNo)) continue;
+    const b = next.find((x) => x.id === a.id);
+    const got = loaded[a.id] ?? 0;
+    if (!b) { if (got > 0) return `Truck ${a.truckNo} is already loaded — its ${fmtN(got)} loaded cases can't be removed`; continue; }
+    if (b.qty < got) return `Truck ${a.truckNo} already loaded ${fmtN(got)} cases on this line — the quantity can't go below that`;
+    if (b.productId !== a.productId || b.routeId !== a.routeId || b.deliveredToId !== a.deliveredToId || b.truckNo !== a.truckNo) return `Truck ${a.truckNo} is already loaded — its lines can't change product, truck, route or destination`;
+  }
+  for (const b of next) if (!prev.some((a) => a.id === b.id) && loadedTrucks.includes(b.truckNo)) return `Truck ${b.truckNo} is already loaded — add the goods on another truck`;
+  return null;
+}
+/** The audit / letter line of how a PO was approved: "Approved automatically · Kabonge · 26 Oct 2026". */
+export const approvalText = (po: Pick<PurchaseOrder, 'approval' | 'approvedAt'>, name: string) =>
+  po.approval === 'director' ? `Approved by ${name} · ${po.approvedAt.slice(0, 10)}`
+    : po.approval === 'revision' ? `Revised at loading · ${name} · ${po.approvedAt.slice(0, 10)}`
+      : po.approval === 'update' ? `Updated by ${name} · ${po.approvedAt.slice(0, 10)}`
+        : `Approved automatically · ${name} · ${po.approvedAt.slice(0, 10)}`;
 
 // ---- Loading against the PO: allowance, alternatives, automatic revisions -----------------------------------
 /** BTW-PO-2026-0002 + "-rev" + 1 → BTW-PO-2026-0002-rev001 (always numbered from the ORIGINAL ref). */
@@ -484,7 +565,6 @@ export interface LoadingCheck {
   ordered: number; loaded: number; diff: number; diffPct: number; allowancePct: number; min: number; max: number; capacity: number;
   within: boolean; overCapacity: boolean; deviates: boolean; changes: Omit<PoRevisionChange, 'truckNo'>[]; error?: string;
 }
-const fmtN = (n: number) => n.toLocaleString('en-US');
 /**
  * What the loader is about to record against the PO truck: the loaded total may differ from the ordered total by at most
  * ±allowancePct and never exceed the truck's capacity. Any difference (a quantity, a missing item, an alternative) is a

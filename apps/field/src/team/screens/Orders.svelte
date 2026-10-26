@@ -1,19 +1,20 @@
 <script lang="ts">
-  // Orders: issued purchase orders · drafts (and approvals when the config asks for them) · period plans (read-only).
+  // Orders: purchase orders with their stage (no drafts — a PO is issued when created, docs/09 §4) · period plans (read-only).
   import { untrack } from 'svelte';
-  import { periodPlans, plans, pos, type PeriodPlan, type Plan, type PurchaseOrder, type User } from '@btw/api';
+  import { periodPlans, plans, pos, type PeriodPlan, type Plan, type PoStage, type PurchaseOrder, type User } from '@btw/api';
   import { Badge, fmtShortDate } from '@btw/ui';
   import Search from '@lucide/svelte/icons/search';
   import CalendarRange from '@lucide/svelte/icons/calendar-range';
   import Plus from '@lucide/svelte/icons/plus';
   import CompanyDot from '../../components/CompanyDot.svelte';
-  import { can, canIssuePO } from '../access';
+  import { can, canIssuePO, poApprovalRequired } from '../access';
   import { co } from '../company.svelte';
   import { Res, onRefresh, settle } from '../load.svelte';
-  import { orderCases, orderValue, orderedByLine, plannedCases, sumMap, supplierName, trucksOf } from '../plan';
+  import { STAGE_TONE, orderedByLine, plannedCases, revLabel, stageOf, sumMap, supplierName } from '../plan';
   import { dayLabel, num, plural, usd } from '../fmt';
   import { webLink } from '../web';
   import Segmented from '../components/Segmented.svelte';
+  import Chips from '../components/Chips.svelte';
   import Meter from '../components/Meter.svelte';
   import Skeleton from '../components/Skeleton.svelte';
   import Empty from '../components/Empty.svelte';
@@ -23,20 +24,23 @@
 
   const showPeriods = $derived(can(user, 'period-plans'));
   const r = new Res(async () => {
-    const [p, o, pp] = await Promise.all([pos.list(), settle(plans.list(), [] as Plan[]), showPeriods ? settle(periodPlans.list(), [] as PeriodPlan[]) : ([] as PeriodPlan[])]);
+    // plans.list() only feeds the period-plan meters (ordered against each plan line)
+    const [p, o, pp] = await Promise.all([pos.list(), showPeriods ? settle(plans.list(), [] as Plan[]) : ([] as Plan[]), showPeriods ? settle(periodPlans.list(), [] as PeriodPlan[]) : ([] as PeriodPlan[])]);
     return { pos: p as PurchaseOrder[], plans: o, periods: pp };
   });
   $effect(() => r.live());
   $effect(() => onRefresh(() => r.reload()));
 
-  let seg = $state(untrack(() => (query.get('seg') === 'period' && showPeriods ? 'period' : query.get('seg') === 'drafts' ? 'drafts' : 'pos')));
-  const segs = $derived([{ id: 'pos', label: 'Issued' }, { id: 'drafts', label: 'Drafts' }, ...(showPeriods ? [{ id: 'period', label: 'Period plans' }] : [])]);
+  let seg = $state(untrack(() => (query.get('seg') === 'period' && showPeriods ? 'period' : 'pos')));
+  const segs = $derived([{ id: 'pos', label: 'Purchase orders' }, ...(showPeriods ? [{ id: 'period', label: 'Period plans' }] : [])]);
+  const STAGES: PoStage[] = ['Awaiting approval', 'Created', 'Sent', 'Loading', 'On the road', 'Delivered'];
+  let stage = $state<string>(untrack(() => query.get('stage') ?? 'all'));
   let q = $state('');
   const match = (...xs: (string | undefined)[]) => !q.trim() || xs.some((x) => x?.toLowerCase().includes(q.trim().toLowerCase()));
-  const planOf = $derived(new Map((r.data?.plans ?? []).map((p) => [p.id, p])));
-  const issued = $derived((r.data?.pos ?? []).filter((p) => match(p.ref, p.title, supplierName(p.supplierId))));
-  const drafts = $derived((r.data?.plans ?? []).filter((p) => p.status !== 'Approved' && match(p.ref, p.title, supplierName(p.supplierId)))
-    .sort((a, b) => (a.status === 'Submitted' ? -1 : 0) - (b.status === 'Submitted' ? -1 : 0) || b.date.localeCompare(a.date)));
+  const found = $derived((r.data?.pos ?? []).filter((p) => match(p.ref, p.baseRef, p.title, supplierName(p.supplierId))));
+  const stageChips = $derived([{ id: 'all', label: 'All', count: found.length },
+    ...STAGES.filter((s) => s !== 'Awaiting approval' || poApprovalRequired()).map((s) => ({ id: s, label: s, count: found.filter((p) => stageOf(p) === s).length }))]);
+  const shown = $derived(stage === 'all' ? found : found.filter((p) => stageOf(p) === stage));
   const periods = $derived((r.data?.periods ?? []).filter((p) => match(p.ref, p.title)));
 </script>
 
@@ -47,36 +51,22 @@
 {#if r.loading}
   <Skeleton rows={6} />
 {:else if seg === 'pos'}
-  {#if issued.length}
+  <Chips options={stageChips} bind:value={stage} label="Stage" />
+  {#if shown.length}
     <div class="t-list">
-      {#each issued as p (p.id)}
-        {@const pl = planOf.get(p.planId)}
+      {#each shown as p (p.id)}
+        {@const st = stageOf(p)}
         <a class="t-item" href="#/orders/po/{p.id}">
           <span class="t-main">
-            <span class="t-line1">{#if co.active === null}<CompanyDot entityId={p.entityId} />{/if}<span class="t-ellipsis">{p.ref}</span></span>
+            <span class="t-line1">{#if co.active === null}<CompanyDot entityId={p.entityId} />{/if}<span class="t-ellipsis">{p.baseRef ?? p.ref}</span>{#if p.revision}<span class="rev">{revLabel(p.revision)}</span>{/if}</span>
             <span class="t-meta t-ellipsis">{supplierName(p.supplierId)}{p.title ? ` · ${p.title}` : ''}</span>
-            <span class="t-meta">{dayLabel(p.date)}{pl ? ` · ${plural(trucksOf(pl), 'truck')} · ${num(orderCases(pl))} cases` : ''}</span>
+            <span class="t-meta">{dayLabel(p.date)}{p.trucks ? ` · ${plural(p.trucks, 'truck')}` : ''}{p.cases != null ? ` · ${num(p.cases)} cases` : ''}</span>
           </span>
-          <span class="right">{#if pl}<span class="t-amount">{usd(orderValue(pl))}</span>{/if}{#if p.sentAt}<Badge tone="success">Sent</Badge>{:else}<Badge tone="warning">Not sent</Badge>{/if}</span>
+          <span class="right">{#if p.amount != null}<span class="t-amount">{usd(p.amount)}</span>{/if}<Badge tone={STAGE_TONE[st]}>{st}</Badge></span>
         </a>
       {/each}
     </div>
-  {:else}<Empty title="No purchase orders" text={q ? 'Nothing matches your search.' : 'Issued orders will show here.'} />{/if}
-{:else if seg === 'drafts'}
-  {#if drafts.length}
-    <div class="t-list">
-      {#each drafts as p (p.id)}
-        <a class="t-item" href="#/orders/draft/{p.id}">
-          <span class="t-main">
-            <span class="t-line1">{#if co.active === null}<CompanyDot entityId={p.entityId} />{/if}<span class="t-ellipsis">{p.ref}</span></span>
-            <span class="t-meta t-ellipsis">{supplierName(p.supplierId)}{p.title ? ` · ${p.title}` : ''}</span>
-            <span class="t-meta">{`${dayLabel(p.date)} · ${num(orderCases(p))} cases`}</span>
-          </span>
-          <span class="right"><span class="t-amount">{usd(orderValue(p))}</span><Badge status={p.status} /></span>
-        </a>
-      {/each}
-    </div>
-  {:else}<Empty title="No drafts" text="Orders being prepared will show here." />{/if}
+  {:else}<Empty title="No purchase orders" text={q || stage !== 'all' ? 'Nothing matches your search.' : 'Purchase orders will show here once created.'} />{/if}
 {:else}
   {#if periods.length}
     <div class="t-list">
@@ -100,12 +90,13 @@
 {/if}
 
 {#if canIssuePO(user) && co.active}
-  <a class="t-fab" href={webLink(seg === 'period' ? '/period-plans/new' : '/plans/new')} target="_blank" rel="noopener"><Plus size={22} />{seg === 'period' ? 'New plan' : 'New PO'}</a>
+  <a class="t-fab" href={webLink(seg === 'period' ? '/period-plans/new' : '/pos/new')} target="_blank" rel="noopener"><Plus size={22} />{seg === 'period' ? 'New plan' : 'New PO'}</a>
 {/if}
 
 <style>
   .t-item.col { flex-direction: column; align-items: stretch; gap: 8px; }
   .top { align-items: flex-start; }
   .bar { display: block; }
+  .rev { flex: none; font: 700 11px var(--ff-mono); padding: 2px 6px; border-radius: 6px; background: var(--surface-sunken); color: var(--text-muted); }
   .right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
 </style>

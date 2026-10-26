@@ -59,8 +59,10 @@ export interface PoLetterData {
   /** 'approved' (director stamp, default) or 'issued' (config approvals.purchase_orders = false, and every revision):
    *  the letter then says "ISSUED <date> by <name>" instead of an APPROVED stamp. */
   mode?: 'approved' | 'issued';
-  /** A PO revised at loading: "Revision 1 of BTW-PO-2026-0002" and what changed (one line per change). */
-  revision?: { n: number; of: string; changes: string[] };
+  /** 'issued' mode: the block label and stamp text, e.g. "Approved automatically" / "APPROVED AUTOMATICALLY 26 October 2026 · Kabonge". */
+  issuedLabel?: string; stampText?: string;
+  /** A revision (office update or loading): "Revision 1 of BTW-PO-2026-0002 — updated 26 Oct 2026" and what changed (one line per change). */
+  revision?: { n: number; of: string; changes: string[]; kind?: 'updated' | 'revised at loading'; at?: string; reason?: string };
 }
 
 /** Data for templates/acknowledgement.typ (AK-03). */

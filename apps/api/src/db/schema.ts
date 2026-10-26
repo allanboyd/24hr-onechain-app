@@ -6,7 +6,7 @@ import {
   bigserial, boolean, customType, doublePrecision, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import type {
-  AckLine, ApprovalEvent, PeriodPlanLine, UserPair, CheckpointPass, DocumentRef, LoadingLine, PlanLine, PoRevisionChange, RouteStop, SaleLine, TruckIssue,
+  AckLine, ApprovalEvent, PeriodPlanLine, UserPair, CheckpointPass, DocumentRef, LoadingLine, PlanLine, PoLineChange, PoRevisionChange, RouteStop, SaleLine, TruckIssue,
 } from '@btw/api/types';
 
 /** PostGIS geography(Point, 4326). Written with sql`ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography`. */
@@ -120,7 +120,20 @@ export const pos = pgTable('pos', {
   /** Revisions: base PO, number (…-rev001), changes ordered → loaded, why; written by the system for the loader. */
   revisionOf: text('revision_of'), revision: integer('revision'), changes: jsonb('changes').$type<PoRevisionChange[]>(), revisionReason: text('revision_reason'),
   createdBy: text('created_by'), onBehalfOfId: text('on_behalf_of_id'), supersededById: text('superseded_by_id'),
+  /** docs/09 §4: 'Issued' | 'Awaiting approval' | 'Deleted' (soft delete: who, when, why). */
+  status: text('status').notNull().default('Issued'), deletedAt: ts('deleted_at'), deletedById: text('deleted_by_id'), deleteReason: text('delete_reason'),
+  /** Revisions: 'updated' (office) | 'revised at loading'; per-line before → after. */
+  revisionKind: text('revision_kind'), lineChanges: jsonb('line_changes').$type<PoLineChange[]>(),
 }, (t) => [index('pos_entity_idx').on(t.entityId), index('pos_revision_idx').on(t.revisionOf)]);
+/** docs/09 §4: immutable snapshot of every PO version — the original (revision 0) and each revision (office update or
+ *  loading), with its lines and per-line changes. Insert-only. */
+export const poVersions = pgTable('po_versions', {
+  poId: text('po_id').primaryKey(), basePoId: text('base_po_id').notNull(), planId: text('plan_id').notNull(), entityId: text('entity_id').notNull(),
+  ref: text('ref').notNull(), revision: integer('revision').notNull(), kind: text('kind').notNull(),
+  title: text('title').notNull(), instruction: text('instruction').notNull(), requiredBy: text('required_by').notNull(), currency: text('currency').notNull(),
+  lines: jsonb('lines').$type<PlanLine[]>().notNull(), lineChanges: jsonb('line_changes').$type<PoLineChange[]>().notNull(),
+  reason: text('reason'), byUserId: text('by_user_id').notNull(), at: ts('at').notNull().default(now()),
+}, (t) => [uniqueIndex('po_versions_base_rev_idx').on(t.basePoId, t.revision)]);
 
 // ---- Loading, shipments, tracking --------------------------------------------
 export const waitingEntries = pgTable('waiting_entries', {

@@ -20,7 +20,7 @@
   // Short tab names so every tab fits on one row (the group's full name stays in the page caption)
   const SHORT: Record<string, string> = { business: 'Business', fees: 'Fees & expenses', admin: 'Alerts & admin' };
   const tabs = $derived<Tab[]>([
-    { key: 'mine', label: 'My dashboards', blurb: 'Your own set — only the companies, suppliers, routes and warehouses you work on.' },
+    { key: 'mine', label: 'My dashboards', blurb: home.includes('director-today') ? 'Today — what needs your decision and where the business stands. Each card opens the full tab.' : 'Your own set — only the companies, suppliers, routes and warehouses you work on.' },
     ...DASH_GROUPS.filter((g) => mine.some((d) => d.group === g.key)).map((g) => ({ key: g.key as string, label: SHORT[g.key] ?? g.label, blurb: `${g.label} — ${g.blurb}` })),
     ...(director && groupView ? [{ key: 'companies', label: 'Companies', blurb: 'BTW, Nihna and Kivu compared on the same measures.' }] : []),
   ]);
@@ -51,6 +51,9 @@
 
 {#if active === 'companies'}
   {#await import('../../components/group/GroupDashboard.svelte') then m}<m.default {user} embedded />{/await}
+{:else if active === 'mine' && home.includes('director-today')}
+  <!-- directors: one curated daily view (docs/15 §3); the feature tabs keep every other dashboard -->
+  {#await import('./today/Today.svelte') then m}<m.default />{/await}
 {:else if !keys.length}
   <div class="card empty"><h2>No dashboards for your role yet</h2><p class="small">Use the menu to open your work.</p></div>
 {:else}
@@ -61,5 +64,6 @@
 <style>
   .tabs { display: flex; flex-wrap: wrap; gap: 0 var(--space-1); border-bottom: 1px solid var(--border); margin: var(--space-2) 0 var(--space-3); }
   .tabs a { padding: var(--space-2) var(--space-3); white-space: nowrap; color: var(--text-muted); text-decoration: none; border-bottom: 3px solid transparent; font-weight: 600; font-size: 14px; }
+  @media (max-width: 600px) { .tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } .tabs a { padding: var(--space-2) var(--space-2); } }
   .tabs a.on { color: var(--text); border-bottom-color: var(--nav-indicator, var(--primary)); }
 </style>

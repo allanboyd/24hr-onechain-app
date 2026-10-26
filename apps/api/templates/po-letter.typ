@@ -36,7 +36,7 @@
 #if rev != none [
   #v(0.1cm)
   #box(fill: sunken, inset: 6pt, radius: 2pt, width: 100%)[
-    #text(9pt, weight: "bold", fill: ink)[Revision #rev.n of #rev.of] #text(8.5pt, fill: rgb("#4A5A70"))[— revised at loading; replaces the earlier version] \
+    #text(9pt, weight: "bold", fill: ink)[Revision #rev.n of #rev.of] #text(8.5pt, fill: rgb("#4A5A70"))[— #rev.at("note", default: "revised at loading; replaces the earlier version")] \
     #set text(8.5pt)
     #for c in rev.changes [• #c \ ]
   ]
@@ -67,9 +67,9 @@ Yours faithfully,
 #grid(columns: (1fr, 1fr), gutter: 1cm,
   [#text(8pt, fill: rgb("#66768C"), upper("Prepared by")) \ *#d.preparedBy.name* \ #if d.preparedBy.title != none [#d.preparedBy.title]],
   if d.approvedBy != none and d.at("mode", default: "approved") == "issued" [
-    #text(8pt, fill: rgb("#66768C"), upper("Issued by")) \
+    #text(8pt, fill: rgb("#66768C"), upper(d.at("issuedLabel", default: "Issued by"))) \
     *#d.approvedBy.name* #if d.approvedBy.title != none [· #d.approvedBy.title] \
-    #box(stroke: 1pt + primary, inset: 4pt, radius: 2pt, text(8pt, fill: primary, weight: "bold")[ISSUED #d.approvedBy.at by #d.approvedBy.name])
+    #box(stroke: 1pt + primary, inset: 4pt, radius: 2pt, text(8pt, fill: primary, weight: "bold")[#d.at("stampText", default: "ISSUED " + d.approvedBy.at + " by " + d.approvedBy.name)])
   ] else if d.approvedBy != none [
     #text(8pt, fill: rgb("#66768C"), upper("Approved by")) \
     #if d.signature != none { image(d.signature, height: 1.4cm) } \

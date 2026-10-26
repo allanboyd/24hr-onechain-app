@@ -21,7 +21,8 @@ import type {
 // ======================================================================================================
 // CATALOGUE — who gets which dashboard (client's dashboards document §1–§10)
 // ======================================================================================================
-export type DashGroup = 'business' | 'purchasing' | 'loading' | 'fleet' | 'fees' | 'deliveries' | 'warehouse' | 'sales' | 'admin';
+/** 'home' = a curated home view (no feature-group tab of its own). */
+export type DashGroup = 'home' | 'business' | 'purchasing' | 'loading' | 'fleet' | 'fees' | 'deliveries' | 'warehouse' | 'sales' | 'admin';
 export const DASH_GROUPS: { key: DashGroup; label: string; blurb: string }[] = [
   { key: 'business', label: 'Directors · business', blurb: 'Where the business stands, profit, landed cost and pricing' },
   { key: 'purchasing', label: 'Purchasing', blurb: 'Orders by stage, ordered vs loaded vs delivered, open orders' },
@@ -36,6 +37,7 @@ export const DASH_GROUPS: { key: DashGroup; label: string; blurb: string }[] = [
 /** Audiences: dir = Daniel, Michael · kab = Kabonge (planner) · tf = Testfie (truck follow-up) · ld = loaders · rcv = Asie, Yonas · rx = Asie (re-export). */
 export type Who = 'dir' | 'kab' | 'tf' | 'ld' | 'rcv' | 'rx';
 export type DashKey =
+  | 'director-today'
   | 'exec-overview' | 'combined-performance' | 'profit-margin' | 'landed-product' | 'landed-truck' | 'selling-price' | 'fast-slow'
   | 'po-pipeline' | 'ordered-loaded-delivered' | 'open-orders' | 'plan-vs-actual'
   | 'loading-list' | 'loading-status' | 'dispatched-today'
@@ -53,6 +55,7 @@ export interface DashDef {
 }
 const d = (key: DashKey, id: string, title: string, group: DashGroup, who: Who[], question: string, visual: string, link?: string, client?: boolean): DashDef => ({ key, id, title, group, who, question, visual, link, client });
 export const DASHBOARDS: DashDef[] = [
+  d('director-today', 'C-05', 'Today', 'home', ['dir'], 'What needs a director\'s decision today, and where does the business stand?', 'KPI strip with sparklines, daily sales and profit, decision list, stock health, sales by company / warehouse, top products'),
   d('exec-overview', 'C-P1-01', 'Executive overview', 'business', ['dir'], 'Where does the business stand today?', 'KPI scorecard + exception list', '#/notifications'),
   d('combined-performance', 'C-P1-02', 'Combined performance', 'business', ['dir'], 'Quantity, landed cost, sales, profit and margin at product / warehouse / company / business level', 'Link card + level report', '#/performance'),
   d('profit-margin', 'C-P1-03', 'Profit and margin', 'business', ['dir'], 'How do sales become profit, month by month?', 'Waterfall + monthly stacked columns with a margin line', '#/performance'),
@@ -100,7 +103,8 @@ export const canSeeDash = (u: { roles: Role[] }, key: string) => !!dashDef(key)?
 export const dashboardsFor = (u: { roles: Role[] }) => DASHBOARDS.filter((x) => canSeeDash(u, x.key));
 /** C-05 home screens (dashboards document §10): each person's own set, in this order. */
 export const HOME: Record<Who, DashKey[]> = {
-  dir: ['exec-overview', 'profit-margin', 'landed-product', 'combined-performance', 'selling-price', 'landed-truck', 'fleet-board', 'truck-expenses', 'warehouse-expenses', 'stock-on-hand', 'sales-summary', 'alerts'],
+  // Directors' home = one curated daily view (26 Oct 2026); every other dashboard stays on its feature-group tab.
+  dir: ['director-today'],
   kab: ['po-pipeline', 'ordered-loaded-delivered', 'open-orders', 'plan-vs-actual', 'alerts'],
   tf: ['fleet-board', 'delayed-trucks', 'truck-issues', 'driver-updates', 'agreed-vs-actual', 'fee-payments', 'truck-expenses', 'loading-list'],
   ld: ['loading-list', 'dispatched-today'],
@@ -124,7 +128,7 @@ export interface DashSource extends ReportData {
   /** transport-fee rows the caller may see (null = not for this person) */ fees?: TransportFeeRow[] | null;
   /** user admin rows (directors) */ users?: UserAdmin[] | null;
   /** names and roles of the roster, for owners ("who acts") */ people?: { id: ID; name: string; roles: Role[]; warehouseIds?: ID[]; loadingPointIds?: ID[]; pairs?: { entityId: ID; supplierId: ID }[] }[];
-  waiting?: WaitingEntry[]; config?: Pick<AppConfig, 'fees' | 'costs'>;
+  waiting?: WaitingEntry[]; config?: Pick<AppConfig, 'fees' | 'costs'> & Partial<Pick<AppConfig, 'approvals'>>;
 }
 export interface Viewer extends A.Subject { id: ID; name?: string }
 export interface DashPeriod { from: string; to: string; label: string }
@@ -336,7 +340,7 @@ const finalAck = (c: Ctx, s: Shipment): Acknowledgement | undefined => { const l
 
 /** One purchase order with what was ordered, loaded and delivered, its stage and value. */
 interface PoFact {
-  id: ID; ref: string; entityId: ID; supplierId: ID; date: string; stage: 'Raised' | 'Loading' | 'Dispatched' | 'Delivered';
+  id: ID; ref: string; entityId: ID; supplierId: ID; date: string; stage: 'Created' | 'Sent' | 'Loading' | 'On the road' | 'Delivered';
   ordered: number; loaded: number | null; delivered: number | null; trucks: number; trucksLoaded: number; value: number | null;
   docs: number; photos: number; lastAt: string | null; daysWaiting: number | null;
 }
@@ -344,11 +348,12 @@ function poFacts(c: Ctx): PoFact[] {
   return memo(c, 'po', () => {
     const rawPlans = new Map(c.raw.plans.map((p) => [p.id, p]));
     const rawPos = c.raw.pos;
-    const visible = c.src.pos.filter((p) => !p.supersededById);
+    const visible = c.src.pos.filter((p) => !p.supersededById && p.status !== 'Deleted' && p.status !== 'Awaiting approval'); // docs/09 §4
     return visible.map((po) => {
       const rootId = po.revisionOf ?? po.id;
       const chain = new Set([rootId, ...rawPos.filter((x) => x.revisionOf === rootId).map((x) => x.id)]);
-      const root = rawPos.find((x) => x.id === rootId) ?? po;
+      // ordered = the latest office version (original or office update), before any revision made at loading (docs/09 §4)
+      const root = rawPos.filter((x) => chain.has(x.id) && x.revisionKind !== 'revised at loading').sort((a, b) => (b.revision ?? 0) - (a.revision ?? 0))[0] ?? po;
       const rootPlan = rawPlans.get(root.planId); const curPlan = c.src.plans.find((x) => x.id === po.planId);
       const ordered = sum(rootPlan?.lines ?? curPlan?.lines ?? [], (l) => l.qty);
       const trucks = new Set((rootPlan?.lines ?? curPlan?.lines ?? []).map((l) => l.truckNo)).size;
@@ -359,7 +364,7 @@ function poFacts(c: Ctx): PoFact[] {
       // the order's stage = its least advanced truck: still loading (or not started) → Loading / Raised; all loaded and left → Dispatched
       const allDelivered = shs.length > 0 && shs.length >= trucks && shs.every((s) => s.status === 'Acknowledged');
       const left = (s: Shipment) => s.legs.some((l) => l.departedAt || l.passes[0]?.departedAt);
-      const stage: PoFact['stage'] = allDelivered ? 'Delivered' : done.length < trucks ? (lds.length ? 'Loading' : 'Raised') : shs.length && shs.every(left) ? 'Dispatched' : 'Loading';
+      const stage: PoFact['stage'] = allDelivered ? 'Delivered' : shs.some(left) ? 'On the road' : done.length ? 'Loading' : po.sentAt ? 'Sent' : 'Created';
       const prices = curPlan && !curPlan.pricesHidden && !c.src.pricesHidden;
       const value = prices ? r2(sum(curPlan!.lines, (l) => l.qty * (l.price ?? 0))) : null;
       const docs = lds.flatMap((l) => l.documents ?? []);
@@ -454,9 +459,178 @@ function stockItems(c: Ctx): StockItem[] {
 }
 
 // ======================================================================================================
+// DIRECTORS' TODAY VIEW (C-05, 26 Oct 2026) — one call for the directors' home: four headline figures, daily sales and
+// profit, what needs a decision today, stock health, sales by company / warehouse and the top products. Everything comes
+// from the same facts as the other dashboards (performance report = landed cost v2, truck desk, alerts, stock items).
+// ======================================================================================================
+export interface TodayKpi {
+  /** null = no records yet (never a fake zero) */ value: number | null; prev: number | null;
+  /** daily (or weekly) values for the sparkline, oldest first; null when there is nothing to draw */ spark: (number | null)[] | null;
+}
+export interface TodayDecision {
+  key: 'approvals' | 'trucks' | 'fees' | 'stock' | 'acks' | 'prices';
+  label: string; /** null = this person / setup has no data for it */ count: number | null; value: number | null;
+  detail: string; owner: string; href: string; severity: 'critical' | 'high' | 'medium' | 'low';
+}
+export interface TodayData {
+  period: DashPeriod; prev: DashPeriod; mtd: boolean;
+  sales: TodayKpi; profit: TodayKpi & { margin: number | null; prevMargin: number | null; estimated: boolean };
+  cash: TodayKpi & { overdue: number | null; customers: number; collectedShare: number | null };
+  trucks: TodayKpi & { delayed: number; arrivingToday: number; onTimeWeek: number | null; arrivedWeek: number };
+  daily: { day: string; sales: number | null; profit: number | null }[];
+  decisions: TodayDecision[];
+  stock: { bands: { key: 'risk' | 'low' | 'healthy' | 'over' | 'nosales'; label: string; cases: number; value: number | null; products: number }[]; value: number | null; cases: number } | null;
+  distribution: {
+    companies: { entityId: ID; label: string; week: number | null; month: number | null }[];
+    warehouses: { warehouseId: ID; label: string; week: number | null; month: number | null }[];
+  };
+  top: { productId: ID; brand: string; pack: string; warehouses: string[]; perWeek: number; cases: number; revenue: number; margin: number | null; cover: number | null }[];
+  targetMargin: number; cover: typeof COVER; terms: number;
+}
+const legDep = (l: Leg) => l.departedAt ?? l.passes[0]?.departedAt;
+/** Arrival at the end of the leg (the last pass is the destination). */
+const legArr = (l: Leg) => (l.passes.length > 1 || l.status === 'Arrived' || l.status === 'Acknowledged' ? l.passes.at(-1)?.arrivedAt : undefined);
+
+function directorToday(c: Ctx): Out {
+  const n = names(c.src); const now = c.now; const d0 = new Date(now);
+  const dayStart = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate());
+  // period: month to date (compared with the same days of last month) unless the filter sets one
+  const mtd = !c.f.from;
+  const from = mtd ? Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), 1) : c.from;
+  const to = mtd ? now + 1 : c.to;
+  const pFrom = mtd ? Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth() - 1, 1) : t(c.prev.from);
+  const pTo = mtd ? Math.min(pFrom + (to - from), from) : t(c.prev.to);
+  const period = mtd ? { from: iso(from), to: iso(now), label: `Month to date · ${fmtDay(from)} – ${fmtDay(now)}` } : periodOf(from, to);
+  const prev = periodOf(pFrom, pTo);
+  const sales = c.usd.sales; const val = (s: (typeof sales)[number]) => sum(s.lines, (l) => l.qty * l.price);
+  const inR = (at: string, a: number, b: number) => { const x = t(at); return x >= a && x < b; };
+
+  // ---- daily sales and profit (from 1 Jan, at least 90 days) — profit at each product's landed cost per case ----
+  const start = Math.min(Date.UTC(d0.getUTCFullYear(), 0, 1), dayStart - 89 * DAY);
+  const pYear = perf(c, start, now + 1);
+  const unit = new Map((pYear?.rows ?? []).filter((r) => r.qtySold > 0).map((r) => [r.productId!, r.cogs / r.qtySold]));
+  const first = sales.length ? Math.min(...sales.map((s) => t(s.at))) : Infinity;
+  const nDays = Math.round((dayStart - start) / DAY) + 1;
+  const daily = Array.from({ length: nDays }, (_, i) => ({ day: iso(start + i * DAY).slice(0, 10), sales: null as number | null, profit: null as number | null }));
+  for (let i = 0; i < nDays; i++) if (start + (i + 1) * DAY > first) { daily[i].sales = 0; daily[i].profit = 0; }
+  for (const s of sales) {
+    const i = Math.floor((t(s.at) - start) / DAY); if (i < 0 || i >= nDays) continue;
+    for (const l of s.lines) { daily[i].sales! += l.qty * l.price; const u = unit.get(l.productId); if (u !== undefined) daily[i].profit! += l.qty * (l.price - u); }
+  }
+  for (const x of daily) { if (x.sales !== null) x.sales = r2(x.sales); if (x.profit !== null) x.profit = r2(x.profit); }
+  // today is still running: leave it out until its first sale, so the line does not dip to zero every morning
+  if (daily.length && !daily.at(-1)!.sales) daily.pop();
+  const sparkOf = (k: 'sales' | 'profit') => { const xs = daily.filter((x) => t(x.day) >= from - DAY + 1 && t(x.day) < to).map((x) => x[k]); return xs.filter((x) => x !== null).length >= 2 ? xs : daily.slice(-14).map((x) => x[k]); };
+
+  // ---- sales and profit (landed cost v2) ----
+  const cur = perf(c, from, to), old = perf(c, pFrom, pTo);
+  const anySales = sales.length > 0;
+  const salesK: TodayKpi = { value: anySales ? r2(sum(sales.filter((s) => inR(s.at, from, to)), val)) : null, prev: anySales && pFrom >= first - 31 * DAY ? r2(sum(sales.filter((s) => inR(s.at, pFrom, pTo)), val)) : null, spark: anySales ? sparkOf('sales') : null };
+  const profitK = {
+    value: cur && cur.totals.revenue ? cur.netProfit : null, prev: old && old.totals.revenue ? old.netProfit : null, spark: anySales ? sparkOf('profit') : null,
+    margin: cur?.totals.margin ?? null, prevMargin: old?.totals.margin ?? null, estimated: !!cur?.totals.estimated,
+  };
+
+  // ---- cash to collect: open customer balances (overdue after the payment terms) ----
+  const open = sales.filter((s) => s.status !== 'Paid').map((s) => ({ s, bal: val(s) - s.paid, age: (now - t(s.at)) / DAY })).filter((x) => x.bal > 0.5);
+  const weeks = Array.from({ length: 8 }, (_, i) => now - (8 - i) * 7 * DAY);
+  const soldPeriod = sum(sales.filter((s) => inR(s.at, from, to)), val);
+  const paidPeriod = sum(sales.filter((s) => inR(s.at, from, to)), (s) => Math.min(s.paid, val(s)));
+  const cashK = {
+    value: anySales ? r2(sum(open, (x) => x.bal)) : null, prev: null,
+    // open balance left from the sales of each of the last 8 weeks
+    spark: anySales ? weeks.map((w) => r2(sum(open.filter((x) => t(x.s.at) >= w && t(x.s.at) < w + 7 * DAY), (x) => x.bal))) : null,
+    overdue: anySales ? r2(sum(open.filter((x) => x.age > TERMS_DAYS), (x) => x.bal)) : null, customers: new Set(open.map((x) => x.s.customer)).size,
+    collectedShare: soldPeriod > 0 ? r2(paidPeriod / soldPeriod * 100) / 100 : null,
+  };
+
+  // ---- trucks on the road (now, and at the end of each of the last 14 days) ----
+  const rows = desk(c);
+  const onRoad = rows.filter((r) => ['In transit', 'At border', 'Delayed'].includes(r.state));
+  const legs = c.src.shipments.flatMap((s) => s.legs).filter((l) => l.status !== 'Cancelled');
+  const onAt = (T: number) => legs.filter((l) => { const a = t(legDep(l)), b = t(legArr(l)); return a <= T && !(b <= T); }).length;
+  const arrivedWeek = legs.filter((l) => t(legArr(l)) >= now - 7 * DAY && t(legArr(l)) <= now);
+  const onTime = arrivedWeek.filter((l) => t(legArr(l)) <= t(l.plannedArrival) + 6 * H);
+  const trucksK = {
+    value: legs.length ? onRoad.length : null, prev: legs.length ? onAt(now - 7 * DAY) : null,
+    spark: legs.length ? Array.from({ length: 14 }, (_, i) => onAt(dayStart - (13 - i) * DAY + DAY - 1)).map((x, i, a) => (i === a.length - 1 ? onRoad.length : x)) : null,
+    delayed: onRoad.filter((r) => r.state === 'Delayed').length,
+    arrivingToday: onRoad.filter((r) => r.eta?.eta && t(r.eta.eta) >= dayStart && t(r.eta.eta) < dayStart + DAY).length,
+    onTimeWeek: arrivedWeek.length ? r2(onTime.length / arrivedWeek.length * 100) / 100 : null, arrivedWeek: arrivedWeek.length,
+  };
+
+  // ---- stock health (cases by days of cover; value at landed cost) ----
+  const items = stockItems(c).filter((x) => x.held > 0);
+  const now30 = perf(c, now - 30 * DAY, now + 1);
+  const unitNow = new Map((now30?.rows ?? []).filter((r) => r.stockOnHand > 0 && r.stockValue !== null).map((r) => [r.productId!, r.stockValue! / r.stockOnHand]));
+  const BANDS: { key: 'risk' | 'low' | 'healthy' | 'over' | 'nosales'; label: string; ok: (cv: number | null) => boolean }[] = [
+    { key: 'risk', label: 'At risk (≤ 7 days)', ok: (x) => x !== null && x <= 7 },
+    { key: 'low', label: `Low (8–${COVER.min} days)`, ok: (x) => x !== null && x > 7 && x <= COVER.min },
+    { key: 'healthy', label: `Healthy (${COVER.min + 1}–${COVER.max} days)`, ok: (x) => x !== null && x > COVER.min && x <= COVER.max },
+    { key: 'over', label: `Overstocked (> ${COVER.max} days)`, ok: (x) => x !== null && x > COVER.max },
+    { key: 'nosales', label: 'No sales in 30 days', ok: (x) => x === null },
+  ];
+  const vOf = (x: StockItem) => (unitNow.has(x.productId) ? x.held * unitNow.get(x.productId)! : null);
+  const stock = items.length ? {
+    bands: BANDS.map((b) => { const xs = items.filter((x) => b.ok(x.cover)); const vs = xs.map(vOf); return { key: b.key, label: b.label, cases: sum(xs, (x) => x.held), products: xs.length, value: vs.some((v) => v !== null) ? r2(sum(vs, (v) => v ?? 0)) : null }; }),
+    value: items.some((x) => vOf(x) !== null) ? r2(sum(items, (x) => vOf(x) ?? 0)) : null, cases: sum(items, (x) => x.held),
+  } : null;
+
+  // ---- sales by company and by warehouse (last 7 days; the period) ----
+  const weekFrom = now - 7 * DAY;
+  const ents = (c.raw.entityScope?.length ? c.raw.entityScope : [...new Set(sales.map((s) => s.entityId))]).filter((e) => !c.f.entityId || e === c.f.entityId);
+  const by = <K extends 'entityId' | 'warehouseId'>(k: K, id: ID) => { const xs = sales.filter((s) => s[k] === id); return xs.length ? { week: r2(sum(xs.filter((s) => inR(s.at, weekFrom, now + 1)), val)), month: r2(sum(xs.filter((s) => inR(s.at, from, to)), val)) } : { week: null, month: null }; };
+  const whIds = [...new Set([...c.src.warehouses.map((w) => w.id)])].filter((w) => !c.f.warehouseId || w === c.f.warehouseId);
+  const distribution = {
+    companies: ents.map((e) => ({ entityId: e, label: n.entity(e), ...by('entityId', e) })).sort((a, b) => (b.month ?? -1) - (a.month ?? -1)),
+    warehouses: whIds.map((w) => ({ warehouseId: w, label: c.src.warehouses.find((x) => x.id === w)?.town ?? n.warehouse(w), ...by('warehouseId', w) })).sort((a, b) => (b.month ?? -1) - (a.month ?? -1)),
+  };
+
+  // ---- top products of the period ----
+  const P = new Map(c.src.products.map((p) => [p.id, p]));
+  const coverOf = new Map(stockItems(c).map((x) => [x.productId, x.cover]));
+  const wks = Math.max(1, (Math.min(to, now) - from) / (7 * DAY));
+  const top = (cur?.rows ?? []).filter((r) => r.qtySold > 0).slice(0, 8).map((r) => {
+    const whs = [...new Set(sales.filter((s) => inR(s.at, from, to) && s.lines.some((l) => l.productId === r.productId)).map((s) => s.warehouseId))];
+    return { productId: r.productId!, brand: P.get(r.productId!)?.brand ?? n.product(r.productId!), pack: /confirm/i.test(P.get(r.productId!)?.pack ?? '') ? '' : P.get(r.productId!)?.pack ?? '', warehouses: whs.map((w) => c.src.warehouses.find((x) => x.id === w)?.town ?? n.warehouse(w)), perWeek: r1(r.qtySold / wks), cases: r.qtySold, revenue: r.revenue, margin: r.margin, cover: coverOf.get(r.productId!) ?? null };
+  });
+
+  // ---- what needs a decision today ----
+  const al = alerts(c); const tf = followUp(c); const target = cur?.targetMargin ?? pYear?.targetMargin ?? 0.2;
+  const pend = c.src.payments.filter((p) => p.status === 'Pending approval');
+  const late = al.filter((a) => a.kind === 'Delay'), quiet = al.filter((a) => a.kind === 'No update' && a.severity !== 'low');
+  const redFees = c.src.fees ? c.src.fees.filter((x) => x.flag === 'red') : null;
+  const risk = items.filter((x) => x.cover !== null && x.cover < COVER.min);
+  const noAck = al.filter((a) => a.kind === 'Not acknowledged');
+  const sellers = (cur?.rows ?? []).filter((r) => r.qtySold > 0).slice(0, 10);
+  const badPrice = sellers.filter((r) => r.sellingPrice === null || (r.marginAtPrice !== null && r.marginAtPrice < target));
+  const redDays = c.raw.config?.fees?.redDays ?? 30;
+  const decisions: TodayDecision[] = [
+    { key: 'approvals', label: 'Truck payments to approve', count: pend.length, value: pend.length ? r2(sum(pend, (p) => p.amountUsd ?? p.amount)) : null, detail: pend.length ? `Oldest ${day(pend.map((p) => p.at).sort()[0])}` : 'Nothing waiting', owner: 'Directors', href: '#/finance', severity: pend.length ? 'high' : 'low' },
+    { key: 'trucks', label: 'Delayed or silent trucks', count: late.length + quiet.length, value: null, detail: late.length + quiet.length ? [late.length && `${late.length} delayed`, quiet.length && `${quiet.length} silent > ${UPDATE_GAP.red} h`].filter(Boolean).join(' · ') : 'Every truck on plan', owner: tf, href: '#/dashboards/fleet', severity: late.some((a) => a.severity === 'critical') ? 'critical' : late.length ? 'high' : quiet.length ? 'medium' : 'low' },
+    { key: 'fees', label: `Fees unpaid > ${redDays} days`, count: redFees ? redFees.length : null, value: redFees?.length ? r2(sum(redFees, (x) => Math.max(0, x.balanceUsd ?? 0))) : null, detail: redFees === null ? 'No fee data' : redFees.length ? [...new Set(redFees.map((x) => n.provider(x.providerId)))].slice(0, 2).join(', ') : 'No old balances', owner: 'Directors · accounts', href: '#/transport-fees', severity: redFees?.length ? 'high' : 'low' },
+    { key: 'stock', label: `Stock under ${COVER.min} days`, count: c.src.moves.length ? risk.length : null, value: null, detail: risk.length ? risk.slice(0, 2).map((x) => `${x.label} ${x.cover} d`).join(' · ') : c.src.moves.length ? 'Cover above the minimum' : 'No stock records', owner: c.src.people?.find((p) => p.roles.includes('planner'))?.name ?? 'Purchasing', href: '#/warehouse-stock', severity: risk.some((x) => (x.cover ?? 99) <= 7) ? 'high' : risk.length ? 'medium' : 'low' },
+    { key: 'acks', label: 'Not signed for > 24 h', count: noAck.length, value: null, detail: noAck.length ? noAck.slice(0, 2).map((a) => a.detail.split(' · ')[0]).join(', ') : 'Every arrival signed', owner: [...new Set(noAck.map((a) => a.owner).filter(Boolean))].join(', ') || 'Receivers', href: '#/shipments', severity: noAck.some((a) => a.severity === 'high') ? 'high' : noAck.length ? 'medium' : 'low' },
+    { key: 'prices', label: 'Top sellers below target', count: cur ? badPrice.length : null, value: null, detail: badPrice.length ? `${badPrice.filter((r) => r.sellingPrice === null).length} no price · ${badPrice.filter((r) => r.sellingPrice !== null).length} under ${Math.round(target * 100)} % margin` : cur ? `Top ${sellers.length} priced at target` : 'No sales yet', owner: 'Directors', href: '#/selling-prices', severity: badPrice.length ? 'medium' : 'low' },
+  ];
+  const rank = { critical: 0, high: 1, medium: 2, low: 3 };
+  decisions.sort((a, b) => Number(!(a.count ?? 0)) - Number(!(b.count ?? 0)) || rank[a.severity] - rank[b.severity]);
+
+  const data: TodayData = { period, prev, mtd, sales: salesK, profit: profitK, cash: cashK, trucks: trucksK, daily, decisions, stock, distribution, top, targetMargin: target, cover: COVER, terms: TERMS_DAYS };
+  return out(data, {
+    definition: `Sales = cases × price (USD at the approved month rate; sales between our own companies removed in the Group view), ${mtd ? 'month to date against the same days of last month' : 'the chosen period against the one before'}. Profit = sales − cost of units sold at landed cost v2 (goods + truck + warehouse share) − other warehouse costs; margin = profit ÷ sales. Daily profit uses each product's landed cost per case since ${fmtDay(start)}. Cash to collect = unpaid and part-paid sales; overdue after ${TERMS_DAYS} days. Trucks on the road = in transit, at a border or delayed now.`,
+    currency: 'USD', unit: 'USD · trucks · cases', period,
+    freshness: newest(sales.map((s) => s.at), rows.map((r) => r.lastMoveAt), c.src.moves.map((m) => m.at), pend.map((p) => p.at)),
+    empty: !anySales && !legs.length && !items.length,
+  });
+}
+const day = (at?: string) => (at ? fmtDay(t(at)) : '—');
+
+// ======================================================================================================
 // BUILDERS (one per dashboard)
 // ======================================================================================================
 const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
+  'director-today': directorToday,
   // C-P1-01 ----------------------------------------------------------------------------------------------------
   'exec-overview': (c) => {
     const cur = perf(c, c.from, c.to), prev = perf(c, t(c.prev.from), t(c.prev.to));
@@ -559,18 +733,19 @@ const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
   // C-P1-07 ----------------------------------------------------------------------------------------------------
   'po-pipeline': (c) => {
     const n = names(c.src);
-    const planned = c.src.plans.filter((p) => !p.poId && !p.revisionOf && !p.supersededById && ['Draft', 'Submitted', 'Returned'].includes(p.status));
+    // docs/09 §4: no drafts — POs awaiting a director (approvals on) come first, then Created → Sent → Loading → On the road → Delivered
+    const awaiting = c.src.pos.filter((p) => p.status === 'Awaiting approval' && !p.supersededById).map((po) => ({ po, lines: c.src.plans.find((x) => x.id === po.planId)?.lines ?? [] }));
     const facts = poFacts(c).filter((p) => p.stage !== 'Delivered' || inPeriod(c, p.lastAt) || inPeriod(c, p.date));
     const price = !c.src.pricesHidden;
     const stage = (label: string, items: { id: ID; ref: string; href: string; cases: number; value: number | null; pair: string; date: string }[]) => ({ label, count: items.length, value: price ? r2(sum(items, (x) => x.value ?? 0)) : null, items });
     const of = (s: PoFact['stage']) => facts.filter((p) => p.stage === s).map((p) => ({ id: p.id, ref: p.ref, href: `#/pos/${p.id}`, cases: p.ordered, value: p.value, pair: `${n.entity(p.entityId)}–${n.supplier(p.supplierId)}`, date: p.date }));
     const stages = [
-      stage('Planned', planned.map((p) => ({ id: p.id, ref: p.ref, href: `#/plans/${p.id}`, cases: sum(p.lines, (l) => l.qty), value: price ? r2(sum(p.lines, (l) => l.qty * (l.price ?? 0))) : null, pair: `${n.entity(p.entityId)}–${n.supplier(p.supplierId)}`, date: p.date }))),
-      stage('Raised', of('Raised')), stage('Loading', of('Loading')), stage('Dispatched', of('Dispatched')), stage('Delivered', of('Delivered')),
+      ...(c.raw.config?.approvals?.purchaseOrders || awaiting.length ? [stage('Awaiting approval', awaiting.map(({ po: p, lines }) => ({ id: p.id, ref: p.ref, href: `#/pos/${p.id}`, cases: sum(lines, (l) => l.qty), value: price ? r2(sum(lines, (l) => l.qty * (l.price ?? 0))) : null, pair: `${n.entity(p.entityId)}–${n.supplier(p.supplierId)}`, date: p.date })))] : []),
+      stage('Created', of('Created')), stage('Sent to supplier', of('Sent')), stage('Loading', of('Loading')), stage('On the road', of('On the road')), stage('Delivered', of('Delivered')),
     ];
     return out({ stages }, {
-      definition: 'Each order at its current stage: Planned = draft order not issued yet; Raised = PO issued, nothing loaded; Loading = a truck is loading or loaded; Dispatched = on the road; Delivered = every truck acknowledged (in the period). Value = cases × PO price.',
-      currency: price ? 'USD' : null, unit: price ? 'orders · USD' : 'orders', freshness: newest(facts.map((p) => p.lastAt), planned.map((p) => p.date)), empty: !planned.length && !facts.length,
+      definition: 'Each purchase order (latest revision) at its current stage: Awaiting approval = a director still has to approve it (only when approval is switched on); Created = issued, not yet emailed to the supplier; Sent to supplier = emailed, nothing loaded; Loading = a truck is loaded; On the road = a truck has left; Delivered = every truck acknowledged (in the period). Deleted POs are left out. Value = cases × PO price.',
+      currency: price ? 'USD' : null, unit: price ? 'orders · USD' : 'orders', freshness: newest(facts.map((p) => p.lastAt), awaiting.map((x) => x.po.date)), empty: !awaiting.length && !facts.length,
     });
   },
   // C-P1-08 ----------------------------------------------------------------------------------------------------
@@ -601,7 +776,7 @@ const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
   // C-P1-10 ----------------------------------------------------------------------------------------------------
   'loading-status': (c) => {
     const n = names(c.src);
-    const rows = poFacts(c).filter((p) => p.stage === 'Loading' || p.stage === 'Raised' || inPeriod(c, p.lastAt)).filter((p) => p.stage !== 'Delivered').sort((a, b) => t(b.lastAt) - t(a.lastAt)).slice(0, 15)
+    const rows = poFacts(c).filter((p) => p.stage === 'Loading' || p.stage === 'Created' || p.stage === 'Sent' || (p.stage === 'On the road' && p.trucksLoaded < p.trucks) || inPeriod(c, p.lastAt)).filter((p) => p.stage !== 'Delivered').sort((a, b) => t(b.lastAt) - t(a.lastAt)).slice(0, 15)
       .map((p) => ({ id: p.id, ref: p.ref, pair: `${n.entity(p.entityId)}–${n.supplier(p.supplierId)}`, ordered: p.ordered, loaded: p.loaded, pct: p.loaded !== null && p.ordered ? r2(p.loaded / p.ordered) : null, trucks: p.trucks, trucksLoaded: p.trucksLoaded, docs: p.docs, photos: p.photos, stage: p.stage, at: p.lastAt }));
     return out({ rows }, { definition: 'Cases loaded of cases ordered per order (all its trucks), trucks loaded, and the documents and photos the loader attached. Open orders and orders loaded in the period.', unit: 'cases', freshness: newest(rows.map((r) => r.at)), empty: !rows.length });
   },

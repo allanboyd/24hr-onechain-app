@@ -39,7 +39,7 @@ F = view + change · O = own scope only · V = read only · — = no access.
 | Companies, suppliers, goods, receivers | F | F (to confirm) | — | — | — | — | — | — |
 | Transport providers, trucks, trailers, drivers | F | F | V | V | V | V | — | — |
 | Purchase plans | F | O (his pairs' lines) | — | — | — | — ¹ | — | — |
-| Purchase orders | F | O (raise / edit his pairs) | V (GBI) | V (KBL, no prices) | V (UBL, no prices) | V ¹ (to her, no prices) | V (to her, no prices) | — |
+| Purchase orders | F | O (create / update / delete his pairs) | V (GBI) | V (KBL, no prices) | V (UBL, no prices) | V ¹ (to her, no prices) | V (to her, no prices) | — |
 | Loading | V | V (his pairs) | O (GBI) | O (KBL) | O (UBL) | — ¹ | — | — |
 | Dispatch and multi-leg shipments | V | V (his pairs) | F | O (dispatch their loads) | O | O (send on from her warehouses) | V (to Juba) | O (their trips) |
 | Fleet follow-up and truck issues | V | V | F | — | — | V | V | O |
@@ -71,7 +71,7 @@ F = view + change · O = own scope only · V = read only · — = no access.
 
 ## 3. Prices and payments hidden by role (A-04)
 
-- **Loaders, receivers (and `reexport`), drivers** (`access.seesPrices` false) get orders and POs with `pricesHidden: true` and no `price` on any line, loadings without `agreedTransport` / `transportCurrency`, stock rows without `landedCostPerCase`, an analytics summary without money, the reference bundle **without the price list** (own ETag), no PO letter / PDF (it shows prices), no price-bearing version snapshots. Receivers see only their own lines of an order.
+- **Loaders, receivers (and `reexport`), drivers** (`access.seesPrices` false) get orders and POs with `pricesHidden: true` and no `price` on any line, loadings without `agreedTransport` / `transportCurrency`, stock rows without `landedCostPerCase`, an analytics summary without money, the reference bundle **without the price list** (own ETag), no PO letter / PDF (it shows prices); PO versions (docs/09 §4) come without prices and they cannot update or delete a PO. Receivers see only their own lines of an order.
 - **Agreed transport price after loading:** the loader's hand-over (field `LoadingPoint` / `HandoverSheet`, web *Record loading*) has no price; the API no longer requires it and **ignores** a price sent by a loader (old offline outboxes keep working). The loading creates the shipment with "agreed price: not recorded yet" (`loadings.agreed_transport` NULL, no Transport cost line).
   - Testfie or a director records it afterwards: **`POST /v1/shipments/:id/agreed-price { amount, currency?, docRef? }`** (`finance.setAgreedPrice`) on the Truck desk, trip detail (web and PWA). It creates the trip's Transport cost (USD value at the approved month rate) or corrects it while nothing is paid against it (409 after a payment). Audited with before / after.
   - Testfie loading at GBI may enter the agreed price in the same form (she has truck expenses).

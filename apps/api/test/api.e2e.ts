@@ -47,16 +47,18 @@ async function main() {
     ok(api.auth.me()?.id === 'u-kabonge' && api.ref().checkpoints.length > 20, 'planner signed in; reference cache loaded');
 
     // ---- workflow (mirrors packages/api/test/workflow.e2e.ts) ----
-    let p = await api.plans.create('e-kivu', 's-sbl');
-    ok(/^KVD-PO-\d{4}-\d{4}$/.test(p.ref), `ref auto-numbered ${p.ref}`);
-    p.title = 'Test order'; p.lines = [{ ...api.plans.newLine(p, 1), qty: 1800, routeId: 'r-mwz-kgl' }];
+    // docs/09 §4: no drafts — "Create purchase order" issues it at once (approvals off)
     ok(api.ref().config?.approvals.purchaseOrders === false && api.ref().config.loading.allowancePct === 10, 'GET /ref carries config.toml (no PO approval, ±10 % loading allowance)');
-    p = await api.plans.save(p); p = await api.plans.submit(p.id);
-    ok(p.status === 'Approved' && p.poId && p.history.at(-1)?.action === 'issued', `"Issue purchase order" → PO ${p.poId} at once (no director approval)`);
+    const created = await api.pos.create({ entityId: 'e-kivu', supplierId: 's-sbl', title: 'Test order', lines: [{ ...api.pos.newLine('s-sbl', 1), qty: 1800, routeId: 'r-mwz-kgl' }] });
+    ok(/^KVD-PO-\d{4}-\d{4}$/.test(created.ref), `ref auto-numbered ${created.ref}`);
+    ok(created.status === 'Issued' && created.approval === 'issued' && created.stage === 'Created', `created → PO ${created.ref} issued at once (approved automatically)`);
+    const p = { ref: created.ref, poId: created.id };
     await api.auth.signIn({ username: 'daniel', password: 'demo1234' });
-    await rejects(api.plans.decide(p.id, 'approved', '', 'x'), /switched off|409/, 'director decision refused while approvals are off');
+    await rejects(api.pos.decide(p.poId, 'approved', '', 'x'), /switched off|409/, 'director decision refused while approvals are off');
     await api.auth.signIn({ username: 'kabonge', password: 'demo1234' });
-    await rejects(api.plans.save(p), /locked/, 'issued plan locked (409)');
+    await rejects(api.pos.update(p.poId, { title: 'Test order', lines: [], reason: '' }), /reason/, 'an update needs a reason');
+    const draftGone = await raw('POST', '/plans', { entityId: 'e-kivu', supplierId: 's-sbl' }, { authorization: `Bearer ${(await raw('POST', '/auth/login', { username: 'kabonge', password: 'demo1234' })).body?.accessToken}` });
+    ok(draftGone.status === 404, 'POST /plans (drafts) is gone', draftGone.status);
 
     await api.auth.signIn({ phone: '+255700000021', pin: '1234' }); // the SBL loader (to confirm, roles document Q2)
     ok(api.auth.me()?.id === 'u-sbl-loader', 'loader signs in with phone + PIN');
@@ -286,13 +288,12 @@ async function main() {
     ok((await raw('POST', `/period-plans/${pid}/submit`, {}, kH)).status === 404, 'no period-plan submit/approval any more');
     ok((await raw('POST', '/period-plans', { periodKind: 'month', ...range, title: 'x' }, { ...dirH })).status === 422, 'Group view cannot create (entity required)');
     // orders against the plan: informational only — an over-plan order is issued without a reason (PO-07 no longer blocks)
-    let ko = (await raw('POST', '/plans', { entityId: 'e-kivu', supplierId: 's-sbl' }, kH)).body;
-    const kl = (n: number) => ({ id: '', truckNo: n, productId: 'p-e330', qty: 2000, price: 13.1, deliveredToId: 'rc-asie', routeId: 'r-mwz-kgl' });
-    ko = (await raw('PUT', `/plans/${ko.id}`, { ...ko, lines: [kl(1), kl(2), kl(3)] }, kH)).body;
-    const kc = (await raw('GET', `/plans/${ko.id}/plan-context`, undefined, kH)).body;
+    const kl = (n: number) => ({ truckNo: n, productId: 'p-e330', qty: 2000, price: 13.1, deliveredToId: 'rc-asie', routeId: 'r-mwz-kgl' });
+    const sub = await raw('POST', '/pos', { entityId: 'e-kivu', supplierId: 's-sbl', title: 'Kivu over plan', lines: [kl(1), kl(2), kl(3)] }, kH);
+    ok(sub.status === 201 && sub.body.status === 'Issued', 'over-plan PO without a reason is issued on create (plans gate nothing)', sub.body);
+    const ko = (await raw('GET', `/plans/${sub.body.planId}`, undefined, kH)).body;
+    const kc = (await raw('GET', `/plans/${sub.body.planId}/plan-context`, undefined, kH)).body;
     ok(kc[0].periodPlanRef === 'KVD-PP-2026-0001' && kc[0].planned > 0 && kc.at(-1).exception === 'over' && ko.lines.at(-1).exception === 'over', 'PO lines linked to the plan; planned / ordered / remaining; over marked');
-    const sub = await raw('POST', `/plans/${ko.id}/submit`, {}, kH);
-    ok(sub.status === 200 && sub.body.status === 'Approved' && sub.body.poId, 'over-plan order without a reason is issued (plans gate nothing)', sub.body);
     // planned vs actual + thresholds + feature gates
     const pvK = (await raw('GET', '/reports/planned-vs-actual', undefined, kD)).body;
     ok(pvK.measures.planned === pvK.lines.reduce((a: number, l: { planned: number }) => a + l.planned, 0) && pvK.months.at(-1).cumPlanned === pvK.measures.planned && pvK.today, 'PV measures, running totals, today marker');

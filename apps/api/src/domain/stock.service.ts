@@ -121,7 +121,8 @@ export class StockService {
     const cps = bundle.warehouses.filter((w) => p.warehouseIds.includes(w.id)).map((w) => w.checkpointId);
     const shipments = (await loadShipments(db)).filter((sh) => canSeeEntity(p, sh.entityId) && seesShipment(p, sh, { loadingPointId: sh.loadingPointId, myWarehouseCps: cps })).map((sh) => ({ ...sh, status: deriveShipmentStatus(sh, bundle.warehouses.find((w) => w.id === sh.warehouseId)?.checkpointId, stops, now) }));
     const active = shipments.filter((s) => s.status !== 'Acknowledged');
-    const [plansPending] = await db.select({ c: sql<number>`count(*)::int` }).from(t.plans).where(and(eq(t.plans.status, 'Submitted'), inArray(t.plans.entityId, p.scope)));
+    // POs awaiting a director (approvals on); never drafts (docs/09 §4)
+    const [plansPending] = await db.select({ c: sql<number>`count(*)::int` }).from(t.pos).where(and(eq(t.pos.status, 'Awaiting approval'), inArray(t.pos.entityId, p.scope)));
     const [paymentsPending] = await db.select({ c: sql<number>`count(*)::int` }).from(t.tripPayments).where(and(eq(t.tripPayments.status, 'Pending approval'), inArray(t.tripPayments.entityId, p.scope)));
     return {
       stockValue: money ? amount(1, st.reduce((a, r) => a + r.closing * (r.landedCostPerCase ?? 0), 0)) : 0, stockCases: st.reduce((a, r) => a + r.closing, 0), inTransitCases: st.reduce((a, r) => a + r.inTransit, 0),

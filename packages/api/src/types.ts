@@ -135,7 +135,10 @@ export interface CheckpointPass {
 }
 
 // ---- Planning / PO --------------------------------------------------------
-export type ApprovalStatus = 'Draft' | 'Submitted' | 'Approved' | 'Returned' | 'Rejected';
+/** Status of the order behind a PO. POs are not drafted (docs/09 §4): 'Approved' = issued, 'Submitted' = awaiting director
+ *  approval (config approvals.purchase_orders = true), 'Deleted' = soft-deleted with its PO. Draft / Returned / Rejected are
+ *  legacy values (orders saved before migration 0011) and are never written any more. */
+export type ApprovalStatus = 'Draft' | 'Submitted' | 'Approved' | 'Returned' | 'Rejected' | 'Deleted';
 export interface PlanLine {
   id: ID; truckNo: number; productId: ID; qty: number; price: number; // amount = qty × price, never stored from input
   deliveredToId: ID; routeId: ID; // §17.7
@@ -151,7 +154,7 @@ export interface ApprovalEvent {
   at: ISODate; byUserId: ID;
   /** issued = PO created without director approval (config approvals.purchase_orders = false); revised = PO revised at loading;
    *  created/edited/replaced = period plan edit history. */
-  action: 'submitted' | 'approved' | 'returned' | 'rejected' | 'amended' | 'issued' | 'revised' | 'created' | 'edited' | 'replaced';
+  action: 'submitted' | 'approved' | 'returned' | 'rejected' | 'amended' | 'issued' | 'revised' | 'created' | 'edited' | 'replaced' | 'updated' | 'deleted';
   comment?: string; signature?: string;
 }
 export interface Plan {
@@ -189,14 +192,69 @@ export interface PlanLineContext {
 }
 export interface PvThresholds { /** behind when ordered-to-date < behind × expected */ behind: number; /** over when ordered > over × planned */ over: number }
 
+/** Lifecycle of a PO (stored): created as Issued (approved automatically) or Awaiting approval (approvals on); soft-deleted
+ *  POs keep their row and ref. */
+export type PoStatus = 'Awaiting approval' | 'Issued' | 'Deleted';
+/** Where a PO stands (computed from its loadings and shipments) — the status chips of the Purchase orders list. */
+export type PoStage = 'Awaiting approval' | 'Created' | 'Sent' | 'Loading' | 'On the road' | 'Delivered' | 'Deleted';
+/** Who made a PO version: the original, an office update (reason required) or a revision at loading. */
+export type PoVersionKind = 'original' | 'updated' | 'revised at loading';
+/** One order line as it stood in a version (what the supplier letter shows). */
+export interface PoLineSnap { truckNo: number; productId: ID; qty: number; price?: number; routeId: ID; deliveredToId: ID }
+/** One line change between two versions of a PO: `before` absent = added, `after` absent = removed. */
+export interface PoLineChange {
+  lineId: ID; truckNo: number;
+  kind: 'updated' | 'revised at loading' | 'added' | 'removed';
+  before?: PoLineSnap; after?: PoLineSnap;
+}
+/** An immutable snapshot of one version of a PO (the original = revision 0, then rev001, rev002 … — one counter for office
+ *  updates and loading revisions). Stored in `po_versions`, never changed afterwards. */
+export interface PoVersion {
+  poId: ID; basePoId: ID; planId: ID; ref: string; revision: number; kind: PoVersionKind;
+  title: string; instruction: string; requiredBy: string; currency: Currency;
+  lines: PlanLine[]; lineChanges: PoLineChange[];
+  byUserId: ID; at: ISODate; /** office updates: why (required); loading revisions: the system text */ reason?: string | null;
+  pricesHidden?: boolean;
+}
+/** Create a PO (no drafts): it is issued at once — or awaits a director when approvals are on. */
+export interface PoInput {
+  entityId?: ID; supplierId: ID; title: string; date?: string; requiredBy?: string; currency?: Currency; instruction?: string;
+  /** truck lines: id (keep it when updating an existing line), truck, product, cases, route, delivered-to; price from the list (directors may override) */
+  lines: (Omit<PlanLine, 'id' | 'price'> & { id?: ID; price?: number })[];
+}
+/** Update a PO = the next revision (never an overwrite). `reason` is required. */
+export interface PoUpdateInput extends Omit<PoInput, 'entityId' | 'supplierId'> { reason: string }
+/** What a reader may still do with a PO (computed by the server / mock). */
+export interface PoActions { update: boolean; delete: boolean; approve: boolean; /** why delete / update is refused (shown in the UI) */ deleteBlocked?: string; updateBlocked?: string }
+/** GET /pos/:id */
+export interface PoDetail {
+  po: PurchaseOrder; plan: Plan;
+  /** the whole chain (original first) when the PO has revisions, else [] */ revisions: PurchaseOrder[];
+  /** immutable snapshots: original first, then each revision (office update or loading) */ versions: PoVersion[];
+  /** the effective (latest) PO of the chain */ effectiveId: ID;
+  /** cases loaded per order line id (trucks already loaded) */ loaded: Record<ID, number>;
+  actions: PoActions;
+}
+
 export type POLineStatus = 'Ordered' | 'Loaded' | 'In transit' | 'Delivered' | 'Outstanding';
 export interface PurchaseOrder {
   id: ID; ref: string; planId: ID; entityId: ID; supplierId: ID; currency: Currency;
   date: ISODate; title: string; instruction: string; version: number;
   /** approvedById/At = the director (approval) or the issuer (issued without approval) or the loader (revision). */
   sentAt?: ISODate; approvedById: ID; approvedAt: ISODate; signature?: string;
-  /** How the PO came about: director approval, issued directly (approvals off), or a revision made at loading. */
-  approval?: 'director' | 'issued' | 'revision';
+  /** How the PO came about: director approval, approved automatically on create (approvals off), a revision made at
+   *  loading, or an office update (a revision with a reason). */
+  approval?: 'director' | 'issued' | 'revision' | 'update';
+  /** Stored lifecycle (absent on older rows = Issued). */
+  status?: PoStatus;
+  /** Computed for lists and views: Created / Sent / Loading / On the road / Delivered (+ Awaiting approval, Deleted). */
+  stage?: PoStage;
+  /** Revisions: office update or revised at loading; per-line before → after. */
+  revisionKind?: Exclude<PoVersionKind, 'original'>; lineChanges?: PoLineChange[];
+  /** Soft delete: who, when, why (the row and ref stay; hidden from default lists). */
+  deletedAt?: ISODate; deletedById?: ID; deleteReason?: string;
+  /** Computed for lists: the original ref (revisions), cases and trucks of the effective version. */
+  baseRef?: string; cases?: number; trucks?: number; amount?: number;
   /** Revisions: base (original) PO id, revision number (1 → "-rev001"), what changed at loading and why. */
   revisionOf?: ID; revision?: number; changes?: PoRevisionChange[]; revisionReason?: string;
   /** Revisions are written by the system on behalf of the loader who recorded the loading. */

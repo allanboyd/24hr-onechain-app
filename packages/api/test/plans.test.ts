@@ -107,8 +107,8 @@ ok(pv.lines.every((l) => l.pos.reduce((a, p) => a + p.cases, 0) === l.ordered), 
 api.entities.setActive('e-nud');
 ok((await api.reports.plannedVsActual({})).lines.some((l) => l.flag === 'Unplanned' && l.destinationId === 'w-juba'), 'demo PV (NUD): unplanned GBI malt to Juba');
 const pending = (await api.plans.list()).find((p) => p.id === 'plan-2')!;
-ok(pending.status === 'Submitted' && pending.lines.some((l) => l.exception === 'over' && l.exceptionReason), 'demo: NUD order shows its over-plan mark and note');
-ok(R.planStatusLabel(pending, api.ref().config) === 'Ready to issue', 'approvals off: a submitted order reads "Ready to issue"');
+ok(pending.status === 'Approved' && pending.lines.some((l) => l.exception === 'over' && l.exceptionReason), 'demo: NUD order (no drafts — issued) shows its over-plan mark and note');
+ok(R.planStatusLabel(pending, api.ref().config) === 'Revised' && R.planStatusLabel({ ...pending, supersededById: undefined }) === 'Issued' && R.planStatusLabel({ ...pending, status: 'Submitted' }) === 'Awaiting approval', 'labels: Issued / Awaiting approval / Revised (no "Ready to issue")');
 
 // Planner: period plans are suggestions — saved directly, Active at once; overlaps → 409 unless replace
 await api.auth.login('u-kabonge', '');
@@ -134,33 +134,29 @@ ok((await api.periodPlans.save({ ...repl, title: 'Edited by the director' })).ti
 
 // Orders against the plan: over the remaining needs a reason (PO-07)
 await api.auth.login('u-kabonge', ''); api.entities.setActive('e-kivu');
-let o = await api.plans.create('e-kivu', 's-sbl');
-o.lines = [{ ...api.plans.newLine(o, 1), qty: 2000, routeId: 'r-mwz-kgl' }, { ...api.plans.newLine(o, 2), qty: 2000, routeId: 'r-mwz-kgl' }, { ...api.plans.newLine(o, 3), qty: 2000, routeId: 'r-mwz-kgl' }];
-o = await api.plans.save(o);
-const c = await api.plans.planContext(o.id);
+const tl = (no: number, qty: number) => ({ ...api.pos.newLine('s-sbl', no), qty, routeId: 'r-mwz-kgl' });
+const po0 = await api.pos.create({ entityId: 'e-kivu', supplierId: 's-sbl', title: 'Plan test', lines: [tl(1, 2000), tl(2, 2000), tl(3, 2000)] });
+const op = (await api.plans.get(po0.planId))!;
+const c = await api.plans.planContext(po0.planId);
 ok(c[0].periodPlanRef === live.ref.replace('BTW', 'KVD') && c[0].planned > 0 && c.at(-1)!.exception === 'over', 'plan context: linked to the Kivu plan; the third truck goes over');
-o = await api.plans.submit(o.id);
-ok(o.status === 'Approved' && o.poId && o.history.at(-1)?.action === 'issued' && o.lines.some((l) => l.exception === 'over'), 'approvals off: an over-plan order without a note is issued at once (plans gate nothing)');
-const issued = (await api.pos.get(o.poId!))!;
-ok(issued.po.approval === 'issued' && issued.po.approvedById === 'u-kabonge' && R.planStatusLabel(o) === 'Issued', 'issued PO: approvedBy = the planner, label "Issued"');
-await rejects(() => api.plans.decide(o.id, 'approved', '', 'sig'), 403, 'planner cannot decide');
+ok(po0.status === 'Issued' && op.status === 'Approved' && op.history.at(-1)?.action === 'issued' && op.lines.some((l) => l.exception === 'over'), 'approvals off: an over-plan PO is issued on create (plans gate nothing)');
+const o = { poId: po0.id };
+const issued = (await api.pos.get(po0.id))!;
+ok(issued.po.approval === 'issued' && issued.po.approvedById === 'u-kabonge' && R.planStatusLabel(op) === 'Issued' && R.approvalText(issued.po, 'Kabonge').startsWith('Approved automatically · Kabonge'), 'created PO: approved automatically by the planner, label "Issued"');
+await rejects(() => api.pos.decide(po0.id, 'approved', '', 'sig'), 403, 'planner cannot decide');
 // a PO without any covering period plan is issued too
-let free = await api.plans.create('e-kivu', 's-sbl');
-free = await api.plans.save({ ...free, date: '2030-01-05', lines: [{ ...api.plans.newLine(free, 1), qty: 1000, routeId: 'r-mwz-kgl' }] });
-free = await api.plans.submit(free.id);
-ok(free.status === 'Approved' && free.poId && free.lines.every((l) => l.exception === 'unplanned'), 'no period plan covering the date: issued anyway');
+const free = await api.pos.create({ entityId: 'e-kivu', supplierId: 's-sbl', title: 'Free', date: '2030-01-05', lines: [tl(1, 1000)] });
+ok(free.status === 'Issued' && (await api.plans.get(free.planId))!.lines.every((l) => l.exception === 'unplanned'), 'no period plan covering the date: issued anyway');
 
 // approvals on (config.toml approvals.purchase_orders = true): today's director flow
 api.demo.setConfig({ approvals: { purchaseOrders: true } });
-let d = await api.plans.create('e-kivu', 's-sbl');
-d = await api.plans.save({ ...d, lines: [{ ...api.plans.newLine(d, 1), qty: 1000, routeId: 'r-mwz-kgl' }] });
-d = await api.plans.submit(d.id);
-ok(d.status === 'Submitted' && !d.poId && R.planStatusLabel(d, api.ref().config) === 'Submitted', 'approvals on: submit waits for the director');
+let d = await api.pos.create({ entityId: 'e-kivu', supplierId: 's-sbl', title: 'Needs approval', lines: [tl(1, 1000)] });
+ok(d.status === 'Awaiting approval' && (await api.loading.list('s-sbl').catch(() => [])).every((l) => l.poId !== d.id), 'approvals on: created awaiting approval, no trucks to load yet');
 await api.auth.login('u-daniel', ''); api.entities.setActive('e-kivu');
-d = await api.plans.decide(d.id, 'approved', '', 'sig:director');
-ok(d.status === 'Approved' && d.poId && (await api.pos.get(d.poId!))!.po.approval === 'director' && R.planStatusLabel(d) === 'Approved', 'approvals on: director approves → PO');
+d = await api.pos.decide(d.id, 'approved', '', 'sig:director');
+ok(d.status === 'Issued' && d.approval === 'director' && R.planStatusLabel((await api.plans.get(d.planId))!) === 'Issued', 'approvals on: director approves → issued');
 api.demo.setConfig({ approvals: { purchaseOrders: false } });
-await rejects(() => api.plans.decide(pending.id, 'approved', '', 'sig'), 409, 'approvals off: no director decision');
+await rejects(() => api.pos.decide(d.id, 'approved', '', 'sig'), 409, 'approvals off: no director decision');
 
 // Loading against the PO: allowance, alternatives, automatic revisions (rule 3)
 await api.auth.login('u-sbl-loader', ''); api.entities.setActive('e-kivu');
@@ -195,7 +191,7 @@ const pv2 = await api.reports.plannedVsActual({});
 const orderedRefs = pv2.lines.flatMap((l) => l.pos.map((x) => x.ref)).filter((x) => x.startsWith(baseRef));
 ok(orderedRefs.length > 0 && orderedRefs.every((x) => x === `${baseRef}-rev002`), 'planned vs actual counts the latest revision only (no double counting)');
 ok(pv2.lines.flatMap((l) => l.pos).filter((x) => x.ref.startsWith(baseRef)).reduce((a, x) => a + x.cases, 0) === 1800 + 1900 + 2000, 'ordered = what the latest revision says');
-await rejects(() => api.plans.amend(o.id, 'more'), 409, 'a revised order is not amended');
+await rejects(() => api.pos.update(r2.po.id, { title: 'Plan test', lines: r2.plan.lines.map((l) => ({ ...l, qty: l.qty + 10 })), reason: 'more' }), 409, 'every truck loaded → the PO can no longer be updated');
 
 // Feature gating: accounts read plans, can't edit; sales/drivers don't see them; thresholds are directors'
 await api.auth.login('u-kabonge', '');

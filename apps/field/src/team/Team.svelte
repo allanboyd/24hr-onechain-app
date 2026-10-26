@@ -3,7 +3,7 @@
   // Shell: top bar (menu · title · company · bell), side drawer, bottom tabs; screens load on first open.
   import './team.css';
   import { untrack } from 'svelte';
-  import { analytics, notifications, onChange, type User } from '@btw/api';
+  import { analytics, notifications, onChange, plans, type User } from '@btw/api';
   import { router } from '@btw/ui';
   import { SECTIONS, mayApprovePayments, mayApprovePOs, sectionAllowed, tabsFor, type SectionId } from './access';
   import { clearCompanyPaint, co, initCompany } from './company.svelte';
@@ -31,7 +31,6 @@
     'trucks/id': () => import('./screens/TruckDetail.svelte'),
     orders: () => import('./screens/Orders.svelte'),
     'orders/po': () => import('./screens/PODetail.svelte'),
-    'orders/draft': () => import('./screens/DraftDetail.svelte'),
     'orders/period': () => import('./screens/PeriodDetail.svelte'),
     stock: () => import('./screens/Stock.svelte'),
     sales: () => import('./screens/Sales.svelte'),
@@ -45,11 +44,17 @@
   };
   const keyOf = (v: View) => (v.tab === 'orders' && v.kind && v.id ? `orders/${v.kind}` : isDetail(v) ? `${v.tab}/id` : v.tab);
   const TITLES: Record<string, string> = {
-    home: 'Home', load: 'Load a truck', trucks: 'Trucks', 'trucks/id': 'Shipment', queue: 'Loading queue', fleet: 'Truck desk', 'fleet/id': 'Truck', orders: 'Orders', 'orders/po': 'Purchase order', 'orders/draft': 'Order draft', 'orders/period': 'Period plan',
+    home: 'Home', load: 'Load a truck', trucks: 'Trucks', 'trucks/id': 'Shipment', queue: 'Loading queue', fleet: 'Truck desk', 'fleet/id': 'Truck', orders: 'Orders', 'orders/po': 'Purchase order', 'orders/period': 'Period plan',
     stock: 'Stock', sales: 'Sales', money: 'Money', 'money/id': 'Trip payments', notifications: 'Notifications', reports: 'Reports', approvals: 'Approvals', more: 'More',
   };
 
   const view = $derived(parse(router.path));
+  // POs are no longer drafted: old order links (#/orders/draft/:id, #/plans/:id) open the order's PO, else the list.
+  $effect(() => {
+    if (view.tab !== 'orders' || view.kind !== 'draft') return;
+    const planId = view.id;
+    (planId ? settle(plans.get(planId), null) : Promise.resolve(null)).then((p) => location.replace(p?.poId ? `#/orders/po/${p.poId}` : '#/orders'));
+  });
   const key = $derived(keyOf(view));
   const tabs = $derived(tabsFor(user));
   const activeTab = $derived(tabOf(view, tabs.map((t) => t.id)));
@@ -96,6 +101,8 @@
         </Empty>
       {:else if key === 'home'}
         <Home {user} {pending} />
+      {:else if key === 'orders/draft'}
+        <div class="boot" aria-busy="true"></div>
       {:else}
         {#await screens[key]()}
           <div class="boot" aria-busy="true"></div>

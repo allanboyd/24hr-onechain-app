@@ -10,7 +10,7 @@
   const tabIds = $derived(tabsFor(user).map((t) => t.id));
   const rest = $derived(sectionsFor(user).filter((s) => !tabIds.includes(s.id) && s.id !== 'home'));
   const big = $derived([
-    { path: '/plans/new', label: 'New purchase order', show: user.roles.some((r) => r === 'planner' || r === 'director') },
+    { path: '/pos/new', label: 'New purchase order', show: user.roles.some((r) => r === 'planner' || r === 'director') },
     { path: '/period-plans/new', label: 'New period plan', show: user.roles.some((r) => r === 'planner' || r === 'director') },
     { path: '/master', label: 'Master data (trucks, routes, products)', show: can(user, 'master-data') },
     { path: '/master?tab=providers', label: 'Providers, trucks & drivers', show: !can(user, 'master-data') && can(user, 'master-data.transport') },

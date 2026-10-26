@@ -9,7 +9,7 @@ The phone app's home screens (D-A1) are a separate piece of work.
 
 | Route | What |
 |---|---|
-| `#/` **Home** | **One page with tabs** (26 Oct 2026): *My dashboards* (the person's own set, §3) first, then one tab per feature group they may open (Business, Purchasing, Loading, Fleet, Fees & expenses, Deliveries, Warehouse, Sales, Alerts & admin), and for directors in the Group view *Companies* (side by side). Every web user starts here. |
+| `#/` **Home** | **One page with tabs** (26 Oct 2026): *My dashboards* (the person's own set, §3; directors: the Today view, §3.1) first, then one tab per feature group they may open (Business, Purchasing, Loading, Fleet, Fees & expenses, Deliveries, Warehouse, Sales, Alerts & admin), and for directors in the Group view *Companies* (side by side). Every web user starts here. |
 | `#/dashboards/<group>` | Opens Home on that group's tab (`business`, `purchasing`, `loading`, `fleet`, `fees`, `deliveries`, `warehouse`, `sales`, `admin`). |
 | `#/overview` | Opens Home on the *Companies* tab (directors, Group view); the separate command view page was removed. |
 
@@ -28,6 +28,7 @@ Who: D = Daniel, Michael · K = Kabonge · T = Testfie · L = loaders (Joel, Eri
 
 | ID | Dashboard (key) | Who | Question | Visual | Data source | Drill-down |
 |---|---|---|---|---|---|---|
+| C-05 | Today (`director-today`) | D | What needs a decision today; where do we stand? | KPI strip + trend + decision list + stock ring + distribution + top products (§3.1) | performance report, truck desk, alerts, stock items, sales, payments, fee rows | each card |
 | C-P1-01 ★1 | Executive overview (`exec-overview`) | D | Where does the business stand today? | `KpiScorecard` (trucks on the road, delayed, orders awaiting loading, sales, profit, margin vs previous period, stock value, open alerts) + `ExceptionList` (delayed trucks, critical / high alerts) | trucks desk, PO facts, performance report (landed cost v2), alerts | each tile; alerts centre |
 | C-P1-02 | Combined performance (`combined-performance`) | D | Totals at product / warehouse / company / business level | link card (sales, profit, margin, landed per case) | `performanceReport` | `#/performance` |
 | C-P1-03 ★2 | Profit and margin (`profit-margin`) | D | How do sales become profit? | `Waterfall` sales → goods → truck → warehouse → other → profit + `ColumnsLine` (monthly goods cost / truck + warehouse + other / profit, margin % line; new chart file) | `performanceReport` per month (6 months) | `#/performance` |
@@ -68,7 +69,7 @@ Who: D = Daniel, Michael · K = Kabonge · T = Testfie · L = loaders (Joel, Eri
 
 | Person | Home (in this order) |
 |---|---|
-| Daniel, Michael | executive overview · profit and margin · landed cost per product · combined performance · selling price & target margin · landed cost per truck · live fleet board · expenses per truck · warehouse expenses · stock on hand · sales summary · alerts centre (+ links to all dashboards and the command view / companies side by side) |
+| Daniel, Michael | **Today** (`director-today`, §3.1) — one curated daily view. Every other dashboard stays on its feature tab (Business, Purchasing, …, Companies in the Group view); each Today card links to the deeper tab. |
 | Kabonge | PO pipeline · ordered vs loaded vs delivered · open orders · plan vs actual · alerts centre |
 | Testfie | live fleet board · delayed trucks · truck issues · driver updates · agreed price vs actual · fee payments · expenses per truck · today's loading list (GBI Mombasa) |
 | Joel, Eric, Moses | today's loading list · dispatched today — no prices or payments |
@@ -77,6 +78,41 @@ Who: D = Daniel, Michael · K = Kabonge · T = Testfie · L = loaders (Joel, Eri
 | Drivers | field app only (the web sends them there; `GET /dashboards` → 403) |
 
 Defined once in `packages/api/src/dashboards.ts` (`DASHBOARDS`, `HOME`, `homeFor`) and used by the web, the server and the mock.
+
+### 3.1 Directors' Today view (26 Oct 2026)
+
+Replaces the long list of separate panels on the directors' *My dashboards* tab. Built around one question: *what needs me today, and
+is the business on track?* Every number has an ⓘ definition, its unit / currency and an "Updated …" time; missing data shows "No data
+yet" (values are `null`, never 0). One call: `GET /v1/dashboards?keys=director-today` (key `director-today`, group `home`,
+directors and admins only; everyone else 403). Company switch, Group view (consolidated, intercompany removed), period, warehouse and
+currency apply as everywhere.
+
+| Card | What it shows | Why a director looks at it | Opens |
+|---|---|---|---|
+| Sales (accent card) | Sales month to date vs the same days last month, daily sparkline | Is revenue on pace this month? | Sales tab |
+| Profit · margin | Profit (landed cost v2, after other warehouse costs) and margin, change vs the same days last month (margin in pp) | Are we making money on what we sell, not just selling? | Performance |
+| Cash to collect | Open customer balances, the overdue part (after 14 days' terms) and the share of this month's sales already paid; sparkline = balance left from each of the last 8 weeks | Is cash coming in, and who needs chasing? | Unpaid sales |
+| Trucks on the road | In transit / at a border / delayed now, change vs a week ago, delayed count, arriving today, on-time % of the last 7 days' arrivals; 14-day sparkline | Is the pipeline moving; is anything stuck? | Fleet tab |
+| Sales and profit | Daily sales and profit (30 / 90 days) or weekly (this year), legend toggles, CSV / Excel / PDF | Trend behind the KPIs — a dip shows up here first | — |
+| Needs your decision today | Truck payments waiting for approval (value) · delayed or silent trucks (> 12 h) · fees unpaid past `red_days` · products under 14 days of stock · arrivals not signed for > 24 h · top-10 sellers with no price or below the target margin. Open items first (by severity), each with count, value, owner and a link; clear items folded under "n more all clear" | Only things a director can unblock — the action list for the morning | each row's list |
+| Stock health | Cases by days of cover (at risk ≤ 7 d, low 8–14 d, healthy 15–60 d, overstocked > 60 d, no sales in 30 d), stock value at landed cost in the centre | Risk of running out vs cash tied up in slow stock | Warehouse tab |
+| Sales distribution | By company (logos, Group view) or by warehouse (Gisenyi, Goma, Juba); last 7 days or the period | Where the sales come from; a company or warehouse falling behind | Sales tab |
+| Top products | Top 8 by sales: product + pack, warehouses, cases per week, revenue, margin (amber under target), days of cover chip | The few products that carry the business: are they priced and stocked right? | Performance |
+
+Purchase orders awaiting approval are not a row yet: POs are being reworked (Created → Sent → Loading → On the road → Delivered, with *Awaiting approval* only when the approval switch is on); add the row on that stage once it lands.
+
+Left out on purpose (on the feature tabs instead): landed cost per product / truck, border heatmap, fee payments table, expenses
+per truck, PO pipeline, users and logins — useful for analysis, but they rarely change today's decision.
+
+Daily profit in the chart = sales − cases sold × that product's landed cost per case over the chart window (so the line is smooth and
+comparable day to day); the Profit card uses the full performance report for its period. "Today" is left out of the chart until its
+first sale so the line does not dip to zero every morning.
+
+Layout: four KPI cards across (one accent card in brand navy, orange in dark mode), then a 2/3 + 1/3 grid — trend chart and top
+products on the left, decisions, stock health and sales distribution on the right. 700–1100 px: decisions, chart and products full
+width with stock + distribution side by side; under 700 px one column, decisions first; KPI cards 2 × 2 on phones. New pure-SVG
+pieces (no Plotly on the home view): `components/charts/SmoothTrend.svelte`, `SparkArea.svelte`, `RingDonut.svelte`; screen
+`screens/dash/today/{Today,TodayCard}.svelte` (lazy chunk).
 
 ## 4. API
 
@@ -96,8 +132,8 @@ of the entry chunk, so the web entry went from 116.9 KB to ≈ 100 KB gz; the da
 
 ## 6. Tests
 
-- `pnpm test` → `packages/api/test/dashboards.test.ts`: catalogue (28 P1 + 3 pulled forward), home per person, audience rules, every builder over the demo data (definition / freshness / empty), waterfall adds up, landed cost parts add up, pipeline counts, filters, empty period → empty marker, per-person scope in the mock (Kabonge pairs, Testfie GBI list, loaders and receivers without money), pure `scopeSource` / `narrow`.
-- `pnpm --filter @btw/server test:qa --only dashboards` (isolated `btw_qa_dash` on :3284): home sets, every server-built dashboard, company / supplier / route / period filters, `X-Entity-Id`, 404 / 403 cases, Kabonge never sees Nihna–GBI, Testfie GBI only, Joel / Eric / Moses their point and no prices, Asie / Yonas their warehouses and no values, filters cannot widen the scope.
+- `pnpm test` → `packages/api/test/dashboards.test.ts`: Today view (sales = performance revenue, daily adds up to the month, cash overdue ≤ total, trucks trend ends at now, 7 decision rows ordered open-first with owners and links, stock bands add up, distribution adds up, top products ordered, BTW vs Group, empty source → nulls, not for planners), catalogue (28 P1 + 3 pulled forward), home per person, audience rules, every builder over the demo data (definition / freshness / empty), waterfall adds up, landed cost parts add up, pipeline counts, filters, empty period → empty marker, per-person scope in the mock (Kabonge pairs, Testfie GBI list, loaders and receivers without money), pure `scopeSource` / `narrow`.
+- `pnpm --filter @btw/server test:qa --only dashboards` (isolated `btw_qa_dash` on :3284): Today for Daniel and Michael (Group view by company, `X-Entity-Id` BTW, company filter, empty period), `director-today` 403 for Kabonge, Testfie, loaders, receivers and drivers, their homes unchanged; home sets, every server-built dashboard, company / supplier / route / period filters, `X-Entity-Id`, 404 / 403 cases, Kabonge never sees Nihna–GBI, Testfie GBI only, Joel / Eric / Moses their point and no prices, Asie / Yonas their warehouses and no values, filters cannot widen the scope.
 
 ## 7. To confirm (client)
 

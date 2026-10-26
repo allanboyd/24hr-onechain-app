@@ -1,6 +1,6 @@
 // Home "analysis": KPI cards per role and the "Needs attention" list, derived from the same client calls the web
-// dashboard uses (analytics.summary, reports.dashboard, finance.trips, shipments.list, reports.inventory, plans.list).
-import type { DashboardReport, InventoryReport, Plan, Role, Shipment, User, analytics, finance } from '@btw/api';
+// dashboard uses (analytics.summary, reports.dashboard, finance.trips, shipments.list, reports.inventory).
+import type { DashboardReport, InventoryReport, Role, Shipment, User, analytics, finance } from '@btw/api';
 import type { Kpi } from './components/KpiCard.svelte';
 import { can, mayApprovePayments, mayApprovePOs } from './access';
 import { change, compact, num, pct, plural, points, usd } from './fmt';
@@ -9,7 +9,7 @@ import type { Desk } from './desk';
 
 export type Summary = Awaited<ReturnType<typeof analytics.summary>>;
 export type Trip = Awaited<ReturnType<typeof finance.trips>>[number];
-export interface HomeData { sum: Summary | null; dash: DashboardReport | null; trips: Trip[] | null; ships: Shipment[] | null; inv: InventoryReport | null; drafts: Plan[] | null; desk?: Desk | null }
+export interface HomeData { sum: Summary | null; dash: DashboardReport | null; trips: Trip[] | null; ships: Shipment[] | null; inv: InventoryReport | null; desk?: Desk | null }
 
 type KpiKey = 'sales' | 'trucks' | 'delayed' | 'onTime' | 'stock' | 'transit' | 'owed' | 'receivables' | 'margin' | 'cases' | 'queue' | 'issues' | 'wait';
 const PREFS: Record<Role, KpiKey[]> = {
@@ -92,8 +92,6 @@ export function attentionFor(u: User, d: HomeData): Attention[] {
       out.push({ id: `st-${r.warehouseId}-${r.productId}`, tone: r.risk === 'low' ? 'warning' : 'danger', title: `${r.brand} ${r.pack} running low`, text: `${wh} · ${r.coverDays == null ? 'no sales pace yet' : r.closing === 0 ? 'out of stock' : `${r.coverDays} days of cover`}`, href: `/stock?f=low` });
     }
   }
-  if (d.drafts) for (const p of d.drafts.filter((x) => x.status === 'Returned').slice(0, 2))
-    out.push({ id: `dr-${p.id}`, tone: 'info', title: `${p.ref} was returned`, text: p.history.at(-1)?.comment ?? 'Open it in the web app to change it', href: `/orders/draft/${p.id}` });
   if (d.dash && can(u, 'period-plans')) {
     const soon = d.dash.suggestions.filter((x) => x.urgency !== 'soon').length;
     if (soon && u.roles.includes('planner')) out.push({ id: 'sugg', tone: 'info', title: `${plural(soon, 'order')} to place this week`, text: 'To avoid stock-outs (from sales pace and lead times)', href: '/stock?f=low' });

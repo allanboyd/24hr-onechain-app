@@ -32,12 +32,10 @@ config: { approvals: { purchaseOrders: boolean }, loading: { allowancePct: numbe
 
 The type is `AppConfig` in `packages/api/src/types.ts`, with defaults in `rules.defaultConfig`. The mock client uses the same defaults; `demo.setConfig()` or localStorage `btw-config` override them for demos and tests.
 
-- **`purchase_orders = false` (default):** the planner's **"Issue purchase order"** (`POST /plans/:id/submit`) creates the PO at once. It runs the same code path as approval: the PO, one loading per truck, and the "New trucks to load" notification. The issuer is stored as `approvedById` / `approvedAt`, the PO has `approval: 'issued'`, and the order shows **Issued**.
-  - A Submitted order shows **Ready to issue** and can be issued.
-  - The director decision endpoint returns 409. Dashboards show no "awaiting approval" counts.
-  - The PO letter says **"ISSUED <date> by <name>"** instead of the APPROVED stamp.
-- **`purchase_orders = true`:** today's director approval flow, unchanged (`approval: 'director'`).
-- **Who may create or issue:** planner, director and admin (`rules.PO_EDITORS`).
+- **`purchase_orders = false` (default):** *Create purchase order* (`POST /pos`) issues the PO at once — "Approved automatically · <name> · <date>" on the letter and in the audit log (`approval: 'issued'`, `approvedById` = the creator). Its loadings and the "New trucks to load" notification follow immediately. The director decision endpoint returns 409; dashboards show no "awaiting approval" stage.
+- **`purchase_orders = true`:** the created PO is **Awaiting approval** (`status`), nothing is loaded or sent; a director approves (signature) or rejects (comment → the PO is soft-deleted) with `POST /pos/:id/decision`. There is no separate draft object.
+- Turning the switch off approves every PO still awaiting approval automatically at API start-up ("Approved automatically · system").
+- **Who may create, update or delete:** planner (his buyer–supplier pairs), director and admin (`rules.PO_EDITORS`). See §4 — POs are never drafted (this replaces the "Issue purchase order" / "Ready to issue" flow of 18 Oct).
 
 ## 3. Loading uses the PO, with an allowance and automatic revisions
 - **Hand-over form.** The loader's hand-over (field `LoadingPoint`, web Loading → Record loading) is prefilled from the PO truck lines. The loader can change each line's quantity.
@@ -67,6 +65,27 @@ The type is `AppConfig` in `packages/api/src/types.ts`, with defaults in `rules.
   - The POs list groups revisions under the original PO, with a "rev001" badge.
   - The PO view has a "Revised at loading" panel with links along the chain.
   - A revision's letter or PDF says "Revision 1 of BTW-PO-…" and lists the changes.
+
+## 4. Purchase orders are created, updated or deleted — never drafted (26 Oct 2026)
+One **Purchase orders** area in the web sidebar (`#/pos`: list, create `#/pos/new`, view `#/pos/:id`, update `#/pos/:id/edit`). The old `#/plans`, `#/plans/new` and `#/plans/:id` links (bookmarks, notifications) redirect to the list, the create form and the order's PO. The team PWA has no Drafts / PO approvals (payment approvals for directors stay; PO approvals only when the switch is on); its PO detail shows the versions and links to the web editor.
+
+**Create.** Supplier (the planner's pairs), company (active company), title, dates, currency, instruction, trucks with lines (product, cases, route, delivered-to). Prices come from the price list (directors may override). The ref `<prefix>-<year>-00NN` is given on create; refs are never reused (deleted POs keep theirs). Result: Issued, or Awaiting approval (§2).
+
+**Update = a revision, never an overwrite.** `PUT /pos/:id` with the full lines and a **required reason** saves the next revision `<original ref>-rev00N`. One counter per order for office updates and revisions at loading (§3): e.g. rev001 updated by the office, rev002 revised at loading, rev003 updated again. The new revision supersedes the previous one; loadings and shipments are re-pointed to it and pending loadings take its quantities (new trucks get a loading, removed pending trucks lose theirs). Reports, planned vs actual, stock in transit, finance and acknowledgements use the effective (latest) revision only — the existing no-double-counting rule.
+- Lines already loaded can't go below the cases loaded, can't be removed and can't change product / truck / route / destination; no line can be added to a loaded truck. Once every truck is loaded the PO can no longer be updated (409).
+- The letter of a revision reads "Revision N of <ref> — updated <date> (<reason>)" and lists the changes; the web offers *Email revised PO to supplier* (the revision starts *Not sent*).
+
+**Versions.** Every version is an immutable snapshot in `po_versions` (one row per PO id: `base_po_id`, `revision` (0 = original), `kind` `original | updated | revised at loading`, title, instruction, required-by, currency, `lines`, `line_changes`, `reason`, `by_user_id`, `at`). Each revision also carries `line_changes` on its `pos` row. A line change is `{ lineId, truckNo, kind: 'updated' | 'revised at loading' | 'added' | 'removed', before?: { truckNo, productId, qty, price, routeId, deliveredToId }, after?: … }` (`rules.diffPoLines`). `GET /pos/:id` returns `versions` (original first), `effectiveId`, cases `loaded` per line and the reader's `actions` (`update`, `delete`, `approve`, `deleteBlocked`, `updateBlocked`). The PO view's **Versions** panel lists each version (kind, who, when, reason, changes, PDF of that version) and compares any two side by side (changed cells highlighted, added lines green, removed red). Loaders and receivers get versions without prices (receivers: their lines only) and cannot update or delete.
+
+**Delete (soft).** `POST /pos/:id/delete` with a **required reason**, only while nothing has been loaded (no loading Loaded, no shipment); afterwards it is refused with "…can no longer be deleted. Update it instead". The whole chain gets `status = 'Deleted'`, `deleted_at`, `deleted_by_id`, `delete_reason`; its orders get status `Deleted`; pending loadings are removed (queued trucks stay in the waiting list — queue entries belong to the loading point, not to a PO). Deleted POs are hidden from `GET /pos` (listed with `?all=1`) and from reports, kept in the audit log with the reason.
+
+**Stages** (`rules.poStage`, list chips, dashboards, phone pipeline): *Awaiting approval* (only with the switch on) → *Created* → *Sent to supplier* → *Loading* (a truck loaded) → *On the road* (a truck left) → *Delivered* (every truck acknowledged), plus *Deleted*.
+
+**Notifications:** "Purchase order created … approved automatically" (planners, directors) or "Purchase order awaiting approval" (directors, switch on); "Purchase order updated <ref> → <ref>-rev00N · changes · reason" (planners, directors, loaders); "Purchase order deleted / rejected" with the reason. No "ready to issue" or "waiting approval" when the switch is off.
+
+**Migration `0011_po_versions`:** adds `pos.status` (default `Issued`), `deleted_at`, `deleted_by_id`, `delete_reason`, `revision_kind`, `line_changes` and the table `po_versions`; marks old loading revisions `revised at loading`; snapshots every existing PO version from its order. Existing drafts: a **Submitted** order becomes a PO **Awaiting approval** (`po-<plan id>`, same ref) — approved automatically at start-up while the switch is off; **Draft, Returned, Rejected** (and empty submitted) orders never became POs and are discarded: kept in `plans` with status `Deleted`, invisible everywhere. The seed issues the former demo drafts and adds BTW-PO-2026-0002-rev001 (office update after three trucks loaded: a fifth truck added), NUD-PO-2026-0009-rev001 (office update) + rev002 (revised at loading) and KVD-PO-2026-0011 (deleted before loading).
+
+**Tests:** `packages/api/test/pos.test.ts` (rules + mock flows), `plans.test.ts`, QA `revisions` (Rule 4: create / update / interleaving / reduce-below-loaded / delete / access, approvals off) and `rules` (approvals on: awaiting approval, approve, reject), `api.e2e.ts`, and the `pnpm e2e` full-chain journey (create → PDF/email, update → rev001 with the Versions panel, delete).
 
 ## Data and migration
 Migration `apps/api/drizzle/0007_plans_po_revisions.sql` adds these columns:

@@ -69,7 +69,7 @@ export async function tenancySuite(env: Env) {
   for (const e of ENTS) for (const o of ENTS.filter((x) => x !== e)) {
     const f = facts[o]; const t = staff[e].plan; const a = staff[e].acc; const tag = `${COMPANIES[e]} → ${COMPANIES[o]}`;
     const reads: [string, string][] = [
-      [`/plans/${f.plan.id}`, t], [`/plans/${f.plan.id}/versions`, t], [`/pos/${f.po.id}`, t], [`/pos/${f.po.id}/pdf`, t],
+      [`/plans/${f.plan.id}`, t], [`/pos/${f.po.id}`, t], [`/pos/${f.po.id}/pdf`, t],
       [`/shipments/${f.sh.id}`, t], [`/shipments/${f.sh.id}/acks`, t], [`/acks/${f.ack}`, t], [`/acks/${f.ack}/pdf`, t], [`/shipments/${f.sh.id}`, a],
       [`/stock/ledger?warehouseId=${f.stock.warehouseId}&productId=${f.stock.productId}`, a],
       [`/reports/sales?entityId=${o}`, a], [`/reports/dashboard?entityId=${o}`, t],
@@ -87,10 +87,10 @@ export async function tenancySuite(env: Env) {
   section('Tenancy · changing another company\'s records');
   for (const e of ENTS) for (const o of ENTS.filter((x) => x !== e)) {
     const f = facts[o]; const t = staff[e].plan; const a = staff[e].acc; const tag = `${COMPANIES[e]} → ${COMPANIES[o]}`;
-    expectStatus(await c.req('PUT', `/plans/${f.plan.id}`, { token: t, body: { ...f.plan, title: 'hijack' } }), DENIED, `${tag} PUT plan`);
-    expectStatus(await c.req('POST', `/plans/${f.plan.id}/submit`, { token: t }), DENIED, `${tag} submit plan`);
-    expectStatus(await c.req('POST', `/plans/${f.plan.id}/amendments`, { token: t, body: { reason: 'x' } }), DENIED, `${tag} amend plan`);
-    expectStatus(await c.req('POST', '/plans', { token: t, body: { entityId: o, supplierId: 's-kbl' } }), DENIED, `${tag} create a plan for the other company`);
+    expectStatus(await c.req('PUT', `/pos/${f.po.id}`, { token: t, body: { title: 'hijack', lines: f.plan.lines, reason: 'x' } }), DENIED, `${tag} update a PO`);
+    expectStatus(await c.req('POST', `/pos/${f.po.id}/delete`, { token: t, body: { reason: 'x' } }), DENIED, `${tag} delete a PO`);
+    expectStatus(await c.req('POST', `/pos/${f.po.id}/decision`, { token: t, body: { action: 'approved', signature: 'x' } }), [...DENIED, 409], `${tag} decide a PO`);
+    expectStatus(await c.req('POST', '/pos', { token: t, body: { entityId: o, supplierId: 's-kbl', title: 'x', lines: f.plan.lines } }), DENIED, `${tag} create a PO for the other company`);
     expectStatus(await c.req('POST', `/pos/${f.po.id}/sent`, { token: t }), DENIED, `${tag} mark PO sent`);
     expectStatus(await c.req('POST', `/loadings/${f.loading.id}/confirm`, { token: t, body: { truckId: 't1', driverId: 'd1', loadedQty: {}, agreedTransport: 100 } }), DENIED, `${tag} confirm loading`);
     expectStatus(await c.req('POST', `/legs/${f.liveLeg.id}/passes`, { token: t, body: { checkpointId: f.liveLeg.passes[1]?.checkpointId ?? f.liveLeg.toId, kind: 'arrived' } }), DENIED, `${tag} check-in on a trip`);
@@ -110,7 +110,7 @@ export async function tenancySuite(env: Env) {
   section('Tenancy · Group view and stock ownership');
   const sale = (extra: object) => ({ at: new Date().toISOString(), warehouseId: 'w-kgl', customer: 'QA', salespersonId: 'u-daniel', kind: 'Cash', lines: [{ productId: facts['e-btw'].stock.productId, qty: 1, price: 1 }], currency: 'USD', paid: 1, ...extra });
   expectStatus(await c.req('POST', '/sales', { token: dir, body: sale({}) }), 422, 'Group view: new sale without a company');
-  expectStatus(await c.req('POST', '/plans', { token: dir, body: { supplierId: 's-kbl' } }), 422, 'Group view: new plan without a company');
+  expectStatus(await c.req('POST', '/pos', { token: dir, body: { supplierId: 's-kbl', title: 'x', lines: [] } }), 422, 'Group view: new PO without a company');
   expectStatus(await c.req('POST', '/loading-points/s-kbl/waiting', { token: await tok('kabonge'), body: { truckId: 't1', driverId: 'd1', entityId: 'e-unknown' } }), 403, 'waiting entry for a company outside the scope');
   const btwSku = (stock as any[]).find((r) => r.entityId === 'e-btw' && r.warehouseId === 'w-kgl' && r.closing > 0 && !(stock as any[]).some((x) => x.entityId === 'e-nud' && x.warehouseId === 'w-kgl' && x.productId === r.productId && x.closing > 0));
   if (btwSku) {

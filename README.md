@@ -17,9 +17,10 @@ packages/ui     Shared CSS (tokens only), Badge, CheckpointTimeline, SignaturePa
 packages/tokens tokens.css generated from docs/design-system/tokens.json (`pnpm tokens`)
 ```
 
-## What's new (18–25 Oct 2026)
+## What's new (18–26 Oct 2026)
+- **Purchase orders: create, update, delete — no drafts (26 Oct)** — one *Purchase orders* entry in the sidebar (`#/pos`; old `#/plans` links redirect). *Create purchase order* issues the PO at once ("Approved automatically"), or leaves it *Awaiting approval* when `purchase_orders = true`. *Update* saves the next revision `<ref>-rev00N` with a required reason (one counter with the revisions made at loading); the original and every version are kept (`po_versions`) and compared side by side in the PO's *Versions* panel, each with its own PDF; *Email revised PO to supplier*. *Delete* is a soft delete with a reason, only before anything is loaded. Migration `0011_po_versions`. See [`docs/09-plans-po-revisions.md`](docs/09-plans-po-revisions.md) §4.
 - **Period plans are suggestions** — no approval; statuses Active / Replaced; Active plans of a company never overlap (the app offers *Replace*); plans don't gate POs. See [`docs/09-plans-po-revisions.md`](docs/09-plans-po-revisions.md).
-- **PO approval is a switch** — `[approvals] purchase_orders` in `apps/api/config.toml` (default `false`): planners tap *Issue purchase order* and the letter says ISSUED. Set `true` for director approval.
+- **PO approval is a switch** — `[approvals] purchase_orders` in `apps/api/config.toml` (default `false`): a created PO is approved automatically and the letter says APPROVED AUTOMATICALLY. Set `true` for director approval.
 - **Loading allowance and PO revisions** — the loader loads from the PO within ±`allowance_pct` (10 %), may load alternatives; any difference auto-creates `<PO ref>-rev001`, `-rev002`, … (numbered from the original); shipments follow the latest revision.
 - **Truck planner role** — onboards providers / saccos / trucks / drivers, orders the loading queues, Truck desk (`#/trucks`), expenses per truck and provider. See [`docs/10-truck-planner-role.md`](docs/10-truck-planner-role.md).
 - **Users, roles and access (docs/12)** — the client's roster (Daniel, Michael, Kabonge, Testfie, Joel, Eric, Moses, Asie, Yonas, drivers), the roles document's §7 access matrix enforced in the API, the mock and the UI ("Own" scopes: buyer–supplier pairs, loading points, warehouses, optional routes), no prices for loaders / receivers / drivers, the agreed transport price recorded after loading, static-data editing (companies, suppliers, goods, receiving companies), routes to Congo, the directors' audit log screen. See [`docs/12-roles-access.md`](docs/12-roles-access.md).
@@ -32,7 +33,7 @@ packages/tokens tokens.css generated from docs/design-system/tokens.json (`pnpm 
 Read by the API at start-up (restart after a change; `CONFIG_FILE=/path` to use another file; defaults apply if missing). Apps receive them in `GET /v1/ref` as `config`.
 ```toml
 [approvals]
-purchase_orders = false     # true = a director must approve a PO before it is issued
+purchase_orders = false     # true = a new PO awaits a director's approval; false = approved automatically on create
 [loading]
 allowance_pct = 10          # ± % a truck's loaded total may differ from the PO
 allow_alternatives = true   # loader may load substitute products from the same supplier

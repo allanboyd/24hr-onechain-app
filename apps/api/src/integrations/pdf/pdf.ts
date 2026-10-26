@@ -132,8 +132,9 @@ export class TypstPdf implements PdfPort {
       truckCount: new Set(lines.map((l) => l.truckNo)).size, totalQty: num(total.qty), totalAmount: num(total.amt, 2),
       preparedBy: { name: d.preparedBy.name, title: d.preparedBy.title ?? null },
       approvedBy: d.approvedBy ? { name: d.approvedBy.name, title: d.approvedBy.title ?? null, at: fmtDate(d.approvedBy.at) } : null,
-      mode: d.mode ?? 'approved',
-      revision: d.revision ? { n: d.revision.n, of: d.revision.of, changes: d.revision.changes } : null,
+      mode: d.mode ?? 'approved', issuedLabel: d.issuedLabel ?? 'Issued by', stampText: d.stampText ?? (d.approvedBy ? `ISSUED ${fmtDate(d.approvedBy.at)} by ${d.approvedBy.name}` : ''),
+      revision: d.revision ? { n: d.revision.n, of: d.revision.of, changes: d.revision.changes,
+        note: d.revision.kind === 'updated' ? `updated${d.revision.at ? ' ' + fmtDate(d.revision.at) : ''}${d.revision.reason ? ' — ' + d.revision.reason : ''}; replaces the earlier version` : `revised at loading${d.revision.at ? ' ' + fmtDate(d.revision.at) : ''}; replaces the earlier version` } : null,
       signature: await this.img(c, 'signature', d.approvedBy?.signature),
       stamp: await this.img(c, 'stamp', d.stamp),
     };

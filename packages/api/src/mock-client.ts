@@ -5,9 +5,10 @@ import * as seed from './mock/seed';
 import * as R from './rules';
 import * as A from './access';
 import * as RP from './reports';
+import * as PO from './mock/po';
 import type {
   AckLine, AppConfig, AuditFilter, AuditPage, Checkpoint, EntityInput, PriceListItem, Product, ProductInput, ReceivingCompany, ReceivingCompanyInput, Supplier, SupplierInput, UserPair, LoadingAlternative, PeriodPlanLine, PurchaseOrder, CheckpointPass, Device, DriverWork, Entity, FeatureKey, FxRate, GiverWork, ID, Leg, LegView, PeriodKind, PeriodPlan, Plan, PlanLine,
-  PlanLineContext, PvThresholds, ReceiverWork, Role, RouteStop, Sale, Shipment, StoredFile, SyncResult, TripCost, TruckIssue, User, UserAdmin, Warehouse, WarehouseInput,
+  PlanLineContext, PoDetail, PoInput, PoUpdateInput, PvThresholds, ReceiverWork, Role, RouteStop, Sale, Shipment, StoredFile, SyncResult, TripCost, TruckIssue, User, UserAdmin, Warehouse, WarehouseInput,
   Driver, DriverInput, Provider, ProviderInput, SavedDriver, Truck, TruckInput,
 } from './types';
 
@@ -113,79 +114,21 @@ const planOut = (p: Plan) => A.orderFor(me(), p, myRc());
 /** Audit row for a change made in the mock (same paths as the API). */
 const log = (method: string, path: string, x: Parameters<typeof m.audit>[3] = {}) => m.audit(current?.id ?? null, method, path, { entityId: activeEntity, ...x });
 
-// ---- Plans & approvals (PL-*) ---------------------------------------------
+// ---- Purchase orders (docs/09 §4): created, updated (= revision) or deleted — never drafted ---------------------------
+/** The orders behind the POs (read-only here; reports and splits). Revision copies and deleted orders are not listed. */
 const plans0 = {
-  /** Orders (PO drafts). Revision copies made at loading are reached from their PO, not listed. */
-  async list() { ensure(); if (!R.hasFeature(current!.roles, 'purchase-orders')) return wait([] as Plan[]); return wait(m.db.plans.filter((p) => !p.revisionOf && inScope(p.entityId) && planAccess(p)).sort((a, b) => b.date.localeCompare(a.date)).map(planOut)); },
+  async list() { ensure(); if (!R.hasFeature(current!.roles, 'purchase-orders')) return wait([] as Plan[]); return wait(m.db.plans.filter((p) => !p.revisionOf && p.status !== 'Deleted' && inScope(p.entityId) && planAccess(p)).sort((a, b) => b.date.localeCompare(a.date)).map(planOut)); },
   async get(id: ID) { ensure(); feat('purchase-orders'); const p = m.db.plans.find((x) => x.id === id); return wait(p && inScope(p.entityId) && planAccess(p) ? planOut(p) : null); },
-  async create(entityId: ID, supplierId: ID): Promise<Plan> {
-    ensure(); canEditPO(); entityId = writeEntity(entityId);
-    if (!A.seesPair(me(), entityId, supplierId) && !A.isDirector(me())) throw forbid(`${seed.entities.find((e) => e.id === entityId)?.shortName}–${seed.suppliers.find((x) => x.id === supplierId)?.code} is not one of your buyer–supplier pairs`);
-    const plan: Plan = {
-      id: m.uid('plan'), ref: m.nextRef(entityId), title: '', entityId, supplierId, currency: 'USD',
-      date: new Date().toISOString().slice(0, 10), requiredBy: new Date(Date.now() + 10 * 864e5).toISOString().slice(0, 10),
-      status: 'Draft', version: 1, lines: [], history: [], createdById: current?.id ?? 'u-kabonge',
-    };
-    m.db.plans.push(plan); log('POST', '/plans', { recordType: 'plan', recordId: plan.id, entityId, summary: `${plan.ref} created` }); return commit(plan);
-  },
-  async save(plan: Plan) {
-    ensure(); canEditPO();
-    const i = m.db.plans.findIndex((p) => p.id === plan.id);
-    assertScope(m.db.plans[i]?.entityId); canEditPlan(m.db.plans[i]);
-    if (plan.entityId !== m.db.plans[i].entityId) throw new Error('A plan cannot move to another company');
-    if (m.db.plans[i].status === 'Approved') throw new Error('Approved plans are locked — create an amendment (PL-04)');
-    if ((m.db.plans[i].status === 'Submitted' && mockConfig.approvals.purchaseOrders) || m.db.plans[i].status === 'Rejected') throw Object.assign(new Error(`A ${m.db.plans[i].status.toLowerCase()} plan cannot be edited`), { status: 409 });
-    const cleaned = { ...plan, lines: plan.lines.map((l) => ({ ...l, qty: Math.max(0, Math.round(l.qty)) })) };
-    m.db.plans[i] = R.applyPlanLinks(cleaned, m.db.periodPlans ?? [], m.db.plans, destOf); // PO-06/07
-    log('PUT', `/plans/${plan.id}`, { recordType: 'plan', recordId: plan.id, entityId: plan.entityId });
-    return commit(m.db.plans[i]);
-  },
-  newLine(plan: Plan, truckNo: number): PlanLine {
+  /** A fresh line for the PO editor: the supplier's first product at its list price, on the supplier's first lane. */
+  newLine(plan: Pick<Plan, 'supplierId'>, truckNo: number): PlanLine {
     const prod = seed.products.find((p) => p.supplierId === plan.supplierId) ?? seed.products[0];
-    return { id: m.uid('pl'), truckNo, productId: prod.id, qty: 0, price: lookup.price(prod.id), deliveredToId: 'rc-asie', routeId: m.db.routes[0].id };
-  },
-  /** approvals.purchaseOrders = true: send for director approval. false (default): "Issue purchase order" — the PO is
-   *  created at once (approvedBy = the issuer) with its loadings, exactly as on approval. Period plans gate nothing. */
-  async submit(id: ID) {
-    ensure(); canEditPO(); const p = m.db.plans.find((x) => x.id === id)!; assertScope(p?.entityId); canEditPlan(p);
-    const issue = !mockConfig.approvals.purchaseOrders;
-    log('POST', `/plans/${id}/submit`, { recordType: 'plan', recordId: id, entityId: p.entityId, summary: `${p.ref} ${issue ? 'issued' : 'submitted'}` });
-    if (!(issue ? ['Draft', 'Returned', 'Submitted'] : ['Draft', 'Returned']).includes(p.status)) throw Object.assign(new Error(`Only draft or returned plans can be ${issue ? 'issued' : 'submitted'} (now ${p.status})`), { status: 409 });
-    if (!p.lines.length) throw new Error('Add at least one line');
-    if (p.lines.some((l) => l.qty <= 0)) throw new Error('Every line needs a quantity above zero');
-    Object.assign(p, R.applyPlanLinks(p, m.db.periodPlans ?? [], m.db.plans, destOf)); // informational marks only
-    if (issue) {
-      p.status = 'Approved'; p.history.push({ at: new Date().toISOString(), byUserId: current?.id ?? '', action: 'issued' });
-      createPo(p, current?.id ?? '', undefined, 'issued');
-      const cases = p.lines.reduce((a, l) => a + l.qty, 0);
-      m.notify('Purchase order issued', `${p.ref} · ${p.title} · ${cases.toLocaleString('en-US')} cases · by ${current?.name ?? ''}`, `#/pos/${p.poId}`, ['planner', 'director'], p.entityId);
-      return commit(p);
-    }
-    p.status = 'Submitted'; p.history.push({ at: new Date().toISOString(), byUserId: current?.id ?? '', action: 'submitted' });
-    m.notify('Plan awaiting approval', `${p.ref} · ${p.title}`, `#/plans/${p.id}`, ['director'], p.entityId);
-    return commit(p);
-  },
-  async decide(id: ID, action: 'approved' | 'returned' | 'rejected', comment?: string, signature?: string) {
-    ensure(); feat('purchase-orders.approve');
-    if (!mockConfig.approvals.purchaseOrders) throw Object.assign(new Error('Director approval of purchase orders is switched off (config.toml) — the planner issues the PO'), { status: 409 });
-    const p = m.db.plans.find((x) => x.id === id)!; assertScope(p?.entityId);
-    if (p.status !== 'Submitted') throw new Error('Only submitted plans can be decided');
-    p.status = action === 'approved' ? 'Approved' : action === 'returned' ? 'Returned' : 'Rejected';
-    p.history.push({ at: new Date().toISOString(), byUserId: current?.id ?? 'u-dir', action, comment, signature });
-    if (action === 'approved') createPo(p, current?.id ?? 'u-dir', signature, 'director'); // PO-01: PO generated from the approved plan, no retyping
-    m.notify(`Plan ${p.status.toLowerCase()}`, `${p.ref}${comment ? ' — ' + comment : ''}`, `#/plans/${p.id}`, ['planner'], p.entityId);
-    return commit(p);
+    const cp = seed.suppliers.find((s) => s.id === plan.supplierId)?.checkpointId;
+    const route = m.db.routes.find((r) => r.stops[0].checkpointId === cp) ?? m.db.routes[0];
+    const wh = seed.warehouses.find((w) => w.checkpointId === route.stops.at(-1)?.checkpointId);
+    return { id: m.uid('pl'), truckNo, productId: prod.id, qty: 0, price: lookup.price(prod.id), deliveredToId: wh?.receivingCompanyId ?? 'rc-asie', routeId: route.id };
   },
 };
-
-/** The PO for an approved / issued order (same path for both) and its loadings. */
-function createPo(p: Plan, byUserId: ID, signature: string | undefined, approval: 'director' | 'issued') {
-  const po: PurchaseOrder = { id: m.uid('po'), ref: p.ref, planId: p.id, entityId: p.entityId, supplierId: p.supplierId, currency: p.currency, date: p.date, title: p.title, instruction: 'Kindly process and avail stock for loading.', version: p.version, approvedById: byUserId, approvedAt: new Date().toISOString(), signature, approval };
-  m.db.pos.push(po); p.poId = po.id; m.createLoadingsForPO(po);
-  const lp = seed.suppliers.find((s) => s.id === p.supplierId);
-  m.notify('New trucks to load', `${p.ref} · ${new Set(p.lines.map((l) => l.truckNo)).size} trucks at ${lp?.code} ${lp?.city}`, '#/loading', ['loader', 'operations', 'fleet'], p.entityId);
-  return po;
-}
+const poCtx = (): PO.PoCtx => ({ d: m.db, by: { id: current?.id ?? 'system', name: current?.name ?? 'System', roles: current?.roles ?? [] }, config: mockConfig, price: lookup.price });
 /** Destination warehouse of an order line: the warehouse at the end of its route (docs/07 §D). */
 const destOf = (l: PlanLine) => { const cp = m.db.routes.find((r) => r.id === l.routeId)?.stops.at(-1)?.checkpointId; return seed.warehouses.find((w) => w.checkpointId === cp)?.id; };
 const roleError = () => Object.assign(new Error('Not available for your role'), { status: 403 });
@@ -264,19 +207,98 @@ export const periodPlans = {
 };
 
 const pos0 = {
-  async list() { ensure(); if (!current || !R.hasFeature(current.roles, 'purchase-orders')) return wait([] as PurchaseOrder[]); return wait(m.db.pos.filter((p) => inScope(p.entityId) && planAccess(poPlan(p))).reverse().map((p) => (A.seesPrices(me()) ? p : { ...p, pricesHidden: true }))); },
-  /** The PO, its order lines and — for a PO revised at loading — the whole chain (original first, latest last). */
-  async get(id: ID) {
-    ensure(); const po = m.db.pos.find((p) => p.id === id);
-    if (!po || !inScope(po.entityId) || !current || !R.hasFeature(current.roles, 'purchase-orders') || !planAccess(poPlan(po))) return wait(null);
-    const base = po.revisionOf ?? po.id;
-    const chain = m.db.pos.filter((x) => x.id === base || x.revisionOf === base).sort((a, b) => (a.revision ?? 0) - (b.revision ?? 0));
-    const hide = !A.seesPrices(me());
-    return wait({ po: hide ? { ...po, pricesHidden: true } : po, plan: planOut(m.db.plans.find((p) => p.id === po.planId)!), revisions: chain.length > 1 ? chain : [] as PurchaseOrder[] });
+  /** Effective POs (latest revision) with their stage; `{ all: true }` also lists deleted ones. */
+  async list(opts: { all?: boolean } = {}) {
+    ensure(); if (!current || !R.hasFeature(current.roles, 'purchase-orders')) return wait([] as PurchaseOrder[]);
+    autoApprove();
+    const money = A.seesPrices(me());
+    const out = m.db.pos.filter((p) => !p.supersededById && (opts.all || p.status !== 'Deleted') && inScope(p.entityId) && planAccess(poPlan(p))).map((p) => {
+      const lines = planOut(poPlan(p) as Plan).lines ?? [];
+      const x: PurchaseOrder = { ...p, stage: R.poStage(p, PO.loadingsOf(m.db, [p.id]), PO.shipmentsOf(m.db, [p.id])), baseRef: p.revisionOf ? m.db.pos.find((b) => b.id === p.revisionOf)?.ref ?? p.ref : p.ref,
+        cases: lines.reduce((a, l) => a + l.qty, 0), trucks: new Set(lines.map((l) => l.truckNo)).size, ...(money ? { amount: Math.round(lines.reduce((a, l) => a + l.qty * (l.price ?? 0), 0) * 100) / 100 } : { pricesHidden: true }) };
+      if (!money) delete x.signature;
+      return x;
+    });
+    return wait(out.sort((a, b) => b.approvedAt.localeCompare(a.approvedAt)));
   },
-  async markSent(id: ID) { ensure(); const po = m.db.pos.find((p) => p.id === id)!; assertScope(po?.entityId); canEditPlan(poPlan(po)); po.sentAt = new Date().toISOString(); log('POST', `/pos/${id}/sent`, { recordType: 'po', recordId: id, entityId: po.entityId }); return commit(po); },
+  /** The PO (as asked), its order lines, the whole chain, every version snapshot, what was loaded and what this user may do. */
+  async get(id: ID): Promise<PoDetail | null> {
+    ensure(); autoApprove();
+    const c = PO.chainOf(m.db, id);
+    if (!c || !inScope(c.asked.entityId) || !current || !R.hasFeature(current.roles, 'purchase-orders') || !planAccess(c.plan)) return wait(null);
+    const ids = c.chain.map((x) => x.id);
+    const lds = PO.loadingsOf(m.db, ids), shs = PO.shipmentsOf(m.db, ids);
+    const money = A.seesPrices(me());
+    const vs = PO.versionsOf(m.db).filter((v) => v.basePoId === ids[0]).sort((a, b) => a.revision - b.revision)
+      .map((v) => (money ? v : { ...A.withoutPrices(v), lineChanges: v.lineChanges.map((x) => ({ ...x, before: x.before && { ...x.before, price: undefined }, after: x.after && { ...x.after, price: undefined } })) }))
+      .map((v) => ({ ...v, lines: A.orderFor(me(), { entityId: c.effective.entityId, supplierId: c.effective.supplierId, lines: v.lines }, myRc()).lines }));
+    const editor = planAccess(c.plan) === 'edit' && current.roles.some((r) => R.PO_EDITORS.includes(r));
+    const { loaded, loadedTrucks } = PO.loadedOf(lds);
+    const trucks = Math.max(new Set(c.plan.lines.map((l) => l.truckNo)).size, lds.length);
+    const delBlock = R.poDeleteBlock(c.effective, lds, shs);
+    const updBlock = c.effective.status === 'Deleted' ? 'A deleted purchase order cannot be updated' : trucks > 0 && loadedTrucks.length >= trucks ? 'Every truck of this purchase order is loaded — it can no longer be updated' : null;
+    const strip = (x: PurchaseOrder): PurchaseOrder => (money ? x : (({ signature: _s, ...rest }) => ({ ...rest, pricesHidden: true }))(x));
+    return wait({
+      po: { ...strip(c.asked), stage: R.poStage(c.effective, lds, shs) }, plan: planOut(m.db.plans.find((p) => p.id === c.asked.planId)!), revisions: c.chain.length > 1 ? c.chain.map(strip) : [], versions: vs, effectiveId: c.effective.id, loaded,
+      actions: { update: editor && !updBlock, delete: editor && !delBlock, approve: current.roles.includes('director') && mockConfig.approvals.purchaseOrders && c.effective.status === 'Awaiting approval', ...(delBlock ? { deleteBlocked: delBlock } : {}), ...(updBlock ? { updateBlocked: updBlock } : {}) },
+    });
+  },
+  /** "Create purchase order": issued at once (approved automatically), or awaiting a director when approvals are on. */
+  async create(input: PoInput): Promise<PurchaseOrder> {
+    ensure(); canEditPO(); feat('purchase-orders');
+    const entityId = writeEntity(input.entityId);
+    if (!A.seesPair(me(), entityId, input.supplierId) && !A.isDirector(me())) throw forbid(`${seed.entities.find((e) => e.id === entityId)?.shortName}–${seed.suppliers.find((x) => x.id === input.supplierId)?.code} is not one of your buyer–supplier pairs`);
+    const po = PO.createPo(poCtx(), entityId, input);
+    log('POST', '/pos', { recordType: 'po', recordId: po.id, entityId, summary: `${po.ref} created${po.status === 'Awaiting approval' ? ' · awaiting approval' : ` · ${R.approvalText(po, current?.name ?? '')}`}` });
+    return commit({ ...po, stage: R.poStage(po, [], []) });
+  },
+  /** Update = the next revision `<ref>-rev00N` (reason required); the original and every revision are kept. */
+  async update(id: ID, input: PoUpdateInput): Promise<PurchaseOrder> {
+    ensure(); canEditPO();
+    const c = PO.chainOf(m.db, id); if (!c) throw httpErr('Purchase order not found', 404);
+    assertScope(c.effective.entityId); canEditPlan(c.plan);
+    const next = PO.updatePo(poCtx(), id, input);
+    log('PUT', `/pos/${id}`, { recordType: 'po', recordId: next.id, entityId: next.entityId, summary: `${c.effective.ref} updated → ${next.ref}: ${input.reason.trim()}` });
+    return commit(next);
+  },
+  /** Soft delete with a reason — only while nothing has been loaded. */
+  async remove(id: ID, reason: string): Promise<PurchaseOrder> {
+    ensure(); canEditPO();
+    const c = PO.chainOf(m.db, id); if (!c) throw httpErr('Purchase order not found', 404);
+    assertScope(c.effective.entityId); canEditPlan(c.plan);
+    const po = PO.deletePo(poCtx(), id, reason);
+    log('POST', `/pos/${id}/delete`, { recordType: 'po', recordId: po.id, entityId: po.entityId, summary: `${po.ref} deleted: ${reason.trim()}` });
+    return commit({ ...po, stage: 'Deleted' as const });
+  },
+  /** Approvals on: approve (signature) or reject (comment → deleted) a PO awaiting approval. */
+  async decide(id: ID, action: 'approved' | 'rejected', comment?: string, signature?: string): Promise<PurchaseOrder> {
+    ensure(); feat('purchase-orders.approve');
+    if (!mockConfig.approvals.purchaseOrders) throw httpErr('Director approval of purchase orders is switched off (config.toml) — POs are approved automatically on create', 409);
+    const c = PO.chainOf(m.db, id); if (!c) throw httpErr('Purchase order not found', 404);
+    assertScope(c.effective.entityId);
+    if (c.effective.status !== 'Awaiting approval') throw httpErr('Only purchase orders awaiting approval can be decided', 409);
+    if (action === 'approved' && !signature) throw httpErr('Signature required to approve (PL-03)', 422);
+    if (action === 'rejected' && !comment?.trim()) throw httpErr('Add a comment for the planner', 422);
+    const po = action === 'approved' ? PO.approvePo(poCtx(), c.effective, 'director', signature, comment) : PO.deletePo(poCtx(), id, `Rejected by ${current?.name}: ${comment!.trim()}`, true);
+    log('POST', `/pos/${id}/decision`, { recordType: 'po', recordId: po.id, entityId: po.entityId, summary: `${po.ref} ${action}` });
+    return commit(po);
+  },
+  async markSent(id: ID) {
+    ensure(); const po = m.db.pos.find((p) => p.id === id)!; assertScope(po?.entityId); canEditPlan(poPlan(po));
+    if (po.status === 'Deleted') throw httpErr('A deleted purchase order is not sent', 409);
+    if (po.status === 'Awaiting approval') throw httpErr('Approve the purchase order before sending it', 409);
+    po.sentAt = new Date().toISOString(); log('POST', `/pos/${id}/sent`, { recordType: 'po', recordId: id, entityId: po.entityId }); return commit(po);
+  },
+  newLine: (supplierId: ID, truckNo: number) => plans0.newLine({ supplierId }, truckNo),
 };
-
+/** Approvals switched off (demo.setConfig): POs still awaiting approval are approved automatically, as the API does at start-up. */
+function autoApprove() {
+  if (mockConfig.approvals.purchaseOrders) return;
+  const waiting = m.db.pos.filter((p) => p.status === 'Awaiting approval' && !p.supersededById);
+  if (!waiting.length) return;
+  for (const p of waiting) PO.approvePo({ ...poCtx(), by: { id: 'system', name: 'System', roles: [] } }, p, 'issued');
+  m.save();
+}
 const poPlan = (po: PurchaseOrder) => m.db.plans.find((p) => p.id === po.planId) ?? { entityId: po.entityId, supplierId: po.supplierId, lines: [] };
 // ---- Loading & waiting list (LD-*, §17.4) ---------------------------------
 /** Pending trucks carry the PO ref a deviation would create ("This will create BTW-PO-…-rev001"). */
@@ -328,26 +350,8 @@ export const loading = {
     const check = R.loadingCheck(ld.lines, input.loadedQty, alternatives, truck.capacityCases, mockConfig.loading, { supplierId: po.supplierId, products: seed.products });
     if (check.error) throw Object.assign(new Error(check.error), { status: 422 });
     for (const l of ld.lines) { const v = input.loadedQty?.[l.planLineId]; l.loadedQty = v === undefined || v === null || !Number.isFinite(Number(v)) ? l.orderedQty : Math.max(0, Math.round(Number(v))); }
-    if (check.deviates) {
-      const baseId = po.revisionOf ?? po.id; const base = m.db.pos.find((p) => p.id === baseId)!;
-      const n = m.db.pos.filter((p) => p.revisionOf === baseId).reduce((a, p) => Math.max(a, p.revision ?? 0), 0) + 1;
-      const ref = R.revisionRef(base.ref, mockConfig.loading.revisionSuffix, n);
-      const prev = m.db.plans.find((p) => p.id === po.planId)!;
-      const poId = m.uid('po'); const at = new Date().toISOString();
-      const r = R.revisePlan(prev, ld.truckNo, ld.lines, input.loadedQty, alternatives, { id: m.uid('plan'), ref, poId, lineId: () => m.uid('pl'), basePlanId: base.planId, revision: n }, lookup.price, current?.id ?? '', at);
-      const changes = check.changes.map((c) => ({ ...c, truckNo: ld.truckNo, ...(c.kind === 'alternative' ? { planLineId: r.altLines.find((a) => a.productId === c.productId && a.alternativeFor === c.replacesPlanLineId)?.planLineId } : {}) }));
-      const summary = R.revisionSummary(changes, (pid) => lookup.product(pid)?.brand ?? pid);
-      const next: PurchaseOrder = { ...po, id: poId, ref, planId: r.plan.id, version: 1, approvedById: current?.id ?? '', approvedAt: at, signature: undefined, sentAt: undefined, approval: 'revision',
-        revisionOf: baseId, revision: n, changes, revisionReason: `Loaded truck ${ld.truckNo} differs from the PO (${summary || 'quantities'}) — revised automatically at loading`, createdBy: 'system', onBehalfOfId: current?.id };
-      delete next.supersededById;
-      m.db.plans.push(r.plan); m.db.pos.push(next);
-      prev.supersededById = r.plan.id; po.supersededById = poId;
-      // downstream follows the latest revision: every truck of the order (loaded or not) points at it
-      for (const x of m.db.loadings) if (x.poId === po.id) x.poId = poId;
-      for (const x of m.db.shipments) if (x.poId === po.id) x.poId = poId;
-      ld.lines.push(...r.altLines.map((a) => ({ planLineId: a.planLineId, productId: a.productId, orderedQty: 0, loadedQty: a.qty, ...(a.alternativeFor ? { alternativeFor: a.alternativeFor } : {}) })));
-      m.notify('PO revised at loading', `PO ${po.ref} revised → ${ref} at loading${summary ? ` (${summary})` : ''} · ${truck.reg}`, `#/pos/${poId}`, ['planner', 'director'], po.entityId);
-    }
+    if (po.status === 'Deleted' || po.status === 'Awaiting approval') throw httpErr(po.status === 'Deleted' ? 'This purchase order was deleted — nothing to load' : 'This purchase order is awaiting approval — load it once a director has approved it', 409);
+    if (check.deviates) PO.reviseAtLoading(poCtx(), ld, { loadedQty: input.loadedQty, alternatives }, check, truck.reg); // same counter as office updates
     ld.documents = input.documents.map((n) => ({ id: m.uid('doc'), kind: 'delivery-note', name: n }));
     const sh = m.completeLoading(ld, input.truckId, input.driverId, price);
     m.notify('Truck loaded', `${truck.reg} · ${check.loaded} cases · ${sh.ref}${price === null ? ' · agreed price not recorded yet' : ''}`, `#/shipments/${sh.id}`, ['operations', 'fleet', 'director', 'truck_planner'], sh.entityId);
@@ -696,15 +700,6 @@ export const field = {
 };
 
 export const plans = Object.assign(plans0, {
-  async amend(id: ID, reason: string) {
-    ensure(); const p = m.db.plans.find((x) => x.id === id)!;
-    if (p.status !== 'Approved') throw new Error('Only approved plans are amended; edit drafts directly');
-    if (p.supersededById || p.revisionOf) throw Object.assign(new Error('This PO was revised at loading — its trucks are being loaded; raise a new order for further changes'), { status: 409 });
-    if (!reason?.trim()) throw new Error('Give a reason for the amendment');
-    p.version += 1; p.status = 'Draft'; p.history.push({ at: new Date().toISOString(), byUserId: current?.id ?? '', action: 'amended', comment: reason });
-    return commit(p);
-  },
-  async versions(_id: ID) { return wait([] as { version: number; snapshot: Plan; reason: string | null; at: string }[]); },
   /** PO-06: each line against the approved period plan — planned, ordered before, this PO, remaining, over/unplanned. */
   async planContext(planId: ID): Promise<PlanLineContext[]> {
     ensure(); const p = m.db.plans.find((x) => x.id === planId); if (!p || !inScope(p.entityId)) throw notAllowed();

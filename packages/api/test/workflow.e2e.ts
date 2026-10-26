@@ -1,19 +1,19 @@
 import * as api from '../src/index';
 const ok = (c: any, m: string) => { if (!c) { console.log('FAIL', m); process.exitCode = 1; } else console.log('ok  ', m); };
 await api.auth.login('u-kabonge', '');
-let p = await api.plans.create('e-kivu', 's-sbl');
-ok(p.ref.startsWith('KVD-PO-'), 'ref auto-numbered ' + p.ref);
-p.title = 'Test order'; p.lines = [ { ...api.plans.newLine(p, 1), qty: 1800, routeId: 'r-mwz-kgl' } ];
-p = await api.plans.save(p);
-// approvals on (config.toml approvals.purchase_orders = true): the director approves
+// docs/09 §4: no drafts — "Create purchase order" with its lines. Approvals on (config.toml approvals.purchase_orders = true):
+// the PO starts awaiting approval and a director approves it.
 api.demo.setConfig({ approvals: { purchaseOrders: true } });
-p = await api.plans.submit(p.id);
-ok(p.status === 'Submitted' && !p.poId, 'approvals on: submitted for approval');
+let po = await api.pos.create({ entityId: 'e-kivu', supplierId: 's-sbl', title: 'Test order', lines: [{ ...api.pos.newLine('s-sbl', 1), qty: 1800, routeId: 'r-mwz-kgl' }] });
+ok(po.ref.startsWith('KVD-PO-'), 'ref auto-numbered ' + po.ref);
+ok(po.status === 'Awaiting approval' && po.stage === 'Awaiting approval', 'approvals on: created awaiting approval');
 await api.auth.login('u-daniel', '');
-p = await api.plans.decide(p.id, 'approved', '', 'sig');
-ok(p.status === 'Approved' && p.poId, 'approved → PO ' + p.poId);
+po = await api.pos.decide(po.id, 'approved', '', 'sig');
+ok(po.status === 'Issued', 'approved → PO issued ' + po.ref);
 api.demo.setConfig({ approvals: { purchaseOrders: false } });
-let locked = false; try { await api.plans.save(p); } catch { locked = true; } ok(locked, 'approved plan locked');
+await api.auth.login('u-kabonge', '');
+let locked = false; try { await api.pos.update(po.id, { title: 'Test order', lines: [], reason: '' }); } catch { locked = true; } ok(locked, 'an update needs a reason');
+const p = { ref: po.ref, poId: po.id };
 // the loader at SBL records the loading (directors only view loadings, §7)
 await api.auth.login('u-sbl-loader', '');
 const ld = (await api.loading.list('s-sbl')).find((l) => l.poId === p.poId)!;
@@ -106,7 +106,7 @@ ok(JSON.stringify(me.allowedEntityIds) === '["e-btw"]' && !me.canGroup && api.en
 ok((await api.plans.list()).every((x) => x.entityId === 'e-btw' && x.supplierId === 's-kbl') && (await api.shipments.list()).every((x) => x.entityId === 'e-btw'), 'BTW loader sees only BTW (KBL) orders and shipments');
 ok((await api.inventory.stock()).length === 0 && (await api.sales.list()).length === 0, 'loader sees no stock and no sales');
 ok(await forbidden(async () => api.configure({ entityId: 'e-nud' })), 'cannot switch to a company outside the allowed set');
-ok(await forbidden(() => api.plans.create('e-btw', 's-kbl')), 'a loader cannot create a plan');
+ok(await forbidden(() => api.pos.create({ entityId: 'e-btw', supplierId: 's-kbl', title: 'x', lines: [{ ...api.pos.newLine('s-kbl', 1), qty: 100 }] })), 'a loader cannot create a purchase order');
 ok(await forbidden(() => api.reports.group()), 'group report is for directors');
 ok(await forbidden(() => api.reports.sales({ entityId: 'e-kivu' })), 'report filter outside scope refused');
 ok((await api.entities.list()).length === 1, 'entities.list = allowed companies only');

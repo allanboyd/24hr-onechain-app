@@ -32,10 +32,10 @@ export async function roleGuards(ctx) {
   await step('loading-point user on the web: loading allowed, users/finance blocked', lo, async () => {
     await webSignIn(lo, PH.joel);
     await webGo(lo, '/loading', 1500); must(/Loading/i.test(await text(lo.page)), 'loading screen missing');
-    for (const hash of ['/users', '/finance', '/plans/new']) {
+    for (const hash of ['/users', '/finance', '/pos/new']) {
       await webGo(lo, hash, 900);
       must(/no access|not available|isn.t available for your role|Only planners and directors/i.test(await text(lo.page)), `loader reached ${hash}`);
-      if (hash === '/plans/new') must(await lo.page.locator('button:has-text("Create draft")').isDisabled(), 'loader can create a PO draft');
+      if (hash === '/pos/new') must(!(await lo.page.locator('button:has-text("Create purchase order")').count()), 'loader can create a purchase order');
     }
   }, { allow: ['403'] });
   const f = await person('field-director', { kind: 'field' });
@@ -179,12 +179,21 @@ export async function fullChain(ctx) {
   if (!(await admin.page.locator('aside.side').count())) await webSignIn(admin, PH.admin);
   ctx.hassanPin = '1234'; // Kanyike E is a seeded driver (docs/12 §1) with the demo PIN
 
+  // The seeded BTW top-up (po-6, issued, not loaded) would be Joel's next truck: Kabonge deletes it first (soft delete before
+  // loading, docs/09 §4) so the KBL list holds this journey's order and the older PO's truck 4.
+  {
+    const r = await apiPost('/pos/po-6/delete', { reason: 'E2E: replaced by the journey order' }, await apiLogin({ username: 'kabonge', password: PASS }));
+    must(r.status === 200 && r.body.status === 'Deleted', `could not delete the seeded top-up (${r.status})`);
+  }
   // Planner → director
   const planner = await person('planner'); await webSignIn(planner, PH.planner);
   let poRef = '', poHash = '';
-  await step('planner (Kabonge) drafts a mixed-load truck and issues the PO — no director approval (config approvals off)', planner, async () => {
+  await step('planner (Kabonge) creates a PO with a mixed-load truck — no drafts, approved automatically (config approvals off)', planner, async () => {
     const page = planner.page;
-    await webGo(planner, '/plans/new', 1200); await page.click('button:has-text("Create draft")'); await sleep(1800);
+    await webGo(planner, '/plans', 1000);
+    must(/\/pos$/.test(await page.evaluate(() => location.hash)), 'old #/plans link did not redirect to Purchase orders');
+    must(!(await page.locator('aside.side a:has-text("PO drafts")').count()) && (await page.locator('aside.side a:has-text("Purchase orders")').count()) === 1, 'sidebar still shows "PO drafts & approvals" or lacks one "Purchase orders" entry');
+    await page.click('a:has-text("Create purchase order")'); await sleep(1500);
     ctx.planTitle = `E2E mixed-load order ${Date.now().toString(36)}`;
     await page.fill('input[placeholder^="e.g. October"]', ctx.planTitle);
     await page.click('button:has-text("Add truck")'); await sleep(300);
@@ -192,13 +201,13 @@ export async function fullChain(ctx) {
     await page.click('[aria-label="Add brand to truck 1"]'); await sleep(300);
     const qty = page.locator('[aria-label="Quantity, truck 1"]'); must((await qty.count()) === 2, 'mixed-load line not added');
     await qty.nth(1).fill('600');
-    must(/Truck 1 subtotal/.test(await text(page)), 'no truck subtotal row');
-    poRef = ctx.poRef = (await page.locator('h1 .mono').first().innerText()).trim();
-    must(!(await page.locator('button:has-text("Submit for approval")').count()), 'approval step shown although approvals are off');
-    await page.click('button:has-text("Issue purchase order")'); await sleep(2500);
+    must(!/Create draft|Save draft|Submit for approval|Issue purchase order|Ready to issue/i.test(await text(page)), 'draft / approval wording on the create form although approvals are off');
+    await page.click('button:has-text("Create purchase order")'); await sleep(2500);
     poHash = await page.evaluate(() => location.hash.slice(1));
-    must(/^\/pos\//.test(poHash), `not on the PO after issuing (${poHash})`);
-    must((await page.locator('h1 .mono').first().innerText()).trim() === poRef, 'PO ref differs from the draft ref');
+    must(/^\/pos\/[^/]+$/.test(poHash), `not on the PO after creating (${poHash})`);
+    poRef = ctx.poRef = (await page.locator('h1 .mono').first().innerText()).trim();
+    must(/^BTW-PO-\d{4}-\d{4}$/.test(poRef), `unexpected PO ref ${poRef}`);
+    const t = await text(page); must(/Created/.test(t) && /Approved automatically/.test(t) && /Versions/.test(t), 'PO view lacks Created / Approved automatically / Versions');
     return `${poRef} · ${poHash}`;
   });
   const director = ctx.director = await person('director'); await webSignIn(director, PH.director);
@@ -221,6 +230,33 @@ export async function fullChain(ctx) {
     must(hit, `no supplier email for ${poRef} in Mailpit`);
     must(hit.Attachments >= 1, 'email has no PDF attachment');
     return `${buf.length} B PDF · mail “${hit.Subject}”`;
+  });
+  await step('planner updates a PO (saved as rev001 beside the original, reason required) and deletes another before loading', planner, async () => {
+    const page = planner.page;
+    await webGo(planner, '/pos/new', 1500);
+    await page.fill('input[placeholder^="e.g. October"]', `E2E update ${Date.now().toString(36)}`);
+    await page.click('button:has-text("Add truck")'); await sleep(300);
+    await page.locator('[aria-label="Quantity, truck 1"]').first().fill('1000');
+    await page.click('button:has-text("Create purchase order")'); await sleep(2500);
+    const id = (await page.evaluate(() => location.hash.slice(1))).split('/')[2];
+    const ref = (await page.locator('h1 .mono').first().innerText()).trim();
+    await page.click('a:has-text("Update")'); await sleep(1800);
+    must(/saves as rev001/.test(await text(page)), 'editor does not say it saves as rev001');
+    await page.locator('[aria-label="Quantity, truck 1"]').first().fill('900');
+    await page.click('button:has-text("Save update")'); await sleep(500);
+    must(await page.locator('dialog[open] button:has-text("Save as rev001")').isDisabled(), 'saving without a reason is possible');
+    await page.fill('dialog[open] textarea', 'E2E: supplier short');
+    await page.click('dialog[open] button:has-text("Save as rev001")'); await sleep(2500);
+    const v = await text(page);
+    must((await page.locator('h1 .mono').first().innerText()).trim() === `${ref}-rev001`, 'not on rev001 after the update');
+    must(/Updated by office/.test(v) && /E2E: supplier short/.test(v) && /1,000/.test(v) && /900/.test(v), 'Versions panel lacks the office update with original and revised quantities');
+    await page.click('button:has-text("Delete")'); await sleep(500);
+    await page.fill('dialog[open] textarea', 'E2E: raised by mistake');
+    await page.click('dialog[open] button:has-text("Delete purchase order")'); await sleep(2000);
+    must(/Deleted/.test(await text(page)) && /raised by mistake/.test(await text(page)), 'PO not shown as deleted with its reason');
+    await webGo(planner, '/pos?tab=list', 1500);
+    must(!(await text(page)).includes(ref), 'deleted PO still in the default list');
+    return `${ref} → ${ref}-rev001 → deleted (${id})`;
   });
 
   // Field: Hassan signs in first (no trip yet), Joel hands over, Hassan's phone picks it up on its own.
@@ -578,7 +614,7 @@ async function focusVisible(page, selector, maxTabs = 40) {
   }
   return null;
 }
-const WEB_PAGES = ['/', '/plans', '/plans/new', '/pos', '/loading', '/shipments', '/tracking', '/inventory', '/sales', '/finance', '/analytics', '/master', '/notifications', '/users'];
+const WEB_PAGES = ['/', '/pos', '/pos/new', '/pos/po-1', '/pos/po-1/edit', '/loading', '/shipments', '/tracking', '/inventory', '/sales', '/finance', '/analytics', '/master', '/notifications', '/users'];
 export async function layoutSweep() {
   startJourney('6 · Layout, errors and keyboard focus on every page');
   for (const [vw, viewport] of [['1440', VIEW.desktop], ['1024', VIEW.laptop], ['390', VIEW.phone]]) {

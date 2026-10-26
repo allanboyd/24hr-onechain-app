@@ -1,7 +1,7 @@
 // Aggregate persistence: rows ↔ the shared domain shapes in @btw/api/types (so the shared rules apply unchanged).
 import { asc, eq, inArray, sql } from 'drizzle-orm';
 import { db, schema as t, type Tx } from '../db/client';
-import type { Acknowledgement, Leg, Loading, PeriodPlan, Plan, PurchaseOrder, Sale, Shipment, TripCost, TripPayment, WaitingEntry } from '@btw/api/types';
+import type { Acknowledgement, Leg, Loading, PeriodPlan, Plan, PoVersion, PurchaseOrder, Sale, Shipment, TripCost, TripPayment, WaitingEntry } from '@btw/api/types';
 import { notFound } from '../common/errors';
 
 type Q = typeof db | Tx;
@@ -20,13 +20,16 @@ export const map = {
     return { ...x, periodKind: x.periodKind as PeriodPlan['periodKind'], status: x.status as PeriodPlan['status'], ...(copiedFromId ? { copiedFromId } : {}), ...(replacedById ? { replacedById } : {}) };
   },
   po: (r: typeof t.pos.$inferSelect): PurchaseOrder => {
-    const { revisionOf, revision, changes, revisionReason, createdBy, onBehalfOfId, supersededById, ...x } = r;
+    const { revisionOf, revision, changes, revisionReason, createdBy, onBehalfOfId, supersededById, status, deletedAt, deletedById, deleteReason, revisionKind, lineChanges, ...x } = r;
     return {
       ...x, sentAt: toIso(x.sentAt), approvedAt: toIso(x.approvedAt)!, signature: und(x.signature), currency: x.currency as PurchaseOrder['currency'], approval: x.approval as PurchaseOrder['approval'],
-      ...(revisionOf ? { revisionOf, revision: revision ?? 1, changes: changes ?? [], revisionReason: revisionReason ?? undefined, createdBy: (createdBy ?? 'system') as 'system', onBehalfOfId: onBehalfOfId ?? undefined } : {}),
+      status: (status ?? 'Issued') as PurchaseOrder['status'],
+      ...(revisionOf ? { revisionOf, revision: revision ?? 1, changes: changes ?? [], revisionReason: revisionReason ?? undefined, revisionKind: (revisionKind ?? 'revised at loading') as PurchaseOrder['revisionKind'], lineChanges: lineChanges ?? [], ...(createdBy ? { createdBy: createdBy as 'system' } : {}), onBehalfOfId: onBehalfOfId ?? undefined } : {}),
       ...(supersededById ? { supersededById } : {}),
+      ...(deletedAt ? { deletedAt: toIso(deletedAt), deletedById: deletedById ?? undefined, deleteReason: deleteReason ?? undefined } : {}),
     };
   },
+  poVersion: (r: typeof t.poVersions.$inferSelect): PoVersion => ({ ...r, kind: r.kind as PoVersion['kind'], currency: r.currency as PoVersion['currency'], at: toIso(r.at)!, reason: r.reason ?? null }),
   waiting: (r: typeof t.waitingEntries.$inferSelect): WaitingEntry => ({ ...r, arrivedAt: toIso(r.arrivedAt)!, status: r.status as WaitingEntry['status'] }),
   loading: (r: typeof t.loadings.$inferSelect): Loading => ({ ...r, loadedAt: toIso(r.loadedAt), status: r.status as Loading['status'], transportCurrency: r.transportCurrency as Loading['transportCurrency'] }),
   leg: (r: typeof t.legs.$inferSelect): Leg => {

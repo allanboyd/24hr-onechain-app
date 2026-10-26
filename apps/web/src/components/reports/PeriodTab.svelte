@@ -7,7 +7,7 @@
   import ErrorState from '../ErrorState.svelte';
   import ReportFilters from './ReportFilters.svelte';
   import { toFilter } from './filter';
-  import { createDraftPlans } from './draft';
+  import { openPrefilledPos } from './draft';
   import { day, dayLong, pct } from './fmt';
   import { untrack } from 'svelte';
   let { mode = $bindable('plan'), wh = '' }: { mode?: 'plan' | 'check'; wh?: string } = $props();
@@ -25,8 +25,8 @@
   async function draft() {
     if (!plan) return; busy = true;
     const err = await attempt(async () => {
-      const refs = await createDraftPlans(plan!.rows.filter((r) => r.gapTrucks && r.supplierId).map((r) => ({ supplierId: r.supplierId!, productId: r.productId, warehouseId: r.warehouseId, trucks: r.gapTrucks, capacity: r.capacity, routeIds: r.routeIds })), `Plan for ${day(plan!.range.from)} – ${day(new Date(Date.parse(plan!.range.to) - 1).toISOString())}`);
-      say(`Draft ${refs.join(', ')} created from the period plan`);
+      const n = await openPrefilledPos(plan!.rows.filter((r) => r.gapTrucks && r.supplierId).map((r) => ({ supplierId: r.supplierId!, productId: r.productId, warehouseId: r.warehouseId, trucks: r.gapTrucks, capacity: r.capacity, routeIds: r.routeIds })), `Plan for ${day(plan!.range.from)} – ${day(new Date(Date.parse(plan!.range.to) - 1).toISOString())}`);
+      say(`${n} purchase order${n === 1 ? '' : 's'} prefilled from the period plan — check the lines and create`);
     });
     busy = false; if (err) say(err);
   }
@@ -54,7 +54,7 @@
     </div>
     <section class="card" style="margin-top:var(--space-4)">
       <header class="row between"><div><h3>What still needs ordering</h3><p class="caption">After stock on hand, trucks on the road and plans already made.</p></div>
-        {#if canPlan && plan.totals.gapTrucks}<button class="btn btn-primary" disabled={busy} onclick={draft}>{busy ? 'Creating…' : 'Create draft plan from this'}</button>{/if}</header>
+        {#if canPlan && plan.totals.gapTrucks}<button class="btn btn-primary" disabled={busy} onclick={draft}>{busy ? 'Opening…' : 'Order the gap (prefill purchase orders)'}</button>{/if}</header>
       <ul class="gap">{#each plan.byLane as l}<li><Badge tone={l.orderBy && Date.parse(l.orderBy) - Date.now() < 7 * 864e5 ? 'warning' : 'info'}>Order by {l.orderBy ? day(l.orderBy) : '—'}</Badge><span class="grow">{l.text}</span><span class="caption">{l.lane}</span></li>
         {:else}<li class="empty">Nothing extra to order: what is in stock, on the road and already planned covers this period.</li>{/each}</ul>
       {#if !canPlan && plan.totals.gapTrucks}<p class="caption">A planner can turn this into a draft plan with one click.</p>{/if}
@@ -66,7 +66,7 @@
       </ChartCard>
       <section class="card">
         <h3>Already planned for this period</h3>
-        <ul class="gap">{#each plan.alreadyPlanned as p}<li><a href="#/plans/{p.planId}" class="mono">{p.ref}</a><Badge status={p.status} /><span class="grow">{p.supplier} · {p.trucks} truck{p.trucks > 1 ? 's' : ''} · {compact(p.cases)} cases</span><span class="caption">arrives ≈ {day(p.arriveBy)}</span></li>
+        <ul class="gap">{#each plan.alreadyPlanned as p}<li><a href="#/plans/{p.planId}" class="mono" title="Opens the purchase order">{p.ref}</a><Badge status={p.status} /><span class="grow">{p.supplier} · {p.trucks} truck{p.trucks > 1 ? 's' : ''} · {compact(p.cases)} cases</span><span class="caption">arrives ≈ {day(p.arriveBy)}</span></li>
           {:else}<li class="empty">No plans or POs arrive in this period yet.</li>{/each}</ul>
       </section>
       <ChartCard span={2} title="Plan by brand and warehouse" filename="period-plan" rows={() => [['Brand', 'Pack', 'Warehouse', 'Supplier', 'Lane', 'Demand', 'Start stock', 'Arriving', 'Already planned', 'Projected closing', 'Stock-out', 'Required', 'Gap', 'Trucks', 'Order by', 'Purchase (USD)', 'Landing (USD)'], ...plan!.rows.map((r) => [r.brand, r.pack, r.warehouse, r.supplier, r.lane, r.demand, r.startStock, r.arriving, r.alreadyPlanned, r.projectedClosing, r.stockOutDate ? day(r.stockOutDate) : '', r.requiredCases, r.gapCases, r.gapTrucks, r.orderBy ? day(r.orderBy) : '', r.estPurchase, r.estLanding])]}>

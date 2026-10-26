@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db, schema as t, type Tx } from '../db/client';
-import { applyPass, deriveShipmentStatus, dwell, etaOf, hasFeature, journeyOf, loadingCheck, makePasses, overdue, reorderQueue, revisePlan, revisionRef, revisionSummary, undoPass, H } from '@btw/api/rules';
+import { applyPass, deriveShipmentStatus, dwell, etaOf, hasFeature, journeyOf, loadingCheck, makePasses, overdue, reorderQueue, revisePlan, revisionRef, diffPoLines, revisionSummary, undoPass, H } from '@btw/api/rules';
 import { canAcknowledge, canDispatch, canEditQueue, canRecordLoading, canSendOn, canSplitLeg, canUpdateTrip, loadingWithoutPrice, seesPair, seesPrices, seesShipment, TRIP_ROLES } from '@btw/api/access';
 import { auditNote } from '../common/audit-context';
 import { ACK_REASONS, validAckReason } from '@btw/api/money';
@@ -217,6 +217,8 @@ export class LogisticsService implements InboundHandler {
       if (ld.status === 'Loaded') fail('This truck is already loaded', 409, 'state');
       const [po0] = await tx.select().from(t.pos).where(eq(t.pos.id, ld.poId)).for('update');
       if (po0.entityId !== ld.entityId) fail('This loading belongs to another company', 409, 'entity-mismatch');
+      if (po0.status === 'Deleted') fail('This purchase order was deleted — nothing to load', 409, 'deleted');
+      if (po0.status === 'Awaiting approval') fail('This purchase order is awaiting approval — load it once a director has approved it', 409, 'state');
       let po = map.po(po0);
       if (input.alternatives !== undefined && !Array.isArray(input.alternatives)) fail('alternatives must be a list', 400, 'bad-request');
       const alternatives = (input.alternatives ?? []).slice(0, 20);
@@ -239,11 +241,15 @@ export class LogisticsService implements InboundHandler {
         const r = revisePlan(plan, ld.truckNo, ld.lines, input.loadedQty, alternatives, { id: uid('plan'), ref, poId, lineId: () => uid('pl'), basePlanId: base.planId, revision: n }, priceOf, p.id, iso(at));
         const changes = check.changes.map((c) => ({ ...c, truckNo: ld.truckNo, ...(c.kind === 'alternative' ? { planLineId: r.altLines.find((a) => a.productId === c.productId && a.alternativeFor === c.replacesPlanLineId)?.planLineId } : {}) }));
         const summary = revisionSummary(changes, (pid) => bundle.products.find((x) => x.id === pid)?.brand ?? pid);
+        // docs/09 §4: per-line before → after, kept with an immutable snapshot of this version (one counter with office updates)
+        const lineChanges = diffPoLines(plan.lines, r.plan.lines, 'revised at loading');
         const next: PurchaseOrder = { ...po, id: poId, ref, planId: r.plan.id, version: 1, approvedById: p.id, approvedAt: iso(), signature: undefined, sentAt: undefined, approval: 'revision',
-          revisionOf: baseId, revision: n, changes, revisionReason: `Loaded truck ${ld.truckNo} differs from the PO (${summary || 'quantities'}) — revised automatically at loading`, createdBy: 'system', onBehalfOfId: p.id };
+          revisionOf: baseId, revision: n, changes, revisionReason: `Loaded truck ${ld.truckNo} differs from the PO (${summary || 'quantities'}) — revised automatically at loading`, createdBy: 'system', onBehalfOfId: p.id,
+          revisionKind: 'revised at loading', lineChanges };
         delete next.supersededById;
         await tx.insert(t.plans).values({ ...r.plan, poId, revisionOf: r.plan.revisionOf ?? null, revision: n, supersededById: null });
-        await tx.insert(t.pos).values({ ...next, sentAt: null, signature: null, approval: 'revision', revisionOf: baseId, revision: n, changes, revisionReason: next.revisionReason ?? null, createdBy: 'system', onBehalfOfId: p.id, supersededById: null });
+        await tx.insert(t.pos).values({ ...next, sentAt: null, signature: null, approval: 'revision', revisionOf: baseId, revision: n, changes, revisionReason: next.revisionReason ?? null, createdBy: 'system', onBehalfOfId: p.id, supersededById: null, status: po.status ?? 'Issued', revisionKind: 'revised at loading', lineChanges, deletedAt: null, deletedById: null, deleteReason: null });
+        await tx.insert(t.poVersions).values({ poId, basePoId: baseId, planId: r.plan.id, entityId: po.entityId, ref, revision: n, kind: 'revised at loading', title: r.plan.title, instruction: po.instruction, requiredBy: r.plan.requiredBy, currency: r.plan.currency, lines: r.plan.lines, lineChanges, reason: next.revisionReason ?? null, byUserId: p.id, at: iso() }).onConflictDoNothing();
         await tx.update(t.plans).set({ supersededById: r.plan.id, updatedAt: iso() }).where(eq(t.plans.id, plan.id));
         await tx.update(t.pos).set({ supersededById: poId }).where(eq(t.pos.id, po.id));
         // Downstream follows the latest revision: every truck of this order (loaded or not) now points at it.

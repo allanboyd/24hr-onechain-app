@@ -19,7 +19,7 @@ export async function dashboardsSuite(env: Env) {
     homes[u] = r.body.home ?? [];
     ok(Object.keys(r.body.results ?? {}).every((k) => homes[u].includes(k)), `${u}: builds only their own home dashboards`, Object.keys(r.body.results ?? {}));
   }
-  ok(homes.daniel[0] === 'exec-overview' && homes.daniel.includes('profit-margin') && homes.daniel.includes('sales-summary'), 'Daniel: executive overview first, then profit, …, sales, alerts', homes.daniel);
+  ok(homes.daniel.join() === 'director-today', "Daniel: one curated home — Today (the other dashboards stay on the feature tabs)", homes.daniel);
   ok(homes.kabonge.join() === 'po-pipeline,ordered-loaded-delivered,open-orders,plan-vs-actual,alerts', 'Kabonge: PO pipeline, ordered/loaded/delivered, open orders, plan vs actual, alerts', homes.kabonge);
   ok(homes.testfie.includes('fleet-board') && homes.testfie.includes('fee-payments') && homes.testfie.includes('loading-list') && !homes.testfie.includes('profit-margin'), 'Testfie: fleet, fees, Mombasa loading list — no profit', homes.testfie);
   ok(homes.joel.join() === 'loading-list,dispatched-today', "Joel: today's loading list and dispatched today", homes.joel);
@@ -54,6 +54,24 @@ export async function dashboardsSuite(env: Env) {
   ok(r.status === 200 && r.body.key === 'exec-overview' && r.body.data?.kpis?.length >= 7 && r.body.options, 'GET /dashboards/:key → one dashboard + filter options');
   expectStatus(await get('daniel', '?keys=no-such-board'), 404, 'unknown dashboard → 404');
   expectStatus(await get('daniel', '?keys=audit-log'), 403, 'browser-computed dashboards (audit log) are not served here');
+  section("Dashboards · directors' Today view (director-today)");
+  r = await get('daniel', '?keys=director-today');
+  const td = r.body.results?.['director-today'];
+  ok(r.status === 200 && td?.data?.sales?.value > 0 && td.data.profit.value !== null && td.data.cash.value !== null && td.data.trucks.value !== null && td.currency === 'USD', 'Daniel: Today — sales, profit, cash to collect, trucks on the road', td?.data && { s: td.data.sales.value, p: td.data.profit.value, c: td.data.cash.value, t: td.data.trucks.value });
+  ok(td?.data.decisions.length === 6 && td.data.decisions.every((x: any) => x.href?.startsWith('#/') && x.owner), 'Today: six decision rows, each with an owner and a link', td?.data.decisions.map((x: any) => [x.key, x.count]));
+  ok(td?.data.daily.length >= 90 && td.data.top.length > 0 && td.data.stock?.bands.length === 5, 'Today: daily series, top products, stock bands');
+  ok(td?.data.distribution.companies.length === 3, 'Group view (all companies): sales by company for BTW, Nihna and Kivu', td?.data.distribution.companies.map((x: any) => x.label));
+  r = await get('daniel', '?keys=director-today', { 'x-entity-id': 'e-btw' });
+  const tb = r.body.results?.['director-today']?.data;
+  ok(r.status === 200 && tb.distribution.companies.length === 1 && tb.distribution.companies[0].entityId === 'e-btw' && tb.sales.value < td.data.sales.value, 'BTW selected: BTW only, less than the Group view', tb && [tb.sales.value, td.data.sales.value]);
+  r = await get('daniel', '?keys=director-today&entityId=e-nud');
+  ok(r.status === 200 && r.body.results['director-today'].data.distribution.companies.every((x: any) => x.entityId === 'e-nud'), 'company filter on Today: Nihna only');
+  r = await get('daniel', '?keys=director-today&from=2019-01-01&to=2019-02-01');
+  ok(r.status === 200 && r.body.results['director-today'].data.sales.value === 0 && r.body.results['director-today'].data.top.length === 0, 'Today over a period with no sales: no top products (sales 0 in that window, records exist)');
+  ok((await get('michael', '?keys=director-today')).status === 200, 'Michael: Today too');
+  for (const u of ['kabonge', 'testfie', 'joel', 'eric', 'moses', 'asie', 'yonas', 'drv']) expectStatus(await get(u, '?keys=director-today'), 403, `${u}: director-today refused`);
+  for (const u of ['kabonge', 'testfie', 'asie']) { const h = await get(u); ok(!h.body.home?.includes('director-today'), `${u}: home unchanged (no Today view)`); }
+
   r = await get('michael', '?keys=exec-overview,alerts');
   ok(r.status === 200 && r.body.results['exec-overview'] && r.body.results.alerts, 'Michael: same as Daniel');
 

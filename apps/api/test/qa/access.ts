@@ -49,7 +49,7 @@ export async function accessSuite(env: Env) {
   expectStatus(await req('PATCH', `/masterdata/receiving-companies/${r.body.id}`, T.kab, { countries: [] }), 422, 'needs at least one country');
   expectStatus(await req('PATCH', '/masterdata/receiving-companies/rc-yonas', T.tf, { name: 'x' }), 403, 'Testfie cannot edit receiving companies');
   expectStatus(await req('PATCH', `/masterdata/suppliers/${sup.id}`, T.kab, { active: false }), 200, 'deactivates the supplier (kept for history)');
-  expectStatus(await req('POST', '/plans', T.dir, { entityId: 'e-nud', supplierId: sup.id }, { 'x-entity-id': 'e-nud' }), 409, 'no new orders from a deactivated supplier');
+  expectStatus(await req('POST', '/pos', T.dir, { entityId: 'e-nud', supplierId: sup.id, title: 'x', lines: [] }, { 'x-entity-id': 'e-nud' }), 409, 'no new orders from a deactivated supplier');
 
   section('Access · audit log (A-07)');
   for (const [who, t] of [['Kabonge', T.kab], ['Testfie', T.tf], ['a loader', T.joel], ['a receiver', T.asie], ['a driver', T.drv1]] as const) expectStatus(await req('GET', '/audit', t), 403, `${who} cannot read the audit log`);
@@ -78,8 +78,10 @@ export async function accessSuite(env: Env) {
   ok(plan1.pricesHidden === true && plan1.lines.every((l: any) => l.price === undefined), 'loader: order lines without prices');
   const yplan = (await req('GET', '/plans/plan-1', T.yonas)).body;
   ok(yplan.pricesHidden && yplan.lines.length > 0 && yplan.lines.every((l: any) => l.deliveredToId === 'rc-yonas' && l.price === undefined), 'receiver: only the lines delivered to her company, without prices', yplan.lines?.length);
-  expectStatus(await req('GET', '/plans/plan-1/versions', T.joel), 200, 'versions endpoint answers…');
-  ok(((await req('GET', '/plans/plan-1/versions', T.joel)).body as any[]).length === 0, '…but a loader gets no price-bearing snapshots');
+  const jpo = (await req('GET', '/pos/po-1', T.joel)).body;
+  ok(jpo.versions?.length >= 2 && jpo.versions.every((v: any) => v.lines.every((l: any) => l.price === undefined)) && jpo.versions.every((v: any) => v.lineChanges.every((x: any) => x.before?.price === undefined && x.after?.price === undefined)), 'loader: PO versions (original + office update) without prices', jpo.versions?.length);
+  const ypo = (await req('GET', '/pos/po-1', T.yonas)).body;
+  ok(ypo.versions?.every((v: any) => v.lines.every((l: any) => l.deliveredToId === 'rc-yonas' && l.price === undefined)) && !ypo.actions.update && !ypo.actions.delete, 'receiver: versions show only her lines, no prices; no update / delete');
   ok(((await req('GET', '/field/giver', T.joel)).body.toLoad as any[]).every((l) => !('agreedTransport' in l)), 'loader working set: no agreed transport price');
   ok(((await req('GET', '/stock', T.asie)).body as any[]).every((r0) => r0.landedCostPerCase === undefined), 'receiver stock: no landed cost per case');
   const sumA = (await req('GET', '/analytics/summary', T.asie)).body;

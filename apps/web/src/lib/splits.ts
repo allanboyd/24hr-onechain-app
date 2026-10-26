@@ -1,6 +1,6 @@
 // Standard "by company" metric sets for Group scope (components/group/CompanySplit.svelte).
 // Each getter takes a company id (undefined = group) and uses the shared report functions.
-import { plans, reports, shipments, type ReportFilter } from '@btw/api';
+import { pos, reports, shipments, type ReportFilter } from '@btw/api';
 import { compact, pct, usd } from '../components/charts';
 import { poApprovals } from './orders';
 import type { SplitMetric } from '../components/group/CompanySplit.svelte';
@@ -32,13 +32,12 @@ export const financeSplit = (f: ReportFilter = days(90)): SplitMetric[] => [
 ];
 /** Lists in group scope contain every company's rows; split them client-side by entityId. */
 export const plansSplit = (): SplitMetric[] => {
-  const by = async (id: string | undefined) => (await plans.list()).filter((p) => !id || p.entityId === id);
-  const approvals = poApprovals();
+  // effective POs (latest revision), deleted ones left out (docs/09 §4)
+  const by = async (id: string | undefined) => (await pos.list()).filter((p) => !id || p.entityId === id);
   return [
-    approvals
-      ? { label: 'Plans awaiting approval', format: (v) => String(v), get: async (id) => (await by(id)).filter((p) => p.status === 'Submitted').length }
-      : { label: 'Drafts not yet issued', format: (v) => String(v), get: async (id) => (await by(id)).filter((p) => p.status === 'Draft' || p.status === 'Submitted').length },
-    { label: approvals ? 'Approved value' : 'Issued value', money: true, format: usd, get: async (id) => (await by(id)).filter((p) => p.status === 'Approved').reduce((a, p) => a + p.lines.reduce((b, l) => b + l.qty * l.price, 0), 0) },
+    ...(poApprovals() ? [{ label: 'Awaiting approval', format: (v: number) => String(v), get: async (id: string | undefined) => (await by(id)).filter((p) => p.status === 'Awaiting approval').length }] : []),
+    { label: 'Not yet loaded', format: (v) => String(v), get: async (id) => (await by(id)).filter((p) => p.stage === 'Created' || p.stage === 'Sent').length },
+    { label: 'Order value', money: true, format: usd, get: async (id) => (await by(id)).filter((p) => p.status === 'Issued').reduce((a, p) => a + (p.amount ?? 0), 0) },
   ];
 };
 export const shipmentsSplit = (): SplitMetric[] => {

@@ -18,7 +18,7 @@ export async function trucksSuite(env: Env) {
   ok(!['finance', 'finance.approve', 'sales', 'master-data.transport', 'master-data.static', 'users', 'dashboard', 'reports', 'period-plans', 'inventory', 'audit'].some((f) => me.features.includes(f)), 'no trip financials, sales, static-data edits, users, dashboard, reports, plans, stock or audit', me.features);
 
   section('Truck follow-up · what Testfie may not do');
-  expectStatus(await c.req('POST', '/plans', { token: T.tp, body: { entityId: 'e-nud', supplierId: 's-gbi' } }), 403, 'cannot create a purchase order');
+  expectStatus(await c.req('POST', '/pos', { token: T.tp, body: { entityId: 'e-nud', supplierId: 's-gbi', title: 'x', lines: [] } }), 403, 'cannot create a purchase order');
   const tpPos = (await get('/pos')) as any[];
   ok(tpPos.length > 0 && tpPos.every((x) => x.supplierId === 's-gbi'), 'sees only the POs loading at GBI Mombasa', tpPos.map((x) => x.supplierId));
   expectStatus(await c.req('GET', '/pos/po-1', { token: T.tp }), 403, 'cannot open a KBL PO');
@@ -55,12 +55,11 @@ export async function trucksSuite(env: Env) {
   const lds = (await get('/loadings?loadingPointId=s-kbl')) as any[];
   ok(lds.length > 0 && lds.every((l) => typeof l.poRef === 'string' && l.poRef.startsWith('BTW-PO')), 'loadings carry their PO ref', lds.map((l) => l.poRef));
   // a Nihna–GBI order (raised by a director — who raises them is to confirm) loaded by Testfie at GBI Mombasa
-  let gp = (await c.req('POST', '/plans', { token: T.dir, headers: { 'x-entity-id': 'e-nud' }, body: { entityId: 'e-nud', supplierId: 's-gbi' } })).body;
-  expectStatus(await c.req('POST', '/plans', { token: T.kabonge, body: { entityId: 'e-nud', supplierId: 's-gbi' } }), 403, 'Kabonge cannot raise a Nihna–GBI order (not his pair)');
-  gp = (await c.req('PUT', `/plans/${gp.id}`, { token: T.dir, headers: { 'x-entity-id': 'e-nud' }, body: { title: 'QA GBI', lines: [{ truckNo: 1, productId: 'p-f330', qty: 1000, price: 10.75, deliveredToId: 'rc-yonas', routeId: 'r-msa-juba' }] } })).body;
-  const gi = await c.req('POST', `/plans/${gp.id}/submit`, { token: T.dir, headers: { 'x-entity-id': 'e-nud' } });
-  expectStatus(gi, 200, 'director issues the Nihna–GBI order');
-  const gld = ((await get('/loadings?loadingPointId=s-gbi')) as any[]).find((l) => l.poId === gi.body.poId);
+  const gbiLines = [{ truckNo: 1, productId: 'p-f330', qty: 1000, price: 10.75, deliveredToId: 'rc-yonas', routeId: 'r-msa-juba' }];
+  expectStatus(await c.req('POST', '/pos', { token: T.kabonge, body: { entityId: 'e-nud', supplierId: 's-gbi', title: 'QA GBI', lines: gbiLines } }), 403, 'Kabonge cannot raise a Nihna–GBI order (not his pair)');
+  const gi = await c.req('POST', '/pos', { token: T.dir, headers: { 'x-entity-id': 'e-nud' }, body: { entityId: 'e-nud', supplierId: 's-gbi', title: 'QA GBI', lines: gbiLines } });
+  expectStatus(gi, 201, 'director creates the Nihna–GBI order (issued at once)');
+  const gld = ((await get('/loadings?loadingPointId=s-gbi')) as any[]).find((l) => l.poId === gi.body.id);
   ok(gld && gld.status === 'Pending', 'Testfie sees the GBI truck to load', gld);
   const gl = await c.req('POST', `/loadings/${gld.id}/confirm`, { token: T.tp, body: { truckId: 't4', driverId: 'd4', loadedQty: {}, agreedTransport: 2300, transportCurrency: 'USD', documents: ['dn.jpg'] } });
   ok(gl.status === 201 && gl.body.legs[0].status === 'Loaded', 'Testfie records the loading at GBI Mombasa', gl.body);
