@@ -7,6 +7,7 @@ Living tracker. **Plan and reasons:** [`11-roles-and-dashboards-plan.md`](11-rol
 ## Updates
 | Date | Update |
 |---|---|
+| 26 Oct 2026 | Page design review written (docs/17): work pages should open on their lists, analysis stays on Home; found a USD 3,050,000 agreed-price data bug, numbers that disagree between pages, spec codes in UI text. **Waiting for your decisions** before building. |
 | 26 Oct 2026 (night) | **Purchase orders: create / update / delete, no drafts** ([doc 09 §4](09-plans-po-revisions.md)). Sidebar: one *Purchase orders* entry (`#/pos`), old `#/plans` links redirect; create issues at once ("Approved automatically") or *Awaiting approval* when `[approvals] purchase_orders = true`; *Update* = next revision `<ref>-rev00N` with a required reason, one counter with loading revisions, loaded lines locked at what was loaded, fully loaded → refused; immutable `po_versions` snapshots + per-line change records, Versions panel (side by side, PDF per version), *Email revised PO to supplier*; soft *Delete* with a reason only before loading. Pipeline stages Created → Sent → Loading → On the road → Delivered (+ Awaiting approval). Team PWA: no Drafts / PO approvals (switch off), PO detail with versions. Migration `0011_po_versions` (submitted → awaiting approval, auto-approved when off; draft / returned / rejected → discarded). Tests: unit `pos.test.ts` 50 checks, QA 1,162/1,162, API e2e 121. |
 | 26 Oct 2026 (evening) | **Directors' Today view** ([doc 15 §3.1](15-dashboards.md)): the directors' *My dashboards* tab is now one curated daily view instead of 12 separate panels — KPI strip (sales MTD vs same days last month, profit + margin at landed cost v2, cash to collect with overdue part, trucks on the road with delayed / arriving today / on-time %; each with a sparkline), daily sales & profit chart (30 / 90 days / this year, legend toggles, export), *Needs your decision today* (payments to approve, delayed or silent trucks, fees past red days, stock under 14 days, arrivals not signed > 24 h, top sellers below target margin — counts, owners, links), stock health ring, sales by company (logos) / warehouse, top products. New key `director-today` (directors only, 403 for others), pure-SVG charts (`SmoothTrend`, `SparkArea`, `RingDonut`), lazy chunk; web entry 100.1 / 130 KB. Tests: `dashboards.test.ts` + QA `dashboards` 137/137. |
 | 26 Oct 2026 | Home, Dashboards and Command view merged into **one Home with tabs**: My dashboards · Business · Purchasing · Loading · Fleet · Fees & expenses · Deliveries · Warehouse · Sales · Alerts & admin · (directors, Group view) Companies. Old links `#/dashboards/<group>` and `#/overview` open the matching tab. |
@@ -164,3 +165,13 @@ Living tracker. **Plan and reasons:** [`11-roles-and-dashboards-plan.md`](11-rol
 | Q10 | Spelling: Testfie / Yonas; do Daniel and Michael have the same access? | ❓ client |
 | Q11 | Loading queue ordering: Testfie, Kabonge or both? | ❓ client |
 | Q12 | Shortage and damage reason list | ❓ client |
+
+## F. Page design (docs/17) — waiting for review
+| ID | Item | Status |
+|---|---|---|
+| F-0a | Fix USD 3,050,000 agreed-price bug + amount/currency sanity checks | ⬜ |
+| F-0b | One metric registry so the same figure matches on every page | ⬜ |
+| F-0c | Remove spec codes and stale labels from UI text (+ lint check) | ⬜ |
+| F-1 | Work pages open on their list with a summary strip; remove 8 Overview tabs | ❓ |
+| F-2 | Merge overlapping pages (Stock, Transport costs, Truck desk tabs, Map view); retire Reports and Sales velocity | ❓ |
+| F-3 | Phone alignment, tests, docs, demo | ⬜ |
