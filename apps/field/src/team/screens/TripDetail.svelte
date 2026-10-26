@@ -1,6 +1,7 @@
 <script lang="ts">
   // One trip's money: cost lines, payments (approve if director), record a payment.
   // Payments above the limit wait for a director (finance.approve).
+  import { withUnusualConfirm } from '@btw/api/amounts';
   import { finance, type User } from '@btw/api';
   import { Badge, fmtDateTime, say } from '@btw/ui';
   import Plus from '@lucide/svelte/icons/plus';
@@ -33,7 +34,7 @@
     error = '';
     if (!(apAmount > 0)) { error = 'Enter the agreed price'; return; }
     busy = true;
-    try { await finance.setAgreedPrice(id, { amount: apAmount, currency: apCur }); haptic('success'); agreeing = false; say('Agreed transport price recorded'); await r.reload(); }
+    try { if (!(await withUnusualConfirm((confirmUnusual) => finance.setAgreedPrice(id, { amount: apAmount, currency: apCur, confirmUnusual })))) return; haptic('success'); agreeing = false; say('Agreed transport price recorded'); await r.reload(); }
     catch (e) { error = (e as Error).message; haptic('warning'); } finally { busy = false; }
   }
 
@@ -49,7 +50,8 @@
     if (!reference.trim()) { error = 'Enter the payment reference (M-Pesa / bank)'; return; }
     busy = true;
     try {
-      const p = await finance.pay(id, costId, amount, reference.trim(), paymentLimit());
+      const p = await withUnusualConfirm((confirmUnusual) => finance.pay(id, costId, amount, reference.trim(), paymentLimit(), { confirmUnusual }));
+      if (!p) return;
       haptic('success'); paying = false;
       say(p.status === 'Pending approval' ? 'Recorded — waiting for a director to approve' : 'Payment recorded');
       await r.reload();

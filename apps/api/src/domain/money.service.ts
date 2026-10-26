@@ -14,7 +14,8 @@ import { fail, forbidden, notFound } from '../common/errors';
 import { iso, uid } from '../common/ids';
 import { canSeeEntity, isGlobal, writeEntity, type Principal } from '../auth/principal';
 import { appConfig } from '../config/app-config';
-import { usdOf } from './companies';
+import { saneAmount, usdOf } from './companies';
+import { unusualNote } from '@btw/api/amounts';
 import { LogisticsService } from './logistics.service';
 import { NotifyService } from './notify.service';
 import { RefService } from './ref.service';
@@ -57,19 +58,23 @@ export class MoneyService {
     const errs = M.validateExpense(v, { warehouseIds: bundle.warehouses.map((w) => w.id) });
     if (errs.length) fail(errs.join('; '));
     if (!M.canRecordWarehouse(p, v.warehouseId!)) forbidden('You record expenses for your own warehouses only');
-    const currency = v.currency ?? 'USD';
+    // docs/17 F4: plausible amount for its currency (checked when the amount or currency is entered or changed)
+    const check = !cur || input?.amount !== undefined || input?.currency !== undefined ? await saneAmount(db, 'warehouse-expense', v.amount, v.currency, v.date!, input?.confirmUnusual) : null;
+    const currency = v.currency!;
     const fx = await usdOf(db, v.amount!, currency, v.date!);
     const receipt = input?.receiptFileId ? { id: input.receiptFileId, kind: 'receipt' as const, name: input.receiptName || 'receipt.jpg', ...(typeof input.receiptUrl === 'string' && input.receiptUrl.length < 2000 ? { url: input.receiptUrl } : {}) } : input?.receiptFileId === null ? null : cur?.receipt ?? null;
-    return {
+    const row = {
       id: cur?.id ?? uid('wx'), warehouseId: v.warehouseId!, receivingCompanyId: bundle.warehouses.find((w) => w.id === v.warehouseId)!.receivingCompanyId, date: v.date!, category: v.category!, amount: v.amount!, currency,
       fxRate: fx.fxRate, amountUsd: fx.amountUsd, reference: v.reference?.trim() || null, note: v.note?.trim() || null, receipt, byUserId: cur?.byUserId ?? p.id, at: cur?.at ?? iso(),
     };
+    /** audit words when an unusual amount was confirmed */
+    return [row, check ? unusualNote(check) : ''] as const;
   }
   async addExpense(p: Principal, input: WarehouseExpenseInput) {
     this.feat(p, 'warehouse-expenses');
-    const x = await this.expenseRow(p, input);
+    const [x, note] = await this.expenseRow(p, input);
     await db.insert(t.warehouseExpenses).values(x);
-    auditNote({ recordType: 'warehouse-expense', recordId: x.id, summary: `${x.warehouseId}: ${x.category} ${x.currency} ${x.amount}`, after: { category: x.category, amount: x.amount, currency: x.currency, date: x.date } });
+    auditNote({ recordType: 'warehouse-expense', recordId: x.id, summary: `${x.warehouseId}: ${x.category} ${x.currency} ${x.amount}${note}`, after: { category: x.category, amount: x.amount, currency: x.currency, date: x.date } });
     return toExpense({ ...x, at: x.at } as typeof t.warehouseExpenses.$inferSelect);
   }
   private async expenseOf(p: Principal, id: string) {
@@ -82,9 +87,9 @@ export class MoneyService {
   async updateExpense(p: Principal, id: string, input: Partial<WarehouseExpenseInput>) {
     this.feat(p, 'warehouse-expenses');
     const cur = await this.expenseOf(p, id);
-    const x = await this.expenseRow(p, input, cur);
+    const [x, note] = await this.expenseRow(p, input, cur);
     await db.update(t.warehouseExpenses).set(x).where(eq(t.warehouseExpenses.id, id));
-    auditNote({ recordType: 'warehouse-expense', recordId: id, summary: `${x.category} ${x.currency} ${x.amount}`, before: { amount: cur.amount, category: cur.category, date: cur.date }, after: { amount: x.amount, category: x.category, date: x.date } });
+    auditNote({ recordType: 'warehouse-expense', recordId: id, summary: `${x.category} ${x.currency} ${x.amount}${note}`, before: { amount: cur.amount, category: cur.category, date: cur.date }, after: { amount: x.amount, category: x.category, date: x.date } });
     return toExpense(x as typeof t.warehouseExpenses.$inferSelect);
   }
   async deleteExpense(p: Principal, id: string) {

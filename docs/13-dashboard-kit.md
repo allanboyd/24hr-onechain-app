@@ -76,3 +76,43 @@ Files are named `<filename>-YYYY-MM-DD.<ext>`.
 ## Bundle
 Web entry: +0.2 KB gz from this work (the gallery route line and the chart-image registry in `PlotlyChart`). Everything else is
 in lazy chunks (gallery ≈ 28 KB gz incl. all components, xlsx ≈ 2.7 KB, pdf ≈ 2.8 KB, snapshot < 1 KB; Plotly unchanged).
+
+## Page kit (docs/17 Phase 1, step 4)
+Shared building blocks for the page layout in docs/17 §3: **header → summary strip → filters → list → detail drawer**.
+Files: `apps/web/src/components/page/` (import from `../components/page`). Screens only — never import it from `App.svelte`
+or other entry code, so it stays out of the entry bundle. Gallery: **`#/dev/page-kit`** (dev and demo builds only,
+`showDemoHelpers`): a mock Shipments work page, the Group-view company picker, a money strip with a "no data yet" tile.
+
+### Which page type gets what (docs/17 §3)
+| Page type | Use | Don't use |
+|---|---|---|
+| **Work** (POs, Shipments, Sales, Re-exports, Warehouse expenses, Selling prices, Transport costs, Period plans) | `PageHeader` with `analysis="<home tab>"` + one `primary` action (`ActionInCompany`), `SummaryStrip` (≤ 4 counts that filter the list), `FilterBar`, table / phone cards, `DetailDrawer` or the detail page. Open filtered to "needs action" when there is any. | charts, an Overview tab, paragraphs of explanation |
+| **Analysis** (Home tabs, Performance) | `PageHeader` (no strip), then the dashboard kit above (`DashboardPanel`, KPI row) | `SummaryStrip` |
+| **Monitoring** (Truck desk board, map view) | `PageHeader`, status counts (`SummaryStrip`, tiles may be `filter: false`), the live board / map | — |
+| **Record / settings** (PO page, Master data, Users, Audit) | `PageHeader` with the record's actions | strip, analysis link |
+
+### Components
+| Component | Props | Notes |
+|---|---|---|
+| `PageHeader` | `title`, `overline?`, `description?` (one line), `info?` (ⓘ popover text), `analysis?` (Home tab key → "See the analysis → Home · Fleet"), `analysisLabel?`; snippets `primary`, `secondary`, `children` (extra line) | Actions sit right of the title; under it on phones. Replaces the `.page-head` markup. |
+| `SummaryStrip` | `tiles: SummaryTile[]` (2–4; extras dropped), `bind:value` (active key), `param = 'show'`, `sync = true`, `label`, `onchange?` | Each tile is a toggle button (`aria-pressed`, check mark + border when on). Clicking writes `?show=<key>` to the hash query; again clears it. 2×2 on phones. ~72 px high. |
+| `SummaryTile` | `key`, `label`, `value: number \| string \| null`, `format?`, `sub?`, `status?` (good/warn/bad/none or a business word), `statusLabel?`, `filter?: false`, `info?` | `null` → "—" + "No data yet". Status always shows icon + word (charts/status.ts). |
+| `FilterBar` | `bind:search?` (omit = no search box), `placeholder`, `active` (filters on), `onclear`, snippets `children` (selects as `<label class="field"><span>Route</span><select class="select">`), `end` (result count) | "Clear filters" appears when anything is on. Phones: search + "Filters (n)" button that opens the rest. |
+| `ChipGroup` | `options [{value,label,n?}]`, `bind:value`, `label`, `allowEmpty = true` | single-choice chips for a FilterBar |
+| `ActionInCompany` | `label`, `href?` or `onclick?(entityId)`, `intent?`, `feature?`, `when = true`, `what?`, `variant`, `size`, `icon`, `cue`, `user?` | Replaces RecordFor's "Choose a company to record …" rows (F6). One company: acts at once. Group view: "Which company?" menu listing only `allowedIds(user)`; picking calls `setCompany` and goes to `href?co=XXX`, or (with `intent`) back to the page with `?do=<intent>` so the remounted screen opens its dialog via `takeIntent(intent)`. One allowed company → switches without asking. Hidden when `feature` isn't granted or `when` is false (read-only users). |
+| `DetailDrawer` | `bind:open`, `title`, `subtitle?`, `width = 480`, `onclose?`, snippets `header`, `footer`, children | Modal `<dialog>`: right drawer on desktop, full-screen sheet on phones; Esc / ✕ / backdrop close; focus stays inside and returns to the opener. |
+| `WorkPage` | snippets `header`, `strip?`, `filters?`, children (the list), `drawer?` | order and spacing only |
+| `AnalysisLink` | `group`, `label?` | "See the analysis → Home · <tab>" (`#/dashboards/<group>`) |
+| `EmptyState` | `title`, `hint?`, `icon?`, `compact?`, children (actions) | e.g. "No shipments match these filters" + Clear filters |
+| `NeedsActionBadge` | `n`, `label`, `one`, `urgent?` | icon + words; nothing for 0 |
+| `InfoTip` | `text`, `title?`, `label`, `align` | the ⓘ popover used by the header and tiles |
+
+### Filters in the address (`query.svelte.ts`)
+`queryFilters({ show: '', route: '', q: '' })` returns `{ values, set, toggle, clear, count }` backed by the hash query, so a
+filtered list can be bookmarked and Home cards can deep-link (`#/shipments?show=delayed`). It writes with
+`history.replaceState` — **no `hashchange`**, so the screen is not remounted, refetched or scrolled (App.svelte keys the
+screen on the full path). Read with `readQuery` / `queryFilters`, not `router.query` (that keeps the path the screen opened
+with). Reserved keys: `co` (company), `tab`, `do` (ActionInCompany intent) — a dev warning fires if a page uses them.
+
+### Bundle
+Web entry: one lazy route line (`/dev/page-kit`). The kit and gallery are one lazy chunk ≈ 11.8 KB gz JS + 2.9 KB gz CSS.

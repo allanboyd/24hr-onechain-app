@@ -1,6 +1,7 @@
 <script lang="ts">
   // One truck: where it is now, its driver and provider to call, open issues, its trips and what it cost.
   // The truck follow-up officer (and directors) add trip expenses; the agreed price is recorded on the trip (Money).
+  import { withUnusualConfirm } from '@btw/api/amounts';
   import { finance, lookup, type CostKind, type User } from '@btw/api';
   import { Badge, fmtDateTime, say } from '@btw/ui';
   import { TRUCK_STATES, costsByTruck, tripTruck, waitLabel } from '@btw/api/trucks';
@@ -33,7 +34,7 @@
   const KINDS: CostKind[] = ['Other', 'Clearing & forwarding', 'Taxes & duties', 'Loading & offloading', 'Storage'];
   async function saveCost() {
     if (!(amount > 0)) { say('Enter an amount above zero'); return; }
-    try { await finance.addCost({ shipmentId: trip, kind, amount: Number(amount), currency: 'USD', docRef: docRef.trim() || undefined } as never); adding = false; await r.reload(); say('Expense added to the trip'); }
+    try { if (!(await withUnusualConfirm((confirmUnusual) => finance.addCost({ shipmentId: trip, kind, amount: Number(amount), currency: 'USD', docRef: docRef.trim() || undefined, confirmUnusual } as never)))) return; adding = false; await r.reload(); say('Expense added to the trip'); }
     catch (e) { say((e as Error).message); }
   }
 </script>

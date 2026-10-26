@@ -226,7 +226,7 @@ export const loading = {
   addWaiting: (loadingPointId: ID, truckId: ID, driverId: ID, entityId?: ID) => mutate(post<WaitingEntry>(`/loading-points/${loadingPointId}/waiting`, { truckId, driverId, entityId }, key())),
   list: (loadingPointId?: ID) => get<Loading[]>(`/loadings${loadingPointId ? `?loadingPointId=${loadingPointId}` : ''}`),
   /** docs/12 A-04: no price at hand-over; `agreedTransport` is taken only from the truck follow-up officer (else ignored). */
-  confirm: (id: ID, input: { truckId: ID; driverId: ID; loadedQty: Record<ID, number>; agreedTransport?: number | null; transportCurrency?: string; documents: string[]; loadedAt?: string; alternatives?: import('./types').LoadingAlternative[] }) => mutate(post<Shipment>(`/loadings/${id}/confirm`, input, key()).then(async (s) => { await loadRef(); return s; })),
+  confirm: (id: ID, input: { truckId: ID; driverId: ID; loadedQty: Record<ID, number>; agreedTransport?: number | null; transportCurrency?: string; documents: string[]; loadedAt?: string; alternatives?: import('./types').LoadingAlternative[]; confirmUnusual?: boolean }) => mutate(post<Shipment>(`/loadings/${id}/confirm`, input, key()).then(async (s) => { await loadRef(); return s; })),
 };
 export const shipments = {
   async list() { return (await get<(Shipment & { poRef?: string })[]>('/shipments')).map(remember); },
@@ -262,9 +262,9 @@ type Trip = { shipment: Shipment; costs: TripCost[]; payments: TripPayment[]; tr
 export const finance = {
   trips: () => get<Trip[]>('/finance/trips'),
   /** docs/12 A-04: record (or correct, while unpaid) the agreed transport price of a loaded truck. */
-  setAgreedPrice: (shipmentId: ID, input: { amount: number; currency?: Currency; docRef?: string }) => mutate(post<TripCost>(`/shipments/${shipmentId}/agreed-price`, input)),
-  addCost: (c: Omit<TripCost, 'id'>) => mutate(post<TripCost>('/finance/costs', c)),
-  pay: (shipmentId: ID, costId: ID, amount: number, reference: string, _threshold?: number) => mutate(post<TripPayment>('/finance/payments', { shipmentId, costId, amount, reference })),
+  setAgreedPrice: (shipmentId: ID, input: { amount: number; currency?: Currency; docRef?: string; confirmUnusual?: boolean }) => mutate(post<TripCost>(`/shipments/${shipmentId}/agreed-price`, input)),
+  addCost: (c: Omit<TripCost, 'id'> & { confirmUnusual?: boolean }) => mutate(post<TripCost>('/finance/costs', c)),
+  pay: (shipmentId: ID, costId: ID, amount: number, reference: string, _threshold?: number, opts: { confirmUnusual?: boolean } = {}) => mutate(post<TripPayment>('/finance/payments', { shipmentId, costId, amount, reference, ...(opts.confirmUnusual ? { confirmUnusual: true } : {}) })),
   approve: (paymentId: ID) => mutate(post<TripPayment>(`/finance/payments/${paymentId}/approve`)),
   /** docs/14 B-04: transport fee per trip — paid / part paid / unpaid against references, age since loading. */
   fees: () => get<TransportFeeRow[]>('/finance/fees'),

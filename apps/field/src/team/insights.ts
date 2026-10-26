@@ -5,6 +5,7 @@ import type { Kpi } from './components/KpiCard.svelte';
 import { can, mayApprovePayments, mayApprovePOs } from './access';
 import { change, compact, num, pct, plural, points, usd } from './fmt';
 import { waitLabel } from '@btw/api/trucks';
+import { feeOfTrip, transportOwed } from '@btw/api/metrics';
 import type { Desk } from './desk';
 
 export type Summary = Awaited<ReturnType<typeof analytics.summary>>;
@@ -26,7 +27,8 @@ const PREFS: Record<Role, KpiKey[]> = {
 
 export function kpisFor(u: User, d: HomeData): Kpi[] {
   const s = d.sum, k = d.dash?.kpis;
-  const owed = d.trips ? d.trips.reduce((a, t) => a + Math.max(0, t.balance), 0) : null;
+  // docs/18: transport owed = metrics.transportOwed (agreed − approved payments on the transport line)
+  const owed = d.trips ? transportOwed(d.trips.map(feeOfTrip)) : null;
   const pendingPay = d.trips ? d.trips.flatMap((t) => t.payments).filter((p) => p.status === 'Pending approval').length : 0;
   const make: Record<KpiKey, () => Kpi | null> = {
     sales: () => k

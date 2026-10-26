@@ -366,6 +366,7 @@ export interface WarehouseExpense {
 export interface WarehouseExpenseInput {
   warehouseId: ID; date: string; category: WarehouseExpenseCategory; amount: number; currency?: Currency;
   reference?: string | null; note?: string | null; /** uploaded file id (files.upload) or a name */ receiptFileId?: string | null; receiptName?: string | null; /** the link files.upload returned */ receiptUrl?: string | null;
+  /** docs/17 F4: the person confirmed an amount outside the usual range */ confirmUnusual?: boolean;
 }
 export interface ExpenseFilter { warehouseId?: ID; from?: string; to?: string; category?: string }
 /** B-02: count = physical count (difference posted), damaged = write-off, moved-out = left other than a sale or re-export, found. */

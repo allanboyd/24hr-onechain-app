@@ -5,7 +5,7 @@
 import { analytics, finance, loading, notifications, pos, shipments, type Loading, type Notification, type PurchaseOrder, type Shipment, type TransportFeeRow, type User } from '@btw/api';
 import type { DashboardReport, InventoryReport, PerformanceReport, PlannedVsActual } from '@btw/api';
 import { ON_ROAD, TRUCK_STATES, type TruckRow, type TruckState } from '@btw/api/trucks';
-import { lookup } from '@btw/api';
+import { lookup, ref } from '@btw/api';
 import { fmtDateTime } from '@btw/ui';
 import type { Kpi } from './components/KpiCard.svelte';
 import { can, mayApprovePayments, mayApprovePOs, poApprovalRequired } from './access';
@@ -13,6 +13,9 @@ import { loadDesk, type Desk } from './desk';
 import { change, dayLabel, num, pct, plural, usd } from './fmt';
 import { settle } from './load.svelte';
 import { reportsApi } from './reports';
+import * as MX from '@btw/api/metrics';
+import { feesConfig } from '@btw/api/money';
+import { delayedShipments, directorFigures } from './figures';
 import type { Summary } from './insights';
 
 export type Tone = 'danger' | 'warning' | 'success' | 'info' | 'neutral';
@@ -65,36 +68,28 @@ export async function loadDirector(u: User): Promise<DirectorData> {
   if (!sum && !dash) throw new Error('Could not load your numbers. Check your connection.');
   return { sum, dash, inv, ships, loadings, fees, perf, perfPrev, notes, month: w.label };
 }
-/** Trucks on the road at time `at` (first departure before, final arrival after or none yet). */
-function onRoadAt(ships: Shipment[], at: number): number {
-  let n = 0;
-  for (const s of ships) {
-    if (s.parentShipmentId || s.status === 'Cancelled') continue;
-    const dep = t(s.legs[0]?.departedAt ?? s.legs[0]?.passes[0]?.departedAt);
-    if (!(dep <= at)) continue;
-    const last = s.legs.at(-1)!; const arr = t(last.passes.at(-1)?.arrivedAt);
-    if (!Number.isFinite(arr) || arr > at) n++;
-  }
-  return n;
-}
-const pendingLoads = (ls: Loading[] | null) => (ls ?? []).filter((l) => l.status === 'Pending');
+const feeDays = () => { const c = feesConfig(ref().config); return { amber: c.amberDays, red: c.redDays }; };
+const stopsOf = (id: string) => ref().routes.find((x) => x.id === id)?.stops ?? [];
 export function directorKpis(u: User, d: DirectorData): Kpi[] {
   const out: Kpi[] = [];
   const s = d.sum, k = d.dash?.kpis;
+  // docs/18: every figure from the shared registry (figures.ts → metrics.ts), the same as Home on the web
+  const f = directorFigures(d, Date.now(), feeDays()), fp = directorFigures({ ...d, perf: d.perfPrev });
   if (s && can(u, 'logistics')) {
-    const weekAgo = d.ships ? onRoadAt(d.ships, Date.now() - 7 * DAY) : null;
-    out.push({ key: 'road', label: 'Trucks on the road', value: num(s.trucksActive), delta: weekAgo ? change(s.trucksActive, weekAgo) : null, hint: weekAgo != null ? `${num(weekAgo)} a week ago` : `${s.trucksAtBorder} at a border`, href: '/glance/fleet?state=road' });
-    out.push({ key: 'delayed', label: 'Delayed trucks', value: num(s.trucksDelayed), tone: s.trucksDelayed ? 'danger' : 'success', hint: d.dash?.logistics.overdue ? `${plural(d.dash.logistics.overdue, 'truck')} missed a check-in` : s.trucksDelayed ? 'behind plan or with an open issue' : 'none behind plan', href: '/glance/fleet?state=Delayed' });
+    const weekAgo = f.weekAgo, onRoad = f.onRoad ?? 0, delayed = f.delayed ?? 0;
+    out.push({ key: 'road', label: 'Trucks on the road', value: num(onRoad), delta: weekAgo ? change(onRoad, weekAgo) : null, hint: weekAgo != null ? `${num(weekAgo)} a week ago` : `${f.atBorder} at a border`, href: '/glance/fleet?state=road' });
+    out.push({ key: 'delayed', label: 'Delayed trucks', value: num(delayed), tone: delayed ? 'danger' : 'success', hint: d.dash?.logistics.overdue ? `${plural(d.dash.logistics.overdue, 'truck')} missed a check-in` : delayed ? 'behind plan or with an open issue' : 'none behind plan', href: '/glance/fleet?state=Delayed' });
   }
   if (d.loadings) {
-    const p = pendingLoads(d.loadings); const orders = new Set(p.map((l) => l.poId)).size;
-    out.push({ key: 'toload', label: 'Awaiting loading', value: num(orders), hint: `${plural(p.length, 'truck')} still to load`, tone: orders ? 'warning' : undefined, href: '/glance/pipeline?stage=sent' });
+    const orders = f.ordersToLoad ?? 0;
+    out.push({ key: 'toload', label: 'Orders awaiting loading', value: num(orders), hint: `${plural(f.trucksToLoad ?? 0, 'truck')} still to load`, tone: orders ? 'warning' : undefined, href: '/glance/pipeline?stage=sent' });
   }
-  if (k || s) out.push({ key: 'stock', label: 'Stock value', value: usd(k?.stockValue ?? s!.stockValue), hint: k?.stockCover ? `${k.stockCover} days of cover` : 'at landed cost', href: can(u, 'inventory') ? '/stock' : undefined });
+  if (f.stockValue != null) out.push({ key: 'stock', label: 'Stock value', value: usd(f.stockValue), hint: k?.stockCover ? `${k.stockCover} days of cover` : 'at landed cost', href: can(u, 'inventory') ? '/stock' : undefined });
   const cur = d.perf?.totals, prev = d.perfPrev?.totals;
   if (cur) {
     out.push({ key: 'sales', label: `Sales · ${d.month}`, value: usd(cur.revenue), delta: prev ? change(cur.revenue, prev.revenue) : null, hint: 'vs same days last month', href: can(u, 'sales') ? '/sales' : undefined });
-    out.push({ key: 'profit', label: `Profit · ${d.month}`, value: usd(cur.profit), delta: prev ? change(cur.profit, prev.profit) : null, tone: cur.profit < 0 ? 'danger' : undefined, hint: cur.margin != null ? `${pct(cur.margin, 1)} margin` : 'after landed cost', href: '/glance/profit' });
+    const profit = f.profit ?? 0;
+    out.push({ key: 'profit', label: `Profit · ${d.month}`, value: usd(profit), delta: fp.profit != null ? change(profit, fp.profit) : null, tone: profit < 0 ? 'danger' : undefined, hint: f.margin != null ? `${pct(f.margin, 1)} margin` : 'after landed cost', href: '/glance/profit' });
   } else if (k) {
     out.push({ key: 'sales', label: 'Sales · 30 days', value: usd(k.revenue30), delta: change(k.revenue30, k.revenuePrev30), hint: 'vs the 30 days before', href: can(u, 'sales') ? '/sales' : undefined });
   }
@@ -107,22 +102,22 @@ export function directorExceptions(u: User, d: DirectorData): GRow[] {
   const add = (rank: number, r: GRow) => out.push({ ...r, rank });
   if (mayApprovePayments(u) && d.sum?.paymentsPending) add(1, { id: 'pay', title: `${plural(d.sum.paymentsPending, 'payment')} to approve`, meta: 'Transport payments over the limit', chip: { tone: 'warning', label: 'Approve' }, href: '/approvals' });
   if (mayApprovePOs(u) && d.sum?.plansPending) add(1, { id: 'po', title: `${plural(d.sum.plansPending, 'purchase order')} to approve`, meta: 'Waiting for your signature', chip: { tone: 'warning', label: 'Approve' }, href: '/approvals' });
-  const late = (d.ships ?? []).filter((x) => x.status === 'Delayed');
+  const late = delayedShipments(d.ships ?? [], stopsOf).map((x) => x.sh);
   if (late.length > 3) add(0.5, { id: 'sh-more', title: `${plural(late.length - 3, 'more truck')} delayed`, meta: 'See every delayed truck, by route', chip: { tone: 'danger', label: 'Delayed' }, href: '/glance/fleet?state=Delayed' });
   for (const s of late.slice(0, 3)) {
     const leg = s.legs.find((l) => l.status === 'Delayed') ?? s.legs.at(-1)!; const issue = leg.issues.find((i) => !i.fixedAt);
     add(0, { id: `sh-${s.id}`, title: `${lookup.truck(leg.truckId)?.reg ?? s.ref} delayed`, meta: issue ? `${issue.reason} · ${issue.place}` : `${s.ref} · behind the planned time`, chip: { tone: 'danger', label: 'Delayed' }, href: `/trucks/${s.id}`, entityId: s.entityId });
   }
   if (d.dash?.logistics.overdue) add(0, { id: 'overdue', title: `${plural(d.dash.logistics.overdue, 'truck')} missed a check-in`, meta: 'No check-in at the next checkpoint', chip: { tone: 'danger', label: 'No check-in' }, href: '/glance/drivers' });
-  const red = (d.fees ?? []).filter((f) => f.flag === 'red');
+  const red = MX.feesOlderThan(d.fees ?? [], feeDays().red);
   if (red.length) add(2, { id: 'fees-red', title: `${plural(red.length, 'transport fee')} unpaid 1 month+`, meta: `${usd(sumOf(red, (f) => f.balanceUsd ?? 0))} still owed to transporters`, chip: { tone: 'danger', label: '30+ days' }, href: '/glance/fees?age=30' });
-  const missing = (d.fees ?? []).filter((f) => f.status === 'Not recorded');
-  if (missing.length) add(3, { id: 'agreed', title: `${plural(missing.length, 'trip')} without an agreed price`, meta: 'Truck follow-up records it after loading', chip: { tone: 'warning', label: 'Not recorded' }, href: '/glance/agreed' });
+  const missing = MX.priceNotRecorded(d.fees ?? []);
+  if (missing) add(3, { id: 'agreed', title: `${plural(missing, 'trip')} without an agreed price`, meta: 'Truck follow-up records it after loading', chip: { tone: 'warning', label: 'Not recorded' }, href: '/glance/agreed' });
   for (const r of (d.inv?.rows ?? []).filter((x) => x.risk === 'out' || x.risk === 'stock-out risk').sort((a, b) => (a.coverDays ?? 0) - (b.coverDays ?? 0)).slice(0, 2)) {
     const wh = d.inv!.byWarehouse.find((w) => w.warehouseId === r.warehouseId)?.name ?? '';
     add(2, { id: `st-${r.warehouseId}-${r.productId}`, title: `${r.brand} ${r.pack} running out`, meta: `${wh} · ${r.closing === 0 ? 'out of stock' : `${r.coverDays ?? '—'} days of cover`}`, chip: { tone: 'danger', label: 'Low stock' }, href: '/stock?f=low' });
   }
-  if (d.perf && d.perf.totals.profit < 0) add(1, { id: 'loss', title: `Loss this month: ${usd(d.perf.totals.profit)}`, meta: 'Cost of goods sold is above sales', chip: { tone: 'danger', label: 'Loss' }, href: '/glance/profit' });
+  if ((MX.profitOf(d.perf) ?? 0) < 0) add(1, { id: 'loss', title: `Loss this month: ${usd(MX.profitOf(d.perf)!)}`, meta: 'Cost of goods sold is above sales', chip: { tone: 'danger', label: 'Loss' }, href: '/glance/profit' });
   return out.sort((a, b) => a.rank - b.rank).map(({ rank: _r, ...r }) => r);
 }
 export function profitList(d: DirectorData): GList {
@@ -146,20 +141,20 @@ const feeRow = (f: TransportFeeRow): GRow => ({
   chip: f.status === 'Not recorded' ? { tone: 'warning', label: 'No agreed price' } : { tone: f.flag === 'red' ? 'danger' : f.flag === 'amber' ? 'warning' : 'neutral', label: f.status },
   href: `/money/${f.shipmentId}`, entityId: f.entityId,
 });
-export const unpaid = (fees: TransportFeeRow[]) => fees.filter((f) => f.status === 'Unpaid' || f.status === 'Part paid');
+export const unpaid = (fees: TransportFeeRow[]) => MX.openFees(fees);
 export function feesList(fees: TransportFeeRow[], age: string): GList {
-  const open = unpaid(fees).sort((a, b) => b.ageDays - a.ageDays);
-  const min = age === '30' ? 30 : age === '14' ? 14 : 0;
+  const open = unpaid(fees).sort((a, b) => b.ageDays - a.ageDays); const fd = feeDays();
+  const min = age === '30' ? fd.red : age === '14' ? fd.amber : 0;
   const shown = open.filter((f) => f.ageDays >= min);
   const groups = [
-    { label: '1 month or more', rows: shown.filter((f) => f.ageDays >= 30).map(feeRow) },
-    { label: '2 weeks to 1 month', rows: shown.filter((f) => f.ageDays >= 14 && f.ageDays < 30).map(feeRow) },
-    { label: 'Under 2 weeks', rows: shown.filter((f) => f.ageDays < 14).map(feeRow) },
+    { label: '1 month or more', rows: shown.filter((f) => f.ageDays >= fd.red).map(feeRow) },
+    { label: '2 weeks to 1 month', rows: shown.filter((f) => f.ageDays >= fd.amber && f.ageDays < fd.red).map(feeRow) },
+    { label: 'Under 2 weeks', rows: shown.filter((f) => f.ageDays < fd.amber).map(feeRow) },
   ].filter((g) => g.rows.length);
   const n = (m: number) => open.filter((f) => f.ageDays >= m).length;
   return {
     title: 'Unpaid transport fees', sub: `${usd(sumOf(shown, (f) => f.balanceUsd ?? 0))} owed on ${plural(shown.length, 'trip')}`,
-    filters: [{ id: 'all', label: 'All unpaid', count: open.length }, { id: '14', label: '2 weeks+', count: n(14) }, { id: '30', label: '1 month+', count: n(30) }].map((x) => ({ ...x, href: `/glance/fees?age=${x.id}`, on: (age || 'all') === x.id })),
+    filters: [{ id: 'all', label: 'All unpaid', count: open.length }, { id: '14', label: '2 weeks+', count: n(fd.amber) }, { id: '30', label: '1 month+', count: n(fd.red) }].map((x) => ({ ...x, href: `/glance/fees?age=${x.id}`, on: (age || 'all') === x.id })),
     groups, empty: 'No unpaid transport fees here.',
   };
 }
@@ -255,7 +250,7 @@ export function ageingList(flows: OrderFlow[], b: string): GList {
 }
 export function pvState(pv: PlannedVsActual): Chip {
   const m = pv.measures;
-  if (!m.planned) return { tone: 'neutral', label: 'No approved plan' };
+  if (!m.planned) return { tone: 'neutral', label: 'No period plan' };
   if (m.ordered > m.planned * pv.thresholds.over) return { tone: 'warning', label: 'Over plan' };
   if (m.ordered < m.expectedToDate * pv.thresholds.behind) return { tone: 'danger', label: 'Behind plan' };
   return { tone: 'success', label: 'On track' };
@@ -336,9 +331,9 @@ export function truckActions(u: User, d: TruckData): ActionRow[] {
   const red = staleCount(rows, STALE_RED_H), amber = staleCount(rows) - red;
   out.push({ id: 'drivers', label: 'Drivers silent', value: num(red + amber), tone: red ? 'danger' : amber ? 'warning' : 'success', text: red + amber ? `${red} over ${STALE_RED_H} h · ${amber} over ${STALE_AMBER_H} h` : 'Every truck on the road updated recently', href: '/glance/drivers' });
   if (d.fees) {
-    const miss = d.fees.filter((f) => f.status === 'Not recorded');
+    const miss = d.fees.filter((f) => f.agreedUsd === null);
     out.push({ id: 'agreed', label: 'No agreed price', value: num(miss.length), tone: miss.length ? 'warning' : 'success', text: miss.length ? `${miss.slice(0, 2).map((f) => lookup.truck(f.truckId)?.reg ?? f.ref).join(', ')}${miss.length > 2 ? ' …' : ''}` : 'Every loaded trip has a price', href: '/glance/agreed' });
-    const op = unpaid(d.fees); const m1 = op.filter((f) => f.ageDays >= 30), w2 = op.filter((f) => f.ageDays >= 14 && f.ageDays < 30);
+    const fd = feeDays(); const m1 = MX.feesOlderThan(d.fees, fd.red), all2 = MX.feesOlderThan(d.fees, fd.amber), w2 = all2.filter((f) => !m1.includes(f));
     out.push({ id: 'fees', label: 'Fees unpaid 2 weeks+', value: num(m1.length + w2.length), tone: m1.length ? 'danger' : w2.length ? 'warning' : 'success', text: `${m1.length} over 1 month · ${w2.length} over 2 weeks · ${usd(sumOf([...m1, ...w2], (f) => f.balanceUsd ?? 0))}`, href: '/glance/fees?age=14' });
   }
   void u;

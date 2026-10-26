@@ -12,7 +12,7 @@
   let { user: _user }: { params?: any; user: User } = $props();
 
   const FEATURES: [string, string][] = [
-    ['plans', 'Purchase orders (drafts)'], ['pos', 'Purchase orders'], ['period-plans', 'Period plans'], ['loadings', 'Loading'], ['loading-points', 'Loading queues (add)'],
+    ['plans', 'Purchase orders (older entries)'], ['pos', 'Purchase orders'], ['period-plans', 'Period plans'], ['loadings', 'Loading'], ['loading-points', 'Loading queues (add)'],
     ['waiting', 'Loading queues'], ['shipments', 'Shipments'], ['legs', 'Trips & check-ins'], ['finance', 'Truck expenses & payments'], ['masterdata', 'Static & transport data'],
     ['users', 'Users & roles'], ['sales', 'Sales'], ['settings', 'Settings'], ['sync', 'Offline sync'], ['positions', 'GPS'],
   ];

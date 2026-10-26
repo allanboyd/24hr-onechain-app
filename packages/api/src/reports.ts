@@ -175,37 +175,9 @@ function nextBucket(key: string, g: GroupBy) {
   return ymd(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 3, 1));
 }
 
-/** Landing cost per case per SKU from delivered trucks (fallback: list price × 1.21). Doc 08 §2: an onward shipment
- *  carries the per-case cost of the shipments before it (goods + their expenses, pro rata by cases) plus its own. */
-export function landedCostMap(dt: Pick<ReportData, 'shipments' | 'costs' | 'plans' | 'pos' | 'priceList' | 'products'>) {
-  const planOfPo = new Map(dt.pos.map((p) => [p.id, dt.plans.find((x) => x.id === p.planId)]));
-  const acc = new Map<ID, { cost: number; cases: number }>();
-  const costBy = new Map<ID, number>();
-  for (const c of dt.costs) costBy.set(c.shipmentId, (costBy.get(c.shipmentId) ?? 0) + (c.amountUsd ?? c.amount));
-  const byId = new Map(dt.shipments.map((s) => [s.id, s]));
-  const unitCost = (sh: typeof dt.shipments[number], productId: ID, depth = 0): number => {
-    const cases = sum(sh.legs[0]?.lines ?? [], (l) => l.loadedQty);
-    const own = cases ? (costBy.get(sh.id) ?? 0) / cases : 0;
-    const parent = sh.parentShipmentId ? byId.get(sh.parentShipmentId) : undefined;
-    if (parent && depth < 10) return unitCost(parent, productId, depth + 1) + own;
-    const plan = planOfPo.get(sh.poId);
-    return (plan?.lines.find((x) => x.productId === productId)?.price ?? dt.priceList.find((x) => x.productId === productId)?.price ?? 0) + own;
-  };
-  for (const sh of dt.shipments) {
-    if (sh.status !== 'Acknowledged' || !sh.legs.length) continue;
-    const lines = sh.legs[0].lines; if (!sum(lines, (l) => l.loadedQty)) continue;
-    for (const l of lines) {
-      const a = acc.get(l.productId) ?? { cost: 0, cases: 0 };
-      a.cost += l.loadedQty * unitCost(sh, l.productId); a.cases += l.loadedQty; acc.set(l.productId, a);
-    }
-  }
-  const out = new Map<ID, number>();
-  for (const p of dt.products) {
-    const a = acc.get(p.id);
-    out.set(p.id, a?.cases ? r2(a.cost / a.cases) : r2((dt.priceList.find((x) => x.productId === p.id)?.price ?? 0) * 1.21));
-  }
-  return out;
-}
+export { landedCostMap } from './landed';
+import { casesOnHand, deliveredAt, onTimeOf, openSales, owedByCustomers, salesPace, stockRisk, stockValue as stockValueOf } from './metrics';
+import { landedCostMap } from './landed';
 
 const finalAck = (sh: Shipment, acks: Acknowledgement[]) => { const last = sh.legs.at(-1); return last?.ackId ? acks.find((a) => a.id === last.ackId) : undefined; };
 /** Completed deliveries with their timings (final acknowledgement inside the range). */
@@ -215,10 +187,10 @@ function deliveries(dt: ReportData, from: number, to: number, f: ReportFilter = 
   for (const sh of dt.shipments) {
     if (f.warehouseId && sh.warehouseId !== f.warehouseId) continue;
     if (f.productId && !sh.legs[0]?.lines.some((l) => l.productId === f.productId)) continue;
-    const ack = finalAck(sh, dt.acks); if (!ack) continue;
-    const at = t(ack.at); if (at < from || at >= to) continue;
+    // docs/18: a delivery = a trip signed for at its destination, dated by its arrival there (metrics.deliveredIn / onTimeOf)
+    const ack = finalAck(sh, dt.acks); if (!ack || sh.status !== 'Acknowledged') continue;
+    const arrived = deliveredAt(sh); if (!(arrived >= from && arrived < to)) continue;
     const last = sh.legs.at(-1)!; const first = sh.legs[0];
-    const arrived = t(last.passes.at(-1)?.arrivedAt) || at;
     const planned = t(last.plannedArrival);
     const departed = t(first.departedAt) || t(first.passes[0]?.departedAt);
     const lateHours = (arrived - planned) / H;
@@ -227,7 +199,7 @@ function deliveries(dt: ReportData, from: number, to: number, f: ReportFilter = 
     const laneKey = sh.legs.map((l) => l.routeId).join('+');
     const laneName = sh.legs.map((l) => dt.routes.find((r) => r.id === l.routeId)?.name ?? l.routeId).join(' + ');
     void stopsOf;
-    out.push({ sh, ack, arrived, planned, departed, transitDays: (arrived - departed) / DAY, onTime: lateHours <= 6, lateHours, expected, lost, laneKey, laneName });
+    out.push({ sh, ack, arrived, planned, departed, transitDays: (arrived - departed) / DAY, onTime: onTimeOf(sh), lateHours, expected, lost, laneKey, laneName });
   }
   return out;
 }
@@ -289,16 +261,18 @@ export function salesReport(dt: ReportData, f: ReportFilter & { groupBy?: GroupB
   for (const s of cur) { const name = s.customer || '(no customer recorded)'; const c = custs.get(name) ?? { revenue: 0, cases: 0, outstanding: 0, orders: 0 }; c.revenue += saleTotal(s); c.cases += sum(s.lines, (l) => l.qty); c.outstanding += Math.max(0, saleTotal(s) - s.paid); c.orders++; custs.set(name, c); }
   // receivables ageing as of the end of the range (all unpaid sales up to then)
   const asOf = Math.min(to, dt.now);
-  const unpaid = dt.sales.filter((s) => t(s.at) < asOf && saleTotal(s) - s.paid > 0.5 && (!f.warehouseId || s.warehouseId === f.warehouseId));
+  // docs/18: owed by customers = metrics.openSales (unpaid and part-paid sales, value − paid)
+  const recSales = dt.sales.filter((s) => !f.warehouseId || s.warehouseId === f.warehouseId);
+  const unpaid = openSales(recSales, asOf);
   const bucketsDef = [{ label: '0–30 days', max: 30 }, { label: '31–60 days', max: 60 }, { label: '61–90 days', max: 90 }, { label: 'Over 90 days', max: Infinity }];
   const buckets = bucketsDef.map((b) => ({ label: b.label, amount: 0, count: 0 }));
-  for (const s of unpaid) { const age = (asOf - t(s.at)) / DAY; const i = bucketsDef.findIndex((b) => age <= b.max); buckets[i].amount += saleTotal(s) - s.paid; buckets[i].count++; }
+  for (const x of unpaid) { const i = bucketsDef.findIndex((b) => x.age <= b.max); buckets[i].amount += x.bal; buckets[i].count++; }
   buckets.forEach((b) => (b.amount = r2(b.amount)));
   return {
     range: { from: new Date(from).toISOString(), to: new Date(to).toISOString() }, groupBy: g, totals: T, prev: P, lastYear: L, series, byBrand, byWarehouse,
     byKind: [...kinds].map(([kind, v]) => ({ kind, revenue: r2(v.revenue), orders: v.orders })).sort((a, b) => b.revenue - a.revenue),
     topCustomers: [...custs].map(([customer, v]) => ({ customer, revenue: r2(v.revenue), cases: v.cases, outstanding: r2(v.outstanding), orders: v.orders })).sort((a, b) => b.revenue - a.revenue).slice(0, 10),
-    receivables: { buckets, total: r2(sum(buckets, (b) => b.amount)) },
+    receivables: { buckets, total: owedByCustomers(recSales, asOf) },
     avgDailyCases: r1(T.cases / Math.max(1, (Math.min(to, dt.now) - from) / DAY)),
   };
 }
@@ -494,17 +468,14 @@ export interface InventoryReport {
 export function inventoryReport(dt: ReportData, f: ReportFilter = {}): InventoryReport {
   dt = prep(dt, f);
   const landed = landedCostMap(dt);
-  const since = dt.now - 30 * DAY;
-  const sold30 = new Map<string, { q: number; last: number }>();
-  for (const s of dt.sales) for (const l of s.lines) { const k = `${s.warehouseId}|${l.productId}`; const c = sold30.get(k) ?? { q: 0, last: 0 }; if (t(s.at) >= since) c.q += l.qty; c.last = Math.max(c.last, t(s.at)); sold30.set(k, c); }
+  // docs/18: pace, risk and value are the shared definitions (metrics.ts) — per company × warehouse × product
+  const pace = salesPace(dt.stock, dt.sales, dt.now);
   const ageBuckets = [{ label: '0–30 days', max: 30 }, { label: '31–60 days', max: 60 }, { label: '61–90 days', max: 90 }, { label: 'Over 90 days', max: Infinity }];
   const ageing = ageBuckets.map((b) => ({ label: b.label, cases: 0, value: 0 }));
   const rows = dt.stock.filter((r) => (!f.warehouseId || r.warehouseId === f.warehouseId) && (!f.productId || r.productId === f.productId)).map((r) => {
-    const k = `${r.warehouseId}|${r.productId}`; const s = sold30.get(k) ?? { q: 0, last: 0 };
-    const perDay = s.q / 30; const cover = perDay ? r.closing / perDay : null;
-    const cpc = landed.get(r.productId) ?? r.landedCostPerCase;
-    const daysSince = s.last ? (dt.now - s.last) / DAY : 999;
-    const risk: StockRisk = r.closing <= 0 ? 'out' : daysSince >= 30 ? 'dead' : cover !== null && cover < 7 ? 'stock-out risk' : cover !== null && cover < 14 ? 'low' : cover !== null && cover > 60 ? 'overstock' : 'ok';
+    const { perDay, daysSinceSale } = pace(r); const cover = perDay ? r.closing / perDay : null;
+    const cpc = r.landedCostPerCase ?? landed.get(r.productId) ?? 0;
+    const risk: StockRisk = stockRisk(r.closing, perDay, daysSinceSale);
     // FIFO ageing: the closing stock is the most recent receipts; walk back through inbound moves
     let left = Math.max(0, r.closing), age = 0;
     const inbound = dt.moves.filter((m) => m.warehouseId === r.warehouseId && m.productId === r.productId && (m.kind === 'received' || m.kind === 'transferIn' || (m.kind === 'adjustment' && m.qty > 0))).sort((a, b) => t(b.at) - t(a.at));
@@ -1005,8 +976,8 @@ function companyKpis(dt: ReportData, from: number, to: number): CompanyKpis {
   const landed = landedCostMap(dt);
   const m = periodMetrics(dt, from, to, {}, landed);
   const cogs = r2(m.revenue - m.margin);
-  const stockValue = r2(sum(dt.stock, (r) => r.closing * (landed.get(r.productId) ?? r.landedCostPerCase)));
-  const stockCases = sum(dt.stock, (r) => r.closing);
+  const stockValue = stockValueOf(dt.stock.map((r) => ({ ...r, landedCostPerCase: r.landedCostPerCase ?? landed.get(r.productId) ?? 0 }))) ?? 0;
+  const stockCases = casesOnHand(dt.stock);
   const days = Math.max(1, (Math.min(to, dt.now) - from) / DAY);
   const dl = deliveries(dt, from, to);
   const ids = new Set(dl.map((x) => x.sh.id));

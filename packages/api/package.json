@@ -8,6 +8,7 @@
     "./outbox": "./src/outbox.ts",
     "./types": "./src/types.ts",
     "./rules": "./src/rules.ts",
+    "./amounts": "./src/amounts.ts",
     "./access": "./src/access.ts",
     "./static-data": "./src/static-data.ts",
     "./http": "./src/http.ts",
@@ -19,7 +20,9 @@
     "./trucks": "./src/trucks.ts",
     "./money": "./src/money.ts",
     "./performance": "./src/performance.ts",
-    "./dashboards": "./src/dashboards.ts"
+    "./dashboards": "./src/dashboards.ts",
+    "./metrics": "./src/metrics.ts",
+    "./landed": "./src/landed.ts"
   },
   "sideEffects": [
     "./src/outbox.ts"

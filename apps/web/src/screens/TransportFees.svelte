@@ -3,11 +3,13 @@
   // under document references: Paid / Part paid / Unpaid / not recorded, with the age since loading (amber after
   // config [fees] amber_days, red after red_days — 14 / 30, to confirm Q9). Testfie records the agreed price after loading
   // and the truck expenses per trip and leg; the directors record (and approve) payments. No goods value here.
+  import { withUnusualConfirm } from '@btw/api/amounts';
   import { auth, finance, lookup, ref, type CostKind, type Currency, type TransportFeeRow, type User } from '@btw/api';
   import { fmtDate, fmtNum, say } from '@btw/ui';
   import { CURRENCIES, feeAgeing, feesConfig } from '@btw/api/money';
   import { AgeingBars, DashboardGrid, DashboardPanel, StatusBadge } from '../components/dashboard';
   import { attempt, watch } from '../lib/load.svelte';
+  import { feeTiles } from '../lib/tiles';
   import { companyLabel } from '../lib/companies';
   import ErrorState from '../components/ErrorState.svelte';
   import Search from '@lucide/svelte/icons/search';
@@ -22,7 +24,8 @@
   const shown = $derived((rows ?? []).filter((r) => (!status || r.status === status) && (!flag || r.flag === flag)
     && (!q || [r.ref, truckReg(r.truckId), provider(r.providerId), ...r.references].join(' ').toLowerCase().includes(q.toLowerCase()))));
   const open = $derived((rows ?? []).filter((r) => r.status === 'Unpaid' || r.status === 'Part paid'));
-  const k = $derived({ balance: open.reduce((a, r) => a + (r.balanceUsd ?? 0), 0), amber: open.filter((r) => r.flag === 'amber').length, red: open.filter((r) => r.flag === 'red').length, missing: (rows ?? []).filter((r) => r.status === 'Not recorded').length, pending: (rows ?? []).reduce((a, r) => a + r.pendingUsd, 0) });
+  // docs/18: over 14 d counts every open fee at least amber_days old (so it includes the red ones) — same as Home and the phone
+  const k = $derived(feeTiles(rows ?? [], cfg.amberDays, cfg.redDays));
   const ageing = $derived(feeAgeing(rows ?? [], ref().config));
   const FLAG: Record<string, { s: string; l: string }> = { ok: { s: 'good', l: 'On time' }, amber: { s: 'warn', l: `Over ${cfg.amberDays} days` }, red: { s: 'bad', l: `Over ${cfg.redDays} days` }, none: { s: 'none', l: 'No price' } };
   const STATUS: Record<string, string> = { Paid: 'good', 'Part paid': 'warn', Unpaid: 'bad', 'Not recorded': 'none' };
@@ -41,13 +44,17 @@
     if (!act) return;
     const a = act; const amt = Number(a.amount);
     busy = true;
+    let saved = true;
     err = await attempt(async () => {
-      if (a.kind === 'price') await finance.setAgreedPrice(a.row.shipmentId, { amount: amt, currency: a.currency, docRef: a.docRef || undefined });
-      else if (a.kind === 'expense') await finance.addCost({ shipmentId: a.row.shipmentId, legId: a.legId || undefined, kind: a.cost, amount: amt, currency: a.currency, docRef: a.docRef || undefined, entityId: a.row.entityId });
-      else { const c = a.row.costs.find((x) => x.kind === 'Transport'); if (!c) throw new Error('Record the agreed price first'); if (!a.docRef.trim()) throw new Error('Enter the payment reference'); await finance.pay(a.row.shipmentId, c.id, amt, a.docRef.trim()); }
+      saved = !!(await withUnusualConfirm(async (confirmUnusual) => {
+        if (a.kind === 'price') return finance.setAgreedPrice(a.row.shipmentId, { amount: amt, currency: a.currency, docRef: a.docRef || undefined, confirmUnusual });
+        if (a.kind === 'expense') return finance.addCost({ shipmentId: a.row.shipmentId, legId: a.legId || undefined, kind: a.cost, amount: amt, currency: a.currency, docRef: a.docRef || undefined, entityId: a.row.entityId, confirmUnusual });
+        const c = a.row.costs.find((x) => x.kind === 'Transport'); if (!c) throw new Error('Record the agreed price first'); if (!a.docRef.trim()) throw new Error('Enter the payment reference');
+        return finance.pay(a.row.shipmentId, c.id, amt, a.docRef.trim(), undefined, { confirmUnusual });
+      }));
     });
     busy = false;
-    if (!err) { say(a.kind === 'price' ? 'Agreed price recorded' : a.kind === 'expense' ? 'Truck expense added' : 'Payment recorded'); act = null; }
+    if (!err && saved) { say(a.kind === 'price' ? 'Agreed price recorded' : a.kind === 'expense' ? 'Truck expense added' : 'Payment recorded'); act = null; }
   }
   const exportRows = () => [['Shipment', 'Company', 'Truck', 'Provider', 'Loaded', 'Age (days)', 'Agreed', 'Currency', 'Agreed USD', 'Paid USD', 'Waiting approval USD', 'Balance USD', 'Status', 'Flag', 'References'],
     ...shown.map((r) => [r.ref, companyLabel(r.entityId), truckReg(r.truckId), provider(r.providerId), r.loadedAt?.slice(0, 10) ?? '', r.ageDays, r.agreed?.amount ?? '', r.agreed?.currency ?? '', r.agreedUsd ?? '', r.paidUsd, r.pendingUsd, r.balanceUsd ?? '', r.status, FLAG[r.flag].l, r.references.join('; ')])];
@@ -59,7 +66,7 @@
 </div>
 
 <div class="grid-kpi kpis">
-  <div class="card kpi"><div class="overline">Open balance</div><div class="display">{rows ? usd(k.balance) : '…'}</div><div class="caption">{open.length} trips unpaid or part paid</div></div>
+  <div class="card kpi"><div class="overline">Open balance</div><div class="display">{rows ? usd(k.balance) : '…'}</div><div class="caption">{k.open} trips unpaid or part paid</div></div>
   <div class="card kpi"><div class="overline">Over {cfg.amberDays} days</div><div class="display">{k.amber}</div><StatusBadge status="warn" label="Follow up" size={12} /></div>
   <div class="card kpi"><div class="overline">Over {cfg.redDays} days</div><div class="display">{k.red}</div><StatusBadge status="bad" label="Overdue" size={12} /></div>
   <div class="card kpi"><div class="overline">Agreed price not recorded</div><div class="display">{k.missing}</div><div class="caption">{k.pending ? `${usd(k.pending)} waiting for approval` : 'record it after loading'}</div></div>

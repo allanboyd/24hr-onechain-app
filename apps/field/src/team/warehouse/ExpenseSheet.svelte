@@ -1,6 +1,7 @@
 <script lang="ts">
   // docs/14 B-01 on the phone (Asie, Yonas): add a warehouse expense in a few taps — category, amount, receipt photo — and see
   // this month's total per category. Lazy chunk opened from the receiver home.
+  import { withUnusualConfirm } from '@btw/api/amounts';
   import { lookup, warehouse, type Currency, type User, type WarehouseExpense, type WarehouseExpenseCategory } from '@btw/api';
   import { say } from '@btw/ui';
   import { untrack } from 'svelte';
@@ -34,7 +35,7 @@
     const input = { warehouseId: wh, date, category, amount: Number(amount), currency, reference: reference || null, note: note || null, receiptFileId: receipt?.id ?? null, receiptName: receipt?.name ?? null, receiptUrl: receipt?.url ?? null };
     const p = validateExpense(input, { warehouseIds: user.warehouseIds }); if (p.length) { error = p[0]; return; }
     busy = true; error = '';
-    try { await warehouse.addExpense(input); haptic('success'); say(`${category} recorded`); amount = null; reference = ''; note = ''; receipt = null; load(); }
+    try { if (!(await withUnusualConfirm((confirmUnusual) => warehouse.addExpense({ ...input, confirmUnusual })))) return; haptic('success'); say(`${category} recorded`); amount = null; reference = ''; note = ''; receipt = null; load(); }
     catch (x) { error = (x as Error).message; } finally { busy = false; }
   }
 </script>

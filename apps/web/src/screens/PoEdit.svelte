@@ -262,7 +262,7 @@
         {#if form.lines.length}<tr class="grand"><td></td><td colspan="3">Total · {trucks.length} truck{trucks.length === 1 ? '' : 's'}</td><td class="num">{fmtNum(totalQty)}</td>{#if money}<td></td><td class="num">{fmtNum(totalAmt, 2)}</td>{/if}<td></td></tr>{/if}
       </tbody>
     </table></div>
-    <p class="caption foot">Prices come from the supplier price list (MD-04); directors may override them. Amount = quantity × price and is never typed.</p>
+    <p class="caption foot">Prices come from the supplier price list; directors may override them. Amount = quantity × price and is never typed.</p>
   </section>
 
   {#if editing && vsPlan.length}

@@ -16,10 +16,10 @@
 </script>
 
 <section class="card pv">
-  <header class="row between"><div><h3>Planned vs actual</h3><p class="caption">{periodLabel({ ...q, periodKind: 'quarter' })} · purchase orders against the approved period plans</p></div><a class="small row" href="#/reports?r=pv">Open <ArrowRight size={14} /></a></header>
+  <header class="row between"><div><h3>Planned vs actual</h3><p class="caption">{periodLabel({ ...q, periodKind: 'quarter' })} · purchase orders against the period plans</p></div><a class="small row" href="#/reports?r=pv">Open <ArrowRight size={14} /></a></header>
   {#if failed}<p class="small muted">Couldn't load the plan comparison.</p>
   {:else if !d}<div class="skeleton" style="height:64px"></div>
-  {:else if !d.measures.planned && !d.measures.ordered}<p class="small muted">No approved period plan covers this quarter yet. <a href="#/period-plans/new">Create one</a>.</p>
+  {:else if !d.measures.planned && !d.measures.ordered}<p class="small muted">No period plan covers this quarter yet. <a href="#/period-plans/new">Create one</a>.</p>
   {:else}
     <Meter label="Ordered of planned" value={d.measures.ordered} max={Math.max(d.measures.planned, d.measures.ordered, 1)} target={d.measures.expectedToDate} format={(x) => fmtNum(x)} tone={d.measures.ordered < d.measures.expectedToDate * d.thresholds.behind ? 'warning' : d.measures.ordered > d.measures.planned * d.thresholds.over ? 'danger' : 'success'} note="{pct(d.measures.usedPct / 100)} of {fmtNum(d.measures.planned)} planned · right figure and tick = expected by today" />
     <div class="chips">{#each FLAGS as f}{#if n(f)}<a href="#/reports?r=pv"><Badge tone={flagTone(f)}>{n(f)} {f.toLowerCase()}</Badge></a>{/if}{/each}</div>

@@ -4,6 +4,7 @@
   import { fmtMoney } from '@btw/ui';
   import { BarChart, ChartCard, Donut, LineChart, StatTile, byMonth, monthLabel, usd } from '../charts';
   import { drill } from '../../lib/tab';
+  import { tripMoneyTiles } from '../../lib/tiles';
   type Trip = Awaited<ReturnType<typeof finance.trips>>[number];
   let { trips }: { trips: Trip[] } = $props();
   const KINDS: CostKind[] = ['Transport', 'Taxes & duties', 'Clearing & forwarding', 'Loading & offloading', 'Storage', 'Other'];
@@ -11,7 +12,7 @@
   const loaded = (t: Trip) => t.shipment.legs[0].passes[0]?.arrivedAt ?? t.shipment.legs[0].departedAt ?? '';
   const sorted = $derived([...trips].sort((a, b) => loaded(a).localeCompare(loaded(b))));
   const tot = $derived({
-    agreed: trips.reduce((a, t) => a + t.transport, 0), paid: trips.reduce((a, t) => a + t.paid, 0), balance: trips.reduce((a, t) => a + t.balance, 0),
+    agreed: trips.reduce((a, t) => a + t.transport, 0), paid: trips.reduce((a, t) => a + t.paid, 0), balance: tripMoneyTiles(trips).owed,
     pending: trips.flatMap((t) => t.payments).filter((p) => p.status === 'Pending approval'),
     landing: trips.reduce((a, t) => a + t.landing, 0), cases: trips.reduce((a, t) => a + t.cases, 0),
   });
@@ -20,10 +21,10 @@
     for (const t of trips) { const k = provider(t); const c = m.get(k) ?? { paid: 0, balance: 0 }; c.paid += t.paid; c.balance += Math.max(0, t.balance); m.set(k, c); }
     return [...m.entries()].map(([name, v]) => ({ name, ...v })).sort((a, b) => b.balance - a.balance);
   });
-  const mix = $derived(KINDS.map((k) => ({ label: k, value: Math.round(trips.reduce((a, t) => a + t.costs.filter((c) => c.kind === k).reduce((b, c) => b + c.amount, 0), 0)) })).filter((x) => x.value > 0));
-  const pendingBy = $derived(trips.map((t) => ({ ref: t.shipment.ref, reg: lookup.truck(t.shipment.legs[0].truckId)?.reg ?? '', v: t.payments.filter((p) => p.status === 'Pending approval').reduce((a, p) => a + p.amount, 0) })).filter((x) => x.v > 0));
+  const mix = $derived(KINDS.map((k) => ({ label: k, value: Math.round(trips.reduce((a, t) => a + t.costs.filter((c) => c.kind === k).reduce((b, c) => b + (c.amountUsd ?? c.amount), 0), 0)) })).filter((x) => x.value > 0));
+  const pendingBy = $derived(trips.map((t) => ({ ref: t.shipment.ref, reg: lookup.truck(t.shipment.legs[0].truckId)?.reg ?? '', v: t.payments.filter((p) => p.status === 'Pending approval').reduce((a, p) => a + (p.amountUsd ?? p.amount), 0) })).filter((x) => x.v > 0));
   const months = $derived(byMonth(trips, loaded));
-  const kindSum = (ts: Trip[], k: CostKind) => Math.round(ts.reduce((a, t) => a + t.costs.filter((c) => c.kind === k).reduce((b, c) => b + c.amount, 0), 0));
+  const kindSum = (ts: Trip[], k: CostKind) => Math.round(ts.reduce((a, t) => a + t.costs.filter((c) => c.kind === k).reduce((b, c) => b + (c.amountUsd ?? c.amount), 0), 0));
   const label = (t: Trip) => `${t.shipment.ref} · ${lookup.truck(t.shipment.legs[0].truckId)?.reg ?? ''}`;
   import CompanySplit from '../group/CompanySplit.svelte';
   import { financeSplit } from '../../lib/splits';
@@ -34,7 +35,7 @@
 <div class="tiles">
   <StatTile label="Transport agreed" value={usd(tot.agreed)} hint="{trips.length} trips" />
   <StatTile label="Owed to transporters" value={usd(tot.balance)} hint="paid {usd(tot.paid)}" onclick={() => drill('/finance', {})} />
-  <StatTile label="Awaiting approval" value={String(tot.pending.length)} hint={tot.pending.length ? fmtMoney(tot.pending.reduce((a, p) => a + p.amount, 0)) : 'nothing waiting'} onclick={() => drill('/finance', {})} />
+  <StatTile label="Awaiting approval" value={String(tot.pending.length)} hint={tot.pending.length ? fmtMoney(tot.pending.reduce((a, p) => a + (p.amountUsd ?? p.amount), 0)) : 'nothing waiting'} onclick={() => drill('/finance', {})} />
   <StatTile label="Landing cost per case" value={tot.cases ? fmtMoney(tot.landing / tot.cases) : '—'} hint="goods + transport + duties + other" />
 </div>
 

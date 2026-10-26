@@ -11,7 +11,8 @@ import { fail, forbidden, notFound } from '../common/errors';
 import { isUsableImage } from '../common/images';
 import { iso, uid } from '../common/ids';
 import { assertEntity, canSeeEntity, canSeeLoadingPoint, has, isGlobal, OPS, writeEntity, type Principal } from '../auth/principal';
-import { entityById, pdfEntity, usdOf } from './companies';
+import { entityById, pdfEntity, saneAmount, usdOf } from './companies';
+import { unusualNote, type AmountCheck } from '@btw/api/amounts';
 import type { AckPdfData, InboundCheckin, InboundHandler } from '../integrations/ports';
 import { NotifyService } from './notify.service';
 import { RefService } from './ref.service';
@@ -21,7 +22,7 @@ const ACTIVE = (l: Leg) => !['Acknowledged', 'Cancelled'].includes(l.status);
 
 /** `loadedQty` per PO line (planLineId → cases; omitted = as ordered); `alternatives` = substitutes from the same supplier.
  *  docs/12 A-04: no price at hand-over — `agreedTransport` is taken only from users with truck expenses (else ignored). */
-export interface ConfirmLoadingInput { truckId: string; driverId: string; loadedQty: Record<string, number>; agreedTransport?: number | null; transportCurrency?: string; documents?: string[]; loadedAt?: string; alternatives?: LoadingAlternative[] }
+export interface ConfirmLoadingInput { truckId: string; driverId: string; loadedQty: Record<string, number>; agreedTransport?: number | null; transportCurrency?: string; documents?: string[]; loadedAt?: string; alternatives?: LoadingAlternative[]; confirmUnusual?: boolean }
 export interface AckInput { receiverName: string; lines: AckLine[]; signature?: string; photos?: string[]; at?: string }
 
 @Injectable()
@@ -203,6 +204,8 @@ export class LogisticsService implements InboundHandler {
     if (!input.driverId) fail('Pick the driver');
     // A-04: the agreed price is recorded after loading by the truck follow-up officer; a loader's value is ignored
     const price = hasFeature(p.roles, 'truck-expenses') && Number(input.agreedTransport) > 0 ? Number(input.agreedTransport) : null;
+    // docs/17 F4: a price comes with its currency (never assumed) and must be plausible for it
+    const priceCheck: AmountCheck | null = price === null ? null : await saneAmount(db, 'transport', price, input.transportCurrency, Date.now(), input.confirmUnusual);
     const result = await db.transaction(async (tx) => {
       // One loading at a time per loading point: a revision repoints every truck of the PO, so trucks of one order serialise.
       const [peek] = await tx.select({ lp: t.loadings.loadingPointId }).from(t.loadings).where(eq(t.loadings.id, id));
@@ -261,7 +264,7 @@ export class LogisticsService implements InboundHandler {
         po = next; plan = r.plan;
       }
       ld.truckId = input.truckId; ld.driverId = input.driverId; ld.agreedTransport = price; ld.loadedAt = iso(at); ld.status = 'Loaded';
-      ld.transportCurrency = (price !== null && input.transportCurrency ? input.transportCurrency : ld.transportCurrency ?? 'USD') as Loading['transportCurrency'];
+      ld.transportCurrency = (priceCheck ? priceCheck.currency : ld.transportCurrency ?? 'USD') as Loading['transportCurrency'];
       ld.documents = (input.documents ?? []).map((n) => ({ id: n.startsWith('file-') ? n : uid('doc'), kind: 'delivery-note' as const, name: n }));
       await tx.update(t.loadings).set({ poId: ld.poId, truckId: ld.truckId, driverId: ld.driverId, agreedTransport: ld.agreedTransport, transportCurrency: ld.transportCurrency, loadedAt: ld.loadedAt, status: 'Loaded', lines: ld.lines, documents: ld.documents }).where(eq(t.loadings.id, id));
       if (revised) {
@@ -283,7 +286,7 @@ export class LogisticsService implements InboundHandler {
       if (price !== null) await tx.insert(t.tripCosts).values({ id: uid('cost'), entityId: sh.entityId, shipmentId: sh.id, legId: leg.id, kind: 'Transport', amount: price, currency: ld.transportCurrency, docRef: `Agreed at loading ${ld.loadedAt.slice(0, 10)}`, ...(await usdOf(tx, price, ld.transportCurrency, at)) });
       await tx.update(t.waitingEntries).set({ status: 'Loaded' }).where(and(eq(t.waitingEntries.truckId, input.truckId), inArray(t.waitingEntries.status, ['Waiting', 'Assigned'])));
       await this.notify.notify(tx, 'Truck loaded', `${truck.reg} · ${total.toLocaleString('en-US')} cases · ${sh.ref}${price === null ? ' · agreed price not recorded yet' : ''}`, `#/shipments/${sh.id}`, ['operations', 'fleet', 'director', 'truck_planner'], { entityId: sh.entityId });
-      auditNote({ recordType: 'loading', recordId: id, summary: `${truck.reg} loaded · ${sh.ref}`, entityId: sh.entityId });
+      auditNote({ recordType: 'loading', recordId: id, summary: `${truck.reg} loaded · ${sh.ref}${priceCheck ? ` · agreed ${priceCheck.currency} ${priceCheck.amount}${unusualNote(priceCheck)}` : ''}`, entityId: sh.entityId });
       return sh;
     });
     const driver = bundle.drivers.find((d) => d.id === input.driverId);

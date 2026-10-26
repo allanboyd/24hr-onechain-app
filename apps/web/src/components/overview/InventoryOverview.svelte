@@ -5,6 +5,7 @@
   import { fmtNum } from '@btw/ui';
   import { BarChart, ChartCard, Donut, Heatmap, StatTile, usd } from '../charts';
   import { drill } from '../../lib/tab';
+  import { inventoryTiles } from '../../lib/tiles';
   let { rows, vel, levelOf, cover, thresholds, money = true }: {
     rows: StockRow[]; vel: VelocityRow[]; levelOf: (x: StockRow) => string; cover: (x: StockRow) => number;
     thresholds: { stockOutDays: number; overstockDays: number }; /** false = no values (receivers, docs/12 A-04) */ money?: boolean;
@@ -15,10 +16,11 @@
   const value = (x: StockRow) => x.closing * x.landedCostPerCase;
   const whs = $derived([...new Set(rows.map((x) => x.warehouseId))].sort());
   const prods = $derived([...new Set(rows.map((x) => x.productId))].sort());
-  const total = $derived({ value: rows.reduce((a, x) => a + value(x), 0), cases: rows.reduce((a, x) => a + x.closing, 0), transit: rows.reduce((a, x) => a + x.inTransit, 0) });
+  // docs/18: the tiles use the shared definitions (metrics registry)
+  const total = $derived(inventoryTiles(rows, vel, money));
   const LEVELS = ['Out of stock', 'Low', 'OK', 'Overstock'] as const;
   const counts = $derived(LEVELS.map((l) => ({ label: l, value: rows.filter((x) => levelOf(x) === l).length })));
-  const attention = $derived(rows.filter((x) => levelOf(x) !== 'OK').length);
+  const attention = $derived(total.attention);
   const sinceSale = (x: StockRow) => vel.find((v) => v.warehouseId === x.warehouseId && v.productId === x.productId)?.daysSinceSale ?? 99;
   const AGE = [['0–7 days', 0, 7], ['8–14 days', 8, 14], ['15–30 days', 15, 30], ['Over 30 days', 31, 1e9]] as const;
   const ageing = $derived(AGE.map(([l, a, b]) => rows.filter((x) => x.closing > 0 && sinceSale(x) >= a && sinceSale(x) <= b).reduce((s, x) => s + x.closing, 0)));
@@ -33,10 +35,10 @@
 <CompanySplit title="Stock by company" metrics={inventorySplit()} />
 
 <div class="tiles">
-  {#if money}<StatTile label="Stock value" value={usd(total.value)} hint="at landed cost per case" />{/if}
+  {#if money}<StatTile label="Stock value" value={usd(total.value ?? 0)} hint="at landed cost per case" />{/if}
   <StatTile label="Cases on hand" value={fmtNum(total.cases)} hint="{whs.length} warehouses · {prods.length} SKUs" />
   <StatTile label="In transit" value={fmtNum(total.transit)} hint="loaded, not yet acknowledged" onclick={() => drill(B, {})} />
-  <StatTile label="Needs attention" value={String(attention)} hint="low, out of stock or overstock" onclick={() => drill(B, { level: 'Low' })} />
+  <StatTile label="Needs attention" value={String(attention)} hint="out of stock, low cover, overstock or no recent sale" onclick={() => drill(B, { level: 'Low' })} />
 </div>
 
 <div class="charts-grid">

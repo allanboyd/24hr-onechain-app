@@ -7,6 +7,7 @@ import * as R from '../rules';
 import * as M from '../money';
 import { performanceReport, type PerfFilter } from '../performance';
 import { buildMoneyHistory } from './money-history';
+import { mockSane } from './sanity';
 import type { ReportData } from '../reports';
 import type { Subject } from '../access';
 import type {
@@ -40,12 +41,17 @@ export async function expenses(c: Ctx, f: ExpenseFilter = {}): Promise<Warehouse
   if (f.warehouseId && !M.seesWarehouse(u(c), f.warehouseId)) throw c.httpErr('Not your warehouse', 403);
   return c.wait(M.filterExpenses((m.db.expenses ?? []).filter((e) => M.seesWarehouse(u(c), e.warehouseId)), f));
 }
+/** audit words per input ("unusual amount confirmed …") */
+const notes = new WeakMap<object, string>();
 function expenseFrom(c: Ctx, input: Partial<WarehouseExpenseInput>, cur?: WarehouseExpense): WarehouseExpense {
   const v = { ...(cur ? { warehouseId: cur.warehouseId, date: cur.date, category: cur.category, amount: cur.amount, currency: cur.currency, reference: cur.reference, note: cur.note } : {}), ...input };
   const errs = M.validateExpense(v, { warehouseIds: seed.warehouses.map((w) => w.id) });
   if (errs.length) throw c.httpErr(errs.join('; '), 422);
   if (!M.canRecordWarehouse(u(c), v.warehouseId!)) throw c.httpErr('You record expenses for your own warehouses only', 403);
-  const currency = v.currency ?? 'USD';
+  // docs/17 F4: plausible amount for its currency (when the amount or currency is entered or changed)
+  const sane = !cur || input.amount !== undefined || input.currency !== undefined ? mockSane('warehouse-expense', v.amount, v.currency, v.date!, input.confirmUnusual) : null;
+  notes.set(input, sane?.note ?? '');
+  const currency = v.currency!;
   const rate = R.fxFor(m.db.fxRates ?? seed.seedFxRates(), currency, v.date!);
   const receipt = input.receiptFileId ? { id: input.receiptFileId, kind: 'receipt' as const, name: input.receiptName || 'receipt.jpg', ...(input.receiptUrl ? { url: input.receiptUrl } : {}) } : input.receiptFileId === null ? null : cur?.receipt ?? null;
   return {
@@ -57,7 +63,7 @@ export async function addExpense(c: Ctx, input: WarehouseExpenseInput): Promise<
   start(c); feat(c, 'warehouse-expenses');
   const x = expenseFrom(c, input);
   (m.db.expenses ??= []).push(x);
-  c.log('POST', '/warehouse/expenses', { recordType: 'warehouse-expense', recordId: x.id, summary: `${wh(x.warehouseId)?.name}: ${x.category} ${x.currency} ${x.amount}`, after: { category: x.category, amount: x.amount, currency: x.currency, date: x.date } });
+  c.log('POST', '/warehouse/expenses', { recordType: 'warehouse-expense', recordId: x.id, summary: `${wh(x.warehouseId)?.name}: ${x.category} ${x.currency} ${x.amount}${notes.get(input) ?? ''}`, after: { category: x.category, amount: x.amount, currency: x.currency, date: x.date } });
   return c.commit(x);
 }
 export async function updateExpense(c: Ctx, id: ID, input: Partial<WarehouseExpenseInput>): Promise<WarehouseExpense> {
@@ -67,7 +73,7 @@ export async function updateExpense(c: Ctx, id: ID, input: Partial<WarehouseExpe
   if (!M.canEditExpense(u(c), cur)) throw c.httpErr('Only the person who recorded it or a director changes an expense', 403);
   const x = expenseFrom(c, input, cur);
   Object.assign(cur, x);
-  c.log('PATCH', `/warehouse/expenses/${id}`, { recordType: 'warehouse-expense', recordId: id, summary: `${x.category} ${x.currency} ${x.amount}` });
+  c.log('PATCH', `/warehouse/expenses/${id}`, { recordType: 'warehouse-expense', recordId: id, summary: `${x.category} ${x.currency} ${x.amount}${notes.get(input) ?? ''}` });
   return c.commit(cur);
 }
 export async function deleteExpense(c: Ctx, id: ID): Promise<boolean> {

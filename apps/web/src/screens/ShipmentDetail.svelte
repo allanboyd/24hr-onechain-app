@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { withUnusualConfirm } from '@btw/api/amounts';
   import { destinationLabel } from '../lib/planning';
   import { chainModel, chainOf, journeySteps, sendOn, type ChainShipment } from '../lib/journey';
   import { router } from '@btw/ui';
@@ -43,7 +44,7 @@
   async function saveAgreed(e: Event) {
     e.preventDefault(); apErr = '';
     if (!(Number(apAmount) > 0)) { apErr = 'Enter the agreed price (above zero)'; return; }
-    try { await finance.setAgreedPrice(sh!.id, { amount: Number(apAmount), currency: apCur }); apDlg?.close(); say('Agreed transport price recorded'); } catch (err) { apErr = describe(err).message; }
+    try { if (await withUnusualConfirm((confirmUnusual) => finance.setAgreedPrice(sh!.id, { amount: Number(apAmount), currency: apCur, confirmUnusual }))) { apDlg?.close(); say('Agreed transport price recorded'); } } catch (err) { apErr = describe(err).message; }
   }
   const w = watch(load);
 
@@ -245,7 +246,7 @@
     {/each}
 
     <section class="card flush">
-      <header><div><h3>Quantity reconciliation</h3><div class="caption">Loaded vs received per leg — losses show on the leg where they happened (DS-03)</div></div></header>
+      <header><div><h3>Quantity reconciliation</h3><div class="caption">Loaded vs received per leg — losses show on the leg where they happened</div></div></header>
       <div class="table-wrap"><table class="table">
         <thead><tr><th>Leg</th><th>Brand · Package</th><th class="num">Loaded</th><th class="num">Received</th><th class="num">Short / over</th><th class="num">Damaged</th><th class="num">Good (carried on)</th><th class="num">Loss on leg</th></tr></thead>
         <tbody>
@@ -274,7 +275,7 @@
   <dialog class="sheet" bind:this={issueDlg}>
     <div class="body stack">
       <h3>Log truck issue</h3>
-      <p class="caption">{issueLeg ? lookup.truck(issueLeg.truckId)?.reg : ''} — where it stopped, why, and the new due date (§17.5).</p>
+      <p class="caption">{issueLeg ? lookup.truck(issueLeg.truckId)?.reg : ''} — where it stopped, why, and the new due date.</p>
       {#if issueLeg}
         <label class="field"><span>Checkpoint</span><select class="select" bind:value={iss.checkpointId} onchange={() => (iss.place = lookup.checkpoint(iss.checkpointId)?.name ?? iss.place)}><option value="">Between checkpoints</option>{#each issueLeg.passes as p}<option value={p.checkpointId}>{lookup.checkpoint(p.checkpointId)?.name}</option>{/each}</select></label>
       {/if}

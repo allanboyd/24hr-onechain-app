@@ -68,6 +68,7 @@ export const routes: WebRoute[] = [
   { path: '/selling-prices', load: mo('SellingPrices'), title: 'Selling prices' },
   { path: '/performance', load: mo('Performance'), title: 'Performance' },
   { path: '/dev/charts', load: () => import('./screens/ChartGallery.svelte'), title: 'Chart gallery' }, // dev/demo only: the screen checks showDemoHelpers
+  { path: '/dev/page-kit', load: () => import('./screens/PageKitGallery.svelte'), title: 'Page kit' }, // dev/demo only: the screen checks showDemoHelpers
 ];
 
 type NavItem = { href: string; label: string; icon: any; feature?: Feature | Feature[] };

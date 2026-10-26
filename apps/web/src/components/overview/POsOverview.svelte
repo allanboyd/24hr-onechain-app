@@ -3,6 +3,7 @@
   import { amount, lookup, type Loading, type Plan, type PurchaseOrder, type Shipment } from '@btw/api';
   import { BarChart, ChartCard, Donut, StatTile, byMonth, monthLabel, usd } from '../charts';
   import { drill } from '../../lib/tab';
+  import { poTiles } from '../../lib/tiles';
   let { list, plans, loads, ships }: { list: PurchaseOrder[]; plans: Plan[]; loads: Loading[]; ships: Shipment[] } = $props();
   const value = (po: PurchaseOrder) => po.amount ?? plans.find((p) => p.id === po.planId)?.lines.reduce((a, l) => a + amount(l.qty, l.price), 0) ?? 0;
   const prog = (po: PurchaseOrder) => {
@@ -13,6 +14,8 @@
   const all = $derived(list.map((po) => ({ po, ...prog(po) })));
   const tot = $derived(all.reduce((a, x) => ({ toLoad: a.toLoad + x.toLoad, moving: a.moving + x.moving, delivered: a.delivered + x.delivered, trucks: a.trucks + x.trucks }), { toLoad: 0, moving: 0, delivered: 0, trucks: 0 }));
   const open = $derived(all.filter((x) => x.toLoad + x.moving > 0).slice(0, 12));
+  // docs/18: tiles use the shared definitions (trucks to load on live orders; delivered = every trip signed for)
+  const fig = $derived(poTiles(list, loads, ships, (id) => lookup.route(id)?.stops ?? []));
   const months = $derived(byMonth(list, (p) => p.date));
   const bySupplier = $derived.by(() => { const m = new Map<string, number>(); for (const po of list) { const s = lookup.supplier(po.supplierId); const k = s ? `${s.code} ${s.city}` : po.supplierId; m.set(k, (m.get(k) ?? 0) + value(po)); } return [...m.entries()].map(([label, v]) => ({ label, value: Math.round(v) })).sort((a, b) => b.value - a.value); });
   import CompanySplit from '../group/CompanySplit.svelte';
@@ -24,8 +27,8 @@
 <div class="tiles">
   <StatTile label="Purchase orders" value={String(list.length)} hint={usd(list.reduce((a, p) => a + value(p), 0))} />
   <StatTile label="Not yet sent" value={String(list.filter((p) => !p.sentAt && p.status === 'Issued').length)} hint="to the supplier export section" onclick={() => drill('/pos', { stage: 'Created' })} />
-  <StatTile label="Trucks to load" value={String(tot.toLoad)} hint="on open orders" />
-  <StatTile label="Trucks delivered" value={`${tot.delivered} of ${tot.trucks}`} hint="{tot.moving} on the road" />
+  <StatTile label="Trucks to load" value={String(fig.toLoad)} hint="on {fig.ordersToLoad} orders awaiting loading" />
+  <StatTile label="Delivered" value={String(fig.delivered)} hint="{fig.onRoad} on the road" />
 </div>
 
 <div class="charts-grid">

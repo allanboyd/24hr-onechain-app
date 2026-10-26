@@ -56,7 +56,8 @@ export function validateExpense(e: Partial<WarehouseExpenseInput>, ctx: { wareho
   if (!ctx.warehouseIds.includes(e.warehouseId as ID)) out.push('Pick the warehouse');
   if (!WAREHOUSE_EXPENSE_CATEGORIES.includes(e.category as WarehouseExpenseCategory)) out.push('Pick the category');
   if (!(typeof e.amount === 'number' && Number.isFinite(e.amount) && e.amount > 0 && e.amount < 1e10)) out.push('Enter the amount (above zero)');
-  if (e.currency !== undefined && !CURRENCIES.includes(e.currency)) out.push('Unknown currency');
+  if (e.currency === undefined || e.currency === null) out.push('Choose the currency');
+  else if (!CURRENCIES.includes(e.currency)) out.push('Unknown currency');
   if (typeof e.date !== 'string' || !DATE.test(e.date) || Number.isNaN(Date.parse(e.date))) out.push('Enter the date (YYYY-MM-DD)');
   else if (Date.parse(e.date) > (ctx.now ?? Date.now()) + DAY) out.push('The date cannot be in the future');
   else if (Date.parse(e.date) < (ctx.now ?? Date.now()) - 400 * DAY) out.push('The date is more than a year ago');

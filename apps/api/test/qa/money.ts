@@ -34,7 +34,7 @@ export async function moneySuite(env: Env) {
   r = await req('POST', '/warehouse/expenses', T.asie, { warehouseId: 'w-kgl', date: today, category: 'Utilities', amount: 141800, currency: 'RWF', reference: 'REG-123', note: 'Water', receiptFileId: up.body?.id, receiptName: 'water-bill.jpg' });
   ok(r.status === 201 && r.body.amountUsd > 80 && r.body.amountUsd < 120 && r.body.fxRate > 1000 && r.body.receivingCompanyId === 'rc-asie' && r.body.receipt?.id === up.body?.id && r.body.byUserId === 'u-asie', 'Asie records an RWF expense with a receipt photo (USD at the month rate)', r.body);
   const ex = r.body;
-  expectStatus(await req('POST', '/warehouse/expenses', T.asie, { warehouseId: 'w-juba', date: today, category: 'Rent', amount: 10 }), 403, 'Asie cannot record for Juba');
+  expectStatus(await req('POST', '/warehouse/expenses', T.asie, { warehouseId: 'w-juba', date: today, category: 'Rent', amount: 10, currency: 'USD' }), 403, 'Asie cannot record for Juba');
   expectStatus(await req('POST', '/warehouse/expenses', T.asie, { warehouseId: 'w-kgl', date: '2099-01-01', category: 'Party', amount: -5 }), 422, 'expense validated (category, amount, date)');
   expectStatus(await req('POST', '/warehouse/expenses', T.tf, { warehouseId: 'w-kgl', date: today, category: 'Rent', amount: 10 }), 403, 'Testfie cannot record warehouse expenses');
   r = await req('PATCH', `/warehouse/expenses/${ex.id}`, T.asie, { amount: 150000 });
@@ -158,4 +158,45 @@ export async function moneySuite(env: Env) {
   const one = (await req('GET', '/reports/performance?level=product', T.dir, undefined, { 'x-entity-id': 'e-kivu' })).body;
   ok(one.rows.every((x: any) => x.productId === 'p-e330' || x.revenue === 0), 'company scope (Kivu) narrows the report', one.rows.map((x: any) => x.productId));
   for (const [who, t] of [['Kabonge', T.kab], ['Testfie', T.tf], ['Asie', T.asie], ['Yonas', T.yonas], ['a loader', T.joel]] as const) expectStatus(await req('GET', '/reports/performance', t), 403, `${who}: no performance report`);
+
+  // ---- docs/17 F4 (CHECKLIST F-0a): the USD 3,050,000 agreed price and the amount sanity rules -------------------------
+  section('Money · amounts: seed fixed, sanity rules, data repair');
+  const big = await env.sql`select amount, currency, amount_usd from trip_costs where kind = 'Transport' and amount = 3050000`;
+  ok(big.length === 1 && big[0].currency === 'UGX' && big[0].amount_usd < 1000, 'seed: the 3,050,000 agreed price is UGX (≈ USD 800), not USD', big);
+  const fz = (await req('GET', '/finance/fees', T.dir)).body as any[];
+  ok(fz.every((f) => f.agreedUsd === null || f.agreedUsd <= 20000), 'transport fees: no agreed price above USD 20,000', Math.max(...fz.map((f) => f.agreedUsd ?? 0)));
+  ok(fz.reduce((a, f) => a + Math.max(0, f.balanceUsd ?? 0), 0) < 200000, 'open balance in the tens of thousands, not USD 3 million');
+  // the repair migration (0012) turns a cost written in USD for a loading agreed in UGX back into UGX
+  await env.sql`update trip_costs set currency = 'USD', fx_rate = 1, amount_usd = amount where kind = 'Transport' and amount = 3050000`;
+  const { readFileSync } = await import('node:fs'); const { join } = await import('node:path');
+  await env.sql.unsafe(readFileSync(join(__dirname, '../../drizzle/0012_transport_cost_currency.sql'), 'utf8').replace(/--> statement-breakpoint/g, ''));
+  const fixed = await env.sql`select currency, fx_rate, amount_usd from trip_costs where kind = 'Transport' and amount = 3050000`;
+  ok(fixed[0]?.currency === 'UGX' && fixed[0].fx_rate > 3000 && fixed[0].amount_usd < 1000, 'migration 0012 repairs a cost stored in USD while its loading was agreed in UGX', fixed);
+  const trip = fz.find((f) => f.status === 'Not recorded' && !f.reexport);
+  ok(!!trip, 'a trip without an agreed price to try on');
+  let a = await req('POST', `/shipments/${trip.shipmentId}/agreed-price`, T.tf, { amount: 3050000, currency: 'USD' });
+  ok(a.status === 422 && a.body.code === 'impossible-amount' && /UGX/.test(a.body.title) && a.body.amountCheck?.looksLocal?.length > 0, 'USD 3,050,000 refused (422 impossible-amount), says it looks like UGX', a.body);
+  a = await req('POST', `/shipments/${trip.shipmentId}/agreed-price`, T.tf, { amount: 1500 });
+  ok(a.status === 422 && /currency/i.test(a.body.title), 'no currency → 422 (currency always explicit)', a.body);
+  a = await req('POST', `/shipments/${trip.shipmentId}/agreed-price`, T.tf, { amount: 45000, currency: 'USD' });
+  ok(a.status === 422 && a.body.code === 'unusual-amount' && /Are you sure/.test(a.body.title), 'USD 45,000 → 422 unusual-amount (asks to confirm)', a.body);
+  a = await req('POST', `/shipments/${trip.shipmentId}/agreed-price`, T.tf, { amount: 45000, currency: 'USD', confirmUnusual: true });
+  ok(a.status === 200 && a.body.amount === 45000, 'confirmed unusual price is saved', a.body);
+  let au: any; for (let i = 0; i < 30 && !/unusual/.test(au?.summary ?? ''); i++) { [au] = await env.sql`select summary from audit_log where (path = ${`/v1/shipments/${trip.shipmentId}/agreed-price`} or path = ${`/shipments/${trip.shipmentId}/agreed-price`}) and status < 300 order by id desc limit 1`; if (!/unusual/.test(au?.summary ?? '')) await new Promise((r) => setTimeout(r, 150)); }
+  ok(/unusual amount confirmed/.test(au?.summary ?? ''), 'the confirmation is audited', au);
+  a = await req('POST', `/shipments/${trip.shipmentId}/agreed-price`, T.tf, { amount: 2_400_000, currency: 'UGX' });
+  ok(a.status === 200 && a.body.currency === 'UGX' && a.body.amountUsd < 1000, 'UGX 2,400,000 is a normal agreed price', a.body);
+  a = await req('POST', '/finance/costs', T.tf, { shipmentId: trip.shipmentId, kind: 'Other', amount: 40000, currency: 'USD' });
+  ok(a.status === 422 && a.body.code === 'unusual-amount', 'trip expense USD 40,000 → unusual-amount', a.body);
+  a = await req('POST', '/finance/costs', T.tf, { shipmentId: trip.shipmentId, kind: 'Other', amount: 40, currency: 'USD', confirmUnusual: false });
+  ok(a.status === 201, 'trip expense USD 40 is fine', a.body);
+  a = await req('POST', '/warehouse/expenses', T.asie, { warehouseId: 'w-kgl', date: today, category: 'Rent', amount: 5000000, currency: 'USD' });
+  ok(a.status === 422 && a.body.code === 'impossible-amount' && /RWF/.test(a.body.title), 'warehouse expense USD 5,000,000 refused, suggests RWF', a.body);
+  a = await req('POST', '/warehouse/expenses', T.asie, { warehouseId: 'w-kgl', date: today, category: 'Rent', amount: 500 });
+  ok(a.status === 422 && /currency/i.test(a.body.title), 'warehouse expense without a currency → 422', a.body);
+  a = await req('POST', '/warehouse/expenses', T.asie, { warehouseId: 'w-kgl', date: today, category: 'Rent', amount: 5000000, currency: 'RWF' });
+  ok(a.status === 201 && a.body.amountUsd > 2000 && a.body.amountUsd < 5000, 'the same amount in RWF is a normal rent', a.body);
+  a = await req('POST', '/finance/payments', T.dir, { shipmentId: trip.shipmentId, costId: 'x', amount: -5, reference: 'neg' });
+  ok(a.status === 422, 'negative payment refused', a.status);
 }
+

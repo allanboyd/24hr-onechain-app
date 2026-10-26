@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { withUnusualConfirm } from '@btw/api/amounts';
   import RecordFor from '../components/RecordFor.svelte';
   import { scopeEntity } from '../lib/company.svelte';
   import { watch } from '../lib/load.svelte';
@@ -143,7 +144,8 @@
     if (check?.error) { recErr = check.error; return; }
     busy = true;
     try {
-      const sh = await loading.confirm(cur!.id, { truckId, driverId, loadedQty: $state.snapshot(qty), alternatives: $state.snapshot(alts), ...(priceAtLoading && Number(transport) > 0 ? { agreedTransport: Number(transport), transportCurrency } : {}), documents: Object.entries(docs).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`) });
+      const sh = await withUnusualConfirm((confirmUnusual) => loading.confirm(cur!.id, { truckId, driverId, loadedQty: $state.snapshot(qty), alternatives: $state.snapshot(alts), ...(priceAtLoading && Number(transport) > 0 ? { agreedTransport: Number(transport), transportCurrency, confirmUnusual } : {}), documents: Object.entries(docs).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`) }));
+      if (!sh) return;
       recDlg?.close(); say(`Loading confirmed — ${sh.ref} created${check?.deviates && cur?.nextRevisionRef ? ` · PO revised → ${cur.nextRevisionRef}` : ''}`); router.go(`/shipments/${sh.id}`);
     } catch (e) { recErr = (e as Error).message; } finally { busy = false; }
   }
@@ -151,7 +153,7 @@
 
 <div class="page-head">
   <div><div class="overline crumb">Logistics</div><h1>Loading & waiting list</h1>
-    <p class="muted small">Trucks queue at each supplier loading point; the loader takes the next truck in line for each PO truck line (LD-01, §17.4).</p></div>
+    <p class="muted small">Trucks queue at each supplier loading point; the loader takes the next truck in line for each PO truck line.</p></div>
 </div>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
 <PageTabs base="/loading" current={tab} listLabel="Queue & loading" />
@@ -232,7 +234,7 @@
         </select></label>
       <label class="field"><span>Driver</span><select class="select" bind:value={addDriver}>{#each ref().drivers.filter((d) => d.active !== false) as d}<option value={d.id}>{d.name} · {d.phone}{d.hasApp ? '' : ' · no app'}</option>{/each}</select></label>
     {:else}
-      <p class="caption">Hired from the market when regular trucks are not available. Recorded with company, truck, trailer and driver (§17.4); the driver gets SMS check-ins.</p>
+      <p class="caption">Hired from the market when regular trucks are not available. Recorded with company, truck, trailer and driver; the driver gets SMS check-ins.</p>
       <div class="form-grid">
         <label class="field"><span>Transport company</span><input class="input" bind:value={mk.company} placeholder="e.g. Company Y" /></label>
         <label class="field"><span>Capacity (cases)</span><input class="input num" type="number" min="0" bind:value={mk.capacityCases} /></label>
@@ -326,7 +328,7 @@
         </div>
       {:else}<p class="caption">No prices here — the agreed transport price is recorded after loading by the truck follow-up officer.</p>{/if}
       <div class="stack-sm">
-        <span class="label">Supplier documents (LD-04)</span>
+        <span class="label">Supplier documents</span>
         {#each Object.keys(docs) as k}
           <label class="row small"><span style="width:110px">{k}</span><input class="input grow" type="file" accept="image/*,application/pdf" onchange={(e) => (docs[k] = (e.currentTarget as HTMLInputElement).files?.[0]?.name ?? '')} /></label>
         {/each}

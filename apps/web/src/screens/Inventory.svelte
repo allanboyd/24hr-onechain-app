@@ -10,6 +10,8 @@
   import PageTabs from '../components/PageTabs.svelte';
   import InventoryOverview from '../components/overview/InventoryOverview.svelte';
   import { currentTab, qp } from '../lib/tab';
+  import { inventoryTiles } from '../lib/tiles';
+  import * as MX from '@btw/api/metrics';
   let { user }: { params?: any; user: User } = $props();
   const money = $derived(seesPrices(user)); // receivers: quantities only, no purchase prices (docs/12 A-04)
   const r = ref();
@@ -28,9 +30,10 @@
   const w = watch(load);
   const t = analytics.thresholds;
 
-  // IN-05: stock level from cover days (reorder / overstock thresholds per SKU × warehouse; defaults from §9.3)
-  const cover = (x: StockRow) => vel.find((v) => v.warehouseId === x.warehouseId && v.productId === x.productId)?.cover ?? 999;
-  const levelOf = (x: StockRow) => (x.closing <= 0 ? 'Out of stock' : cover(x) < t.stockOutDays ? 'Low' : cover(x) > t.overstockDays ? 'Overstock' : 'OK');
+  // docs/18: stock level from the shared stock risk (metrics.stockRisk): cover = cases on hand ÷ cases sold per day (30 days)
+  const pace = $derived(MX.paceFromVelocity(vel));
+  const cover = (x: StockRow) => { const p = pace(x); return p.perDay ? Math.round(x.closing / p.perDay) : 999; };
+  const levelOf = (x: StockRow) => { const p = pace(x); const k = MX.stockRisk(x.closing, p.perDay, p.daysSinceSale); return k === 'out' ? 'Out of stock' : k === 'stock-out risk' || k === 'low' ? 'Low' : k === 'ok' ? 'OK' : 'Overstock'; };
   const levelTone = { 'Out of stock': 'danger', Low: 'danger', Overstock: 'warning', OK: 'success' } as const;
 
   const shown = $derived((rows ?? [])
@@ -38,8 +41,9 @@
     .filter((x) => { const p = lookup.product(x.productId); return !q || `${p?.brand} ${p?.pack} ${p?.sku}`.toLowerCase().includes(q.toLowerCase()); })
     .sort((a, b) => a.warehouseId.localeCompare(b.warehouseId) || a.productId.localeCompare(b.productId)));
   const sum = (k: keyof StockRow) => shown.reduce((a, x) => a + (x[k] as number), 0);
-  const value = $derived(shown.reduce((a, x) => a + x.closing * x.landedCostPerCase, 0));
-  const alerts = $derived(shown.filter((x) => levelOf(x) !== 'OK').length);
+  const fig = $derived(inventoryTiles(shown, vel, money));
+  const value = $derived(fig.value ?? 0);
+  const alerts = $derived(fig.attention);
   async function open(row: StockRow) { sel = row; ledger = await inventory.ledger(row.warehouseId, row.productId); dialog?.showModal(); }
   const cols: [keyof StockRow, string][] = [['opening', 'Opening'], ['received', 'Received'], ['transfersIn', 'Transfers in'], ['transfersOut', 'Transfers out'], ['damaged', 'Damaged'], ['adjustments', 'Adjustments'], ['sold', 'Sold'], ['closing', 'Closing']];
   const exportRows = () => [['Warehouse', 'SKU', 'Brand', 'Package', ...cols.map(([, l]) => l), 'In transit', 'Cover (days)', 'Level', ...(money ? ['Landed cost/case (USD)', 'Value (USD)'] : [])],
@@ -48,7 +52,7 @@
 
 <div class="page-head">
   <div><div class="overline crumb">Stock & sales</div><h1>Inventory</h1>
-    <p class="muted small" style="max-width:560px;margin:var(--space-1) 0 0">Movements over the last 30 days (§7.5). Stock posts only after delivery acknowledgement (AK-05); in-transit cases are shown separately and are not in closing stock.</p></div>
+    <p class="muted small" style="max-width:560px;margin:var(--space-1) 0 0">Movements over the last 30 days. Stock posts only after delivery acknowledgement; in-transit cases are shown separately and are not in closing stock.</p></div>
   <ExportMenu name="inventory" rows={exportRows} />
 </div>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
@@ -60,10 +64,10 @@
   {:else}<InventoryOverview rows={rows.filter((x) => !scoped || scoped.includes(x.warehouseId))} {vel} {levelOf} {cover} thresholds={t} {money} />{/if}
 {:else}
 <div class="grid grid-kpi" style="margin-bottom:var(--space-4)">
-  <div class="card kpi"><div class="overline">Closing stock</div><div class="value">{fmtNum(sum('closing'))}</div><div class="delta">cases on hand</div></div>
-  <div class="card kpi"><div class="overline">In transit</div><div class="value">{fmtNum(sum('inTransit'))}</div><div class="delta">loaded, not yet acknowledged</div></div>
-  {#if money}<div class="card kpi"><div class="overline">Stock value</div><div class="value">{fmtMoney(value)}</div><div class="delta">at landed cost per case (§17.6)</div></div>{/if}
-  <button class="card kpi pick" class:on={level === 'Low' || level === 'Overstock'} onclick={() => (level = level ? '' : 'Low')}><div class="overline">Needs attention</div><div class="value" class:accent-text={alerts > 0}>{alerts}</div><div class="delta">low (&lt; {t.stockOutDays} d cover) or overstock (&gt; {t.overstockDays} d)</div></button>
+  <div class="card kpi"><div class="overline">Cases on hand</div><div class="value">{fmtNum(fig.cases)}</div><div class="delta">closing stock</div></div>
+  <div class="card kpi"><div class="overline">In transit</div><div class="value">{fmtNum(fig.transit)}</div><div class="delta">loaded, not yet acknowledged</div></div>
+  {#if money}<div class="card kpi"><div class="overline">Stock value</div><div class="value">{fmtMoney(value)}</div><div class="delta">at landed cost per case</div></div>{/if}
+  <button class="card kpi pick" class:on={level === 'Low' || level === 'Overstock'} onclick={() => (level = level ? '' : 'Low')}><div class="overline">Needs attention</div><div class="value" class:accent-text={alerts > 0}>{alerts}</div><div class="delta">out, under {MX.COVER_DAYS.low} d of cover, over {MX.COVER_DAYS.over} d or no sale in {MX.COVER_DAYS.noSaleDays} d</div></button>
 </div>
 
 <div class="filters">
@@ -98,13 +102,13 @@
     </tbody>
   </table>
 </div>
-<p class="caption" style="margin-top:var(--space-2)">Click a row for the stock ledger (IN-02). Cover = closing stock ÷ average daily sales (30 days). Transfers and stock take (IN-03/04) arrive in the follow-on release.</p>
+<p class="caption" style="margin-top:var(--space-2)">Click a row for the stock ledger. Cover = closing stock ÷ average daily sales (30 days). Transfers and stock take arrive in the follow-on release.</p>
 {/if}
 
 <dialog class="sheet" bind:this={dialog} style="width:min(720px,calc(100vw - 32px))">
   <div class="body stack">
     {#if sel}
-      <div class="row between"><div><div class="overline">Stock ledger (IN-02)</div><h3>{lookup.product(sel.productId)?.brand} · {lookup.product(sel.productId)?.pack}</h3><div class="muted small">{destinationLabel(sel.warehouseId)} · closing {fmtNum(sel.closing)} cases · {fmtNum(sel.inTransit)} in transit</div></div><button class="btn btn-ghost" onclick={() => dialog?.close()}>Close</button></div>
+      <div class="row between"><div><div class="overline">Stock ledger</div><h3>{lookup.product(sel.productId)?.brand} · {lookup.product(sel.productId)?.pack}</h3><div class="muted small">{destinationLabel(sel.warehouseId)} · closing {fmtNum(sel.closing)} cases · {fmtNum(sel.inTransit)} in transit</div></div><button class="btn btn-ghost" onclick={() => dialog?.close()}>Close</button></div>
       <div class="table-wrap" style="max-height:60vh;overflow:auto"><table class="table">
         <thead><tr><th>Date</th><th>Movement</th><th>Reference</th><th class="num">Cases</th></tr></thead>
         <tbody>

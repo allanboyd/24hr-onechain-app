@@ -85,6 +85,13 @@
       "when": 1793036058907,
       "tag": "0011_po_versions",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793036158907,
+      "tag": "0012_transport_cost_currency",
+      "breakpoints": true
     }
   ]
 }

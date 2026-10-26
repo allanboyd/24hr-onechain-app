@@ -4,6 +4,7 @@
   import { fmtNum } from '@btw/ui';
   import { BarChart, ChartCard, LineChart, StatTile, pct } from '../charts';
   import { drill } from '../../lib/tab';
+  import { loadingTiles } from '../../lib/tiles';
   let { points }: { points: { id: string; code: string; city: string }[] } = $props();
   let waiting = $state<WaitingEntry[]>([]);
   let loads = $state<Loading[]>([]);
@@ -32,7 +33,7 @@
 <div class="tiles">
   <StatTile label="Trucks waiting" value={ready ? String(queue.length) : '…'} hint="in the queue at {points.length} loading points" />
   <StatTile label="Longest wait" value={queue.length ? `${Math.round(Math.max(...queue.map(waitH)))} h` : '—'} hint="since the truck arrived" />
-  <StatTile label="Truck lines to load" value={String(mine.filter((l) => l.status === 'Pending').length)} hint="on approved purchase orders" />
+  <StatTile label="Trucks to load" value={String(loadingTiles(loads, ids).toLoad)} hint="on purchase orders awaiting loading" />
   <StatTile label="Loaded · 7 days" value={String(last7)} delta={prev7 ? last7 / prev7 - 1 : null} deltaLabel="vs the 7 days before" />
 </div>
 

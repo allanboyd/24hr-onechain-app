@@ -79,7 +79,7 @@ export async function trucksSuite(env: Env) {
   let au: any; // the audit row is written right after the response: give it a moment
   for (let i = 0; i < 20 && !(au?.after?.amount === 2_500_000); i++) { [au] = await env.sql`SELECT before, after, record_id FROM audit_log WHERE path = ${`/v1/shipments/${missing.shipment.id}/agreed-price`} OR path = ${`/shipments/${missing.shipment.id}/agreed-price`} ORDER BY id DESC LIMIT 1`; if (!(au?.after?.amount === 2_500_000)) await new Promise((r) => setTimeout(r, 150)); }
   ok(au?.before?.amount === 2_400_000 && au?.after?.amount === 2_500_000, 'the correction is in the audit log with before / after', au);
-  expectStatus(await c.req('POST', `/shipments/${paidTrip.shipment.id}/agreed-price`, { token: T.tp, body: { amount: 1 } }), 409, 'a price with payments against it is not overwritten');
+  expectStatus(await c.req('POST', `/shipments/${paidTrip.shipment.id}/agreed-price`, { token: T.tp, body: { amount: 1500, currency: 'USD' } }), 409, 'a price with payments against it is not overwritten');
   ok(((await get('/finance/trips')) as any[]).find((x) => x.shipment.id === missing.shipment.id)?.agreedRecorded === true, 'the trip now counts as recorded');
   const ldK = ((await get('/loadings', T.dir)) as any[]).find((l) => l.poId === missing.shipment.poId && l.truckNo === missing.shipment.truckNo);
   ok(ldK?.agreedTransport === 2_500_000, 'the loading record carries the agreed price', ldK?.agreedTransport);

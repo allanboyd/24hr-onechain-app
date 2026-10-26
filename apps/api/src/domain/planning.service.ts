@@ -186,7 +186,7 @@ export class PlanningService implements OnModuleInit {
     if (action !== 'approved' && action !== 'rejected') fail('action must be approved or rejected', 400, 'bad-request');
     const { po } = await this.chain(p, id, 'edit');
     if (po.status !== 'Awaiting approval') fail('Only purchase orders awaiting approval can be decided', 409, 'state');
-    if (action === 'approved' && !signature) fail('Signature required to approve (PL-03)');
+    if (action === 'approved' && !signature) fail('Signature required to approve');
     if (action === 'approved' && !isUsableImage(signature)) fail('The signature image could not be read — sign again');
     if (action === 'rejected' && !comment?.trim()) fail('Add a comment for the planner');
     if (action === 'rejected') return this.deletePo(p, po.id, `Rejected by ${p.name}: ${comment!.trim()}`, true);

@@ -5,6 +5,7 @@ import { buildHistory } from './history';
 import { buildPeriodPlans } from './period';
 import * as PO from './po';
 import * as R from '../rules';
+import { landedCostMap } from '../landed';
 import type {
   Acknowledgement, AckLine, AuditEntry, ReexportOrder, SellingPrice, WarehouseExpense, Checkpoint, CheckpointPass, Entity, PriceListItem, Product, ReceivingCompany, Supplier, EtaInfo, Flag, FxRate, ID, Leg, LegStatus, Loading, Notification, PeriodPlan, Plan,
   PoVersion, PurchaseOrder, PvThresholds, Role, Sale, Shipment, StockRow, TripCost, TripPayment, TruckIssue, User, VelocityRow, Warehouse, WaitingEntry,
@@ -239,7 +240,10 @@ function seedPurchaseOrders(d: DB, now: number) {
   for (const l of ld.lines) l.loadedQty = loadedQty[l.planLineId] ?? l.orderedQty;
   const moses = seed.users.find((u) => u.id === 'u-moses') ?? kab;
   PO.reviseAtLoading(ctx(now - 5 * H, moses), ld, { loadedQty }, check, truck.reg);
-  completeLoading(ld, 't5', 'd5', 3_050_000, now - 5 * H); ld.transportCurrency = 'UGX';
+  // agreed in Uganda shillings: the currency must be on the loading BEFORE completeLoading writes the Transport cost line
+  // (it was set afterwards, so the cost was stored as USD 3,050,000 — docs/17 F4)
+  ld.transportCurrency = 'UGX';
+  completeLoading(ld, 't5', 'd5', 3_050_000, now - 5 * H);
   // KVD-PO-2026-0011: raised twice — deleted before anything was loaded (kept with its ref and reason)
   PO.deletePo(ctx(now - 20 * H), 'po-5', 'Raised twice — duplicate of KVD-PO-2026-0010; the trucks are on that order');
   audit('u-kabonge', 'POST', '/pos/po-5/delete', { at: now - 20 * H, recordType: 'po', recordId: 'po-5', entityId: 'e-kivu', summary: 'KVD-PO-2026-0011 deleted: raised twice' });
@@ -442,7 +446,11 @@ export function addIssue(legId: ID, issue: Omit<TruckIssue, 'id'>) {
 
 // ---- Inventory (§7.5) & analytics (§9): see rules.ts --------------------------
 const priceOf = (pid: ID) => seed.priceList.find((x) => x.productId === pid)?.price ?? 0;
-export function stock(): StockRow[] { return R.computeStock(db.stockMoves, db.shipments, priceOf); }
+/** docs/18: each row carries the landed cost per case behind every "stock value" (same as the server). */
+export function stock(): StockRow[] {
+  const landed = landedCostMap({ shipments: db.shipments, costs: db.costs, plans: db.plans, pos: db.pos, priceList: seed.priceList, products: seed.products });
+  return R.computeStock(db.stockMoves, db.shipments, priceOf, Date.now(), (pid) => landed.get(pid));
+}
 export const thresholds = { ...R.defaultThresholds };
 export function velocity(): VelocityRow[] { return R.computeVelocity(stock(), db.sales, thresholds); }
 export function flags(): Flag[] { return R.flagsFrom(velocity()); }

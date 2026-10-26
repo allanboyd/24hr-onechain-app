@@ -11,6 +11,8 @@
   import ShipmentsOverview from '../components/overview/ShipmentsOverview.svelte';
   import { currentTab, qp } from '../lib/tab';
   import { chainOf, fromLabel } from '../lib/journey';
+  import { shipmentTiles } from '../lib/tiles';
+  const stopsOf = (id: string) => lookup.route(id)?.stops ?? [];
   let { user }: { user: User } = $props();
   const tab = currentTab();
   const r = ref();
@@ -22,18 +24,18 @@
 
   const activeLeg = (sh: Shipment): Leg => sh.legs.find((l) => l.status !== 'Acknowledged') ?? sh.legs.at(-1)!;
   const scoped = $derived((list ?? []).filter((sh) => !user.roles.includes('receiver') || user.roles.includes('director') || user.warehouseIds.includes(sh.warehouseId)));
-  const atBorder = (sh: Shipment) => activeLeg(sh).status === 'At border';
-  const noCheckin = (sh: Shipment) => !!tracking.overdue(activeLeg(sh));
+  // docs/18: the same figures as Home and the phone (metrics registry); each chip filters the list to its figure
+  const fig = $derived(shipmentTiles(scoped, stopsOf));
   const chips = $derived([
-    { key: 'active', label: 'On the road', n: scoped.filter((s) => s.status !== 'Acknowledged').length },
-    { key: 'Delayed', label: 'Delayed', n: scoped.filter((s) => s.status === 'Delayed').length },
-    { key: 'At border', label: 'At border', n: scoped.filter(atBorder).length },
-    { key: 'no-checkin', label: 'No check-in', n: scoped.filter(noCheckin).length },
-    { key: 'Acknowledged', label: 'Delivered', n: scoped.filter((s) => s.status === 'Acknowledged').length },
+    { key: 'active', label: 'On the road', n: fig.onRoad },
+    { key: 'Delayed', label: 'Delayed', n: fig.delayed },
+    { key: 'At border', label: 'At a border', n: fig.atBorder },
+    { key: 'no-checkin', label: 'No check-in', n: fig.noCheckin },
+    { key: 'Acknowledged', label: 'Delivered', n: fig.delivered },
     { key: 'all', label: 'All', n: scoped.length },
   ] as const);
   const rows = $derived(scoped.filter((sh) =>
-    (chip === 'all' || (chip === 'active' ? sh.status !== 'Acknowledged' : chip === 'At border' ? atBorder(sh) : chip === 'no-checkin' ? noCheckin(sh) : sh.status === chip))
+    (chip === 'all' || (chip === 'active' ? fig.is.road(sh) : chip === 'Delayed' ? fig.is.delayed(sh) : chip === 'At border' ? fig.is.border(sh) : chip === 'no-checkin' ? fig.is.noCheckin(sh) : fig.is.delivered(sh)))
     && (!company || sh.receivingCompanyId === company) && (!route || sh.legs.some((l) => l.routeId === route))));
 
   function where(leg: Leg) {

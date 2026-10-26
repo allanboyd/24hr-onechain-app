@@ -89,7 +89,7 @@
 {:else}
   <p class="caption">{fmtDate(data.range.from)} – {fmtDate(data.range.to)} · ordered = cases on approved purchase orders · expected to date follows the monthly split (or evenly when none) · {isGroup() ? 'all companies' : companyLabel(data.lines[0]?.entityId)}</p>
   <div class="tiles six">
-    <StatTile label="Planned" value={fmtNum(m.planned)} hint="cases in approved plans" />
+    <StatTile label="Planned" value={fmtNum(m.planned)} hint="cases in period plans" />
     <StatTile label="Ordered" value={fmtNum(m.ordered)} hint="cases on approved POs" />
     <StatTile label="Plan used" value={pct(m.usedPct / 100)} hint="ordered ÷ planned" />
     <StatTile label="Expected to date" value={fmtNum(m.expectedToDate)} hint={`as of ${fmtDate(data.today)}`} />
@@ -116,7 +116,7 @@
     <ChartCard title="Running total by month" subtitle="planned vs ordered, cases · dotted line = today" span={2}
       rows={() => [['Month', 'Planned', 'Ordered', 'Planned (running)', 'Ordered (running)'], ...data!.months.map((k) => [monthLabel(k.month), k.planned, k.ordered, k.cumPlanned, k.cumOrdered])]}>
       {#if data.months.length}<PlotlyChart label="Running total of planned and ordered cases by month" spec={runningSpec} height={300} filename="planned-vs-actual" />
-      {:else}<p class="empty small">No approved plan in this period.</p>{/if}
+      {:else}<p class="empty small">No period plan covers this period.</p>{/if}
     </ChartCard>
     <ChartCard title="Plan used by brand" subtitle="ordered · right figure and tick = expected by today" rows={() => [['Brand', 'Planned', 'Ordered', 'Used %', 'Flag'], ...data!.byBrand.map((b) => [brandName(b.productId), b.planned, b.ordered, Math.round(b.usedPct), b.flag])]}>
       <div class="meters">

@@ -2,6 +2,7 @@
   // docs/14 B-01: warehouse expenses (roles document §9) — offloading, storage, salary, rent, utilities, damaged goods.
   // Receivers record their own warehouses' (Asie: Gisenyi + Goma, Yonas: Juba); directors see and correct all. Monthly
   // totals by category (USD at the approved month rate); the expenses feed landed cost v2 (docs/14 §4).
+  import { withUnusualConfirm } from '@btw/api/amounts';
   import { auth, ref, lookup, warehouse, type Currency, type User, type WarehouseExpense, type WarehouseExpenseCategory } from '@btw/api';
   import { fmtDate, fmtNum, say } from '@btw/ui';
   import { CURRENCIES, WAREHOUSE_EXPENSE_CATEGORIES, canEditExpense, expenseSummary, validateExpense } from '@btw/api/money';
@@ -40,9 +41,10 @@
     busy = true;
     const input = { warehouseId: form.warehouseId, date: form.date, category: form.category, amount: Number(form.amount), currency: form.currency, reference: form.reference || null, note: form.note || null,
       receiptFileId: form.receipt?.id ?? null, receiptName: form.receipt?.name ?? null, receiptUrl: form.receipt?.url || null };
-    err = await attempt(() => (form!.id ? warehouse.updateExpense(form!.id, input) : warehouse.addExpense(input)));
+    let saved = true;
+    err = await attempt(async () => { saved = !!(await withUnusualConfirm((confirmUnusual) => (form!.id ? warehouse.updateExpense(form!.id, { ...input, confirmUnusual }) : warehouse.addExpense({ ...input, confirmUnusual })))); });
     busy = false;
-    if (!err) { say(form.id ? 'Expense updated' : 'Expense recorded'); form = null; }
+    if (!err && saved) { say(form.id ? 'Expense updated' : 'Expense recorded'); form = null; }
   }
   async function remove(x: WarehouseExpense) {
     if (!confirm(`Remove ${x.category} ${x.currency} ${fmtNum(x.amount)} of ${fmtDate(x.date)}?`)) return;

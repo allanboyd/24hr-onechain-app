@@ -178,7 +178,8 @@ export function journeyOf(all: Shipment[], acks: Pick<Acknowledgement, 'id' | 'a
   });
 }
 
-export function computeStock(moves: StockMove[], shipments: (Shipment & { entityId: ID })[], priceOf: (productId: ID) => number, now = Date.now()): StockRow[] {
+/** `landedOf`: landed cost per case of a product (landed.ts landedCostMap — docs/18 stock value); else list price × 1.21. */
+export function computeStock(moves: StockMove[], shipments: (Shipment & { entityId: ID })[], priceOf: (productId: ID) => number, now = Date.now(), landedOf?: (productId: ID) => number | undefined): StockRow[] {
   const rows = new Map<string, StockRow>();
   const since = now - 30 * DAY;
   const get = (e: ID, w: ID, p: ID) => {
@@ -202,7 +203,7 @@ export function computeStock(moves: StockMove[], shipments: (Shipment & { entity
   }
   for (const r of rows.values()) {
     r.closing = r.opening + r.received + r.transfersIn - r.transfersOut - r.damaged + r.adjustments - r.sold;
-    r.landedCostPerCase = Math.round(priceOf(r.productId) * 1.21 * 100) / 100; // placeholder until allocation rule agreed (Q-P3)
+    r.landedCostPerCase = landedOf?.(r.productId) ?? Math.round(priceOf(r.productId) * 1.21 * 100) / 100;
   }
   return [...rows.values()];
 }
@@ -597,7 +598,7 @@ export function loadingCheck(
   const diff = loaded - ordered; const diffPct = ordered ? Math.round((diff / ordered) * 1000) / 10 : 0;
   const overCapacity = capacity > 0 && loaded > capacity;
   const within = loaded >= min && loaded <= max;
-  if (!error && overCapacity) error = `Over truck capacity: ${loaded} > ${capacity} cases (§7.3 #3)`;
+  if (!error && overCapacity) error = `Over truck capacity: ${loaded} > ${capacity} cases`;
   if (!error && loaded <= 0) error = 'Loaded quantity must be above zero';
   if (!error && loaded > max) error = `Over the ${pct}% loading allowance — ask the planner to change the PO (${fmtN(loaded)} loaded vs ${fmtN(ordered)} ordered; at most ${fmtN(max)})`;
   if (!error && loaded < min) error = `Below the ${pct}% loading allowance — ask the planner to change the PO (${fmtN(loaded)} loaded vs ${fmtN(ordered)} ordered; at least ${fmtN(min)})`;

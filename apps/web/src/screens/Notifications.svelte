@@ -18,7 +18,7 @@
   <button class="btn btn-secondary" onclick={readAll} disabled={!unread}>Mark all read</button>
 </div>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
-<p class="muted small">In-app and email on web; push and SMS/WhatsApp on the field app where configured (NT-01). Shown for: {user.roles.join(', ')}.</p>
+<p class="muted small">In-app and email on web; push and SMS/WhatsApp on the field app where configured. Shown for: {user.roles.join(', ')}.</p>
 
 <div class="tabs" role="tablist"><button role="tab" aria-selected={!only} onclick={() => (only = false)}>All <span class="caption">{list?.length ?? 0}</span></button><button role="tab" aria-selected={only} onclick={() => (only = true)}>Unread <span class="caption">{unread}</span></button></div>
 

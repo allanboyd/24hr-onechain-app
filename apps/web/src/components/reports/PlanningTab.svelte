@@ -48,7 +48,7 @@
         </li>
       {:else}<li class="empty">No orders needed in the next 4 weeks — stock and trucks on the road cover expected demand.</li>{/each}
     </ul>
-    {#if !canPlan}<p class="caption">Planners can turn a suggestion into a draft plan with one click.</p>{/if}
+    {#if !canPlan}<p class="caption">Planners can turn a suggestion into a purchase order with one click.</p>{/if}
   </section>
 
   <div class="charts-grid">

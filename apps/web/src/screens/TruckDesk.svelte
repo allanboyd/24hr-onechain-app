@@ -2,6 +2,7 @@
   // Truck desk (docs/10): the truck planner's home. Every truck by state — waiting at a loading point, loading, in transit,
   // at a border, delayed, arrived, idle — with where it is, ETA, driver, provider, open issues and days since it last
   // moved; KPIs and charts on top; click a truck for its history and expenses. Expenses tab: per provider / per truck.
+  import { withUnusualConfirm } from '@btw/api/amounts';
   import { finance, loading, lookup, ref, shipments, type CostKind, type Shipment, type User, type WaitingEntry } from '@btw/api';
   import { ON_ROAD, TRUCK_STATES, costsByProvider, costsByTruck, deskKpis, sortDesk, truckDesk, waitLabel, tripTruck, type TruckRow, type TruckState } from '@btw/api/trucks';
   import { Badge, ago, fmtDate, fmtDateTime, fmtMoney, fmtNum, say, router } from '@btw/ui';
@@ -95,7 +96,7 @@
     if (!aTrip) { aErr = 'Pick the trip'; return; }
     if (!(Number(aAmount) > 0)) { aErr = 'Enter the agreed transport price (above zero)'; return; }
     busy = true;
-    try { await finance.setAgreedPrice(aTrip, { amount: Number(aAmount), currency: aCur, docRef: aDoc.trim() || undefined }); aDlg?.close(); say('Agreed transport price recorded — it is now the trip\'s transport cost'); }
+    try { if (await withUnusualConfirm((confirmUnusual) => finance.setAgreedPrice(aTrip, { amount: Number(aAmount), currency: aCur, docRef: aDoc.trim() || undefined, confirmUnusual }))) { aDlg?.close(); say('Agreed transport price recorded — it is now the trip\'s transport cost'); } }
     catch (err) { aErr = describe(err).message; } finally { busy = false; }
   }
   let cDlg = $state<HTMLDialogElement>();
@@ -112,7 +113,7 @@
     if (!cTrip) { cErr = 'Pick the trip'; return; }
     if (!(cAmount > 0)) { cErr = 'Enter an amount above zero'; return; }
     busy = true;
-    try { await finance.addCost({ shipmentId: cTrip, kind: cKind, amount: Number(cAmount), currency: cCur, docRef: cDoc.trim() || undefined } as never); cDlg?.close(); say('Expense added to the trip — payments are recorded and approved by the directors'); }
+    try { if (await withUnusualConfirm((confirmUnusual) => finance.addCost({ shipmentId: cTrip, kind: cKind, amount: Number(cAmount), currency: cCur, docRef: cDoc.trim() || undefined, confirmUnusual } as never))) { cDlg?.close(); say('Expense added to the trip — payments are recorded and approved by the directors'); } }
     catch (err) { cErr = describe(err).message; } finally { busy = false; }
   }
 

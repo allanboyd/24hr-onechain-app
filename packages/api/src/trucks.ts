@@ -2,6 +2,7 @@
 // costs. Pure functions over data the clients already load (ref, waiting list, shipments, finance trips) — no I/O,
 // `now` is a parameter — so the web desk, the team app and the tests compute exactly the same thing.
 import { DAY, H, etaOf } from './rules';
+import { feeOfTrip, priceNotRecorded, roadState, transportOwed } from './metrics';
 import type { Checkpoint, Driver, EtaInfo, ID, Leg, Provider, RouteStop, Shipment, Supplier, TripCost, TripPayment, Truck, TruckIssue, WaitingEntry } from './types';
 
 export type TruckState = 'Waiting' | 'Loading' | 'In transit' | 'At border' | 'Delayed' | 'Arrived' | 'Idle';
@@ -45,10 +46,8 @@ const t = (x?: string) => (x ? Date.parse(x) : NaN);
 function legState(leg: Leg, eta: EtaInfo): TruckState {
   if (leg.status === 'Planned' || leg.status === 'Loaded') return 'Loading';
   if (leg.status === 'Arrived') return 'Arrived';
-  // an open issue or ≥ 6 h behind plan (same rule as the shipment status) = delayed, wherever it stands
-  if (leg.status === 'Delayed' || leg.issues.some((i) => !i.fixedAt) || (eta.state === 'Late' && eta.hours >= 6)) return 'Delayed';
-  if (leg.status === 'At border') return 'At border';
-  return 'In transit';
+  // docs/18: on the road = left the loading point, not arrived; delayed / at a border / in transit as metrics.roadState
+  return roadState(leg, eta) ?? 'In transit';
 }
 
 export function truckDesk(d: DeskInput): TruckRow[] {
@@ -165,9 +164,10 @@ export function deskKpis(rows: TruckRow[], trips: TripLike[] | null, longWaitHou
     openIssues: rows.reduce((a, r) => a + r.issues.length, 0),
     avgWaitHours: waits.length ? Math.round((waits.reduce((a, x) => a + x, 0) / waits.length) * 10) / 10 : 0,
     longWaits: waits.filter((h) => h > longWaitHours).length, idle: rows.filter((r) => r.state === 'Idle').length,
-    owed: r2((trips ?? []).reduce((a, x) => a + Math.max(0, x.balance), 0)),
+    // docs/18: transport owed and "price not recorded" are the shared definitions (metrics.transportOwed / priceNotRecorded)
+    owed: transportOwed((trips ?? []).map(feeOfTrip)),
     pending: r2((trips ?? []).reduce((a, x) => a + x.payments.filter((p) => p.status === 'Pending approval').reduce((b, p) => b + (p.amountUsd ?? p.amount), 0), 0)),
-    agreedMissing: (trips ?? []).filter((x) => !agreedRecorded(x) && !x.shipment.fromWarehouseId).length,
+    agreedMissing: priceNotRecorded((trips ?? []).map(feeOfTrip)),
   };
 }
 /** "5 h", "2 d 3 h" */

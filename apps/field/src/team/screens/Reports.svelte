@@ -58,7 +58,7 @@
   {#if pva}
     <section class="t-card">
       <h3>Plan used</h3>
-      <p class="t-meta">{pva.range.label} · ordered against approved period plans</p>
+      <p class="t-meta">{pva.range.label} · ordered against the period plans</p>
       <div class="ring-row">
         <svg class="ring" viewBox="0 0 120 120" role="img" aria-label="{Math.round(pva.measures.usedPct)}% of the plan ordered">
           <circle cx="60" cy="60" r="50" class="trk" />

@@ -22,6 +22,7 @@
 | `CHECKLIST.md` | Living checklist with statuses, dated updates and open questions | Living |
 | `16-phone-home-screens.md` | Phone home screens per person (directors, Kabonge, Testfie), receivers' warehouse strip, loaders' today list, "last synced" | Built (demo) |
 | `17-page-design-review.md` | Page design review: which pages start with an overview, page types, merges, phased plan | For review |
+| `18-metrics.md` | One metric registry: the definition of every shared figure (trucks on the road, delivered, stock value, owed, transport owed, profit …), what disagreed before and why; amount sanity rules and the USD 3,050,000 fix | Built (Phase 0) |
 | `presentation/build_pptx.py` → `BTW-Platform-Overview.pptx` | Client presentation, 36 slides: real roster, access matrix, warehouse money, landed cost v2, dashboards and home screens (web + phone), demo logins, open questions (`python3 docs/presentation/build_pptx.py`; screenshots in `presentation/assets/`) | Updated 25 Oct 2026 |
 | `architecture/` → `BTW-Platform-Architecture.html/.pdf/.docx` | Architecture & processes pack, 10 pages: named roster in the process, access scopes, warehouse money, re-exports, dashboards endpoint, migrations 0009 / 0010, landed cost v2 data flow (`python3 build.py`, `node pdf.mjs`, `python3 build_docx.py`) | v1.2, 25 Oct 2026 |
 

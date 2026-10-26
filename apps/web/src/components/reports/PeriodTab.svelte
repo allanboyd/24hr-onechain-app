@@ -57,7 +57,7 @@
         {#if canPlan && plan.totals.gapTrucks}<button class="btn btn-primary" disabled={busy} onclick={draft}>{busy ? 'Opening…' : 'Order the gap (prefill purchase orders)'}</button>{/if}</header>
       <ul class="gap">{#each plan.byLane as l}<li><Badge tone={l.orderBy && Date.parse(l.orderBy) - Date.now() < 7 * 864e5 ? 'warning' : 'info'}>Order by {l.orderBy ? day(l.orderBy) : '—'}</Badge><span class="grow">{l.text}</span><span class="caption">{l.lane}</span></li>
         {:else}<li class="empty">Nothing extra to order: what is in stock, on the road and already planned covers this period.</li>{/each}</ul>
-      {#if !canPlan && plan.totals.gapTrucks}<p class="caption">A planner can turn this into a draft plan with one click.</p>{/if}
+      {#if !canPlan && plan.totals.gapTrucks}<p class="caption">A planner can turn this into purchase orders with one click.</p>{/if}
     </section>
     <div class="charts-grid">
       <ChartCard title="Supply vs demand by brand" subtitle="cases for the period" filename="period-supply-demand" rows={() => [['Brand', 'Warehouse', 'Demand', 'Start stock', 'Arriving', 'Already planned', 'Gap (cases)', 'Gap (trucks)'], ...plan!.rows.map((r) => [`${r.brand} ${r.pack}`, r.warehouse, r.demand, r.startStock, r.arriving, r.alreadyPlanned, r.gapCases, r.gapTrucks])]}>

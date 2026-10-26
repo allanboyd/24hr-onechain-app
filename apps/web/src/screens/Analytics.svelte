@@ -68,7 +68,7 @@
 
 <div class="page-head">
   <div><div class="overline crumb">Analytics</div><h1>Sales velocity & flags</h1>
-    <p class="muted small" style="max-width:620px;margin:var(--space-1) 0 0">Rolling 30 days. Velocity index = actual ÷ benchmark × 100; benchmark = director target, else the average of the same SKU across warehouses (Q-P7). In the real build dashboards read the reporting store (§11).</p></div>
+    <p class="muted small" style="max-width:620px;margin:var(--space-1) 0 0">Rolling 30 days. Velocity index = actual ÷ benchmark × 100; benchmark = director target, else the average of the same SKU across warehouses. In the real build dashboards read the reporting store.</p></div>
   <ExportMenu name="sales-velocity" rows={exportRows} />
 </div>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
@@ -102,7 +102,7 @@
     {#if drill}
       <section class="card flush drill">
         <header>
-          <div><div class="overline">{drill.kind === 'brand' ? 'Brand → warehouses' : 'Warehouse → brands'} (§9.4)</div>
+          <div><div class="overline">{drill.kind === 'brand' ? 'Brand → warehouses' : 'Warehouse → brands'}</div>
             <h3>{drill.kind === 'brand' ? label(drill.id) : destinationLabel(drill.id)}</h3>
             <div class="caption">{drill.kind === 'brand' ? 'Where it moves and where it is stuck' : 'Brands driving and dragging this warehouse'} · {fmtNum(drillSold)} cases sold in 30 days</div></div>
           <div class="row" style="gap:var(--space-1);flex-wrap:nowrap"><button class="btn btn-ghost btn-sm" onclick={() => openList('/analytics', drill!.kind === 'brand' ? { brand: drill!.id } : { wh: drill!.id })}>Open in table</button><button class="btn btn-ghost btn-sm" onclick={() => (drill = null)} aria-label="Close drill-down"><X size={16} /></button></div>
@@ -137,7 +137,7 @@
           <li>
             <div class="small" style="font-weight:600">{label(s.pid)}</div>
             <div class="row small" style="gap:6px;flex-wrap:wrap"><span>{destinationLabel(s.from.warehouseId)}</span><Badge status={s.from.cls} /><ArrowRight size={14} /><span>{destinationLabel(s.to.warehouseId)}</span><Badge status={s.to.cls} /></div>
-            <div class="row between" style="width:100%"><strong class="num">{fmtNum(s.qty)} cases</strong><button class="btn btn-ghost btn-sm" onclick={() => say('Stock transfers with approval (IN-03) come in the follow-on release')}>Create transfer</button></div>
+            <div class="row between" style="width:100%"><strong class="num">{fmtNum(s.qty)} cases</strong><button class="btn btn-ghost btn-sm" onclick={() => say('Stock transfers with approval come in the follow-on release')}>Create transfer</button></div>
             <div class="caption">Brings both towards {TARGET_COVER} days cover</div>
           </li>
         {:else}<li class="empty small">No cross-warehouse imbalances</li>{/each}
@@ -145,7 +145,7 @@
     </section>
 
     <details class="card stack-sm thr">
-      <summary class="row between"><span class="overline">Thresholds (§9.2)</span><span class="caption">Fast ≥ {t.fast}% · Normal ≥ {t.normal}% · Slow ≥ {t.slow}%{isDirector ? ' · edit' : ''}</span></summary>
+      <summary class="row between"><span class="overline">Thresholds</span><span class="caption">Fast ≥ {t.fast}% · Normal ≥ {t.normal}% · Slow ≥ {t.slow}%{isDirector ? ' · edit' : ''}</span></summary>
       <div class="th"><Badge status="Fast" /><span class="small">index ≥</span><input class="input num" type="number" bind:value={edit.fast} disabled={!isDirector} aria-label="Fast threshold %" /><span class="small">%</span></div>
       <div class="th"><Badge status="Normal" /><span class="small">index ≥</span><input class="input num" type="number" bind:value={edit.normal} disabled={!isDirector} aria-label="Normal threshold %" /><span class="small">%</span></div>
       <div class="th"><Badge status="Slow" /><span class="small">index ≥</span><input class="input num" type="number" bind:value={edit.slow} disabled={!isDirector} aria-label="Slow threshold %" /><span class="small">%</span></div>

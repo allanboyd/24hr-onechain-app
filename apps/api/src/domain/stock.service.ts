@@ -1,8 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { db, schema as t } from '../db/client';
-import { amount, computeStock, computeVelocity, DAY, flagsFrom, hasFeature, saleStatus, type StockMove, type Thresholds } from '@btw/api/rules';
+import { amount, computeStock, computeVelocity, DAY, flagsFrom, hasFeature, saleStatus, toUsd, type StockMove, type Thresholds } from '@btw/api/rules';
+import { fxRates } from './companies';
 import { canSell, seesPrices, seesShipment } from '@btw/api/access';
+import { landedCostMap } from '@btw/api/landed';
+import { casesInTransit, casesOnHand, fleetFigures, owedByCustomers, stockValue } from '@btw/api/metrics';
 import type { Sale } from '@btw/api/types';
 import { fail, forbidden } from '../common/errors';
 import { iso, uid } from '../common/ids';
@@ -23,7 +26,11 @@ export class StockService {
       SELECT entity_id, warehouse_id, product_id, kind, (at < ${since}) AS before, SUM(qty)::int AS qty FROM stock_moves GROUP BY 1, 2, 3, 4, 5`);
     const moves: StockMove[] = agg.map((r) => ({ entityId: r.entity_id, warehouseId: r.warehouse_id, productId: r.product_id, kind: r.kind as StockMove['kind'], qty: r.qty, at: r.before ? iso(0) : iso(now), ref: '' }));
     const shipments = await loadShipments(db);
-    const rows = computeStock(moves, shipments, await this.ref.priceOf(), now);
+    // docs/18: stock value = cases on hand × landed cost per case (landed.ts), the same figure on every surface
+    const { bundle } = await this.ref.get();
+    const [costs, plans, pos] = await Promise.all([db.select().from(t.tripCosts), db.select().from(t.plans), db.select().from(t.pos)]);
+    const landed = landedCostMap({ shipments, costs: costs.map(map.cost), plans: plans.map(map.plan), pos: pos.map(map.po), priceList: bundle.priceList as never, products: bundle.products as never });
+    const rows = computeStock(moves, shipments, await this.ref.priceOf(), now, (pid) => landed.get(pid));
     if (!p) return rows;
     const mine = rows.filter((r) => canSeeEntity(p, r.entityId) && canSeeWarehouse(p, r.warehouseId));
     // A-04: receivers see quantities, not purchase prices / landed cost
@@ -64,7 +71,7 @@ export class StockService {
       const { bundle } = await this.ref.get();
       for (const l of input.lines) {
         const avail = st.find((r) => r.productId === l.productId)?.closing ?? 0;
-        if (l.qty > avail && !override) fail(`Only ${avail} cases of ${bundle.products.find((x) => x.id === l.productId)?.brand} in stock (SL-02)`);
+        if (l.qty > avail && !override) fail(`Only ${avail} cases of ${bundle.products.find((x) => x.id === l.productId)?.brand} in stock`);
       }
       const n = (await tx.select({ c: sql<number>`count(*)::int` }).from(t.sales))[0].c;
       const sale: Sale = { ...input, entityId, counterpartyEntityId: cp || undefined, at: input.at ?? iso(), id: uid('sale'), ref: `SAL-${String(n + 1).padStart(5, '0')}`, salespersonId: p.id, status: saleStatus(input.lines, input.paid ?? 0), paid: input.paid ?? 0, currency: input.currency ?? 'USD' };
@@ -109,8 +116,9 @@ export class StockService {
     const scope = (isGlobal(p) || has(p, 'fleet', 'operations', 'accounts')) ? undefined : p.warehouseIds;
     const whFilter = scope ? (scope.length ? inArray(t.sales.warehouseId, scope) : sql`false`) : undefined;
     const money = seesPrices(p);
-    const salesRows = hasFeature(p.roles, 'sales') ? await db.select({ at: t.sales.at, lines: t.sales.lines, paid: t.sales.paid }).from(t.sales).where(and(inArray(t.sales.entityId, p.scope), whFilter)) : [];
+    const salesRows = hasFeature(p.roles, 'sales') ? await db.select({ at: t.sales.at, lines: t.sales.lines, paid: t.sales.paid, currency: t.sales.currency }).from(t.sales).where(and(inArray(t.sales.entityId, p.scope), whFilter)) : [];
     const total = (s: { lines: { qty: number; price: number }[] }) => s.lines.reduce((b, l) => b + l.qty * l.price, 0);
+    const rates = await fxRates();
     const sales30 = salesRows.filter((s) => s.at >= since || Date.parse(s.at) >= Date.parse(since)).reduce((a, s) => a + total(s), 0);
     const days = Array.from({ length: 30 }, (_, i) => iso(now - (29 - i) * DAY).slice(0, 10));
     const byDay = new Map<string, number>();
@@ -120,17 +128,19 @@ export class StockService {
     const { deriveShipmentStatus } = await import('@btw/api/rules');
     const cps = bundle.warehouses.filter((w) => p.warehouseIds.includes(w.id)).map((w) => w.checkpointId);
     const shipments = (await loadShipments(db)).filter((sh) => canSeeEntity(p, sh.entityId) && seesShipment(p, sh, { loadingPointId: sh.loadingPointId, myWarehouseCps: cps })).map((sh) => ({ ...sh, status: deriveShipmentStatus(sh, bundle.warehouses.find((w) => w.id === sh.warehouseId)?.checkpointId, stops, now) }));
-    const active = shipments.filter((s) => s.status !== 'Acknowledged');
+    // docs/18: the shared fleet and stock figures (metrics.ts)
+    const fleet = fleetFigures({ shipments, stopsOf: stops, now });
     // POs awaiting a director (approvals on); never drafts (docs/09 §4)
     const [plansPending] = await db.select({ c: sql<number>`count(*)::int` }).from(t.pos).where(and(eq(t.pos.status, 'Awaiting approval'), inArray(t.pos.entityId, p.scope)));
     const [paymentsPending] = await db.select({ c: sql<number>`count(*)::int` }).from(t.tripPayments).where(and(eq(t.tripPayments.status, 'Pending approval'), inArray(t.tripPayments.entityId, p.scope)));
     return {
-      stockValue: money ? amount(1, st.reduce((a, r) => a + r.closing * (r.landedCostPerCase ?? 0), 0)) : 0, stockCases: st.reduce((a, r) => a + r.closing, 0), inTransitCases: st.reduce((a, r) => a + r.inTransit, 0),
+      stockValue: money ? stockValue(st) ?? 0 : 0, stockCases: casesOnHand(st), inTransitCases: casesInTransit(st),
       sales30: amount(1, sales30), daily: days.map((day) => ({ day, cases: byDay.get(day) ?? 0 })),
-      trucksActive: active.length, trucksDelayed: active.filter((s) => s.status === 'Delayed').length, trucksAtBorder: active.filter((s) => s.legs.some((l) => l.status === 'At border')).length,
+      trucksActive: fleet.onRoad, trucksDelayed: fleet.delayed, trucksAtBorder: fleet.atBorder,
       // only meaningful when a director approves POs (config.toml approvals.purchase_orders)
       plansPending: appConfig.approvals.purchaseOrders ? plansPending.c : 0, paymentsPending: hasFeature(p.roles, 'finance') ? paymentsPending.c : 0,
-      unpaidBalance: amount(1, salesRows.reduce((a, s) => a + total(s) - s.paid, 0)),
+      // docs/18: owed by customers in USD (approved month rate), as on Home and the sales pages
+      unpaidBalance: owedByCustomers(salesRows.map((s) => { const at = new Date(s.at).toISOString(); const cv = (v: number) => toUsd(v, s.currency, rates, at); return { at, paid: cv(s.paid), lines: s.lines.map((l) => ({ ...l, price: cv(l.price) })), status: (total(s) - s.paid > 0.005 ? 'Unpaid' : 'Paid') as Sale['status'] }; }), now),
     };
   }
 }

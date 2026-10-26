@@ -1,5 +1,6 @@
 // Company records (tenants) and approved exchange rates.
 import { fxFor } from '@btw/api/rules';
+import { amountRefusal, checkAmount, type AmountKind } from '@btw/api/amounts';
 import type { Currency, Entity, FxRate } from '@btw/api/types';
 import { db, schema as t, type Tx } from '../db/client';
 import { fail } from '../common/errors';
@@ -24,4 +25,12 @@ export async function usdOf(q: Q, amount: number, currency: string, at: string |
   let rate: number;
   try { rate = fxFor(await fxRates(q), currency, at, 'avg'); } catch { return fail(`No approved exchange rate for ${currency} — a director adds it under Settings → Exchange rates`); }
   return { fxRate: rate, amountUsd: Math.round((amount / rate) * 100) / 100 };
+}
+/** docs/17 F4: amount sanity rules (packages/api/src/amounts.ts). Impossible → 422 `impossible-amount`; outside the usual
+ *  range → 422 `unusual-amount` unless the person confirmed it (`confirmUnusual: true`); the check is returned for the audit note. */
+export async function saneAmount(q: Q, kind: AmountKind, amount: unknown, currency: unknown, at: string | number, confirmUnusual?: unknown) {
+  const check = checkAmount(kind, amount, currency, await fxRates(q), at);
+  const refusal = amountRefusal(check, confirmUnusual);
+  if (refusal) fail(refusal.message, refusal.status, refusal.code, { amountCheck: check });
+  return check;
 }

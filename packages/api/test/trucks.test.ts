@@ -142,7 +142,9 @@ ok(rows[0].state === 'Delayed', 'desk sorted most urgent first');
 const allTrips = await api.finance.trips();
 const k = deskKpis(rows, allTrips);
 ok(k.inQueue >= 4 && k.delayed >= 1 && k.openIssues >= 1 && k.avgWaitHours > 0 && k.owed > 0, `KPIs: ${k.inQueue} in queue, ${k.onRoad} on the road, ${k.delayed} delayed, owed USD ${k.owed}`);
-ok(k.agreedMissing === 0, 'no trip left without an agreed price after Testfie recorded it');
+// docs/18: "price not recorded" counts every loaded trip (onward moves between our warehouses too, as on Transport fees)
+const noPrice = allTrips.filter((x) => !x.costs.some((c) => c.kind === 'Transport'));
+ok(k.agreedMissing === noPrice.length && noPrice.every((x) => x.shipment.fromWarehouseId) && !noPrice.some((x) => x.shipment.id === missing.shipment.id), `after Testfie recorded it, only onward trips are left without an agreed price (${k.agreedMissing})`);
 const pc = costsByProvider(allTrips, r.trucks, r.providers);
 const ets = pc.find((x) => x.id === 'pr-ets')!;
 ok(ets && ets.trips > 0 && Math.abs(ets.balance - (ets.agreed - ets.paid)) < 0.01 && ets.perCase > 0, `ETS Sabrina: ${ets.trips} trips, agreed ${ets.agreed}, paid ${ets.paid}, balance ${ets.balance}, ${ets.perCase}/case`);

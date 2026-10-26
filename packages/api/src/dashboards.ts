@@ -13,6 +13,7 @@ import { performanceReport, type PerformanceReport } from './performance';
 import * as M from './money';
 import * as A from './access';
 import { truckDesk, type TruckRow } from './trucks';
+import * as MX from './metrics';
 import type {
   Acknowledgement, AppConfig, CostKind, FeatureKey, ID, Leg, Plan, PurchaseOrder, ReexportOrder, Role, SellingPrice, Shipment, TransportFeeRow,
   UserAdmin, WaitingEntry, WarehouseExpense,
@@ -177,7 +178,7 @@ export const UPDATE_GAP = { amber: 6, red: 12 };
 /** Stock cover targets (days): below `min` = stock-out risk; above `max` = slow / overstock — to confirm per product category. */
 export const COVER = { min: 14, max: 60 };
 /** Customer payment terms (days) before a credit balance is overdue — to confirm. */
-export const TERMS_DAYS = 14;
+export const TERMS_DAYS = MX.TERMS_DAYS;
 
 /** Cut company-wide data down to what one person may see (roles document §7). Prices / money are dropped for loaders,
  *  receivers and drivers; sales and selling prices are directors-only; truck costs for directors and Testfie. */
@@ -265,6 +266,13 @@ interface Ctx {
   memo: Map<string, unknown>;
 }
 const memo = <T>(c: Ctx, k: string, fn: () => T): T => { if (!c.memo.has(k)) c.memo.set(k, fn()); return c.memo.get(k) as T; };
+/** docs/18: the shared figures (metrics.ts) over this dashboard's scoped, filtered data. */
+const fig = (c: Ctx): MX.MetricSource => memo(c, 'fig', () => ({
+  now: c.now, shipments: c.src.shipments, stopsOf: names(c.src).stops, loadings: c.src.loadings, pos: c.src.pos,
+  stock: c.src.pricesHidden ? undefined : c.src.stock, sales: c.usd.sales, fees: c.src.fees ?? undefined,
+  feeDays: { amber: M.feesConfig(c.raw.config).amberDays, red: M.feesConfig(c.raw.config).redDays },
+}));
+const fleetNow = (c: Ctx) => memo(c, 'fleet', () => MX.fleetFigures({ shipments: c.src.shipments, stopsOf: names(c.src).stops, now: c.now }));
 const fmtDay = (ms: number) => new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 const periodOf = (from: number, to: number): DashPeriod => ({ from: iso(from), to: iso(to), label: `${fmtDay(from)} – ${fmtDay(to - 1)}` });
 
@@ -487,9 +495,6 @@ export interface TodayData {
   top: { productId: ID; brand: string; pack: string; warehouses: string[]; perWeek: number; cases: number; revenue: number; margin: number | null; cover: number | null }[];
   targetMargin: number; cover: typeof COVER; terms: number;
 }
-const legDep = (l: Leg) => l.departedAt ?? l.passes[0]?.departedAt;
-/** Arrival at the end of the leg (the last pass is the destination). */
-const legArr = (l: Leg) => (l.passes.length > 1 || l.status === 'Arrived' || l.status === 'Acknowledged' ? l.passes.at(-1)?.arrivedAt : undefined);
 
 function directorToday(c: Ctx): Out {
   const n = names(c.src); const now = c.now; const d0 = new Date(now);
@@ -525,38 +530,36 @@ function directorToday(c: Ctx): Out {
   // ---- sales and profit (landed cost v2) ----
   const cur = perf(c, from, to), old = perf(c, pFrom, pTo);
   const anySales = sales.length > 0;
-  const salesK: TodayKpi = { value: anySales ? r2(sum(sales.filter((s) => inR(s.at, from, to)), val)) : null, prev: anySales && pFrom >= first - 31 * DAY ? r2(sum(sales.filter((s) => inR(s.at, pFrom, pTo)), val)) : null, spark: anySales ? sparkOf('sales') : null };
+  const salesK: TodayKpi = { value: anySales ? MX.salesValue(sales, { from, to }) : null, prev: anySales && pFrom >= first - 31 * DAY ? MX.salesValue(sales, { from: pFrom, to: pTo }) : null, spark: anySales ? sparkOf('sales') : null };
   const profitK = {
-    value: cur && cur.totals.revenue ? cur.netProfit : null, prev: old && old.totals.revenue ? old.netProfit : null, spark: anySales ? sparkOf('profit') : null,
-    margin: cur?.totals.margin ?? null, prevMargin: old?.totals.margin ?? null, estimated: !!cur?.totals.estimated,
+    value: MX.profitOf(cur), prev: MX.profitOf(old), spark: anySales ? sparkOf('profit') : null,
+    margin: MX.marginOf(cur), prevMargin: MX.marginOf(old), estimated: !!cur?.totals.estimated,
   };
 
   // ---- cash to collect: open customer balances (overdue after the payment terms) ----
-  const open = sales.filter((s) => s.status !== 'Paid').map((s) => ({ s, bal: val(s) - s.paid, age: (now - t(s.at)) / DAY })).filter((x) => x.bal > 0.5);
+  const open = MX.openSales(sales, now);
   const weeks = Array.from({ length: 8 }, (_, i) => now - (8 - i) * 7 * DAY);
   const soldPeriod = sum(sales.filter((s) => inR(s.at, from, to)), val);
   const paidPeriod = sum(sales.filter((s) => inR(s.at, from, to)), (s) => Math.min(s.paid, val(s)));
   const cashK = {
-    value: anySales ? r2(sum(open, (x) => x.bal)) : null, prev: null,
+    value: anySales ? MX.owedByCustomers(sales, now) : null, prev: null,
     // open balance left from the sales of each of the last 8 weeks
     spark: anySales ? weeks.map((w) => r2(sum(open.filter((x) => t(x.s.at) >= w && t(x.s.at) < w + 7 * DAY), (x) => x.bal))) : null,
-    overdue: anySales ? r2(sum(open.filter((x) => x.age > TERMS_DAYS), (x) => x.bal)) : null, customers: new Set(open.map((x) => x.s.customer)).size,
+    overdue: anySales ? MX.overdueByCustomers(sales, now) : null, customers: new Set(open.map((x) => x.s.customer)).size,
     collectedShare: soldPeriod > 0 ? r2(paidPeriod / soldPeriod * 100) / 100 : null,
   };
 
   // ---- trucks on the road (now, and at the end of each of the last 14 days) ----
-  const rows = desk(c);
-  const onRoad = rows.filter((r) => ['In transit', 'At border', 'Delayed'].includes(r.state));
-  const legs = c.src.shipments.flatMap((s) => s.legs).filter((l) => l.status !== 'Cancelled');
-  const onAt = (T: number) => legs.filter((l) => { const a = t(legDep(l)), b = t(legArr(l)); return a <= T && !(b <= T); }).length;
-  const arrivedWeek = legs.filter((l) => t(legArr(l)) >= now - 7 * DAY && t(legArr(l)) <= now);
-  const onTime = arrivedWeek.filter((l) => t(legArr(l)) <= t(l.plannedArrival) + 6 * H);
+  // docs/18: trucks on the road / delayed / arriving today now (metrics.fleetFigures); the trend counts trips on the
+  // road at the end of each day (metrics.onRoadAt); on time = deliveries of the last 7 days (metrics.onTimeShare)
+  const fl = fleetNow(c); const ships = c.src.shipments;
+  const anyTrips = ships.some((s) => s.legs.some((l) => l.status !== 'Cancelled'));
+  const week = { from: now - 7 * DAY, to: now + 1 };
   const trucksK = {
-    value: legs.length ? onRoad.length : null, prev: legs.length ? onAt(now - 7 * DAY) : null,
-    spark: legs.length ? Array.from({ length: 14 }, (_, i) => onAt(dayStart - (13 - i) * DAY + DAY - 1)).map((x, i, a) => (i === a.length - 1 ? onRoad.length : x)) : null,
-    delayed: onRoad.filter((r) => r.state === 'Delayed').length,
-    arrivingToday: onRoad.filter((r) => r.eta?.eta && t(r.eta.eta) >= dayStart && t(r.eta.eta) < dayStart + DAY).length,
-    onTimeWeek: arrivedWeek.length ? r2(onTime.length / arrivedWeek.length * 100) / 100 : null, arrivedWeek: arrivedWeek.length,
+    value: anyTrips ? fl.onRoad : null, prev: anyTrips ? MX.onRoadAt(ships, now - 7 * DAY) : null,
+    spark: anyTrips ? Array.from({ length: 14 }, (_, i) => MX.onRoadAt(ships, dayStart - (13 - i) * DAY + DAY - 1)).map((x, i, a) => (i === a.length - 1 ? fl.onRoad : x)) : null,
+    delayed: fl.delayed, arrivingToday: fl.arrivingToday,
+    onTimeWeek: MX.onTimeShare(ships, week), arrivedWeek: MX.deliveredIn(ships, week).length,
   };
 
   // ---- stock health (cases by days of cover; value at landed cost) ----
@@ -618,10 +621,10 @@ function directorToday(c: Ctx): Out {
 
   const data: TodayData = { period, prev, mtd, sales: salesK, profit: profitK, cash: cashK, trucks: trucksK, daily, decisions, stock, distribution, top, targetMargin: target, cover: COVER, terms: TERMS_DAYS };
   return out(data, {
-    definition: `Sales = cases × price (USD at the approved month rate; sales between our own companies removed in the Group view), ${mtd ? 'month to date against the same days of last month' : 'the chosen period against the one before'}. Profit = sales − cost of units sold at landed cost v2 (goods + truck + warehouse share) − other warehouse costs; margin = profit ÷ sales. Daily profit uses each product's landed cost per case since ${fmtDay(start)}. Cash to collect = unpaid and part-paid sales; overdue after ${TERMS_DAYS} days. Trucks on the road = in transit, at a border or delayed now.`,
+    definition: `Sales = cases × price (USD at the approved month rate; sales between our own companies removed in the Group view), ${mtd ? 'month to date against the same days of last month' : 'the chosen period against the one before'}. Profit = sales − cost of units sold at landed cost v2 (goods + truck + warehouse share) − other warehouse costs; margin = profit ÷ sales. Daily profit uses each product's landed cost per case since ${fmtDay(start)}. Cash to collect = unpaid and part-paid sales; overdue after ${TERMS_DAYS} days. ${MX.METRICS.onRoad.label}: ${MX.METRICS.onRoad.definition} ${MX.METRICS.onTime.label}: ${MX.METRICS.onTime.definition} ${MX.METRICS.stockValue.label}: ${MX.METRICS.stockValue.definition}`,
     currency: 'USD', unit: 'USD · trucks · cases', period,
-    freshness: newest(sales.map((s) => s.at), rows.map((r) => r.lastMoveAt), c.src.moves.map((m) => m.at), pend.map((p) => p.at)),
-    empty: !anySales && !legs.length && !items.length,
+    freshness: newest(sales.map((s) => s.at), desk(c).map((r) => r.lastMoveAt), c.src.moves.map((m) => m.at), pend.map((p) => p.at)),
+    empty: !anySales && !anyTrips && !items.length,
   });
 }
 const day = (at?: string) => (at ? fmtDay(t(at)) : '—');
@@ -634,26 +637,28 @@ const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
   // C-P1-01 ----------------------------------------------------------------------------------------------------
   'exec-overview': (c) => {
     const cur = perf(c, c.from, c.to), prev = perf(c, t(c.prev.from), t(c.prev.to));
-    const rows = desk(c); const onRoad = rows.filter((r) => ['In transit', 'At border', 'Delayed'].includes(r.state)); const delayed = rows.filter((r) => r.state === 'Delayed');
-    const waiting = poFacts(c).filter((p) => p.daysWaiting !== null && p.stage !== 'Delivered');
+    const rows = desk(c); const fl = fleetNow(c);
+    // docs/18: orders awaiting loading = live orders with a truck still to load (metrics.ordersToLoad)
+    const toLoad = new Set(MX.trucksToLoad(c.src.loadings, c.src.pos).map((l) => l.poId));
+    const waiting = poFacts(c).filter((p) => toLoad.has(p.id));
     const al = alerts(c); const high = al.filter((a) => a.severity === 'critical' || a.severity === 'high');
     // weekly sales for the trend line (8 weeks to now)
     const weeks = Array.from({ length: 8 }, (_, i) => c.to - (8 - i) * 7 * DAY);
     const salesTrend = c.usd.sales.length ? weeks.map((w) => r2(sum(c.usd.sales.filter((s) => t(s.at) >= w && t(s.at) < w + 7 * DAY), (s) => sum(s.lines, (l) => l.qty * l.price)))) : null;
-    const stockValue = cur ? r2(sum(cur.rows, (r) => r.stockValue ?? 0)) : null;
+    const stockValue = c.src.pricesHidden ? null : MX.stockValue(c.src.stock);
     const kpis = [
-      { key: 'onRoad', label: 'Trucks on the road', value: onRoad.length, prev: null, unit: 'count', note: `${delayed.length} delayed`, status: delayed.length ? 'bad' : 'good', href: '#/trucks' },
-      { key: 'delayed', label: 'Delayed trucks', value: delayed.length, prev: null, unit: 'count', upIsGood: false, status: delayed.length ? 'bad' : 'good', href: '#/shipments?chip=Delayed' },
-      { key: 'waiting', label: 'Orders awaiting loading', value: waiting.length, prev: null, unit: 'count', upIsGood: false, note: `${waiting.filter((p) => (p.daysWaiting ?? 0) > 7).length} over 7 days`, href: '#/pos' },
+      { key: 'onRoad', label: MX.METRICS.onRoad.label, value: fl.onRoad, prev: null, unit: 'count', note: `${fl.delayed} delayed`, status: fl.delayed ? 'bad' : 'good', href: '#/trucks' },
+      { key: 'delayed', label: 'Delayed trucks', value: fl.delayed, prev: null, unit: 'count', upIsGood: false, status: fl.delayed ? 'bad' : 'good', href: '#/shipments?chip=Delayed' },
+      { key: 'waiting', label: MX.METRICS.ordersToLoad.label, value: MX.ordersToLoad(c.src.loadings, c.src.pos), prev: null, unit: 'count', upIsGood: false, note: `${waiting.filter((p) => (p.daysWaiting ?? 0) > 7).length} over 7 days`, href: '#/pos' },
       { key: 'sales', label: 'Sales', value: cur ? cur.totals.revenue : null, prev: prev ? prev.totals.revenue : null, unit: 'usd', changeKind: 'pct', trend: salesTrend, href: '#/sales' },
-      { key: 'profit', label: 'Profit', value: cur && cur.totals.revenue ? cur.netProfit : null, prev: prev && prev.totals.revenue ? prev.netProfit : null, unit: 'usd', changeKind: 'pct', note: cur?.totals.estimated ? 'part estimated' : undefined, href: '#/performance' },
-      { key: 'margin', label: 'Margin', value: cur?.totals.margin ?? null, prev: prev?.totals.margin ?? null, unit: 'pct', changeKind: 'pp', href: '#/performance' },
+      { key: 'profit', label: 'Profit', value: MX.profitOf(cur), prev: MX.profitOf(prev), unit: 'usd', changeKind: 'pct', note: cur?.totals.estimated ? 'part estimated' : undefined, href: '#/performance' },
+      { key: 'margin', label: 'Margin', value: MX.marginOf(cur), prev: MX.marginOf(prev), unit: 'pct', changeKind: 'pp', href: '#/performance' },
       { key: 'stock', label: 'Stock value', value: stockValue, prev: null, unit: 'usd', note: 'at landed cost', href: '#/warehouse-stock' },
       { key: 'alerts', label: 'Open alerts', value: al.length, prev: null, unit: 'count', upIsGood: false, note: `${high.length} high priority`, status: high.length ? 'warn' : 'good', href: '#/dashboards/admin' },
     ];
     const exceptions = al.filter((a) => a.kind === 'Delay' || a.severity === 'critical' || a.severity === 'high').slice(0, 12);
     return out({ kpis, exceptions, previous: c.prev }, {
-      definition: 'Each figure separate. Sales, profit (after truck, warehouse and other costs, landed cost v2) and margin compare with the previous period of the same length; the other figures are as of now. Exceptions = delayed trucks and high-priority alerts.',
+      definition: `Each figure separate. Sales, profit (after truck, warehouse and other costs, landed cost v2) and margin compare with the previous period of the same length; the other figures are as of now. ${MX.METRICS.onRoad.label}: ${MX.METRICS.onRoad.definition} ${MX.METRICS.ordersToLoad.label}: ${MX.METRICS.ordersToLoad.definition} ${MX.METRICS.stockValue.label}: ${MX.METRICS.stockValue.definition} Exceptions = delayed trucks and high-priority alerts.`,
       currency: 'USD', unit: 'USD · trucks · orders', freshness: newest(c.usd.sales.map((s) => s.at), rows.map((r) => r.lastMoveAt), al.map((a) => a.at)), empty: false,
     });
   },
@@ -992,7 +997,7 @@ const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
     const bands = [{ name: `Within terms (≤ ${TERMS_DAYS} d)`, lo: 0, hi: TERMS_DAYS + 1 }, { name: '1–30 days overdue', lo: TERMS_DAYS + 1, hi: TERMS_DAYS + 31 }, { name: 'Over 30 days overdue', lo: TERMS_DAYS + 31, hi: Infinity }];
     const cust = [...new Set(open.map((x) => x.customer))].map((cu) => ({ cu, total: sum(open.filter((x) => x.customer === cu), (x) => x.balance) })).sort((a, b) => b.total - a.total).slice(0, 10).map((x) => x.cu);
     const values = bands.map((b) => ({ name: b.name, values: cust.map((cu) => r2(sum(open.filter((x) => x.customer === cu && x.age >= b.lo && x.age < b.hi), (x) => x.balance))) }));
-    return out({ customers: cust, bands: values, total: r2(sum(open, (x) => x.balance)), overdue: r2(sum(open.filter((x) => x.age > TERMS_DAYS), (x) => x.balance)), terms: TERMS_DAYS }, {
+    return out({ customers: cust, bands: values, total: MX.owedByCustomers(c.usd.sales, c.now), overdue: MX.overdueByCustomers(c.usd.sales, c.now), terms: TERMS_DAYS }, {
       definition: `Unpaid and part-paid sales (value − paid, USD) per customer by days since the sale. Overdue = past ${TERMS_DAYS} days payment terms (to confirm). Top 10 customers by balance.`, currency: 'USD', unit: 'USD', period: null,
       freshness: newest(c.usd.sales.map((s) => s.at)), empty: !open.length,
     });

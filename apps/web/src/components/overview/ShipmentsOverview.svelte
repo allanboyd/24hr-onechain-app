@@ -3,17 +3,17 @@
   import { lookup, tracking, type Acknowledgement, type Leg, type Shipment } from '@btw/api';
   import { BarChart, ChartCard, Donut, Gauge, Meter, StatTile } from '../charts';
   import { drill } from '../../lib/tab';
+  import { shipmentTiles } from '../../lib/tiles';
+  import { onTimeOf } from '@btw/api/metrics';
   let { list }: { list: Shipment[] } = $props();
   const B = '/shipments';
   const H = 36e5;
-  const activeLeg = (sh: Shipment): Leg => sh.legs.find((l) => l.status !== 'Acknowledged') ?? sh.legs.at(-1)!;
-  const active = $derived(list.filter((s) => s.status !== 'Acknowledged'));
-  const atBorder = $derived(active.filter((s) => activeLeg(s).status === 'At border'));
-  const noCheckin = $derived(active.filter((s) => !!tracking.overdue(activeLeg(s))));
+  // docs/18: the tiles and the on-time gauge use the shared definitions (metrics registry)
+  const fig = $derived(shipmentTiles(list, (id) => lookup.route(id)?.stops ?? []));
+  const delivered = $derived(list.filter(fig.is.delivered));
+  const onTime = $derived(fig.onTime);
   const legs = $derived(list.flatMap((s) => s.legs));
   const done = $derived(legs.filter((l) => l.passes.at(-1)?.arrivedAt && l.departedAt));
-  const late = (l: Leg) => (Date.parse(l.passes.at(-1)!.arrivedAt!) - Date.parse(l.plannedArrival)) / H;
-  const onTime = $derived(done.length ? done.filter((l) => late(l) <= 1).length / done.length : null);
   const STATUSES = ['Planned', 'Loaded', 'Dispatched', 'In transit', 'At border', 'Delayed', 'Arrived', 'Acknowledged'];
   const byStatus = $derived(STATUSES.map((st) => ({ label: st === 'Acknowledged' ? 'Delivered' : st, value: list.filter((s) => s.status === st).length })).filter((x) => x.value));
   const chipFor = (label: string) => (label === 'Delivered' ? 'Acknowledged' : label === 'Delayed' || label === 'At border' ? label : 'active');
@@ -61,23 +61,23 @@
 <CompanySplit title="Trucks by company" metrics={shipmentsSplit()} />
 
 <div class="tiles">
-  <StatTile label="On the road" value={String(active.length)} hint="{list.length - active.length} delivered" onclick={() => drill(B, { chip: 'active' })} />
-  <StatTile label="Delayed" value={String(active.filter((s) => s.status === 'Delayed').length)} hint="late against plan" onclick={() => drill(B, { chip: 'Delayed' })} />
-  <StatTile label="At a border" value={String(atBorder.length)} hint="waiting to clear" onclick={() => drill(B, { chip: 'At border' })} />
-  <StatTile label="No check-in" value={String(noCheckin.length)} hint="next checkpoint overdue" onclick={() => drill(B, { chip: 'no-checkin' })} />
+  <StatTile label="On the road" value={String(fig.onRoad)} hint="{fig.delivered} delivered" onclick={() => drill(B, { chip: 'active' })} />
+  <StatTile label="Delayed" value={String(fig.delayed)} hint="6 h or more behind, or an open issue" onclick={() => drill(B, { chip: 'Delayed' })} />
+  <StatTile label="At a border" value={String(fig.atBorder)} hint="waiting to clear" onclick={() => drill(B, { chip: 'At border' })} />
+  <StatTile label="No check-in" value={String(fig.noCheckin)} hint="next checkpoint overdue" onclick={() => drill(B, { chip: 'no-checkin' })} />
 </div>
 
 <div class="charts-grid">
   <ChartCard title="Trucks by status" rows={() => [['Status', 'Shipments'], ...byStatus.map((x) => [x.label, x.value])]}>
     <Donut label="Shipments by status" data={byStatus} center={String(list.length)} onselect={(l) => drill(B, { chip: chipFor(l) })} />
   </ChartCard>
-  <ChartCard title="Arriving on time" subtitle="completed legs within 1 h of plan" rows={() => [['Measure', 'Value'], ['Completed legs', done.length], ['On time', done.filter((l) => late(l) <= 1).length], ['Late', done.filter((l) => late(l) > 1).length]]}>
+  <ChartCard title="Arriving on time" subtitle="delivered trips within 6 h of plan" rows={() => [['Measure', 'Value'], ['Delivered trips', delivered.length], ['On time', delivered.filter(onTimeOf).length], ['Late', delivered.filter((s) => !onTimeOf(s)).length]]}>
     <div class="stack" style="align-items:center;padding:var(--space-2) 0">
-      {#if onTime == null}<p class="empty small">No completed legs yet.</p>
+      {#if onTime == null}<p class="empty small">No delivered trips yet.</p>
       {:else}<Gauge label="On-time arrivals" value={onTime} target={0.9} tone={onTime >= 0.9 ? 'success' : onTime >= 0.7 ? 'warning' : 'danger'} />{/if}
       <div style="width:100%" class="stack-sm">
-        <Meter label="At a border now" value={atBorder.length} max={Math.max(1, active.length)} format={(n) => `${n} of ${active.length}`} tone="warning" />
-        <Meter label="No check-in" value={noCheckin.length} max={Math.max(1, active.length)} format={(n) => `${n} of ${active.length}`} tone="danger" />
+        <Meter label="At a border now" value={fig.atBorder} max={Math.max(1, fig.onRoad)} format={(n) => `${n} of ${fig.onRoad}`} tone="warning" />
+        <Meter label="No check-in" value={fig.noCheckin} max={Math.max(1, fig.onRoad)} format={(n) => `${n} of ${fig.onRoad}`} tone="danger" />
       </div>
     </div>
   </ChartCard>

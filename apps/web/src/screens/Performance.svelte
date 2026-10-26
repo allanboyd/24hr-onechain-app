@@ -119,7 +119,7 @@
   </DashboardPanel>
 
   <DashboardPanel title="Target-margin helper" subtitle="price needed = landed cost per case ÷ (1 − target margin)" unit="USD per case" period={periodLabel}
-    definition="Roles document §6.4. Uses the landed cost per case of the row picked in the table (this period's receipts; else the cost of what was sold)." empty={!helper} emptyText="Pick a row in the table">
+    definition="Uses the landed cost per case of the row picked in the table (this period's receipts; else the cost of what was sold)." empty={!helper} emptyText="Pick a row in the table">
     {#if helper}
       {@const unit = unitOf(helper)}
       <div class="helper">

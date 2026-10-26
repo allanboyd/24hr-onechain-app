@@ -6,7 +6,8 @@
   import { companyLabel } from '../lib/companies';
   import { watch } from '../lib/load.svelte';
   import ErrorState from '../components/ErrorState.svelte';
-  import { amount, inventory, lookup, pricing, ref, sales, type Sale, type SellingPrice, type StockRow, type User } from '@btw/api';
+  import { amount, inventory, lookup, pricing, ref, reports, sales, type Sale, type SalesReport, type SellingPrice, type StockRow, type User } from '@btw/api';
+  import { salesTiles } from '../lib/tiles';
   import { sellingPriceAny } from '@btw/api/money';
   import { Badge, fmtDateTime, fmtMoney, fmtNum, say } from '@btw/ui';
   import Plus from '@lucide/svelte/icons/plus';
@@ -29,7 +30,12 @@
   let fCust = $state(qp('cust'));
   // docs/14 B-05: new sale lines start from the directors' selling price (warehouse price, else company price)
   let prices = $state<SellingPrice[]>([]);
-  async function load() { [list, stock, prices] = await Promise.all([sales.list(), inventory.stock(), pricing.list().catch(() => [] as SellingPrice[])]); }
+  // docs/18: the tiles come from the sales report over every sale (the list holds the latest ones only) — same figures as Home
+  let rep30 = $state<SalesReport | null>(null);
+  async function load() {
+    const p = reports.resolvePeriod('last-30', Date.now());
+    [list, stock, prices, rep30] = await Promise.all([sales.list(), inventory.stock(), pricing.list().catch(() => [] as SellingPrice[]), reports.sales({ from: p.from, to: p.to }).catch(() => null)]);
+  }
   const w = watch(load);
   const rows = $derived((list ?? []).filter((s) => (!scoped || scoped.includes(s.warehouseId)) && (!fWh || s.warehouseId === fWh) && (!fStatus || s.status === fStatus) && (!fKind || s.kind === fKind) && (!fCust || s.customer.toLowerCase().includes(fCust.toLowerCase()))));
   const total = (s: Sale) => s.lines.reduce((a, l) => a + amount(l.qty, l.price), 0);
@@ -43,9 +49,10 @@
   const kpi = $derived.by(() => {
     const r30 = rows.filter((s) => Date.parse(s.at) >= since);
     const val = r30.reduce((a, s) => a + total(s), 0);
-    return { val, cases: r30.reduce((a, s) => a + s.lines.reduce((b, l) => b + l.qty, 0), 0), count: r30.length,
+    const fig = rep30 ? salesTiles(rep30) : null;
+    return { val: fig?.sales ?? val, cases: fig?.cases ?? r30.reduce((a, s) => a + s.lines.reduce((b, l) => b + l.qty, 0), 0), count: rep30?.totals.orders ?? r30.length,
       credit: val ? Math.round((r30.filter((s) => s.kind === 'Credit').reduce((a, s) => a + total(s), 0) / val) * 100) : 0,
-      outstanding: balances.reduce((a, [, b]) => a + b, 0) };
+      outstanding: fig?.owed ?? balances.reduce((a, [, b]) => a + b, 0) };
   });
   const exportRows = () => [['Sale No.', 'Date', 'Warehouse', 'Customer', 'Type', 'SKU', 'Qty (cases)', 'Price (USD)', 'Amount (USD)', 'Paid (USD)', 'Status'],
     ...rows.flatMap((s) => s.lines.map((l) => [s.ref, s.at.slice(0, 10), lookup.warehouse(s.warehouseId)!.name, s.customer, s.kind, lookup.product(l.productId)!.sku, l.qty, l.price, amount(l.qty, l.price), s.paid, s.status]))];
@@ -95,8 +102,8 @@
 
 <div class="grid grid-kpi" style="margin-bottom:var(--space-4)">
   <div class="card kpi"><div class="overline">Sales · 30 days (USD)</div><div class="value">{fmtNum(kpi.val)}</div><div class="delta">{fmtNum(kpi.count)} sales</div></div>
-  <div class="card kpi"><div class="overline">Cases sold · 30 days</div><div class="value">{fmtNum(kpi.cases)}</div><div class="delta">drives velocity (§9.1)</div></div>
-  <div class="card kpi"><div class="overline">Outstanding (USD)</div><div class="value accent-text">{fmtNum(kpi.outstanding)}</div><div class="delta">{balances.length} customers owe (SL-03)</div></div>
+  <div class="card kpi"><div class="overline">Cases sold · 30 days</div><div class="value">{fmtNum(kpi.cases)}</div><div class="delta">drives velocity</div></div>
+  <div class="card kpi"><div class="overline">Outstanding (USD)</div><div class="value accent-text">{fmtNum(kpi.outstanding)}</div><div class="delta">{balances.length} customers owe</div></div>
   <div class="card kpi"><div class="overline">Credit share</div><div class="value">{kpi.credit}%</div><div class="delta">of 30-day sales value</div></div>
 </div>
 
@@ -132,7 +139,7 @@
         </tbody>
       </table>
     </div>
-    <p class="caption" style="margin-top:var(--space-2)">{#if rows.length > 100}Showing latest 100 of {fmtNum(rows.length)} — server-side paging in the real build. {/if}Returns and credit notes that restore stock (SL-04) come in the follow-on release.</p>
+    <p class="caption" style="margin-top:var(--space-2)">{#if rows.length > 100}Showing latest 100 of {fmtNum(rows.length)} — server-side paging in the real build. {/if}Returns and credit notes that restore stock come in the follow-on release.</p>
   </div>
 
   <aside class="card flush">
@@ -174,9 +181,9 @@
       <button type="button" class="btn btn-ghost btn-sm" onclick={addLine} disabled={!inStock.length}><Plus size={16} />Add line</button>
       <label class="field" style="width:180px"><span>Amount paid (USD)</span><input class="input num" type="number" step="0.01" bind:value={paid} /></label>
     </div>
-    {#if user.roles.includes('director')}<label class="row small"><input type="checkbox" bind:checked={override} /> Override stock check (authorised, logged — SL-02)</label>{/if}
+    {#if user.roles.includes('director')}<label class="row small"><input type="checkbox" bind:checked={override} /> Override stock check (authorised, logged)</label>{/if}
     {#if error}<div class="error" role="alert">{error}</div>{/if}
-    <p class="caption">Only SKUs with stock at this warehouse are offered (§7.4). Default price = the directors' selling price (Selling prices), else the price list × 1.35; changes need permission. Stock reduces automatically on save. {#if kind === 'Batch'}Batch sale definition to confirm (Q-P5).{/if}</p>
+    <p class="caption">Only SKUs with stock at this warehouse are offered. Default price = the directors' selling price (Selling prices), else the price list × 1.35; changes need permission. Stock reduces automatically on save. {#if kind === 'Batch'}Batch sale terms are still to be confirmed.{/if}</p>
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn btn-ghost" onclick={() => dialog?.close()}>Cancel</button><button class="btn btn-primary" disabled={busy}>Record sale</button></div>
   </form>
 </dialog>

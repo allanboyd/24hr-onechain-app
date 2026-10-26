@@ -277,7 +277,7 @@ const pos0 = {
     const c = PO.chainOf(m.db, id); if (!c) throw httpErr('Purchase order not found', 404);
     assertScope(c.effective.entityId);
     if (c.effective.status !== 'Awaiting approval') throw httpErr('Only purchase orders awaiting approval can be decided', 409);
-    if (action === 'approved' && !signature) throw httpErr('Signature required to approve (PL-03)', 422);
+    if (action === 'approved' && !signature) throw httpErr('Signature required to approve', 422);
     if (action === 'rejected' && !comment?.trim()) throw httpErr('Add a comment for the planner', 422);
     const po = action === 'approved' ? PO.approvePo(poCtx(), c.effective, 'director', signature, comment) : PO.deletePo(poCtx(), id, `Rejected by ${current?.name}: ${comment!.trim()}`, true);
     log('POST', `/pos/${id}/decision`, { recordType: 'po', recordId: po.id, entityId: po.entityId, summary: `${po.ref} ${action}` });
@@ -338,13 +338,15 @@ export const loading = {
    *  a PO revision (…-rev001, -rev002 …) that every truck of the order then follows. */
   /** docs/12 A-04: no price at hand-over — the agreed transport price is recorded afterwards (finance.setAgreedPrice).
    *  `agreedTransport` is accepted only from someone with truck expenses (Testfie loading at GBI); from a loader it is ignored. */
-  async confirm(id: ID, input: { truckId: ID; driverId: ID; loadedQty: Record<ID, number>; agreedTransport?: number | null; transportCurrency?: string; documents: string[]; alternatives?: LoadingAlternative[] }) {
+  async confirm(id: ID, input: { truckId: ID; driverId: ID; loadedQty: Record<ID, number>; agreedTransport?: number | null; transportCurrency?: string; documents: string[]; alternatives?: LoadingAlternative[]; confirmUnusual?: boolean }) {
     ensure(); const ld = m.db.loadings.find((l) => l.id === id)!; assertScope(ld?.entityId);
     if (!A.canRecordLoading(me(), ld.loadingPointId)) throw forbid('Only the loaders of this loading point record its loadings');
     if (ld.status === 'Loaded') throw Object.assign(new Error('This truck is already loaded'), { status: 409 });
     const truck = m.db.trucks.find((t) => t.id === input.truckId)!;
     const price = R.hasFeature(current!.roles, 'truck-expenses') && Number(input.agreedTransport) > 0 ? Number(input.agreedTransport) : null;
-    if (price !== null && input.transportCurrency) ld.transportCurrency = input.transportCurrency as typeof ld.transportCurrency;
+    // docs/17 F4: a price always comes with its currency and must be plausible for it
+    const priceNote = price === null ? '' : (await import('./mock/sanity')).mockSane('transport', price, input.transportCurrency, Date.now(), input.confirmUnusual).note;
+    if (price !== null) ld.transportCurrency = input.transportCurrency as typeof ld.transportCurrency;
     const po = m.db.pos.find((p) => p.id === ld.poId)!;
     const alternatives = (input.alternatives ?? []).slice(0, 20);
     const check = R.loadingCheck(ld.lines, input.loadedQty, alternatives, truck.capacityCases, mockConfig.loading, { supplierId: po.supplierId, products: seed.products });
@@ -355,7 +357,7 @@ export const loading = {
     ld.documents = input.documents.map((n) => ({ id: m.uid('doc'), kind: 'delivery-note', name: n }));
     const sh = m.completeLoading(ld, input.truckId, input.driverId, price);
     m.notify('Truck loaded', `${truck.reg} · ${check.loaded} cases · ${sh.ref}${price === null ? ' · agreed price not recorded yet' : ''}`, `#/shipments/${sh.id}`, ['operations', 'fleet', 'director', 'truck_planner'], sh.entityId);
-    log('POST', `/loadings/${id}/confirm`, { recordType: 'loading', recordId: id, entityId: ld.entityId, summary: `${truck.reg} loaded · ${sh.ref}` });
+    log('POST', `/loadings/${id}/confirm`, { recordType: 'loading', recordId: id, entityId: ld.entityId, summary: `${truck.reg} loaded · ${sh.ref}${price === null ? '' : ` · agreed ${ld.transportCurrency} ${price}${priceNote}`}` });
     return commit(sh);
   },
 };
@@ -426,7 +428,7 @@ export const sales = {
     for (const l of input.lines) {
       // a sale draws only its own company's stock, even in a shared warehouse
       const avail = st.find((r) => r.entityId === entityId && r.warehouseId === input.warehouseId && r.productId === l.productId)?.closing ?? 0;
-      if (l.qty > avail && !override) throw new Error(`Only ${avail} cases of ${lookup.product(l.productId)?.brand} in stock (SL-02)`);
+      if (l.qty > avail && !override) throw new Error(`Only ${avail} cases of ${lookup.product(l.productId)?.brand} in stock`);
     }
     const total = input.lines.reduce((a, l) => a + m.amount(l.qty, l.price), 0);
     const sale: Sale = { ...input, entityId, id: m.uid('sale'), ref: `SAL-${String(m.db.sales.length + 1).padStart(5, '0')}`, status: input.paid >= total ? 'Paid' : input.paid > 0 ? 'Part-paid' : 'Unpaid' };
@@ -461,30 +463,32 @@ export const finance = {
   },
   /** docs/12 A-04: the agreed transport price of a loaded truck, recorded after loading (Testfie, directors). Creates the
    *  Transport cost line of the trip, or corrects it while nothing has been paid against it. */
-  async setAgreedPrice(shipmentId: ID, input: { amount: number; currency?: import('./types').Currency; docRef?: string }) { ensure(); feat('truck-expenses'); const sh = m.db.shipments.find((x) => x.id === shipmentId); if (!sh || !seesSh(sh)) throw httpErr('Shipment not found', 404); return (await admin()).setAgreedPrice(adminCtx(), sh, input); },
-  async addCost(c: Omit<TripCost, 'id' | 'entityId'> & { entityId?: ID }) {
-    ensure(); feat('truck-expenses'); if (!(c.amount > 0)) throw httpErr('Amount must be above zero', 422);
+  async setAgreedPrice(shipmentId: ID, input: { amount: number; currency?: import('./types').Currency; docRef?: string; confirmUnusual?: boolean }) { ensure(); feat('truck-expenses'); const sh = m.db.shipments.find((x) => x.id === shipmentId); if (!sh || !seesSh(sh)) throw httpErr('Shipment not found', 404); return (await admin()).setAgreedPrice(adminCtx(), sh, input); },
+  async addCost(input: Omit<TripCost, 'id' | 'entityId'> & { entityId?: ID; confirmUnusual?: boolean }) {
+    ensure(); feat('truck-expenses'); const { confirmUnusual, ...c } = input; if (!(c.amount > 0)) throw httpErr('Amount must be above zero', 422);
     const sh = m.db.shipments.find((x) => x.id === c.shipmentId); assertScope(sh?.entityId);
     if (c.entityId && c.entityId !== sh!.entityId) throw notAllowed();
-    const currency = c.currency ?? 'USD'; const rate = R.fxFor(m.db.fxRates ?? seed.seedFxRates(), currency, Date.now());
+    const { check, note } = (await import('./mock/sanity')).mockSane(c.kind === 'Transport' ? 'transport' : 'trip-expense', c.amount, c.currency, Date.now(), confirmUnusual);
+    const currency = check.currency as TripCost['currency']; const rate = R.fxFor(m.db.fxRates ?? seed.seedFxRates(), currency, Date.now());
     const x: TripCost = { ...c, currency, entityId: sh!.entityId, id: m.uid('cost'), fxRate: rate, amountUsd: Math.round((c.amount / rate) * 100) / 100 };
-    m.db.costs.push(x); log('POST', '/finance/costs', { recordType: 'cost', recordId: x.id, entityId: x.entityId, summary: `${x.kind} ${x.currency} ${x.amount}`, after: { kind: x.kind, amount: x.amount, currency: x.currency } }); return commit(x);
+    m.db.costs.push(x); log('POST', '/finance/costs', { recordType: 'cost', recordId: x.id, entityId: x.entityId, summary: `${x.kind} ${x.currency} ${x.amount}${note}`, after: { kind: x.kind, amount: x.amount, currency: x.currency } }); return commit(x);
   },
-  async pay(shipmentId: ID, costId: ID, amount: number, reference: string, threshold = 500) {
+  async pay(shipmentId: ID, costId: ID, amount: number, reference: string, threshold = 500, opts: { confirmUnusual?: boolean } = {}) {
     ensure(); if (!current || !A.canRecordPayment(me())) throw httpErr('Only the directors record payments', 403);
     const sh = m.db.shipments.find((x) => x.id === shipmentId); assertScope(sh?.entityId);
     const cost = m.db.costs.find((c) => c.id === costId);
     if (!cost || cost.shipmentId !== shipmentId || cost.entityId !== sh!.entityId) throw new Error('Pick a cost line of this trip');
+    const { note } = (await import('./mock/sanity')).mockSane('payment', amount, cost.currency, Date.now(), opts.confirmUnusual);
     const rate = cost.fxRate ?? 1; const amountUsd = Math.round((amount / rate) * 100) / 100;
     const status = amountUsd > threshold ? 'Pending approval' as const : 'Paid' as const;
     const p = { id: m.uid('pay'), entityId: sh!.entityId, shipmentId, costId, amount, at: new Date().toISOString(), reference, status, fxRate: rate, amountUsd };
-    m.db.payments.push(p); log('POST', '/finance/payments', { recordType: 'payment', recordId: p.id, entityId: p.entityId, summary: `${reference} · ${amount}` });
+    m.db.payments.push(p); log('POST', '/finance/payments', { recordType: 'payment', recordId: p.id, entityId: p.entityId, summary: `${reference} · ${cost.currency} ${amount}${note}` });
     if (status === 'Pending approval') m.notify('Payment needs approval', `USD ${amountUsd} · ${reference}`, '#/finance', ['director'], sh!.entityId);
     return commit(p);
   },
   /** docs/14 B-04: each trip's transport fee — paid / part paid / unpaid against references, with its age (Testfie, directors). */
   fees: mo('fees'),
-  async approve(paymentId: ID) { ensure(); if (!current?.roles.includes('director')) throw httpErr('Only directors approve payments above the threshold (FN-03)', 403); const p = m.db.payments.find((x) => x.id === paymentId)!; assertScope(p?.entityId); p.status = 'Paid'; p.approvedById = current?.id; log('POST', `/finance/payments/${paymentId}/approve`, { recordType: 'payment', recordId: paymentId, entityId: p.entityId }); return commit(p); },
+  async approve(paymentId: ID) { ensure(); if (!current?.roles.includes('director')) throw httpErr('Only directors approve payments above the threshold', 403); const p = m.db.payments.find((x) => x.id === paymentId)!; assertScope(p?.entityId); p.status = 'Paid'; p.approvedById = current?.id; log('POST', `/finance/payments/${paymentId}/approve`, { recordType: 'payment', recordId: paymentId, entityId: p.entityId }); return commit(p); },
 };
 
 // ---- Analytics & notifications --------------------------------------------
@@ -504,18 +508,22 @@ const analytics0 = {
       return { day, cases: scopedSales.filter((s) => s.at.slice(0, 10) === day).reduce((a, s) => a + s.lines.reduce((b, l) => b + l.qty, 0), 0) };
     });
     m.db.shipments.forEach((x) => (x.status = m.deriveShipmentStatus(x)));
-    const active = m.db.shipments.filter((s) => s.status !== 'Acknowledged' && seesSh(s));
+    // docs/18: the shared fleet / stock / balance figures (same as the server; metrics.ts, lazy)
+    const MX = await import('./metrics');
+    const fleet = MX.fleetFigures({ shipments: m.db.shipments.filter((s) => inScope(s.entityId) && seesSh(s)), stopsOf: (id) => m.db.routes.find((r) => r.id === id)?.stops ?? [], now: Date.now() });
+    const rates = m.db.fxRates ?? seed.seedFxRates();
+    const usdSales = scopedSales.map((s) => { const cv = (v: number) => R.toUsd(v, s.currency, rates, s.at); return { ...s, paid: cv(s.paid), lines: s.lines.map((l) => ({ ...l, price: cv(l.price) })) }; });
     return wait({
-      stockValue: money ? st.reduce((a, r) => a + r.closing * r.landedCostPerCase, 0) : 0,
-      stockCases: st.reduce((a, r) => a + r.closing, 0),
-      inTransitCases: st.reduce((a, r) => a + r.inTransit, 0),
+      stockValue: money ? MX.stockValue(st) ?? 0 : 0,
+      stockCases: MX.casesOnHand(st),
+      inTransitCases: MX.casesInTransit(st),
       sales30, daily,
-      trucksActive: active.length,
-      trucksDelayed: active.filter((s) => s.status === 'Delayed').length,
-      trucksAtBorder: active.filter((s) => s.legs.some((l) => l.status === 'At border')).length,
+      trucksActive: fleet.onRoad,
+      trucksDelayed: fleet.delayed,
+      trucksAtBorder: fleet.atBorder,
       plansPending: mockConfig.approvals.purchaseOrders ? m.db.plans.filter((p) => p.status === 'Submitted' && inScope(p.entityId)).length : 0,
       paymentsPending: R.hasFeature(current?.roles ?? [], 'finance') ? m.db.payments.filter((p) => p.status === 'Pending approval' && inScope(p.entityId)).length : 0,
-      unpaidBalance: scopedSales.reduce((a, s) => a + s.lines.reduce((b, l) => b + l.qty * l.price, 0) - s.paid, 0),
+      unpaidBalance: MX.owedByCustomers(usdSales, Date.now()),
     });
   },
 };

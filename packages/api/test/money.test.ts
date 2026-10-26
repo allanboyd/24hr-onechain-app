@@ -84,8 +84,8 @@ ok(M.adjustmentMove({ kind: 'count', counted: 250 }, 262).qty === -12 && M.adjus
 ok(M.validateAdjust({ kind: 'moved-out', qty: 5 }).length === 1 && M.validateAdjust({ kind: 'count', counted: -1 }).length === 1 && M.validateAdjust({ kind: 'found', qty: 2 }).length === 0, 'adjustment form validated (moved out needs a note)');
 ok(M.lossByReason([ack])[0].label === 'Breakage in transit' && M.lossByReason([ack])[0].value === 15 && M.validAckReason('Leakage') && !M.validAckReason('Aliens'), 'loss by reason (short + damaged), reason list enforced');
 ok(M.nextReexportRef(['ASIE-RX-2026-0001', 'ASIE-RX-2025-0007'], 'Asie Company', 2026) === 'ASIE-RX-2026-0002', 're-export refs: ASIE-RX-2026-0002');
-ok(M.validateExpense({ warehouseId: 'W', category: 'Rent', amount: 100, date: '2026-10-01' }, { warehouseIds: ['W'], now: NOW }).length === 0
-  && M.validateExpense({ warehouseId: 'X', category: 'Fun' as never, amount: 0, date: '2027-01-01' }, { warehouseIds: ['W'], now: NOW }).length === 4, 'expense form validated (warehouse, category, amount, date)');
+ok(M.validateExpense({ warehouseId: 'W', category: 'Rent', amount: 100, currency: 'USD', date: '2026-10-01' }, { warehouseIds: ['W'], now: NOW }).length === 0
+  && M.validateExpense({ warehouseId: 'X', category: 'Fun' as never, amount: 0, date: '2027-01-01' }, { warehouseIds: ['W'], now: NOW }).length === 5, 'expense form validated (warehouse, category, amount, currency always explicit, date)');
 const sum = M.expenseSummary([{ warehouseId: 'W', date: '2026-10-01', category: 'Rent', amountUsd: 1000 }, { warehouseId: 'W', date: '2026-10-05', category: 'Offloading', amountUsd: 485 }, { warehouseId: 'W', date: '2026-09-15', category: 'Salary', amountUsd: 300 }]);
 ok(sum.total === 1785 && sum.byMonth.length === 2 && sum.byMonth[1].byCategory.Rent === 1000 && sum.byCategory[0].category === 'Offloading', 'expense summary: monthly totals by category');
 
@@ -121,7 +121,7 @@ await rejects(api.warehouse.expenses({ warehouseId: 'w-juba' }), /403/, 'Asie ca
 const today = new Date().toISOString().slice(0, 10);
 const nx = await api.warehouse.addExpense({ warehouseId: 'w-kgl', date: today, category: 'Utilities', amount: 141800, currency: 'RWF', reference: 'REG-123', note: 'Water', receiptFileId: 'file-abc', receiptName: 'water.jpg' });
 ok(nx.amountUsd > 90 && nx.amountUsd < 110 && nx.receipt?.id === 'file-abc' && nx.receivingCompanyId === 'rc-asie' && nx.byUserId === 'u-asie', 'Asie records an RWF expense with a receipt photo (USD at the month rate)', nx);
-await rejects(api.warehouse.addExpense({ warehouseId: 'w-juba', date: today, category: 'Rent', amount: 10 }), /403/, 'Asie cannot record for Juba');
+await rejects(api.warehouse.addExpense({ warehouseId: 'w-juba', date: today, category: 'Rent', amount: 10, currency: 'USD' }), /403/, 'Asie cannot record for Juba');
 await rejects(api.warehouse.addExpense({ warehouseId: 'w-kgl', date: today, category: 'Party' as never, amount: -1 }), /422/, 'expense form validated');
 const ed = await api.warehouse.updateExpense(nx.id, { amount: 150000 });
 ok(ed.amount === 150000 && ed.category === 'Utilities', 'she corrects her own expense');

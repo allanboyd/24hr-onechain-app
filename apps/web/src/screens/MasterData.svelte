@@ -45,7 +45,7 @@
   const sel = $derived(r.routes.find((x) => x.id === route)!);
   const canEdit = $derived(can(user, 'master-data.transport'));
   const kindTone = { border: 'warning', weighbridge: 'info', warehouse: 'success', loading: 'accent', town: 'neutral' } as const;
-  const importXls = () => say('Excel import with a dry-run validation report comes with the backend (§13, /masterdata/{kind}/import)');
+  const importXls = () => say('Excel import with a dry-run validation report comes with the backend');
   let q = $state('');
   let src = $state('');
   let cat = $state<Category | ''>('');
@@ -67,7 +67,7 @@
     const bad = stops.findIndex((st, i) => i > 0 && st.plannedHours < stops[i - 1].plannedHours + (stops[i - 1].plannedDwellHours || 0));
     if (bad > 0) return say(`Stop ${bad + 1} is planned before the truck can leave stop ${bad} — check the hours`);
     original[route] = stops.map((st) => ({ ...st })); timings[route] = stops.map((st) => ({ ...st }));
-    say('Timings saved in this prototype — the real build versions them and recalculates ETAs (TR-04)');
+    say('Timings saved in this prototype — the real build versions them and recalculates ETAs');
   }
   // The sheet gave a bottle size (e.g. "Chivas 1 L") but no bottles per case: show the size, flag only the case size.
   const sizeKnown = (p: { pack: string }) => !!p.pack && !/^to confirm$/i.test(p.pack.trim()) && /\d\s*(ml|cl|l)\b/i.test(p.pack);
@@ -150,7 +150,7 @@
           <div><h3>{sel.name}</h3><div class="caption">{sel.code} · {fmtNum(sel.distanceKm)} km · planned transit {fmtH(stops.at(-1)!.plannedHours)} incl. {fmtH(borderDwell)} at borders</div></div>
           {#if canEdit}<div class="row"><button class="btn btn-ghost btn-sm" disabled={!changed} onclick={() => (timings[route] = original[route].map((st) => ({ ...st })))}>Reset</button><button class="btn btn-primary btn-sm" disabled={!changed} onclick={saveTimings}>Save timings</button></div>{/if}
         </header>
-        <div class="note small">These hours are <strong>seed estimates for review</strong> by Kabonge and Testfie. ETA = planned arrival + delay carried from the last checkpoint (TR-04). After go-live they are replaced by historical medians per lane.</div>
+        <div class="note small">These hours are <strong>seed estimates for review</strong> by Kabonge and Testfie. ETA = planned arrival + delay carried from the last checkpoint. After go-live they are replaced by historical medians per lane.</div>
         <div class="table-wrap"><table class="table">
           <thead><tr><th class="num">#</th><th>Checkpoint</th><th>Type</th><th class="num">Planned arrival (h after departure)</th><th class="num">Expected dwell (h)</th><th class="num">Geofence</th></tr></thead>
           <tbody>{#each stops as st, i (st.checkpointId)}{@const cp = lookup.checkpoint(st.checkpointId)}

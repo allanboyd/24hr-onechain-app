@@ -103,7 +103,7 @@
   let decision = $state<'approved' | 'rejected'>('approved');
   let comment = $state(''), signature = $state('');
   async function decide() {
-    if (decision === 'approved' && !signature) { actionError = 'Signature required to approve (PL-03)'; return; }
+    if (decision === 'approved' && !signature) { actionError = 'Signature required to approve'; return; }
     if (decision === 'rejected' && !comment.trim()) { actionError = 'Add a comment for the planner'; return; }
     busy = 'decide';
     actionError = await attempt(() => pos.decide(data!.effectiveId, decision, comment, signature));
@@ -150,7 +150,7 @@
   {#if deleted}
     <div class="card flag-danger note no-print" role="status"><strong>Deleted</strong>{#if data.po.deletedAt} by {lookup.user(data.po.deletedById ?? '')?.name ?? '—'} · {fmtDateTime(data.po.deletedAt)}{/if}{#if data.po.deleteReason} — “{data.po.deleteReason}”{/if}. Kept for the record; its reference is not reused.</div>
   {:else if awaiting}
-    <div class="card flag-warning note no-print" role="status">Awaiting a director's approval (config: purchase orders need approval). Nothing is loaded until it is approved.</div>
+    <div class="card flag-warning note no-print" role="status">Awaiting a director's approval. Nothing is loaded until it is approved.</div>
   {/if}
   {#if !isLatest && latest}
     <div class="card flag-warning note no-print" role="status">This is an earlier version. The purchase order in force is <a class="mono" href="#/pos/{latest.id}">{latest.ref}</a>.</div>

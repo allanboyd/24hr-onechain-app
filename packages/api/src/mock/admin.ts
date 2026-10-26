@@ -125,10 +125,12 @@ export async function auditList(c: Ctx, f: AuditFilter = {}): Promise<AuditPage>
   }
 
 /** docs/12 A-04: the agreed transport price of a loaded truck, recorded after loading (Testfie, directors). */
-export async function setAgreedPrice(c: Ctx, sh: Shipment, input: { amount: number; currency?: Currency; docRef?: string }) {
+export async function setAgreedPrice(c: Ctx, sh: Shipment, input: { amount: number; currency?: Currency; docRef?: string; confirmUnusual?: boolean }) {
     const shipmentId = sh.id;
     if (!(Number(input?.amount) > 0)) throw c.httpErr('Enter the agreed transport price (above zero)', 422);
-    const currency = input.currency ?? m.db.loadings.find((l) => l.poId === sh.poId && l.truckNo === sh.truckNo)?.transportCurrency ?? 'USD';
+    // docs/17 F4: the currency is always explicit and the amount plausible for it
+    const { check, note } = (await import('./sanity')).mockSane('transport', input.amount, input.currency, Date.now(), input.confirmUnusual);
+    const currency = check.currency as Currency;
     const rate = R.fxFor(m.db.fxRates ?? seed.seedFxRates(), currency, Date.now());
     const cur = m.db.costs.find((c) => c.shipmentId === sh.id && c.kind === 'Transport');
     const before = cur ? { amount: cur.amount, currency: cur.currency } : null;
@@ -137,7 +139,7 @@ export async function setAgreedPrice(c: Ctx, sh: Shipment, input: { amount: numb
     if (cur) Object.assign(cur, x); else m.db.costs.push(x);
     const ld = m.db.loadings.find((l) => (l.poId === sh.poId || m.db.pos.find((p) => p.id === l.poId)?.revisionOf === m.db.pos.find((p) => p.id === sh.poId)?.revisionOf) && l.truckNo === sh.truckNo && l.status === 'Loaded');
     if (ld && !sh.fromWarehouseId) { ld.agreedTransport = x.amount; ld.transportCurrency = currency; }
-    c.log('POST', `/shipments/${shipmentId}/agreed-price`, { recordType: 'shipment', recordId: shipmentId, entityId: sh.entityId, summary: `${sh.ref}: agreed transport ${currency} ${x.amount}`, before, after: { amount: x.amount, currency } });
+    c.log('POST', `/shipments/${shipmentId}/agreed-price`, { recordType: 'shipment', recordId: shipmentId, entityId: sh.entityId, summary: `${sh.ref}: agreed transport ${currency} ${x.amount}${note}`, before, after: { amount: x.amount, currency } });
     return c.commit(x);
   }
 

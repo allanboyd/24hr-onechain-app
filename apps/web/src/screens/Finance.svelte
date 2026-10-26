@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { withUnusualConfirm } from '@btw/api/amounts';
   import CompanyCell from '../components/CompanyCell.svelte';
   import RecordFor from '../components/RecordFor.svelte';
   import { watch } from '../lib/load.svelte';
@@ -11,6 +12,7 @@
   import PageTabs from '../components/PageTabs.svelte';
   import FinanceOverview from '../components/overview/FinanceOverview.svelte';
   import { currentTab, qp } from '../lib/tab';
+  import { tripMoneyTiles } from '../lib/tiles';
   let { user }: { params?: any; user: User } = $props();
   const tab = currentTab();
   type Trip = Awaited<ReturnType<typeof finance.trips>>[number];
@@ -23,13 +25,15 @@
   const payStatus = (t: Trip) => (t.agreedRecorded === false ? 'Unpaid' : t.transport > 0 && t.paid >= t.transport ? 'Paid' : t.paid > 0 ? 'Part-paid' : 'Unpaid');
   const totals = $derived.by(() => {
     const ts = trips ?? [];
-    return { transport: ts.reduce((a, t) => a + t.transport, 0), paid: ts.reduce((a, t) => a + t.paid, 0), balance: ts.reduce((a, t) => a + t.balance, 0), pending: ts.flatMap((t) => t.payments).filter((p) => p.status === 'Pending approval').length, missing: ts.filter((t) => t.agreedRecorded === false).length };
+    // docs/18: outstanding = transport owed and "not recorded" = price not recorded, as on Home, Transport fees and the phone
+    const fig = tripMoneyTiles(ts);
+    return { transport: ts.reduce((a, t) => a + t.transport, 0), paid: ts.reduce((a, t) => a + t.paid, 0), balance: fig.owed, pending: ts.flatMap((t) => t.payments).filter((p) => p.status === 'Pending approval').length, missing: fig.missing };
   });
   const THRESHOLD = 500; // FN-03 director-set threshold (mock default)
   const FOLLOW_UP_DAYS = 30; // §17.5 "follow-up after one month" (Q-P9)
   const loadedAt = (t: Trip) => t.shipment.legs[0].passes[0]?.arrivedAt ?? t.shipment.legs[0].departedAt;
   const followUp = (t: Trip) => { const a = loadedAt(t); return a ? Date.parse(a) + FOLLOW_UP_DAYS * 864e5 : undefined; };
-  const byKind = (t: Trip, k: CostKind) => t.costs.filter((c) => c.kind === k).reduce((a, c) => a + c.amount, 0);
+  const byKind = (t: Trip, k: CostKind) => t.costs.filter((c) => c.kind === k).reduce((a, c) => a + (c.amountUsd ?? c.amount), 0);
   const byProvider = $derived.by(() => {
     const m = new Map<string, { agreed: number; paid: number; trips: number }>();
     for (const t of trips ?? []) {
@@ -54,18 +58,18 @@
   function openCost(t: Trip) { cur = t; cKind = 'Taxes & duties'; cAmount = 0; cDoc = ''; costDlg?.showModal(); }
   async function savePay(e: Event) {
     e.preventDefault(); if (!pRef.trim() || pAmount <= 0) return say('Enter amount and reference');
-    const p = await finance.pay(cur!.shipment.id, pCost, pAmount, pRef, THRESHOLD); payDlg?.close();
-    say(p.status === 'Pending approval' ? 'Above threshold — sent to director for approval (FN-03)' : 'Payment recorded');
+    const p = await withUnusualConfirm((confirmUnusual) => finance.pay(cur!.shipment.id, pCost, pAmount, pRef, THRESHOLD, { confirmUnusual })); if (!p) return; payDlg?.close();
+    say(p.status === 'Pending approval' ? 'Above threshold — sent to director for approval' : 'Payment recorded');
   }
   async function saveCost(e: Event) {
     e.preventDefault(); if (cAmount <= 0) return say('Enter an amount');
-    await finance.addCost({ entityId: (cur!.shipment as { entityId?: string }).entityId ?? '', shipmentId: cur!.shipment.id, kind: cKind, amount: cAmount, currency: 'USD', docRef: cDoc || undefined }); costDlg?.close(); say('Expense added to landing cost');
+    if (!(await withUnusualConfirm((confirmUnusual) => finance.addCost({ entityId: (cur!.shipment as { entityId?: string }).entityId ?? '', shipmentId: cur!.shipment.id, kind: cKind, amount: cAmount, currency: 'USD', docRef: cDoc || undefined, confirmUnusual })))) return; costDlg?.close(); say('Expense added to landing cost');
   }
 </script>
 
 <div class="page-head">
   <div><div class="overline crumb">Finance</div><h1>Trip financials & landing cost</h1></div>
-  <div class="row"><p class="muted small" style="max-width:440px;margin:0">The agreed transport price is recorded after loading by the truck follow-up officer (docs/12). Payments above USD {THRESHOLD} need director approval (FN-03; threshold set by directors).</p><ExportMenu name="trip-financials" rows={exportRows} /></div>
+  <div class="row"><p class="muted small" style="max-width:440px;margin:0">The agreed transport price is recorded after loading by the truck follow-up officer. Payments above USD {THRESHOLD} need director approval (the threshold is set by the directors).</p><ExportMenu name="trip-financials" rows={exportRows} /></div>
 </div>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
 <PageTabs base="/finance" current={tab} listLabel="Trips" />
@@ -109,7 +113,7 @@
                 <div class="row between"><div class="overline">Costs</div>{#if canPay}<button class="btn btn-ghost btn-sm" onclick={() => openCost(t)}>Add expense</button>{/if}</div>
                 <table class="table">
                   <tbody>
-                    {#each t.costs as c}<tr><td>{c.kind}{#if c.legId}<span class="caption"> · leg</span>{/if}</td><td class="caption">{c.docRef ?? ''}</td><td class="num">{fmtNum(c.amount, 2)}</td></tr>{/each}
+                    {#each t.costs as c}<tr><td>{c.kind}{#if c.legId}<span class="caption"> · leg</span>{/if}</td><td class="caption">{c.docRef ?? ''}</td><td class="num">{c.currency} {fmtNum(c.amount, 2)}</td></tr>{/each}
                     <tr class="subtotal"><td colspan="2">Total expenses</td><td class="num">{fmtNum(t.expenses, 2)}</td></tr>
                   </tbody>
                 </table>
@@ -126,13 +130,13 @@
                 </table>
               </section>
               <section class="card landing">
-                <div class="overline">Landing cost · truck {t.shipment.truckNo} (§17.6)</div>
+                <div class="overline">Landing cost · truck {t.shipment.truckNo}</div>
                 <div class="row between"><span class="muted">Goods (price × loaded qty)</span><span class="num">{fmtNum(t.goods, 2)}</span></div>
                 {#each kinds as k}{@const v = byKind(t, k)}<div class="row between small"><span class="muted">+ {k}</span><span class="num" class:subtle={!v}>{v ? fmtNum(v, 2) : '—'}</span></div>{/each}
                 <div class="row between total"><span>Landing cost (USD)</span><span class="num">{fmtNum(t.landing, 2)}</span></div>
                 <div class="row between"><span class="muted">Cases</span><span class="num">{fmtNum(t.cases)}</span></div>
                 <div class="row between"><strong>Per case (USD)</strong><strong class="num">{fmtNum(t.perCase, 2)}</strong></div>
-                <p class="caption">Allocation across SKUs on mixed loads: rule to be agreed (Q-P3).</p>
+                <p class="caption">Allocation across SKUs on mixed loads: rule to be agreed.</p>
               </section>
             </div>
           </td></tr>
@@ -143,7 +147,7 @@
 </div>
 
 <section class="card flush" style="margin-top:var(--space-4);max-width:720px">
-  <header><h3>Balances by transport provider</h3><span class="caption">§10 Finance · follow-up {FOLLOW_UP_DAYS} days after loading (Q-P9)</span></header>
+  <header><h3>Balances by transport provider</h3><span class="caption">Follow-up {FOLLOW_UP_DAYS} days after loading</span></header>
   <div class="table-wrap"><table class="table">
     <thead><tr><th>Provider</th><th class="num">Trips</th><th class="num">Agreed (USD)</th><th class="num">Paid (USD)</th><th class="num">Balance (USD)</th></tr></thead>
     <tbody>{#each byProvider as [pid, v]}<tr><td>{lookup.provider(pid)?.name ?? '—'} {#if lookup.provider(pid) && !lookup.provider(pid)!.regular}<span class="caption">market</span>{/if}</td><td class="num">{v.trips}</td><td class="num">{fmtNum(v.agreed, 2)}</td><td class="num">{fmtNum(v.paid, 2)}</td><td class="num" class:accent-text={v.agreed - v.paid > 0}>{fmtNum(v.agreed - v.paid, 2)}</td></tr>{/each}</tbody>
@@ -161,8 +165,8 @@
       <label class="field"><span>Amount (USD)</span><input class="input num" type="number" step="0.01" bind:value={pAmount} /></label>
       <label class="field"><span>Reference</span><input class="input" bind:value={pRef} placeholder="M-Pesa / bank ref" /></label>
     </div>
-    {#if pAmount > THRESHOLD}<div class="note warn small">Above USD {THRESHOLD}: this payment will wait for director approval before it counts as paid (FN-03).</div>{/if}
-    <label class="field"><span>Receipt (FN-02)</span><input class="input" type="file" accept="image/*,application/pdf" style="padding-top:8px" /><span class="help">Stored in the document store against the shipment in the real build.</span></label>
+    {#if pAmount > THRESHOLD}<div class="note warn small">Above USD {THRESHOLD}: this payment will wait for director approval before it counts as paid.</div>{/if}
+    <label class="field"><span>Receipt</span><input class="input" type="file" accept="image/*,application/pdf" style="padding-top:8px" /><span class="help">Stored in the document store against the shipment in the real build.</span></label>
     <div class="row" style="justify-content:flex-end"><button type="button" class="btn btn-ghost" onclick={() => payDlg?.close()}>Cancel</button><button class="btn btn-primary">Save payment</button></div>
   </form>
 </dialog>
