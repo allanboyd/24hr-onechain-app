@@ -46,7 +46,7 @@
       all.push([p.lat, p.lng]);
     }
     for (const t of tr) {
-      const icon = L.divIcon({ className: '', html: `<div class="truck-pin${t.late ? ' late' : ''}"><span>${t.label.replace(/</g, '&lt;')}</span></div>`, iconSize: [0, 0] });
+      const icon = L.divIcon({ className: '', html: `<div class="truck-pin${t.late ? ' late' : ''}"><span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></svg>${t.label.replace(/</g, '&lt;')}</span></div>`, iconSize: [0, 0] });
       L.marker([t.lat, t.lng], { icon, keyboard: false }).addTo(layer);
       all.push([t.lat, t.lng]);
     }
@@ -61,7 +61,10 @@
   :global(:root[data-theme='dark'] .map .leaflet-tile-pane) { filter: brightness(.62) contrast(1.15) saturate(.6) hue-rotate(180deg) invert(1); }
   @media (prefers-color-scheme: dark) { :global(:root:not([data-theme='light']) .map .leaflet-tile-pane) { filter: brightness(.62) contrast(1.15) saturate(.6) hue-rotate(180deg) invert(1); } }
   :global(.map-tip) { font: 600 12px var(--ff-body); border-radius: 6px; padding: 2px 6px; }
-  :global(.truck-pin) { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; }
-  :global(.truck-pin span) { display: inline-block; background: var(--primary); color: var(--text-on-primary); font: 700 12px var(--ff-body); padding: 4px 8px; border-radius: 8px; box-shadow: var(--elevation-2); }
+  :global(.truck-pin) { position: absolute; transform: translate(-50%, calc(-100% - 6px)); white-space: nowrap; }
+  :global(.truck-pin span) { display: inline-flex; align-items: center; gap: 5px; background: var(--primary); color: var(--text-on-primary); font: 700 12px var(--ff-body); padding: 4px 8px; border-radius: 8px; box-shadow: var(--elevation-2); }
   :global(.truck-pin.late span) { background: var(--danger-solid); color: var(--text-on-danger); }
+  :global(.truck-pin span::after) { content: ''; position: absolute; left: 50%; bottom: -5px; margin-left: -5px; border: 5px solid transparent; border-bottom: 0; border-top-color: var(--primary); }
+  :global(.truck-pin.late span::after) { border-top-color: var(--danger-solid); }
+  :global(.truck-pin span) { position: relative; }
 </style>
