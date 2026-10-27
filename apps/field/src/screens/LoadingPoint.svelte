@@ -121,7 +121,7 @@
 <Sheet bind:el={sheetEl}>
   {#if points_.length > 1}
     <div class="seg" role="group" aria-label="Loading point">
-      {#each points_ as id (id)}<button aria-pressed={id === lp} onclick={() => (lp = id)}>{lookup.supplier(id)?.code} {lookup.supplier(id)?.city}</button>{/each}
+      {#each points_ as id (id)}<button type="button" class="sel-ticked" aria-pressed={id === lp} onclick={() => (lp = id)}>{lookup.supplier(id)?.code} {lookup.supplier(id)?.city}</button>{/each}
     </div>
   {/if}
   {#if work}
@@ -269,7 +269,9 @@
   .choices { display: flex; flex-direction: column; gap: var(--space-2); }
   .choices.list { max-height: 38vh; overflow: auto; }
   .choice { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); min-height: 56px; padding: 0 14px; border-radius: var(--radius-md); border: 2px solid var(--border); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; text-align: left; }
-  .choice[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-subtle); }
+  /* chosen: the shared radio-card look (base.css "Selection states") — primary border, tint, tick in the corner */
+  .choice[aria-pressed='true'] { position: relative; border-color: var(--sel-line); background: var(--sel-bg); padding-right: 40px; }
+  .choice[aria-pressed='true']::after { content: ''; position: absolute; right: 16px; top: 50%; width: 6px; height: 12px; margin-top: -8px; border: solid var(--sel-ink); border-width: 0 3px 3px 0; transform: rotate(45deg); }
   .big { font: 700 20px var(--ff-display); margin: 0; }
   .picked { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
   .line { display: grid; grid-template-columns: 1fr 190px; gap: var(--space-3); align-items: center; }
@@ -288,5 +290,5 @@
   .check { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; }
   .error-box { margin: 0; padding: 10px 12px; border-radius: var(--radius-md); background: var(--danger-subtle); color: var(--danger); font-weight: 600; }
   @media (max-width: 380px) { .line { grid-template-columns: 1fr; } }
-  .seg button[aria-pressed='true'] { background: var(--primary); color: var(--text-on-primary); border-color: var(--primary); }
+  .seg button[aria-pressed='true'] { background: var(--sel-fill); color: var(--sel-on-fill); border-color: var(--sel-fill); font-weight: 700; }
 </style>

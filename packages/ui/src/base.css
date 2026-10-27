@@ -117,3 +117,65 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: var(--space-4) 
 dialog.sheet { border: 0; border-radius: var(--radius-xl); padding: 0; background: var(--surface-raised); color: var(--text); box-shadow: var(--elevation-3); width: min(560px, calc(100vw - 32px)); }
 dialog.sheet::backdrop { background: rgb(4 21 43 / .5); }
 dialog.sheet > .body { padding: var(--space-6); }
+
+/* ---------- Selection states (docs/13 "Selection states") ----------
+   ONE language for every pick / filter / switch, web and phone. The chosen state comes from ARIA — aria-pressed,
+   aria-selected, aria-checked, aria-current — (or .on / a checked input for label chips), and is never colour alone:
+   cards get a tick + "Selected"/"Showing" word, tabs get an underline, chips get a tick.
+   1. .sel-card  radio-card / filter tile: tinted + 2px primary border + .sel-mark tick + .sel-tag word; others muted, hover lift
+   2. .tabs      tab bar (button or a), the Home-page style: muted text, chosen = normal text + 3px coloured underline
+   3. .sel-chip / .sel-seg  chips and segmented switches: filled primary, white text, tick; others outlined
+   4. .sel-row   a table / list row that filters: tinted + 3px primary bar on the left + bold */
+:root { --sel-bg: var(--primary-subtle); --sel-line: var(--primary); --sel-ink: var(--primary); --sel-fill: var(--primary); --sel-on-fill: var(--text-on-primary); }
+
+/* 1. radio-card */
+.sel-card { position: relative; display: flex; align-items: center; gap: var(--space-3); min-width: 0; text-align: left; font: inherit; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4); cursor: pointer;
+  transition: background var(--motion-fast) var(--motion-easing), border-color var(--motion-fast) var(--motion-easing), box-shadow var(--motion-fast) var(--motion-easing), transform var(--motion-fast) var(--motion-easing); }
+.sel-card:hover { border-color: var(--border-strong); background: var(--surface-sunken); box-shadow: var(--elevation-2); transform: translateY(-1px); }
+.sel-card:is([aria-pressed='true'], [aria-selected='true'], [aria-checked='true'], [aria-current='page'], [aria-current='true'], .on) { color: var(--text); background: var(--sel-bg); border-color: var(--sel-line); box-shadow: inset 0 0 0 1px var(--sel-line); transform: none; }
+.sel-card :is(.sel-title) { font-weight: 600; }
+.sel-card:is([aria-pressed='true'], [aria-selected='true'], [aria-checked='true'], [aria-current='page'], [aria-current='true'], .on) .sel-title { color: var(--sel-ink); font-weight: 700; }
+.sel-mark { flex: none; position: relative; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--border-strong); background: var(--surface); }
+:is([aria-pressed='true'], [aria-selected='true'], [aria-checked='true'], [aria-current='page'], [aria-current='true'], .on) .sel-mark { border-color: var(--sel-fill); background: var(--sel-fill); }
+:is([aria-pressed='true'], [aria-selected='true'], [aria-checked='true'], [aria-current='page'], [aria-current='true'], .on) .sel-mark::after { content: ''; position: absolute; left: 5px; top: 2px; width: 5px; height: 9px; border: solid var(--sel-on-fill); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.sel-tag { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 9px 0 8px; border-radius: var(--radius-full); background: var(--sel-fill); color: var(--sel-on-fill); font: 700 12px/1 var(--ff-body); white-space: nowrap; }
+.sel-tag::before { content: ''; width: 4px; height: 8px; margin: -3px 1px 0 0; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+
+/* 2. tabs — the Home-page style, the one standard for every page-level tab bar (web: page/Tabs.svelte; phone: team Tabs):
+   plain text tabs on one row with a thin bottom border; muted text; the chosen tab in normal text colour with a 3 px
+   coloured underline (shape + colour, never colour alone). No tint, no boxes. Count = small muted number after the label,
+   on the chosen tab a subtle filled pill. Wraps on wide screens, scrolls sideways on phones. */
+.tabs { display: flex; flex-wrap: wrap; gap: 0 var(--space-1); border-bottom: 1px solid var(--border); margin: var(--space-2) 0 var(--space-4); }
+.tabs > :is(button, a) { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: var(--space-2) var(--space-3); font: 600 14px var(--ff-body); color: var(--text-muted); cursor: pointer; white-space: nowrap; text-decoration: none; }
+.tabs > :is(button, a):hover { color: var(--text); text-decoration: none; }
+.tabs > :is([aria-selected='true'], [aria-current='page'], [aria-current='true'], .on) { color: var(--text); border-bottom-color: var(--nav-indicator, var(--primary)); }
+.tabs .n { font: 600 12px/18px var(--ff-body); font-variant-numeric: tabular-nums; color: var(--text-subtle); padding: 0 2px; border-radius: var(--radius-full); }
+.tabs > :is([aria-selected='true'], [aria-current='page'], [aria-current='true'], .on) .n { background: var(--surface-sunken); color: var(--text); padding: 0 7px; }
+.sel-chip .n { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--radius-full); background: var(--surface-sunken); color: var(--text-muted); font: 700 12px/1 var(--ff-body); font-variant-numeric: tabular-nums; }
+@media (max-width: 600px) { .tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } .tabs > :is(button, a) { padding: var(--space-2); } }
+
+/* 3. chips + segmented */
+.sel-chip { display: inline-flex; align-items: center; gap: 6px; height: var(--control-sm); padding: 0 var(--space-3); border-radius: var(--radius-full); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font: 600 13px var(--ff-body); cursor: pointer; white-space: nowrap; text-decoration: none; position: relative; }
+.sel-chip:hover { background: var(--surface-sunken); text-decoration: none; }
+.sel-chip > input[type='radio'], .sel-chip > input[type='checkbox'] { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
+.sel-chip:has(> input:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.sel-seg { display: inline-flex; flex: none; flex-wrap: nowrap; gap: 2px; padding: 2px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface); }
+.sel-seg > :is(button, a, label) { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; background: none; font: 600 13px var(--ff-body); padding: 5px 12px; border-radius: calc(var(--radius-md) - 2px); color: var(--text-muted); cursor: pointer; white-space: nowrap; text-decoration: none; }
+.sel-seg > :is(button, a, label):hover { background: var(--surface-sunken); color: var(--text); }
+:is(.sel-chip, .sel-seg > *):is([aria-pressed='true'], [aria-selected='true'], [aria-checked='true'], [aria-current='page'], [aria-current='true'], .on, :has(> input:checked)) { background: var(--sel-fill); border-color: var(--sel-fill); color: var(--sel-on-fill); }
+/* the tick: also for a phone's own chips / segments (add .sel-ticked to the button; its colours use the --sel-* tokens) */
+:is(.sel-chip, .sel-seg > *, .sel-ticked):is([aria-pressed='true'], [aria-selected='true'], [aria-checked='true'], [aria-current='page'], [aria-current='true'], .on, :has(> input:checked))::before { content: ''; display: inline-block; flex: none; width: 4px; height: 8px; margin: -3px 4px 0 1px; vertical-align: 2px; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.sel-chip:is([aria-pressed='true'], [aria-selected='true'], [aria-checked='true'], [aria-current='page'], [aria-current='true'], .on, :has(> input:checked)) .n { background: color-mix(in srgb, var(--sel-on-fill) 22%, transparent); color: inherit; }
+
+/* 4. a row that filters */
+.sel-row { cursor: pointer; }
+.sel-row:is([aria-pressed='true'], [aria-selected='true'], [aria-checked='true'], [aria-current='page'], [aria-current='true'], .on) { background: var(--sel-bg); box-shadow: inset 3px 0 0 var(--sel-line); font-weight: 600; }
+tr.sel-row:is([aria-pressed='true'], [aria-selected='true'], [aria-checked='true'], [aria-current='page'], [aria-current='true'], .on) > td { background: var(--sel-bg); }
+tr.sel-row:is([aria-pressed='true'], [aria-selected='true'], [aria-checked='true'], [aria-current='page'], [aria-current='true'], .on) > td:first-child { box-shadow: inset 3px 0 0 var(--sel-line); }
+
+/* Active-filter bar under a summary strip / phone chips: "Showing: Delayed (5 of 140) · Show all ✕" */
+.filter-note { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-3); min-height: 40px; padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3); margin-bottom: var(--space-3); border-radius: var(--radius-md); font-size: var(--fs-body-sm); color: var(--text-muted); background: var(--surface-sunken); }
+.filter-note.on { background: var(--sel-bg); color: var(--text); box-shadow: inset 3px 0 0 var(--sel-line); }
+.filter-note b { color: var(--text); }
+.filter-note.on b { color: var(--sel-ink); }
+.filter-note .all-btn { margin-left: auto; }

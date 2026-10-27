@@ -246,9 +246,9 @@
       <div class="slot o-dist"><TodayCard title="Sales distribution" definition="Sales value by company (Group view) or by warehouse, over the last 7 days or the chosen period. Sales between our own companies are removed in the Group view." caption="{currency.code} · {distWhen === 'week' ? 'last 7 days' : periodShort.toLowerCase()}" rows={distRows} filename="sales-distribution" empty={!dist.some((x) => x.v != null)} drill={{ label: 'View details', href: '#/dashboards/sales' }}>
         <div class="drow">
           {#if showCompanies}
-            <div class="seg" role="group" aria-label="Group by">
-              <button aria-pressed={by === 'company'} onclick={() => (distBy = 'company')}>Company</button>
-              <button aria-pressed={by === 'warehouse'} onclick={() => (distBy = 'warehouse')}>Warehouse</button>
+            <div class="sel-seg" role="radiogroup" aria-label="Group by">
+              <button type="button" role="radio" aria-checked={by === 'company'} onclick={() => (distBy = 'company')}>Company</button>
+              <button type="button" role="radio" aria-checked={by === 'warehouse'} onclick={() => (distBy = 'warehouse')}>Warehouse</button>
             </div>
           {:else}<span class="caption">By warehouse</span>{/if}
           <select class="select sm" bind:value={distWhen} aria-label="Distribution period"><option value="week">Last 7 days</option><option value="month">{d.mtd ? 'This month' : 'Period'}</option></select>
@@ -367,12 +367,9 @@
   .bands .zero b { font-weight: 500; }
 
   /* distribution */
-  .drow { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-4); }
+  .drow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-4); }
   .drow .select { flex: none; }
-  .seg { display: inline-flex; padding: 2px; border-radius: var(--radius-md); background: var(--surface-sunken); }
   .side :global(.xm .lbl) { display: none; }
-  .seg button { border: 0; background: none; font: inherit; font-size: 13px; font-weight: 600; padding: 5px 12px; border-radius: calc(var(--radius-md) - 2px); color: var(--text-muted); cursor: pointer; }
-  .seg button[aria-pressed='true'] { background: var(--surface); color: var(--text); box-shadow: var(--elevation-1); }
   .dist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
   .dist li { display: grid; grid-template-columns: minmax(96px, 1fr) minmax(40px, 1fr) auto 36px; align-items: center; gap: var(--space-3); font-size: 14px; }
   .who { display: flex; align-items: center; gap: var(--space-2); min-width: 0; color: var(--text); }

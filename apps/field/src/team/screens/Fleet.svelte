@@ -19,7 +19,7 @@
   import { Res, onRefresh } from '../load.svelte';
   import { usd, num } from '../fmt';
   import Chips from '../components/Chips.svelte';
-  import Segmented from '../components/Segmented.svelte';
+  import Tabs from '../components/Tabs.svelte';
   import Meter from '../components/Meter.svelte';
   import Skeleton from '../components/Skeleton.svelte';
   import Empty from '../components/Empty.svelte';
@@ -62,7 +62,7 @@
     </div>
   </div>
 {:else}
-  <Segmented options={[{ id: 'trucks', label: 'Trucks' }, ...(r.data?.trips ? [{ id: 'providers', label: 'Providers & costs' }] : [])]} bind:value={seg} label="Truck desk view" />
+  <Tabs options={[{ id: 'trucks', label: 'Trucks' }, ...(r.data?.trips ? [{ id: 'providers', label: 'Providers & costs' }] : [])]} bind:value={seg} label="Truck desk view" />
   <ErrorNote error={r.error} onretry={() => r.reload()} />
   {#if seg === 'trucks'}
     <div class="t-row">

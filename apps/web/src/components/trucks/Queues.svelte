@@ -187,9 +187,9 @@
 <dialog class="sheet" bind:this={addDlg} aria-labelledby="add-title">
   <div class="body stack">
     <div><h3 id="add-title">Add truck to queue</h3><div class="caption">{lookup.supplier(lp)?.name}, {lookup.supplier(lp)?.city} — goes to the end of the line</div></div>
-    <div class="tabs" role="tablist">
-      <button role="tab" aria-selected={addMode === 'known'} onclick={() => (addMode = 'known')}>Regular / known truck</button>
-      <button role="tab" aria-selected={addMode === 'market'} onclick={() => (addMode = 'market')}>New market truck</button>
+    <div class="sel-seg" role="radiogroup" aria-label="Which truck">
+      <button type="button" role="radio" aria-checked={addMode === 'known'} onclick={() => (addMode = 'known')}>Regular / known truck</button>
+      <button type="button" role="radio" aria-checked={addMode === 'market'} onclick={() => (addMode = 'market')}>New market truck</button>
     </div>
     {#if addMode === 'known'}
       <label class="field"><span>Truck</span>

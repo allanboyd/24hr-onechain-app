@@ -174,7 +174,9 @@
   .six { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
   .flags { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: var(--space-4) 0; }
   .flag { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius-md); padding: 4px 10px; cursor: pointer; font: inherit; color: var(--text); }
-  .flag[aria-pressed='true'] { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+  .flag:hover { border-color: var(--border-strong); background: var(--surface-sunken); }
+  .flag[aria-pressed='true'] { border-color: var(--sel-line); box-shadow: inset 0 0 0 1px var(--sel-line); background: var(--sel-bg); font-weight: 700; }
+  .flag[aria-pressed='true']::before { content: ''; width: 4px; height: 8px; margin: -3px 2px 0 0; border: solid var(--sel-ink); border-width: 0 2px 2px 0; transform: rotate(45deg); }
   .th { margin-left: auto; display: inline-flex; align-items: center; gap: var(--space-2); }
   .thbox { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: flex-end; margin-bottom: var(--space-4); }
   .meters { display: flex; flex-direction: column; gap: var(--space-3); }

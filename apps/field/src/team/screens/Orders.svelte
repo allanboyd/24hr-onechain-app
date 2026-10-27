@@ -13,7 +13,7 @@
   import { STAGE_TONE, orderedByLine, plannedCases, revLabel, stageOf, sumMap, supplierName } from '../plan';
   import { dayLabel, num, plural, usd } from '../fmt';
   import { webLink } from '../web';
-  import Segmented from '../components/Segmented.svelte';
+  import Tabs from '../components/Tabs.svelte';
   import Chips from '../components/Chips.svelte';
   import Meter from '../components/Meter.svelte';
   import Skeleton from '../components/Skeleton.svelte';
@@ -44,7 +44,7 @@
   const periods = $derived((r.data?.periods ?? []).filter((p) => match(p.ref, p.title)));
 </script>
 
-<Segmented options={segs} bind:value={seg} label="Orders" />
+<Tabs options={segs} bind:value={seg} label="Orders" />
 <label class="t-search"><Search size={20} /><input type="search" placeholder="Search ref, title or supplier" bind:value={q} aria-label="Search orders" /></label>
 <ErrorNote error={r.error} onretry={() => r.reload()} />
 

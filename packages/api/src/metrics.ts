@@ -155,13 +155,14 @@ export const overdueByCustomers = (sales: SaleL[], now: number) => r2(sum(openSa
 // Transport fees (USD)
 // =====================================================================================================================
 /** One loaded trip's transport money: agreed price (null = not recorded) and approved payments against it. */
-export interface FeeLike { agreedUsd: number | null; paidUsd: number; ageDays?: number; reexport?: boolean }
+export interface FeeLike { agreedUsd: number | null; paidUsd: number; ageDays?: number; reexport?: boolean; /** recorded payments waiting for a director's approval (USD) */ pendingUsd?: number }
 /** From a trip with its cost lines and payments (finance.trips): the same rule as the fee rows (money.feeRows). */
 export function feeOfTrip(x: { costs: (Pick<TripCost, 'id' | 'kind' | 'amount'> & { amountUsd?: number })[]; payments: Pick<TripPayment, 'costId' | 'status' | 'amount' | 'amountUsd'>[] }): FeeLike {
   const tr = x.costs.filter((c) => c.kind === 'Transport'); const ids = new Set(tr.map((c) => c.id));
   return {
     agreedUsd: tr.length ? r2(sum(tr, (c) => c.amountUsd ?? c.amount)) : null,
     paidUsd: r2(sum(x.payments.filter((p) => ids.has(p.costId) && p.status !== 'Pending approval'), (p) => p.amountUsd ?? p.amount)),
+    pendingUsd: r2(sum(x.payments.filter((p) => ids.has(p.costId) && p.status === 'Pending approval'), (p) => p.amountUsd ?? p.amount)),
   };
 }
 const balanceOf = (f: FeeLike) => (f.agreedUsd === null ? 0 : Math.max(0, r2(f.agreedUsd - f.paidUsd)));
@@ -171,6 +172,10 @@ export const openFees = <F extends FeeLike>(fees: F[]) => fees.filter((f) => bal
 export const transportOwed = (fees: FeeLike[]) => r2(sum(openFees(fees), balanceOf));
 /** Open fees at least `days` old (days since loading). */
 export const feesOlderThan = <F extends FeeLike>(fees: F[], days: number) => openFees(fees).filter((f) => (f.ageDays ?? 0) >= days);
+/** Trips with a transport payment recorded and waiting for a director's approval (it counts as paid only once approved). */
+export const awaitingApproval = <F extends FeeLike>(fees: F[]) => fees.filter((f) => (f.pendingUsd ?? 0) > 0.005);
+/** USD of those payments. */
+export const awaitingApprovalUsd = (fees: FeeLike[]) => r2(sum(awaitingApproval(fees), (f) => f.pendingUsd ?? 0));
 /** Loaded trips without an agreed transport price yet. */
 export const priceNotRecorded = (fees: FeeLike[]) => fees.filter((f) => f.agreedUsd === null).length;
 

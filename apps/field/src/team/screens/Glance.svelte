@@ -7,6 +7,7 @@
   import { Res, onRefresh } from '../load.svelte';
   import { agreedList, ageingList, directorExceptions, driversList, feesList, fleetList, gapsList, issuesList, loadDirector, loadPlanner, pipelineList, profitList, type DirectorData, type GList, type PlannerData } from '../glance';
   import RowItem from '../components/RowItem.svelte';
+  import X from '@lucide/svelte/icons/x';
   import Skeleton from '../components/Skeleton.svelte';
   import Empty from '../components/Empty.svelte';
   import ErrorNote from '../components/ErrorNote.svelte';
@@ -37,6 +38,11 @@
     if (x.kind === 'director') return key === 'profit' ? (can(user, 'performance') ? profitList(x.d) : null) : { title: 'Open alerts', sub: 'Most urgent first', groups: [{ label: 'Needs a decision or a call', rows: directorExceptions(user, x.d) }], empty: 'All clear — nothing needs you right now.' };
     return null;
   });
+  // keep the chosen chip in view (a scrolled-away choice reads as "nothing chosen")
+  function centerChosen(node: HTMLElement, _v: unknown) {
+    const go = () => { const c = node.querySelector<HTMLElement>('.on'); if (c) node.scrollLeft = Math.max(0, c.offsetLeft - (node.clientWidth - c.offsetWidth) / 2); };
+    go(); return { update: go };
+  }
   const total = $derived(list ? list.groups.reduce((a, g) => a + g.rows.length, 0) : 0);
 </script>
 
@@ -51,9 +57,14 @@
     {#if list.sub}<p class="t-sub">{list.sub}</p>{/if}
   </header>
   {#if list.filters}
-    <nav class="chips" aria-label="Filter">
-      {#each list.filters as f (f.id)}<a href="#{f.href}" class:on={f.on} aria-current={f.on ? 'true' : undefined}>{f.label}<span class="n">{f.count}</span></a>{/each}
+    {@const allF = list.filters.find((f) => f.id === 'all')}
+    {@const curF = list.filters.find((f) => f.on)}
+    <nav class="chips" aria-label="Filter" use:centerChosen={curF?.id}>
+      {#each list.filters as f (f.id)}<a href="#{f.on && allF && f !== allF ? allF.href : f.href}" class="sel-ticked" class:on={f.on} aria-current={f.on ? 'true' : undefined}>{f.label}<span class="n">{f.count}</span></a>{/each}
     </nav>
+    {#if allF && curF && curF !== allF}
+      <p class="note" aria-live="polite"><span>Showing: <b>{curF.label}</b> ({curF.count} of {allF.count})</span><a href="#{allF.href}">Show all ({allF.count})<X size={16} aria-hidden="true" /></a></p>
+    {/if}
   {/if}
   {#if !total}
     <Empty title={list.empty} />
@@ -72,10 +83,14 @@
   .hd { display: flex; flex-direction: column; gap: 2px; }
   .t-h1 { font-size: 22px !important; line-height: 28px !important; }
   section { display: flex; flex-direction: column; gap: 10px; }
-  .chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 calc(-1 * var(--t-pad)); padding: 2px var(--t-pad); }
+  .chips { position: relative; display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 calc(-1 * var(--t-pad)); padding: 2px var(--t-pad); }
   .chips::-webkit-scrollbar { display: none; }
-  .chips a { flex: none; height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid var(--t-line); background: var(--t-card); color: var(--text); font: 600 15px var(--ff-body); display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; text-decoration: none; }
-  .chips a.on { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .chips a { flex: none; height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid var(--border-strong); background: var(--t-card); color: var(--text); font: 600 15px var(--ff-body); display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; text-decoration: none; }
+  /* chosen chip: the shared selection look (base.css "Selection states") — filled primary, tick, bold */
+  .chips a.on { background: var(--sel-fill); color: var(--sel-on-fill); border-color: var(--sel-fill); font-weight: 700; }
+  .note { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 4px 4px 4px 12px; border-radius: 12px; background: var(--sel-bg); box-shadow: inset 3px 0 0 var(--sel-line); font-size: 14px; }
+  .note b { color: var(--sel-ink); }
+  .note a { display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 0 10px; color: var(--link); font-weight: 600; text-decoration: none; }
   .n { min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; background: var(--surface-sunken); color: var(--text-muted); font: 700 12px/22px var(--ff-body); text-align: center; }
-  .on .n { background: color-mix(in srgb, var(--bg) 22%, transparent); color: var(--bg); }
+  .on .n { background: color-mix(in srgb, var(--sel-on-fill) 22%, transparent); color: inherit; }
 </style>

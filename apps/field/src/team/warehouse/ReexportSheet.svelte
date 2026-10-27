@@ -77,7 +77,7 @@
     {#if error}<p class="error-box" role="alert">{error}</p>{/if}
     <button class="btn btn-accent btn-lg btn-block" disabled={busy || !qty} onclick={raise}>{busy ? 'Saving…' : `Raise order · ${qty} cases`}</button>
   {:else if order}
-    <div class="seg" role="radiogroup" aria-label="Truck"><button class:on={!market} onclick={() => (market = false)}>Truck from the list</button><button class:on={market} onclick={() => (market = true)}>Market truck</button></div>
+    <div class="seg" role="radiogroup" aria-label="Truck"><button type="button" class="sel-ticked" class:on={!market} role="radio" aria-checked={!market} onclick={() => (market = false)}>Truck from the list</button><button type="button" class="sel-ticked" class:on={market} role="radio" aria-checked={market} onclick={() => (market = true)}>Market truck</button></div>
     {#if !market}
       <label class="field"><span>Truck</span><select class="input" bind:value={truckId}><option value="">Pick the truck</option>{#each trucks as t (t.id)}<option value={t.id}>{t.reg} · {lookup.provider(t.providerId)?.name}</option>{/each}</select></label>
       <label class="field"><span>Driver</span><select class="input" bind:value={driverId}><option value="">Pick the driver</option>{#each ref().drivers.filter((d) => d.active !== false) as d (d.id)}<option value={d.id}>{d.name}</option>{/each}</select></label>
@@ -100,6 +100,6 @@
   .block { display: block; }
   .seg { display: flex; gap: 6px; background: var(--surface-sunken); padding: 4px; border-radius: 999px; }
   .seg button { flex: 1; min-height: 40px; border: 0; border-radius: 999px; background: none; font: 600 14px var(--ff-body); color: var(--text-muted); }
-  .seg button.on { background: var(--surface); color: var(--text); box-shadow: var(--elevation-1); }
+  .seg button.on { background: var(--sel-fill); color: var(--sel-on-fill); font-weight: 700; } /* shared selection look: filled + tick (.sel-ticked) */
   .error-box { color: var(--danger); font-weight: 600; }
 </style>

@@ -44,7 +44,8 @@
   .cell { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 76px; border-radius: var(--radius-md);
     border: 1px solid transparent; background: var(--tint); color: var(--text); font: inherit; cursor: pointer; padding: var(--space-2); }
   .cell:hover:not(:disabled) { border-color: var(--border-strong); }
-  .cell.sel { border-color: var(--text); box-shadow: inset 0 0 0 1px var(--text); }
+  .cell.sel { position: relative; border-color: var(--sel-line); box-shadow: inset 0 0 0 2px var(--sel-line); }
+  .cell.sel::after { content: ''; position: absolute; top: 4px; right: 6px; width: 4px; height: 8px; border: solid var(--sel-ink); border-width: 0 2px 2px 0; transform: rotate(45deg); }
   .cell:disabled { cursor: default; opacity: 0.55; }
   .n { font: 700 24px/1.1 var(--ff-display); font-variant-numeric: tabular-nums; }
   .act { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-caption); font-weight: 600; color: var(--ink); }

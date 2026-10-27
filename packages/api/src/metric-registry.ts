@@ -2,7 +2,7 @@
 // shared figure, built on the functions in ./metrics. Separate module so the definitions stay out of the apps' entry chunks
 // (screens, Home and the tests import it; the mock / server summaries only need ./metrics).
 import {
-  CHECKIN_GRACE_HOURS, COVER_DAYS, DELAY_HOURS, TERMS_DAYS, casesInTransit, casesOnHand, casesSold, deliveredIn, expensesIn, feesOlderThan, fleetFigures,
+  awaitingApproval, CHECKIN_GRACE_HOURS, COVER_DAYS, DELAY_HOURS, TERMS_DAYS, casesInTransit, casesOnHand, casesSold, deliveredIn, expensesIn, feesOlderThan, fleetFigures,
   landedPerCaseOf, loadedToday, longestWaitHours, marginOf, monthOf, needsAttention, onTimeShare, ordersAtStage, ordersToLoad, overdueByCustomers,
   owedByCustomers, planUsed, plansInForce, plansUpcoming, priceNotRecorded, pricesBelowTarget, pricesMissing, profitOf, reexportsAt, salesValue, stockValue,
   topExpenseCategory, transportOwed, trucksToLoad, trucksWaiting,
@@ -54,6 +54,7 @@ export const METRICS = {
   transportOwed: /* @__PURE__ */ def('transport-owed', 'Transport owed', 'usd', false, 'Open balance to transporters: agreed transport price − approved payments, over trips not fully paid (payments waiting for a director are not deducted yet), USD.', (s) => has(s.fees, transportOwed)),
   feesAmber: /* @__PURE__ */ def('fees-over-amber', 'Unpaid over 14 days', 'trips', false, 'Trips with an open transport balance loaded at least the amber number of days ago (config [fees] amber_days, 14).', (s) => has(s.fees, (x) => feesOlderThan(x, s.feeDays?.amber ?? 14).length)),
   feesRed: /* @__PURE__ */ def('fees-over-red', 'Unpaid over 30 days', 'trips', false, 'Trips with an open transport balance loaded at least the red number of days ago (config [fees] red_days, 30).', (s) => has(s.fees, (x) => feesOlderThan(x, s.feeDays?.red ?? 30).length)),
+  feesAwaiting: /* @__PURE__ */ def('fees-awaiting-approval', 'Waiting for your approval', 'trips', false, "Trips with a transport payment recorded and waiting for a director's approval; it counts as paid only once approved.", (s) => has(s.fees, (x) => awaitingApproval(x).length)),
   priceNotRecorded: /* @__PURE__ */ def('price-not-recorded', 'Agreed price not recorded', 'trips', false, 'Loaded trips (re-exports included) without an agreed transport price yet.', (s) => has(s.fees, priceNotRecorded)),
   landedPerCase: /* @__PURE__ */ def('landed-per-case', 'Landed cost per case', 'usd', true, 'Goods + truck costs + warehouse share of the goods received in the period ÷ cases received good (landed cost v2).', (s) => landedPerCaseOf(s.perf)),
   profit: /* @__PURE__ */ def('profit', 'Profit', 'usd', true, 'Sales − cost of units sold at landed cost v2 − warehouse costs of months with nothing received ("other"), USD.', (s) => profitOf(s.perf)),

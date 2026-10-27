@@ -4,6 +4,7 @@ export { default as PageHeader } from './PageHeader.svelte';
 export { default as SummaryStrip, type SummaryTile } from './SummaryStrip.svelte';
 export { default as FilterBar } from './FilterBar.svelte';
 export { default as ChipGroup } from './ChipGroup.svelte';
+export { default as Tabs } from './Tabs.svelte';
 export { default as ActionInCompany } from './ActionInCompany.svelte';
 export { default as WorkPage } from './WorkPage.svelte';
 export { default as DetailDrawer } from './DetailDrawer.svelte';

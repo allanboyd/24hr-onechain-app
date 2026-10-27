@@ -59,7 +59,7 @@
     ...list.map((x) => [x.truck.reg, x.truck.trailer, x.provider?.name ?? '', x.driver?.name ?? '', stateLabel(x.state), x.where, x.position?.source ?? '', x.position?.at ?? '', x.shipmentRef ?? '', x.eta?.eta ?? '', x.eta ? `${x.eta.state}${x.eta.hours ? ` ${x.eta.hours} h` : ''}` : '', x.issues.map((i) => `${i.reason} (${i.place})`).join('; '), x.loadingPointId ? lpName(x.loadingPointId) : '', x.queuePosition ?? '', x.waitingHours !== undefined ? Math.round(x.waitingHours * 10) / 10 : '', x.daysSinceMove ?? ''])];
 </script>
 
-<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Trucks by status" />
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Trucks by status" noun="trucks" total={loaded ? rows.length : null} shown={loaded ? list.length : null} />
 <FilterBar bind:search placeholder="Truck, driver, provider, shipment, place" {active} onclear={clearAll}>
   <label class="field"><span>State</span><select class="select" value={f.values.state} onchange={(e) => f.set('state', e.currentTarget.value)}><option value="">All states</option>{#each TRUCK_STATES as s}{#if count(s.state) || f.values.state === s.state}<option value={s.state}>{s.label} ({count(s.state)})</option>{/if}{/each}</select></label>
   <label class="field"><span>Provider</span><select class="select" value={f.values.provider} onchange={(e) => f.set('provider', e.currentTarget.value)}><option value="">All providers</option>{#each usedProviders as p}<option value={p.id}>{p.name}</option>{/each}</select></label>

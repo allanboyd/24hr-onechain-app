@@ -17,7 +17,7 @@
   });
   const good = $derived(delta == null ? null : delta === 0 ? null : (delta > 0) === upIsGood);
 </script>
-<svelte:element this={onclick ? 'button' : 'div'} class="card kpi tile" class:pick={!!onclick} class:on={active} {onclick} type={onclick ? 'button' : undefined} role={onclick ? undefined : 'group'} aria-label={onclick ? `${label}: ${value}` : undefined}>
+<svelte:element this={onclick ? 'button' : 'div'} class="card kpi tile" class:pick={!!onclick} class:on={active} {onclick} type={onclick ? 'button' : undefined} role={onclick ? undefined : 'group'} aria-pressed={onclick && active ? true : undefined} aria-label={onclick ? `${label}: ${value}` : undefined}>
   <div class="overline">{label}</div>
   <div class="row between" style="align-items:flex-end;flex-wrap:nowrap">
     <div class="value">{value}</div>
@@ -32,7 +32,11 @@
   .tile { display: flex; flex-direction: column; gap: 2px; min-width: 0; text-align: left; font: inherit; color: inherit; }
   .tile .value { font-size: 26px; line-height: 34px; font-variant-numeric: normal; }
   .pick { cursor: pointer; } .pick:hover { border-color: var(--border-strong); }
-  .on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .pick:hover { box-shadow: var(--elevation-2); }
+  /* chosen: the shared radio-card look (base.css Selection states) */
+  .on { border-color: var(--sel-line); box-shadow: inset 0 0 0 1px var(--sel-line); background: var(--sel-bg); }
+  .on .overline { color: var(--sel-ink); }
+  .on .overline::after { content: ' · Showing'; text-transform: none; letter-spacing: 0; }
   .d { font-weight: 600; color: var(--text-muted); }
   .d.good { color: var(--success); } .d.bad { color: var(--danger); }
 </style>

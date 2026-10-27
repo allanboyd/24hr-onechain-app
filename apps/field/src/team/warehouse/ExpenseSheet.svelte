@@ -42,10 +42,10 @@
 
 <Sheet modal title="Warehouse expense" {onclose}>
   {#if user.warehouseIds.length > 1}
-    <div class="seg" role="radiogroup" aria-label="Warehouse">{#each user.warehouseIds as w (w)}<button class:on={wh === w} role="radio" aria-checked={wh === w} onclick={() => { wh = w; currency = localCcy(w); }}>{lookup.warehouse(w)?.town ?? w}</button>{/each}</div>
+    <div class="seg" role="radiogroup" aria-label="Warehouse">{#each user.warehouseIds as w (w)}<button type="button" class="sel-ticked" class:on={wh === w} role="radio" aria-checked={wh === w} onclick={() => { wh = w; currency = localCcy(w); }}>{lookup.warehouse(w)?.town ?? w}</button>{/each}</div>
   {/if}
   <div class="chips" role="radiogroup" aria-label="Category">
-    {#each WAREHOUSE_EXPENSE_CATEGORIES as c}<button class="chip" class:on={category === c} role="radio" aria-checked={category === c} onclick={() => (category = c)}>{c}</button>{/each}
+    {#each WAREHOUSE_EXPENSE_CATEGORIES as c}<button type="button" class="chip sel-ticked" class:on={category === c} role="radio" aria-checked={category === c} onclick={() => (category = c)}>{c}</button>{/each}
   </div>
   <div class="two">
     <label class="field grow"><span>Amount</span><input class="input big" type="number" inputmode="decimal" min="0" step="0.01" bind:value={amount} placeholder="0" /></label>
@@ -70,10 +70,10 @@
 <style>
   .seg { display: flex; gap: 6px; background: var(--surface-sunken); padding: 4px; border-radius: 999px; }
   .seg button { flex: 1; min-height: 40px; border: 0; border-radius: 999px; background: none; font: 600 15px var(--ff-body); color: var(--text-muted); }
-  .seg button.on { background: var(--surface); color: var(--text); box-shadow: var(--elevation-1); }
+  .seg button.on { background: var(--sel-fill); color: var(--sel-on-fill); font-weight: 700; } /* shared selection look: filled + tick (.sel-ticked) */
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
   .chip { min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: 600 15px var(--ff-body); }
-  .chip.on { border-color: var(--primary); background: var(--primary); color: var(--text-on-primary); }
+  .chip.on { border-color: var(--sel-fill); background: var(--sel-fill); color: var(--sel-on-fill); font-weight: 700; }
   .two { display: flex; gap: var(--space-3); }
   .grow { flex: 1; min-width: 0; }
   .big { font-size: 22px; font-weight: 700; }

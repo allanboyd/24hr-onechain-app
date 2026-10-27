@@ -40,7 +40,7 @@
     ...truckCosts.map((c) => ['Truck', `${c.label} (${lookup.provider(provOf(c.id))?.name ?? ''})`, c.trips, c.agreed, c.extras, c.paid, c.pending, c.balance, c.cases, c.perCase])];
 </script>
 
-<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Transport money" />
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Transport money" noun="providers" total={trips ? provCosts.length : null} shown={trips ? provShown.length : null} />
 <FilterBar bind:search placeholder="Provider or truck" {active} onclear={clearAll}>
   <label class="field"><span>Provider</span><select class="select" value={f.values.provider} onchange={(e) => f.set('provider', e.currentTarget.value)}><option value="">All providers</option>{#each provCosts as c (c.id)}<option value={c.id}>{c.label}</option>{/each}</select></label>
   {#snippet end()}<a class="small" href="#/transport-costs">Payments → Transport costs</a><ExportMenu name="transport-costs" rows={exportCosts} />{/snippet}
@@ -65,10 +65,10 @@
   <div class="table-wrap desktop"><table class="table">
     <thead><tr><th>Provider</th><th class="num">Trips</th><th class="num">Agreed transport</th><th class="num">Extra costs</th><th class="num">Paid</th><th class="num">Waiting approval</th><th class="num">Balance owed</th><th class="num">Cases</th><th class="num">Trip cost / case</th></tr></thead>
     <tbody>{#each provShown as c (c.id)}
-      <tr class:sel={f.values.provider === c.id}><td><button class="linkish" aria-pressed={f.values.provider === c.id} onclick={() => f.toggle('provider', c.id)}>{c.label}</button></td>{@render amounts(c)}<td class="num">{fmtNum(c.cases)}</td><td class="num">{fmtMoney(c.perCase)}</td></tr>
+      <tr class="sel-row" class:on={f.values.provider === c.id}><td><button class="linkish" aria-pressed={f.values.provider === c.id} onclick={() => f.toggle('provider', c.id)}>{c.label}</button></td>{@render amounts(c)}<td class="num">{fmtNum(c.cases)}</td><td class="num">{fmtMoney(c.perCase)}</td></tr>
     {:else}<tr><td colspan="9">{#if !trips}<div class="skeleton"></div>{:else}<EmptyState title={active || f.values.q ? 'No provider matches these filters' : 'No trips yet'} icon={SearchX} compact />{/if}</td></tr>{/each}</tbody>
   </table></div>
-  <ul class="cards mobile">{#each provShown as c (c.id)}<li><button type="button" class="rowcard" class:sel={f.values.provider === c.id} onclick={() => f.toggle('provider', c.id)}>{@render card(c, '')}</button></li>{:else}{#if trips}<li class="caption pad">No provider matches.</li>{/if}{/each}</ul>
+  <ul class="cards mobile">{#each provShown as c (c.id)}<li><button type="button" class="rowcard sel-row" class:on={f.values.provider === c.id} aria-pressed={f.values.provider === c.id} onclick={() => f.toggle('provider', c.id)}>{@render card(c, '')}</button></li>{:else}{#if trips}<li class="caption pad">No provider matches.</li>{/if}{/each}</ul>
 </section>
 
 <section class="card flush gap">
@@ -87,7 +87,6 @@
 
 <style>
   .gap { margin-top: var(--space-4); }
-  tr.sel, .rowcard.sel { background: var(--primary-subtle); }
   .owed { color: var(--danger); }
   .nr { color: var(--warning); font-weight: 600; }
   .linkish { background: none; border: 0; padding: 0; color: var(--link); font: inherit; cursor: pointer; text-align: left; }

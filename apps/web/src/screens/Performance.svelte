@@ -4,6 +4,7 @@
   // warehouse cost, landed cost and per case (landed cost v2, B-06), selling price, sold, revenue, cost of units sold,
   // profit, margin, stock on hand; profit bridge; landed cost per truck; fast / slow products; the target-margin helper.
   import { lookup, reports, ref, type PerformanceReport, type PerfLevel, type PerfRow, type User } from '@btw/api';
+  import Tabs from '../components/page/Tabs.svelte';
   import { fmtNum } from '@btw/ui';
   import { priceForMargin } from '@btw/api/money';
   import { DashboardGrid, DashboardPanel, StackedBarH, StatusBadge, Waterfall } from '../components/dashboard';
@@ -67,9 +68,7 @@
   {#snippet secondary()}<a class="btn btn-secondary" href="#/selling-prices">Selling prices</a>{/snippet}
 </PageHeader>
 
-<nav class="sections" aria-label="Sections">
-  {#each SECTIONS as [k, l] (k)}<a href="#/performance{k === 'summary' ? '' : `?tab=${k}`}" class:on={sec === k} aria-current={sec === k ? 'page' : undefined} onclick={(e) => { e.preventDefault(); go(k); }}>{l}</a>{/each}
-</nav>
+<Tabs label="Sections" tabs={SECTIONS.map(([key, label]) => ({ key, label }))} value={sec} onselect={go} hrefOf={(k) => `#/performance${k === 'summary' ? '' : `?tab=${k}`}`} />
 
 <div class="filters">
   <label class="field"><span>Period</span><select class="select" bind:value={period}>{#each PERIODS as [k, l]}<option value={k}>{l}</option>{/each}</select></label>
@@ -177,10 +176,6 @@
 </DashboardGrid>
 
 <style>
-  .sections { display: flex; flex-wrap: wrap; gap: 0 var(--space-1); border-bottom: 1px solid var(--border); margin: 0 0 var(--space-4); }
-  .sections a { padding: var(--space-2) var(--space-3); color: var(--text-muted); text-decoration: none; border-bottom: 3px solid transparent; font-weight: 600; font-size: 14px; white-space: nowrap; }
-  .sections a.on { color: var(--text); border-bottom-color: var(--nav-indicator, var(--primary)); }
-  @media (max-width: 600px) { .sections { flex-wrap: nowrap; overflow-x: auto; } }
   .kpis { margin-bottom: var(--space-4); display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-3); }
   .perf td:first-child { min-width: 200px; }
   .perf tbody tr { cursor: pointer; }

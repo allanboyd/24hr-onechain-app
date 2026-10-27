@@ -95,10 +95,10 @@ or other entry code, so it stays out of the entry bundle. Gallery: **`#/dev/page
 | Component | Props | Notes |
 |---|---|---|
 | `PageHeader` | `title`, `overline?`, `description?` (one line), `info?` (ⓘ popover text), `analysis?` (Home tab key → "See the analysis → Home · Fleet"), `analysisLabel?`; snippets `primary`, `secondary`, `children` (extra line) | Actions sit right of the title; under it on phones. Replaces the `.page-head` markup. |
-| `SummaryStrip` | `tiles: SummaryTile[]` (2–4; extras dropped), `bind:value` (active key), `param = 'show'`, `sync = true`, `label`, `onchange?` | Each tile is a toggle button (`aria-pressed`, check mark + border when on). Clicking writes `?show=<key>` to the hash query; again clears it. 2×2 on phones. ~72 px high. |
+| `SummaryStrip` | `tiles: SummaryTile[]` (2–4; extras dropped), `bind:value` (active key), `param = 'show'`, `sync = true`, `label`, `onchange?`; active-filter bar: `noun` (turns it on), `total?`, `shown?`, `allValue = ''`, `auto?` (needs-action default), `labels?` (names of non-tile values) | Each tile is a radio-card (`.sel-card`, `aria-pressed`, "✓ Showing" when on). Clicking writes `?show=<key>` to the hash query; clicking the active tile again goes back to `allValue`. With `noun`, the bar under it reads "Showing: Delayed (5 of 140) · Show all ✕" (or "Showing what needs action: …" on the page's default) and starts with an **All &lt;noun&gt;** chip that is selected when no tile filter is on. See *Selection states*. 2×2 on phones. |
 | `SummaryTile` | `key`, `label`, `value: number \| string \| null`, `format?`, `sub?`, `status?` (good/warn/bad/none or a business word), `statusLabel?`, `filter?: false`, `info?` | `null` → "—" + "No data yet". Status always shows icon + word (charts/status.ts). |
 | `FilterBar` | `bind:search?` (omit = no search box), `placeholder`, `active` (filters on), `onclear`, snippets `children` (selects as `<label class="field"><span>Route</span><select class="select">`), `end` (result count) | "Clear filters" appears when anything is on. Phones: search + "Filters (n)" button that opens the rest. |
-| `ChipGroup` | `options [{value,label,n?}]`, `bind:value`, `label`, `allowEmpty = true` | single-choice chips for a FilterBar |
+| `ChipGroup` | `options [{value,label,n?}]`, `bind:value`, `label`, `allowEmpty = true` | single-choice chips for a FilterBar (`.sel-chip`: filled + tick when chosen) |
 | `ActionInCompany` | `label`, `href?` or `onclick?(entityId)`, `intent?`, `feature?`, `when = true`, `what?`, `variant`, `size`, `icon`, `cue`, `user?` | Replaces RecordFor's "Choose a company to record …" rows (F6). One company: acts at once. Group view: "Which company?" menu listing only `allowedIds(user)`; picking calls `setCompany` and goes to `href?co=XXX`, or (with `intent`) back to the page with `?do=<intent>` so the remounted screen opens its dialog via `takeIntent(intent)`. One allowed company → switches without asking. Hidden when `feature` isn't granted or `when` is false (read-only users). |
 | `DetailDrawer` | `bind:open`, `title`, `subtitle?`, `width = 480`, `onclose?`, snippets `header`, `footer`, children | Modal `<dialog>`: right drawer on desktop, full-screen sheet on phones; Esc / ✕ / backdrop close; focus stays inside and returns to the opener. |
 | `WorkPage` | snippets `header`, `strip?`, `filters?`, children (the list), `drawer?` | order and spacing only |
@@ -106,6 +106,39 @@ or other entry code, so it stays out of the entry bundle. Gallery: **`#/dev/page
 | `EmptyState` | `title`, `hint?`, `icon?`, `compact?`, children (actions) | e.g. "No shipments match these filters" + Clear filters |
 | `NeedsActionBadge` | `n`, `label`, `one`, `urgent?` | icon + words; nothing for 0 |
 | `InfoTip` | `text`, `title?`, `label`, `align` | the ⓘ popover used by the header and tiles |
+
+### Selection states (27 Oct 2026)
+Every *pick / filter / switch* control uses ONE selection language, defined once in `packages/ui/src/base.css` (web and
+phone). The chosen state is read from ARIA — `aria-pressed` (toggles, filters), `aria-selected` (tabs), `aria-checked`
+(radios), `aria-current` (links) — or `.on` / a checked `<input>` for label chips, so the look and what a screen reader
+says can't drift apart. **Colour is never the only cue**: every chosen state also has a tick, a word ("Selected" /
+"Showing") or a weight change. Tokens (`--sel-bg`, `--sel-line`, `--sel-ink`, `--sel-fill`, `--sel-on-fill`) map to
+`--primary-subtle` / `--primary` / `--text-on-primary`, so light (navy) and dark (orange on navy) follow the theme.
+
+| Variant | Class | Chosen | Not chosen | Used by |
+|---|---|---|---|---|
+| Radio-card / filter tile | `.sel-card` (+ `.sel-mark` ring, `.sel-title`, `.sel-tag`) | tinted (`--sel-bg`), 2 px primary border, filled ring with a tick, bold primary title, "✓ Selected" / "✓ Showing" pill | surface, muted text, empty ring; hover lifts (border, shadow, −1 px) | Plan / Check a period, every `SummaryStrip` tile, `StatTile` `active`, phone *choice* / *reason* cards (corner tick) |
+| Tabs (the Home-page style, one standard) | `Tabs` component (web `components/page/Tabs.svelte`, phone `team/components/Tabs.svelte`) on the base `.tabs` class; children `button[role=tab]` or `a[aria-current]` | normal text colour + 3 px coloured underline (`--nav-indicator`); the count `.n` gets a subtle filled pill | muted text, no underline, count as a small muted number; plain text, thin bottom border on the row — no tint, no boxes | Home tabs, Truck desk, Transport costs, Performance sections, Master data, Users, Notifications; phone Orders and Truck desk sections |
+| Chips / segmented | `.sel-chip`, `.sel-seg` (children), `.sel-ticked` for a phone's own chip | filled primary, white text, tick (`::before`), count pill tinted | outlined, normal text; hover tint | `ChipGroup`, the All chip of the active-filter bar, Today *Company / Warehouse*, Add-truck *Regular / Market*, adjust kinds, period kinds, Admin login kinds; phone `Chips`, `Segmented` (sliding filled thumb), glance chips, warehouse sheets, loading-point switch |
+| Row that filters | `.sel-row` | tinted, 3 px primary bar on the left, semibold | normal row | Check a period *By area*, Truck desk Costs provider rows, stock-cover bands |
+
+**Page order on every tabbed work page:** header (title, description, actions) → tabs → summary strip of the active tab →
+filter bar → list. Nothing sits between the header and the tabs: a "N … waiting for your approval / action" notice is a
+strip tile, not a banner (Transport costs: directors get **Waiting for your approval** — registry `feesAwaiting`, value =
+trips with a payment waiting, sub = USD, *Act now* / *None waiting* — in place of *Over 14 days*, whose count moves to the
+Open balance sub-line; people who can't approve keep Open balance · Over 14 days · Over 30 days · Price not recorded).
+
+**Summary-strip filters (the "click a figure" pattern).** A tile filter is always visible and always reversible:
+1. the active tile is a chosen radio-card with "✓ Showing" next to its figure;
+2. with `noun`, a bar under the strip says **"Showing: Delayed (5 of 140)"** and offers **Show all ✕**;
+3. the bar starts with an **All &lt;noun&gt; (n)** chip, which is the chosen one when no tile filter is on ("Showing all shipments · pick a figure above to see only those");
+4. clicking the active tile again, the All chip or Show all goes back to everything (`allValue`; pages with a needs-action default use `'all'`, so the choice sticks in the address and the default does not come back on reload);
+5. the list's own Show / Status select is bound to the same query key, so it always names the same filter (non-tile values are named through `labels`);
+6. when the page opened on its needs-action default (docs/17 §7.2: Shipments → Delayed, Stock → Needs attention, Transport costs → over 30 days, else (approvers) waiting for approval, else over 14 days, Purchase orders → Awaiting approval / Not sent, Re-exports → Open, Selling prices → Missing / Below target) the bar says **"Showing what needs action: Delayed (5 of 140) · Show all"** until the person picks something.
+
+Phone (`apps/field/src/team`): `Chips` and the glance chips use the same filled + tick chip; when a chip other than *All*
+is on, a line under them says "Showing: Delayed (3 of 83) · Show all (83) ✕", tapping the chosen chip again returns to
+All, and the chosen chip is scrolled into view.
 
 ### Filters in the address (`query.svelte.ts`)
 `queryFilters({ show: '', route: '', q: '' })` returns `{ values, set, toggle, clear, count }` backed by the hash query, so a

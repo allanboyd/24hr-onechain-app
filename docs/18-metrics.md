@@ -78,6 +78,7 @@ The Truck desk board uses the same state rule (`metrics.roadState`), so its colu
 | `fees-over-amber` | Unpaid over 14 days | Trips with an open balance, loaded at least `[fees] amber_days` (14) ago. This includes the ones over 30 days. |
 | `fees-over-red` | Unpaid over 30 days | Trips with an open balance, loaded at least `[fees] red_days` (30) ago. |
 | `price-not-recorded` | Agreed price not recorded | Loaded trips without an agreed transport price yet, re-exports and onward trips included. |
+| `fees-awaiting-approval` | Waiting for your approval | Trips with a transport payment recorded and waiting for a director's approval; it counts as paid only once approved (Transport costs strip for approvers; added 27 Oct 2026). |
 
 ### Profit (landed cost v2, for a period)
 | Key | Figure | Definition |

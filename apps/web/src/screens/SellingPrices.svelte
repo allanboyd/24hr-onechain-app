@@ -53,8 +53,9 @@
     { key: 'below', label: `Below ${target} % margin`, value: prices ? fig.below : null, sub: 'over landed cost', status: fig.below ? 'bad' : undefined, statusLabel: fig.below ? 'Review' : undefined, info: infoOf('pricesBelow') },
   ]);
   let defaulted = false;
-  $effect(() => { if (defaulted || !prices || !landed.size) return; defaulted = true; if (readQuery('show') || readQuery('product')) return; if (fig.missing) f.set('show', 'missing'); else if (fig.below) f.set('show', 'below'); });
-  const shownLines = $derived(lines.filter((l) => !f.values.show || (f.values.show === 'missing' ? fig.isMissing(l) : fig.isBelow(l))));
+  $effect(() => { if (defaulted || !prices || !landed.size) return; defaulted = true; if (readQuery('show') || readQuery('product')) return; auto = fig.missing ? 'missing' : fig.below ? 'below' : ''; if (auto) f.set('show', auto); });
+  let auto = $state('');
+  const shownLines = $derived(lines.filter((l) => !f.values.show || f.values.show === 'all' || (f.values.show === 'missing' ? fig.isMissing(l) : fig.isBelow(l))));
   const status = (m: number | null) => (m === null ? 'none' : m >= target / 100 ? 'good' : m >= 0 ? 'warn' : 'bad');
 
   // set a price
@@ -78,8 +79,8 @@
   info="New sales start from the price in force. A warehouse price wins over the company price. Landed cost per case is over the last 90 days; the helper proposes price = landed cost ÷ (1 − target margin).">
   {#snippet secondary()}<a class="btn btn-secondary" href="#/performance">Performance and margins</a>{/snippet}
 </PageHeader>
-<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Selling prices summary" />
-<FilterBar bind:search={q} searchLabel="Product" placeholder="Brand, pack or SKU" active={f.values.show ? 1 : 0} onclear={() => { f.clear(); q = ''; }}>
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Selling prices summary" allValue="all" noun="price lines" total={prices ? lines.length : null} shown={prices ? shownLines.length : null} {auto} />
+<FilterBar bind:search={q} searchLabel="Product" placeholder="Brand, pack or SKU" active={f.values.show && f.values.show !== 'all' ? 1 : 0} onclear={() => { f.clear(); q = ''; }}>
   <label class="field"><span>Company</span><select class="select" bind:value={entityId}>{#each entities as e (e.id)}<option value={e.id}>{companyLabel(e.id)}</option>{/each}</select></label>
   <label class="field" style="min-width:120px"><span>Target margin %</span><input class="input num" type="number" min="0" max="90" bind:value={target} /></label>
   {#snippet end()}{#if prices}<span class="caption">{shownLines.length} of {lines.length} price lines</span>{/if}{/snippet}

@@ -27,7 +27,7 @@
   const all = $derived(rows ?? []);
   // the strip's filters: the same registry rules as the counts on the tiles
   const SHOW: Record<string, (list: TransportFeeRow[]) => TransportFeeRow[]> = {
-    open: (l) => MX.openFees(l), amber: (l) => MX.feesOlderThan(l, amberDays), red: (l) => MX.feesOlderThan(l, redDays), missing: (l) => l.filter((r) => r.agreedUsd === null),
+    open: (l) => MX.openFees(l), amber: (l) => MX.feesOlderThan(l, amberDays), red: (l) => MX.feesOlderThan(l, redDays), missing: (l) => l.filter((r) => r.agreedUsd === null), awaiting: (l) => MX.awaitingApproval(l),
   };
   const providers = $derived([...new Set(all.map((r) => r.providerId).filter((x): x is string => !!x))].sort((a, b) => providerName(a).localeCompare(providerName(b))));
   const shown = $derived.by(() => {
@@ -36,7 +36,7 @@
     return base.filter((r) => (!v.status || (v.status === 'pending' ? r.pendingUsd > 0 : r.status === v.status)) && (!v.flag || r.flag === v.flag) && (!v.provider || r.providerId === v.provider)
       && (!q || [r.ref, truckReg(r.truckId), providerName(r.providerId), ...r.references].join(' ').toLowerCase().includes(q)));
   });
-  const active = $derived((f.values.status ? 1 : 0) + (f.values.flag ? 1 : 0) + (f.values.provider ? 1 : 0) + (f.values.show ? 1 : 0));
+  const active = $derived((f.values.status ? 1 : 0) + (f.values.flag ? 1 : 0) + (f.values.provider ? 1 : 0) + (f.values.show && f.values.show !== 'all' ? 1 : 0));
   function clearAll() { f.clear(['show', 'q', 'status', 'flag', 'provider']); search = ''; }
   const agreedText = (r: TransportFeeRow) => (r.agreed ? `${r.agreed.currency} ${fmtNum(r.agreed.amount)}` : 'not recorded');
 </script>

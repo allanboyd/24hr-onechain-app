@@ -1,6 +1,7 @@
 <script lang="ts">
   import { lookup, masterdata, onChange, ref, type User } from '@btw/api';
   import { MASTER_LIMITS } from '@btw/api/static-data';
+  import Tabs from '../components/page/Tabs.svelte';
   import Pencil from '@lucide/svelte/icons/pencil';
   import History from '@lucide/svelte/icons/history';
   import StaticDialog from '../components/StaticDialog.svelte';
@@ -80,9 +81,7 @@
 </div>
 <StaticDialog bind:this={sd} />
 
-<div class="tabs" role="tablist">
-  {#each tabs as t}<button role="tab" aria-selected={tab === t} onclick={() => (tab = t)}>{t}</button>{/each}
-</div>
+<Tabs label="Master data" tabs={tabs.map((t) => ({ key: t, label: t }))} value={tab} onselect={(k) => (tab = k)} />
 
 {#if tab === 'Goods'}
   <div class="filters">
@@ -143,7 +142,7 @@
   <div class="layout">
     <section class="card flush">
       <header><h3>Routes</h3></header>
-      <ul class="list">{#each r.routes as rt}<li><button class:on={route === rt.id} onclick={() => (route = rt.id)}><strong>{rt.name}</strong><span class="caption">{rt.code} · {fmtNum(rt.distanceKm)} km · {rt.stops.length} checkpoints</span></button></li>{/each}</ul>
+      <ul class="list">{#each r.routes as rt}<li><button type="button" class:on={route === rt.id} aria-current={route === rt.id ? 'true' : undefined} onclick={() => (route = rt.id)}><strong>{rt.name}</strong><span class="caption">{rt.code} · {fmtNum(rt.distanceKm)} km · {rt.stops.length} checkpoints</span></button></li>{/each}</ul>
     </section>
     <div class="stack">
       <section class="card flush">
@@ -184,7 +183,8 @@
   .list { list-style: none; margin: 0; padding: var(--space-2); }
   .list button { width: 100%; text-align: left; background: none; border: 0; border-left: 3px solid transparent; border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); display: flex; flex-direction: column; gap: 2px; cursor: pointer; color: var(--text); font: inherit; }
   .list button:hover { background: var(--surface-sunken); }
-  .list button.on { background: var(--primary-subtle); border-left-color: var(--accent); }
+  .list button.on { background: var(--sel-bg); border-left-color: var(--sel-line); }
+  .list button.on strong { color: var(--sel-ink); font-weight: 800; }
   tr.off { opacity: .55; }
   .acts { display: flex; gap: 2px; justify-content: flex-end; }
   .room { margin: 0 0 var(--space-3); }

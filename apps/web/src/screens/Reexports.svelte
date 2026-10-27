@@ -38,8 +38,9 @@
     { key: 'delivered', label: 'Delivered', value: orders ? fig.delivered : null, info: infoOf('rxDelivered') },
   ]);
   let defaulted = false;
-  $effect(() => { if (defaulted || !orders) return; defaulted = true; if (!readQuery('show') && !readQuery('q') && raiser && fig.open) f.set('show', 'open'); });
-  const shown = $derived((orders ?? []).filter((o) => (!f.values.show || o.status === KEY[f.values.show]) && (!f.values.q || `${o.ref} ${o.note ?? ''} ${o.lines.map((l) => lookup.product(l.productId)?.brand).join(' ')}`.toLowerCase().includes(f.values.q.toLowerCase()))));
+  let auto = $state('');
+  $effect(() => { if (defaulted || !orders) return; defaulted = true; if (!readQuery('show') && !readQuery('q') && raiser && fig.open) { auto = 'open'; f.set('show', 'open'); } });
+  const shown = $derived((orders ?? []).filter((o) => (!f.values.show || f.values.show === 'all' || o.status === KEY[f.values.show]) && (!f.values.q || `${o.ref} ${o.note ?? ''} ${o.lines.map((l) => lookup.product(l.productId)?.brand).join(' ')}`.toLowerCase().includes(f.values.q.toLowerCase()))));
   function clearAll() { f.clear(); search = ''; }
   const STATUS: Record<ReexportOrder['status'], string> = { Open: 'none', Loaded: 'warn', 'In transit': 'warn', Delivered: 'good', Cancelled: 'none' };
   const cases = (o: ReexportOrder) => o.lines.reduce((a, l) => a + (l.loadedQty ?? l.qty), 0);
@@ -78,7 +79,7 @@
   {#snippet primary()}{#if raiser}<button class="btn btn-primary" onclick={newDraft} disabled={!stock.length}><Plus size={16} aria-hidden="true" />New re-export order</button>{/if}{/snippet}
 </PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
-<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Re-export orders summary" />
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Re-export orders summary" allValue="all" noun="orders" total={orders ? orders.length : null} shown={orders ? shown.length : null} {auto} labels={KEY} />
 
 {#if draft}
   <section class="card form-card" aria-label="New re-export order">
@@ -103,7 +104,7 @@
 {#if loading}
   <section class="card form-card" aria-label="Load and hand over">
     <h2 class="h4">Load {loading.o.ref} <span class="caption">no prices — the agreed transport price is recorded by Testfie after loading</span></h2>
-    <div class="kinds"><label class="chip" class:on={loading.mode === 'list'}><input type="radio" value="list" bind:group={loading.mode} />Truck from the list</label><label class="chip" class:on={loading.mode === 'market'}><input type="radio" value="market" bind:group={loading.mode} />Market truck</label></div>
+    <div class="kinds"><label class="sel-chip"><input type="radio" value="list" bind:group={loading.mode} />Truck from the list</label><label class="sel-chip"><input type="radio" value="market" bind:group={loading.mode} />Market truck</label></div>
     <div class="form-grid">
       {#if loading.mode === 'list'}
         <label class="field"><span>Truck</span><select class="select" bind:value={loading.truckId}><option value="">Pick a truck</option>{#each trucks as t (t.id)}<option value={t.id}>{t.reg} · {lookup.provider(t.providerId)?.name}</option>{/each}</select></label>
@@ -121,8 +122,8 @@
   </section>
 {/if}
 
-<FilterBar bind:search placeholder="Order, note or product" active={f.values.show ? 1 : 0} onclear={clearAll}>
-  <label class="field"><span>Status</span><select class="select" value={f.values.show} onchange={(e) => f.set('show', e.currentTarget.value)}><option value="">All</option>{#each Object.entries(KEY) as [k, v]}<option value={k}>{v}</option>{/each}</select></label>
+<FilterBar bind:search placeholder="Order, note or product" active={f.values.show && f.values.show !== 'all' ? 1 : 0} onclear={clearAll}>
+  <label class="field"><span>Status</span><select class="select" value={f.values.show || 'all'} onchange={(e) => f.set('show', e.currentTarget.value)}><option value="all">All</option>{#each Object.entries(KEY) as [k, v]}<option value={k}>{v}</option>{/each}</select></label>
   {#snippet end()}{#if orders}<span class="caption">{shown.length} of {orders.length} orders</span>{/if}{/snippet}
 </FilterBar>
 <div class="card flush table-wrap">
@@ -155,8 +156,6 @@
   .form-card { margin-bottom: var(--space-4); display: grid; gap: var(--space-3); }
   .line { display: flex; gap: var(--space-3); align-items: flex-end; flex-wrap: wrap; }
   .kinds { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-  .chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 14px; }
-  .chip.on { border-color: var(--primary); background: var(--surface-sunken); font-weight: 600; }
   .error { color: var(--danger); }
   .nowrap { white-space: nowrap; }
 </style>

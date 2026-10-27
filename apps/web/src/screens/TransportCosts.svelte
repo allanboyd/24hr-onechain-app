@@ -8,11 +8,12 @@
   // payments are recorded by the directors (and accounts) — above the threshold they wait for a director's approval
   // ('finance.approve'). Every money save goes through withUnusualConfirm (amount sanity check), currency always explicit.
   import { finance, ref, type TransportFeeRow, type User } from '@btw/api';
+  import Tabs from '../components/page/Tabs.svelte';
   import * as MX from '@btw/api/metrics';
   import { canRecordPayment } from '@btw/api/access';
   import { feesConfig } from '@btw/api/money';
   import { fmtNum } from '@btw/ui';
-  import { PageHeader, SummaryStrip, ActionInCompany, NeedsActionBadge, queryFilters, readQuery, writeQuery, takeIntent, type SummaryTile } from '../components/page';
+  import { PageHeader, SummaryStrip, ActionInCompany, queryFilters, readQuery, writeQuery, takeIntent, type SummaryTile } from '../components/page';
   import ErrorState from '../components/ErrorState.svelte';
   import ExportMenu from '../components/ExportMenu.svelte';
   import Fees from '../components/costs/Fees.svelte';
@@ -66,28 +67,41 @@
     if (canFees) { const k = feeTiles(fees ?? [], cfg.amberDays, cfg.redDays); return { ...k, ready: !!fees }; }
     const m = tripMoneyTiles(trips ?? []);
     return { balance: m.owed, open: MX.openFees(tripFees).length, amber: MX.feesOlderThan(tripFees, cfg.amberDays).length, red: MX.feesOlderThan(tripFees, cfg.redDays).length, missing: m.missing,
-      pending: (trips ?? []).flatMap((t) => t.payments).filter((p) => p.status === 'Pending approval').reduce((a, p) => a + (p.amountUsd ?? p.amount), 0), ready: !!trips };
+      awaiting: m.awaiting, pending: m.pending, ready: !!trips };
   });
   const usd = (n: number) => `USD ${fmtNum(n)}`;
-  const tiles = $derived<SummaryTile[]>([
-    { key: 'open', label: 'Open balance', value: fig.ready ? fig.balance : null, format: usd, sub: fig.pending ? `${fig.open} trip${fig.open === 1 ? '' : 's'} · ${usd(fig.pending)} to approve` : `${fig.open} trip${fig.open === 1 ? '' : 's'} unpaid or part paid`, info: infoOf('transportOwed') },
+  // Max 4 tiles. People who approve payments (directors) get "Waiting for your approval" instead of "Over 14 days" (that
+  // count moves to the Open balance sub-line) — it replaces the old "N payments waiting for your approval" notice.
+  const awaitingTile = $derived<SummaryTile>({ key: 'awaiting', label: 'Waiting for your approval', value: fig.ready ? fig.awaiting : null, sub: fig.awaiting ? `${usd(fig.pending)} to approve` : undefined,
+    status: fig.awaiting ? 'warn' : 'good', statusLabel: fig.awaiting ? 'Act now' : 'None waiting', info: infoOf('feesAwaiting') });
+  const tiles = $derived<SummaryTile[]>(canApprove ? [
+    { key: 'open', label: 'Open balance', value: fig.ready ? fig.balance : null, format: usd, sub: `${fig.open} trip${fig.open === 1 ? '' : 's'} · ${fig.amber} over ${cfg.amberDays} days`, info: infoOf('transportOwed') },
+    { key: 'red', label: `Over ${cfg.redDays} days`, value: fig.ready ? fig.red : null, status: fig.red ? 'bad' : undefined, statusLabel: fig.red ? 'Overdue' : undefined, info: infoOf('feesRed') },
+    { key: 'missing', label: 'Price not recorded', value: fig.ready ? fig.missing : null, sub: 'record it after loading', info: infoOf('priceNotRecorded') },
+    awaitingTile,
+  ] : [
+    { key: 'open', label: 'Open balance', value: fig.ready ? fig.balance : null, format: usd, sub: `${fig.open} trip${fig.open === 1 ? '' : 's'} unpaid or part paid`, info: infoOf('transportOwed') },
     { key: 'amber', label: `Over ${cfg.amberDays} days`, value: fig.ready ? fig.amber : null, status: fig.amber ? 'warn' : undefined, statusLabel: fig.amber ? 'Follow up' : undefined, info: infoOf('feesAmber') },
     { key: 'red', label: `Over ${cfg.redDays} days`, value: fig.ready ? fig.red : null, status: fig.red ? 'bad' : undefined, statusLabel: fig.red ? 'Overdue' : undefined, info: infoOf('feesRed') },
     { key: 'missing', label: 'Price not recorded', value: fig.ready ? fig.missing : null, sub: 'record it after loading', info: infoOf('priceNotRecorded') },
   ]);
-  function onStrip(key: string) { if (key && tab !== stripTab) setTab(stripTab); }
+  function onStrip(key: string) { if (key && key !== 'all' && tab !== stripTab) setTab(stripTab); }
 
   // Needs-action default (docs/17 §3): someone who records payments (directors, accounts) opens on the fees that need
   // paying — over red days first, else over amber days — only when the address carries no filter of its own (a bookmark
   // or Home link wins) and only when the page opens on the tab the strip filters. Runs once, after the first load.
   let defaulted = false;
+  let auto = $state('');
   $effect(() => {
     if (defaulted || !fig.ready) return;
     defaulted = true;
     if (explicit || !canPay || tab !== stripTab) return;
-    if (fig.red) f.set('show', 'red');
-    else if (fig.amber) f.set('show', 'amber');
+    auto = fig.red ? 'red' : canApprove && fig.awaiting ? 'awaiting' : fig.amber ? 'amber' : '';
+    if (auto) f.set('show', auto);
   });
+  // counts for the strip's "Showing: Over 30 days (3 of 41)" line — the tile's own count (the list may add its filters)
+  const stripTotal = $derived(fig.ready ? (canFees ? fees ?? [] : trips ?? []).length : null);
+  const stripShown = $derived(fig.ready ? (({ open: fig.open, amber: fig.amber, red: fig.red, missing: fig.missing, awaiting: fig.awaiting }) as Record<string, number>)[f.values.show] ?? stripTotal : null);
 
   // ---- trips the record actions can be done on ----
   const feeMap = $derived(new Map((fees ?? []).map((r) => [r.shipmentId, r])));
@@ -117,8 +131,6 @@
   const flagLabel = (fl: TransportFeeRow['flag']) => ({ ok: { s: 'good', l: 'On time' }, amber: { s: 'warn', l: `Over ${cfg.amberDays} days` }, red: { s: 'bad', l: `Over ${cfg.redDays} days` }, none: { s: 'none', l: 'No price' } })[fl];
 
   // pending approvals (directors): a shortcut to the payments waiting for them
-  const pendingCount = $derived((trips ?? []).flatMap((t) => t.payments).filter((p) => p.status === 'Pending approval').length);
-  function showPending() { f.clear(['show', 'status', 'flag', 'pay']); if (canFees) { setTab('fees'); f.set('status', 'pending'); } else { setTab('trips'); f.set('pay', 'pending'); } }
 
   // ---- exports (the whole list of the tab) ----
   const exportFees = () => [['Shipment', 'Company', 'Truck', 'Provider', 'Loaded', 'Age (days)', 'Agreed', 'Currency', 'Agreed USD', 'Paid USD', 'Waiting approval USD', 'Balance USD', 'Status', 'Flag', 'References'],
@@ -146,16 +158,13 @@
       <ActionInCompany label="Record payment" what="payment" intent="record-payment" when={canPay} onclick={() => act('pay', '')} />
     {/if}
   {/snippet}
-  {#if canApprove && pendingCount}<button type="button" class="pend" onclick={showPending}><NeedsActionBadge n={pendingCount} label="payments waiting for your approval" one="payment waiting for your approval" /></button>{/if}
 </PageHeader>
 <ErrorState error={wf.error ?? wt.error} onretry={() => { wf.retry(); wt.retry(); }} compact={wf.loaded || wt.loaded} />
 
-<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Transport costs summary" onchange={onStrip} />
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Transport costs summary" onchange={onStrip} allValue="all" noun="trips" total={stripTotal} shown={stripShown} {auto} labels={{ amber: `Over ${cfg.amberDays} days` }} />
 
 {#if tabs.length > 1}
-  <div class="tabs" role="tablist" aria-label="Transport costs">
-    {#each tabs as t (t.key)}<button role="tab" type="button" aria-selected={tab === t.key} onclick={() => setTab(t.key)}>{t.label}</button>{/each}
-  </div>
+  <Tabs label="Transport costs" {tabs} value={tab} onselect={setTab} />
 {/if}
 
 {#if tab === 'fees' && canFees}
@@ -169,7 +178,3 @@
 <TripDrawer bind:open={drawer} fee={feeMap.get(sel) ?? null} trip={tripMap.get(sel) ?? null} {flagLabel} {canApprove} {canPay} {canExpense} onact={act} />
 <CostDialog bind:open={dlgOpen} kind={dlgKind} shipmentId={dlgShip} trips={dlgShip ? refs.filter((r) => r.shipmentId === dlgShip) : forAct(dlgKind)} />
 
-<style>
-  .pend { border: 0; background: none; padding: 0; cursor: pointer; font: inherit; }
-  .tabs { margin-top: var(--space-4); }
-</style>

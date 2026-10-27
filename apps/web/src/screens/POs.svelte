@@ -37,14 +37,18 @@
   ]);
   // open on what needs this person (only when nothing is chosen in the address)
   let defaulted = false;
+  let auto = $state('');
   $effect(() => {
     if (defaulted || !list) return;
     defaulted = true;
     if (readQuery('stage') || readQuery('q') || readQuery('entity') || readQuery('supplier')) return;
-    if (approvals && user.roles.includes('director') && fig.awaiting) f.set('stage', 'Awaiting approval');
-    else if (user.roles.includes('planner') && fig.notSent) f.set('stage', 'Created');
+    if (approvals && user.roles.includes('director') && fig.awaiting) auto = 'Awaiting approval';
+    else if (user.roles.includes('planner') && fig.notSent) auto = 'Created';
+    if (auto) f.set('stage', auto);
   });
-  const stage = $derived(f.values.stage as PoStage | '');
+  // 'all' = every order, chosen on purpose (sticks in the address, so the needs-action default does not come back)
+  const stage = $derived((f.values.stage === 'all' ? '' : f.values.stage) as PoStage | '');
+  const stageNames = $derived(Object.fromEntries(STAGES().map((s) => [s, stageLabel(s)])));
   const tileKeys = $derived(tiles.map((t) => t.key));
   const rows = $derived((stage === 'Deleted' ? list ?? [] : live).filter((p) =>
     (!stage || (tileKeys.includes(stage) ? atStage(p, stage) : p.stage === stage)) && (!f.values.entity || p.entityId === f.values.entity) && (!f.values.supplier || p.supplierId === f.values.supplier) &&
@@ -63,9 +67,9 @@
   {#snippet primary()}<ActionInCompany label="Create purchase order" what="purchase order" href="#/pos/new" when={canCreate} />{/snippet}
 </PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
-<SummaryStrip {tiles} bind:value={f.values.stage} param="stage" label="Purchase orders by stage" />
+<SummaryStrip {tiles} bind:value={f.values.stage} param="stage" label="Purchase orders by stage" allValue="all" noun="orders" total={list ? live.length : null} shown={list ? rows.length : null} {auto} labels={stageNames} />
 <FilterBar bind:search placeholder="Reference or title" {active} onclear={clearAll}>
-  <label class="field"><span>Status</span><select class="select" value={stage} onchange={(e) => f.set('stage', e.currentTarget.value)}><option value="">All (not deleted)</option>{#each STAGES() as s}<option value={s}>{stageLabel(s)}</option>{/each}</select></label>
+  <label class="field"><span>Status</span><select class="select" value={stage || 'all'} onchange={(e) => f.set('stage', e.currentTarget.value)}><option value="all">All (not deleted)</option>{#each STAGES() as s}<option value={s}>{stageLabel(s)}</option>{/each}</select></label>
   <label class="field"><span>Ordering company</span><select class="select" value={f.values.entity} onchange={(e) => f.set('entity', e.currentTarget.value)}><option value="">All companies</option>{#each r.entities as e}<option value={e.id}>{e.shortName || e.code}</option>{/each}</select></label>
   <label class="field"><span>Supplier</span><select class="select" value={f.values.supplier} onchange={(e) => f.set('supplier', e.currentTarget.value)}><option value="">All suppliers</option>{#each r.suppliers as s}<option value={s.id}>{s.code} {s.city}</option>{/each}</select></label>
   {#snippet end()}{#if list}<span class="caption">{rows.length} of {live.length} orders</span>{/if}{/snippet}

@@ -46,7 +46,7 @@
   const inMonth = (x: WarehouseExpense, n: number) => x.date >= monthStart(n) && x.date < monthStart(n - 1);
   const SHOW: Record<string, (x: WarehouseExpense) => boolean> = { month: (x) => inMonth(x, 0), last: (x) => inMonth(x, 1), top: (x) => inMonth(x, 0) && x.category === fig.top?.category };
   const shown = $derived((rows ?? []).filter((x) => !f.values.show || SHOW[f.values.show]?.(x) !== false));
-  const active = $derived(['show', 'wh', 'cat', 'from', 'to'].filter((k) => f.values[k as 'show']).length);
+  const active = $derived(['show', 'wh', 'cat', 'from', 'to'].filter((k) => f.values[k as 'show'] && f.values[k as 'show'] !== 'all').length);
 
   // form (add / edit)
   type Form = { id?: string; warehouseId: string; date: string; category: WarehouseExpenseCategory; amount: number | null; currency: Currency; reference: string; note: string; receipt?: { id: string; url: string; name: string } | null };
@@ -102,7 +102,7 @@
 {/if}
 
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
-<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Warehouse expenses summary" />
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Warehouse expenses summary" allValue="all" noun="expenses" shown={rows ? shown.length : null} />
 <FilterBar {active} onclear={() => f.clear()}>
   <label class="field"><span>Warehouse</span><select class="select" value={f.values.wh} onchange={(e) => f.set('wh', e.currentTarget.value)}><option value="">All {mine.length > 1 ? 'my warehouses' : ''}</option>{#each mine as x (x.id)}<option value={x.id}>{x.name}</option>{/each}</select></label>
   <label class="field"><span>Category</span><select class="select" value={f.values.cat} onchange={(e) => f.set('cat', e.currentTarget.value)}><option value="">All categories</option>{#each catList as c}<option value={c}>{c}</option>{/each}</select></label>

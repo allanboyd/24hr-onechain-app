@@ -33,12 +33,12 @@ export function inventoryTiles(rows: StockRow[], vel: VelocityRow[], money: bool
 }
 /** Transport fees page. */
 export function feeTiles(rows: TransportFeeRow[], amberDays: number, redDays: number) {
-  return { balance: MX.transportOwed(rows), open: MX.openFees(rows).length, amber: MX.feesOlderThan(rows, amberDays).length, red: MX.feesOlderThan(rows, redDays).length, missing: MX.priceNotRecorded(rows), pending: rows.reduce((a, r) => a + r.pendingUsd, 0) };
+  return { balance: MX.transportOwed(rows), open: MX.openFees(rows).length, amber: MX.feesOlderThan(rows, amberDays).length, red: MX.feesOlderThan(rows, redDays).length, missing: MX.priceNotRecorded(rows), awaiting: MX.awaitingApproval(rows).length, pending: MX.awaitingApprovalUsd(rows) };
 }
 /** Trip financials and the truck desk (finance.trips): the same transport figures from the trips' cost lines and payments. */
 export function tripMoneyTiles(trips: Parameters<typeof MX.feeOfTrip>[0][]) {
   const fees = trips.map(MX.feeOfTrip);
-  return { owed: MX.transportOwed(fees), missing: MX.priceNotRecorded(fees), agreed: Math.round(fees.reduce((a, f) => a + (f.agreedUsd ?? 0), 0) * 100) / 100 };
+  return { owed: MX.transportOwed(fees), missing: MX.priceNotRecorded(fees), awaiting: MX.awaitingApproval(fees).length, pending: MX.awaitingApprovalUsd(fees), agreed: Math.round(fees.reduce((a, f) => a + (f.agreedUsd ?? 0), 0) * 100) / 100 };
 }
 /** Sales page and its overview: sales, cases sold and what customers owe, from the sales report (every sale, USD,
  *  intercompany removed in the Group view — computed with the shared definitions in reports.salesReport). */

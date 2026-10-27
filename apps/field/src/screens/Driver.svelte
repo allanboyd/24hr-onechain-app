@@ -244,5 +244,6 @@
   .text-btn { display: inline-flex; align-items: center; gap: 6px; }
   .reasons { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
   .reason { min-height: 96px; border-radius: var(--radius-lg); border: 2px solid var(--border); background: var(--surface); color: var(--text); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; font: 600 15px var(--ff-body); cursor: pointer; text-align: center; padding: 8px; }
-  .reason[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-subtle); }
+  .reason[aria-pressed='true'] { position: relative; border-color: var(--sel-line); background: var(--sel-bg); font-weight: 700; }
+  .reason[aria-pressed='true']::after { content: ''; position: absolute; right: 12px; top: 10px; width: 6px; height: 12px; border: solid var(--sel-ink); border-width: 0 3px 3px 0; transform: rotate(45deg); }
 </style>

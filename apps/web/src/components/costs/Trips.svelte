@@ -32,6 +32,7 @@
   const SHOW: Record<string, (t: Trip) => boolean> = {
     open: (t) => MX.openFees([tripFee(t)]).length > 0, amber: (t) => MX.feesOlderThan([tripFee(t)], amberDays).length > 0,
     red: (t) => MX.feesOlderThan([tripFee(t)], redDays).length > 0, missing: (t) => t.agreedRecorded === false,
+    awaiting: (t) => MX.awaitingApproval([tripFee(t)]).length > 0,
   };
   const shown = $derived.by(() => {
     const v = f.values; const q = (v.q ?? '').toLowerCase();
@@ -39,7 +40,7 @@
       && (!v.pay || (v.pay === 'pending' ? hasPending(t) : tripStatus(t) === v.pay))
       && (!q || [t.shipment.ref, truckReg(t.shipment.legs[0]?.truckId), providerName(provOf(t)), ...t.payments.map((p) => p.reference), ...t.costs.map((c) => c.docRef ?? '')].join(' ').toLowerCase().includes(q)));
   });
-  const active = $derived((f.values.provider ? 1 : 0) + (f.values.pay ? 1 : 0) + (stripFilters && f.values.show ? 1 : 0));
+  const active = $derived((f.values.provider ? 1 : 0) + (f.values.pay ? 1 : 0) + (stripFilters && f.values.show && f.values.show !== 'all' ? 1 : 0));
   function clearAll() { f.clear(stripFilters ? ['show', 'q', 'provider', 'pay'] : ['q', 'provider', 'pay']); search = ''; }
   const followUp = (t: Trip) => { const a = tripLoadedAt(t); return a ? Date.parse(a) + FOLLOW_UP_DAYS * 864e5 : undefined; };
   const byProvider = $derived.by(() => {

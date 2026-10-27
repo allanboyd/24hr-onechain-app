@@ -121,10 +121,11 @@
   // their warehouse, and cover / overstock is a purchasing signal; they open on every line of their own warehouse(s),
   // which the API already limits to theirs.
   let defaulted = false;
+  let auto = $state('');
   $effect(() => {
     if (defaulted || !lines) return;
     defaulted = true;
-    if (!explicit && money && fig.attention > 0) f.set('show', 'attention');
+    if (!explicit && money && fig.attention > 0) { auto = 'attention'; f.set('show', 'attention'); }
   });
 
   // ---- Count / adjust ----
@@ -157,7 +158,7 @@
     ...shown.map((x) => { const p = lookup.product(x.productId); return [companyLabel(x.entityId), lookup.warehouse(x.warehouseId)?.name ?? x.warehouseId, p?.sku ?? '', p?.brand ?? '', p?.pack ?? '', x.opening, x.received, x.transfersIn, x.transfersOut, x.damaged,
       ...(whRows ? [x.w?.short ?? 0, x.w?.movedOut ?? 0] : []), x.adjustments, x.sold, x.closing, x.inTransit, cover(x) >= 999 ? '' : cover(x), levelOf(x), ...(whRows ? [x.w?.lastCountAt?.slice(0, 10) ?? ''] : []),
       ...(money ? [x.landedCostPerCase, Math.round(valueOf(x) * 100) / 100] : [])]; })];
-  const active = $derived((f.values.show ? 1 : 0) + (f.values.wh ? 1 : 0) + (f.values.level ? 1 : 0) + (f.values.company ? 1 : 0));
+  const active = $derived((f.values.show && f.values.show !== 'all' ? 1 : 0) + (f.values.wh ? 1 : 0) + (f.values.level ? 1 : 0) + (f.values.company ? 1 : 0));
 </script>
 
 <WorkPage>
@@ -169,7 +170,7 @@
       {#snippet primary()}<ActionInCompany label="Count / adjust stock" what="stock count" feature="warehouse-stock" intent="count" when={recordable.length > 0} onclick={() => count()} />{/snippet}
     </PageHeader>
   {/snippet}
-  {#snippet strip()}<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Stock summary" />{/snippet}
+  {#snippet strip()}<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Stock summary" allValue="all" noun="stock lines" total={lines ? lines.length : null} shown={lines ? shown.length : null} {auto} />{/snippet}
   {#snippet filters()}
     <FilterBar bind:search placeholder="Brand, package or SKU code" searchLabel="Search SKU" {active} onclear={clearAll}>
       {#if warehouses.length > 1}

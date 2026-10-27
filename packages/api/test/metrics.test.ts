@@ -95,6 +95,8 @@ for (const [who, id, entity] of [['Group (Daniel)', 'u-daniel', null], ['BTW (Da
     same(`${who} · transport owed`, { registry: reg.transportOwed, 'Transport fees page': ft.balance, 'Trip financials': trips ? tripMoneyTiles(trips).owed : null, 'Truck desk': trips ? desk?.owed : null, 'phone director': dir ? phone.transportOwed : null });
     same(`${who} · price not recorded`, { registry: reg.priceNotRecorded, 'Transport fees page': ft.missing, 'Trip financials': trips ? tripMoneyTiles(trips).missing : null, 'Truck desk': trips ? desk?.agreedMissing : null, 'phone director': dir ? phone.priceNotRecorded : null });
     same(`${who} · unpaid over ${cfg.amberDays} d`, { registry: reg.feesAmber, 'Transport fees page': ft.amber, 'phone': dir ? phone.feesAmber?.length : MX.feesOlderThan(fees, cfg.amberDays).length });
+    same(`${who} · payments waiting for approval (trips)`, { registry: reg.feesAwaiting, 'Transport fees page': ft.awaiting, 'Trip financials': trips ? tripMoneyTiles(trips).awaiting : null });
+    same(`${who} · payments waiting for approval (USD)`, { 'Transport fees page': ft.pending, 'Trip financials': trips ? tripMoneyTiles(trips).pending : null, registry: MX.awaitingApprovalUsd(fees) });
     same(`${who} · unpaid over ${cfg.redDays} d`, { registry: reg.feesRed, 'Transport fees page': ft.red, 'phone': dir ? phone.feesRed?.length : MX.feesOlderThan(fees, cfg.redDays).length });
   }
   // ---- docs/17 Phase 1: the work-page summary strips (page tile helper = registry, per scope)

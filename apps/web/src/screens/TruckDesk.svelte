@@ -6,6 +6,7 @@
   //   Costs — transport owed by provider and truck; agreed price and trip expenses          'truck-expenses' or 'finance'
   // Charts live on Home · Fleet. Loaders (only 'loading') see the Queues tab alone, without a tab bar.
   import { finance, loading, ref, shipments, type Shipment, type User, type WaitingEntry } from '@btw/api';
+  import Tabs from '../components/page/Tabs.svelte';
   import { deskKpis, sortDesk, truckDesk, type TruckRow } from '@btw/api/trucks';
   import { canEditQueue } from '@btw/api/access';
   import { PageHeader, ActionInCompany, hashQuery, readQuery, writeQuery, takeIntent } from '../components/page';
@@ -102,9 +103,7 @@
 </PageHeader>
 
 {#if TABS.length > 1}
-  <div class="tabs" role="tablist" aria-label="Truck desk">
-    {#each TABS as t (t.key)}<button role="tab" aria-selected={tab === t.key} onclick={() => setTab(t.key)}>{t.label}{#if t.key === 'board' && w.loaded}<span class="caption tabn">{rows.length}</span>{/if}</button>{/each}
-  </div>
+  <Tabs label="Truck desk" tabs={TABS.map((t) => ({ ...t, n: t.key === 'board' && w.loaded ? rows.length : null }))} value={tab} onselect={(k) => setTab(k as Tab)} />
 {/if}
 
 {#if tab !== 'queues'}<ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />{/if}
@@ -130,5 +129,4 @@
 {#if canMoney}<MoneyDialogs bind:this={money} {trips} />{/if}
 
 <style>
-  .tabn { margin-left: 6px; }
 </style>

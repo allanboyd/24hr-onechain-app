@@ -38,7 +38,7 @@
 <Sheet modal title={row ? name(row.productId) : 'Stock'} onclose={row ? () => (row = null) : onclose}>
   {#if !row}
     {#if user.warehouseIds.length > 1}
-      <div class="seg" role="radiogroup" aria-label="Warehouse">{#each user.warehouseIds as w (w)}<button class:on={wh === w} role="radio" aria-checked={wh === w} onclick={() => (wh = w)}>{lookup.warehouse(w)?.town ?? w}</button>{/each}</div>
+      <div class="seg" role="radiogroup" aria-label="Warehouse">{#each user.warehouseIds as w (w)}<button type="button" class="sel-ticked" class:on={wh === w} role="radio" aria-checked={wh === w} onclick={() => (wh = w)}>{lookup.warehouse(w)?.town ?? w}</button>{/each}</div>
     {/if}
     <input class="input" type="search" bind:value={q} placeholder="Find a brand" aria-label="Find a brand" />
     <p class="caption">Cases held now. Tap a product to count it or record damage, goods moved out or found.</p>
@@ -56,7 +56,7 @@
   {:else}
     <p class="subline">{lookup.product(row.productId)?.pack} · held {row.held.toLocaleString('en-US')} cases</p>
     <div class="chips" role="radiogroup" aria-label="What happened">
-      {#each ADJUST_KINDS as k (k.kind)}<button class="chip" class:on={kind === k.kind} role="radio" aria-checked={kind === k.kind} onclick={() => (kind = k.kind)}>{k.label}</button>{/each}
+      {#each ADJUST_KINDS as k (k.kind)}<button type="button" class="chip sel-ticked" class:on={kind === k.kind} role="radio" aria-checked={kind === k.kind} onclick={() => (kind = k.kind)}>{k.label}</button>{/each}
     </div>
     <label class="field"><span>{kind === 'count' ? 'Cases counted' : 'Cases'}</span><Stepper bind:value={n} min={0} label={kind === 'count' ? 'cases counted' : 'cases'} /></label>
     <label class="field"><span>{kind === 'moved-out' ? 'Where did they go?' : kind === 'damaged' ? 'What happened?' : 'Note (optional)'}</span><input class="input" bind:value={note} /></label>
@@ -69,7 +69,7 @@
 <style>
   .seg { display: flex; gap: 6px; background: var(--surface-sunken); padding: 4px; border-radius: 999px; }
   .seg button { flex: 1; min-height: 40px; border: 0; border-radius: 999px; background: none; font: 600 15px var(--ff-body); color: var(--text-muted); }
-  .seg button.on { background: var(--surface); color: var(--text); box-shadow: var(--elevation-1); }
+  .seg button.on { background: var(--sel-fill); color: var(--sel-on-fill); font-weight: 700; } /* shared selection look: filled + tick (.sel-ticked) */
   .list { list-style: none; margin: 0; padding: 0; }
   .list button { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: 60px; border: 0; border-bottom: 1px solid var(--border); background: none; color: var(--text); font: inherit; text-align: left; padding: 8px 0; cursor: pointer; }
   .grow { flex: 1; min-width: 0; }
@@ -77,7 +77,7 @@
   .num { font-variant-numeric: tabular-nums; font-size: 18px; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
   .chip { min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: 600 15px var(--ff-body); }
-  .chip.on { border-color: var(--primary); background: var(--primary); color: var(--text-on-primary); }
+  .chip.on { border-color: var(--sel-fill); background: var(--sel-fill); color: var(--sel-on-fill); font-weight: 700; }
   .effect { font-weight: 700; }
   .effect.neg { color: var(--danger); }
   .error-box { color: var(--danger); font-weight: 600; }

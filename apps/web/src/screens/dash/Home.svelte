@@ -3,6 +3,7 @@
   // document §10) + each feature group they may open + (directors, Group view) the companies side by side.
   // Replaces the separate Home / Dashboards / Command view pages. Routes: #/ · #/dashboards/<group> · #/overview.
   import type { DashFilter, DashResponse, User } from '@btw/api';
+  import Tabs from '../../components/page/Tabs.svelte';
   import { DASH_GROUPS, dashboardsFor, homeFor } from '@btw/api/dashboards';
   import { company, GROUP } from '../../lib/company.svelte';
   import { roleText } from '../../lib/roles';
@@ -44,9 +45,7 @@
 </div>
 
 {#if tabs.length > 1}
-  <nav class="tabs" aria-label="Dashboards">
-    {#each tabs as t (t.key)}<a href={hrefOf(t.key)} class:on={t.key === active} aria-current={t.key === active ? 'page' : undefined}>{t.label}</a>{/each}
-  </nav>
+  <Tabs label="Dashboards" {tabs} value={active} {hrefOf} />
 {/if}
 
 {#if active === 'companies'}
@@ -62,9 +61,3 @@
     {#if analysisKeys.length}{#await import('./Analysis.svelte') then An}<An.default keys={analysisKeys} {filter} {user} />{/await}{/if}{/key}
 {/if}
 
-<style>
-  .tabs { display: flex; flex-wrap: wrap; gap: 0 var(--space-1); border-bottom: 1px solid var(--border); margin: var(--space-2) 0 var(--space-3); }
-  .tabs a { padding: var(--space-2) var(--space-3); white-space: nowrap; color: var(--text-muted); text-decoration: none; border-bottom: 3px solid transparent; font-weight: 600; font-size: 14px; }
-  @media (max-width: 600px) { .tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } .tabs a { padding: var(--space-2) var(--space-2); } }
-  .tabs a.on { color: var(--text); border-bottom-color: var(--nav-indicator, var(--primary)); }
-</style>

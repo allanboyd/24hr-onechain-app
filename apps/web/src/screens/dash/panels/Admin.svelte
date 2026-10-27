@@ -23,7 +23,7 @@
 {#if key === 'alerts'}
   <DashboardPanel span={span ?? 'full'} title="Alerts centre" subtitle="severity × business impact · click a cell or a kind to filter the list · {shown.length} of {(d.items ?? []).length}" {...fr} rows={alertRows} filename="alerts" filterText={[cell ? `${cell.row} impact · ${cell.col} severity` : '', kind].filter(Boolean).join(' · ')} drill={{ label: 'Open notifications', href: '#/notifications' }}>
     {#snippet actions()}{#if cell || kind}<button class="btn btn-ghost btn-sm" onclick={() => { cell = null; kind = ''; }}>Clear filter</button>{/if}{/snippet}
-    <div class="kinds">{#each d.kinds ?? [] as k}<button class="kchip" class:on={kind === k.kind} aria-pressed={kind === k.kind} onclick={() => (kind = kind === k.kind ? '' : k.kind)}><b>{k.n}</b> {k.kind}</button>{/each}</div>
+    <div class="kinds">{#each d.kinds ?? [] as k}<button type="button" class="sel-chip" aria-pressed={kind === k.kind} onclick={() => (kind = kind === k.kind ? '' : k.kind)}><b>{k.n}</b> {k.kind}</button>{/each}</div>
     <div class="split">
       <TriageMatrix rows={d.impacts ?? []} cols={d.sevs ?? []} counts={d.counts ?? []} selected={cell} onselect={(c) => (cell = c)} />
       <ExceptionList items={shown} max={8} label="Open alerts" emptyText="No alerts match this filter" />
@@ -49,8 +49,6 @@
 
 <style>
   .kinds { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); }
-  .kchip { border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); border-radius: var(--radius-md); padding: 3px 8px; font: 500 12px var(--ff-body); cursor: pointer; }
-  .kchip.on { background: var(--primary); color: var(--text-on-primary); border-color: var(--primary); }
   .split { display: grid; grid-template-columns: minmax(280px, 2fr) 3fr; gap: var(--space-4); align-items: start; }
   @media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
   .tiles4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); margin-bottom: var(--space-3); }

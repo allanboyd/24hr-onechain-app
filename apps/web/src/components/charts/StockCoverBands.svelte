@@ -32,7 +32,7 @@
     {#each bands as b, i}
       {@const m = STATUS[b.status]}
       {@const p = c.total ? c.counts[i] / c.total : 0}
-      <tr class:on={selected === b.label}>
+      <tr class:sel-row={!!onselect} class:on={selected === b.label}>
         <td>
           {#if onselect}<button class="band" aria-pressed={selected === b.label} onclick={() => onselect(selected === b.label ? null : b)}><m.icon size={14} aria-hidden="true" style="color:{m.ink}" />{b.label}</button>
           {:else}<span class="band"><m.icon size={14} aria-hidden="true" style="color:{m.ink}" />{b.label}</span>{/if}
@@ -56,7 +56,6 @@
   .barcol { width: 42%; }
   .track { height: 10px; border-radius: 5px; background: var(--surface-sunken); }
   .fill { height: 100%; border-radius: 5px; min-width: 2px; }
-  tr.on td { background: var(--primary-subtle); }
   tfoot td { font-weight: 600; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 </style>

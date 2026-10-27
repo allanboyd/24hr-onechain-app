@@ -63,7 +63,7 @@
     <fieldset class="kinds">
       <legend class="label">Period</legend>
       {#each Object.entries(KIND_LABEL) as [k, l] (k)}
-        <label class="kind" class:on={kind === k}><input type="radio" name="kind" value={k} bind:group={kind} />{l}</label>
+        <label class="sel-chip kind"><input type="radio" name="kind" value={k} bind:group={kind} />{l}</label>
       {/each}
     </fieldset>
     {#if kind === 'custom'}
@@ -115,10 +115,7 @@
   .co { display: flex; gap: var(--space-3); align-items: center; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-left: 4px solid var(--company-accent, var(--accent)); border-radius: var(--radius-md); background: var(--surface); }
   .kinds { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); }
   .kinds legend { margin-bottom: var(--space-2); }
-  .kind { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); cursor: pointer; font-weight: 600; font-size: 14px; }
-  .kind input { position: absolute; opacity: 0; pointer-events: none; }
-  .kind.on { background: var(--primary); color: var(--text-on-primary); border-color: var(--primary); }
-  .kind:has(input:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  .kind { height: var(--control-md); padding: 0 14px; font-size: 14px; } /* .sel-chip: filled + tick when chosen */
   .summary { display: flex; flex-direction: column; padding: var(--space-3); background: var(--surface-sunken); border-radius: var(--radius-md); }
   .warn { padding: var(--space-3) var(--space-4); } .warn ul { margin: var(--space-2) 0; padding-left: var(--space-4); }
   .steps { margin: 0; padding-left: var(--space-4); display: flex; flex-direction: column; gap: var(--space-1); }

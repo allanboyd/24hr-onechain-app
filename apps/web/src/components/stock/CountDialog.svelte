@@ -80,7 +80,7 @@
     {#if line}
       <p class="small held">{companyLabel(line.entityId)} · held now <strong>{fmtNum(line.held)}</strong> cases</p>
       <div class="kinds" role="radiogroup" aria-label="What happened">
-        {#each ADJUST_KINDS as k (k.kind)}<label class="chip" class:on={kind === k.kind}><input type="radio" name="kind" value={k.kind} bind:group={kind} />{k.label}</label>{/each}
+        {#each ADJUST_KINDS as k (k.kind)}<label class="sel-chip"><input type="radio" name="kind" value={k.kind} bind:group={kind} />{k.label}</label>{/each}
       </div>
       <div class="form-grid">
         {#if kind === 'count'}
@@ -105,9 +105,6 @@
   .pickers { display: grid; gap: var(--space-3); }
   .held { margin: 0; }
   .kinds { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-  .chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 14px; }
-  .chip.on { border-color: var(--primary); background: var(--surface-sunken); font-weight: 600; }
-  .chip input { accent-color: var(--primary); }
   .form-grid { display: grid; grid-template-columns: 1fr 2fr; gap: var(--space-3); }
   .error { color: var(--danger); margin: 0; }
   @media (max-width: 520px) { .form-grid { grid-template-columns: 1fr; } }

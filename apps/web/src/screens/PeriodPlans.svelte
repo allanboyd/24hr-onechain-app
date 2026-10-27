@@ -50,7 +50,7 @@
   {#snippet primary()}<ActionInCompany label="New period plan" what="period plan" href="#/period-plans/new" when={canCreate} />{/snippet}
 </PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
-<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Period plans summary" />
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Period plans summary" noun="plans" total={list ? list.length : null} shown={list ? rows.length : null} />
 <FilterBar bind:search placeholder="Reference or title" {active} onclear={clearAll}>
   <label class="field"><span>Status</span><select class="select" value={f.values.status} onchange={(e) => f.set('status', e.currentTarget.value)}><option value="">Active</option><option value="Replaced">Replaced</option><option value="all">Active and replaced</option></select></label>
   {#snippet end()}{#if list}<span class="caption">{rows.length} plans</span>{/if}{/snippet}

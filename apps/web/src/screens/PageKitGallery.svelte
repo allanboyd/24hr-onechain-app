@@ -87,7 +87,7 @@
       {#snippet primary()}<ActionInCompany label="Record a shipment" what="shipment" feature="logistics" onclick={(id) => say(`Record a shipment for ${companyLabel(id)}`)} />{/snippet}
     </PageHeader>
   {/snippet}
-  {#snippet strip()}<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Shipments summary" />{/snippet}
+  {#snippet strip()}<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Shipments summary" noun="shipments" total={rows.length} shown={list.length} />{/snippet}
   {#snippet filters()}
     <FilterBar bind:search placeholder="Shipment, truck or driver" active={(f.values.route ? 1 : 0) + (f.values.company ? 1 : 0) + (f.values.show ? 1 : 0)} onclear={clearAll}>
       <label class="field"><span>Route</span><select class="select" value={f.values.route} onchange={(e) => f.set('route', e.currentTarget.value)}><option value="">All routes</option>{#each routes as r}<option value={r}>{r}</option>{/each}</select></label>

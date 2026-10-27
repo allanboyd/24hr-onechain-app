@@ -90,7 +90,9 @@
   .group { display: flex; flex-direction: column; gap: var(--space-2); }
   .choices { display: flex; flex-direction: column; gap: var(--space-2); }
   .choice { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); min-height: 56px; padding: 0 14px; border-radius: var(--radius-md); border: 2px solid var(--border); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; text-align: left; }
-  .choice[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-subtle); }
+  /* chosen: the shared radio-card look (base.css "Selection states") — primary border, tint, tick in the corner */
+  .choice[aria-pressed='true'] { position: relative; border-color: var(--sel-line); background: var(--sel-bg); padding-right: 40px; }
+  .choice[aria-pressed='true']::after { content: ''; position: absolute; right: 16px; top: 50%; width: 6px; height: 12px; margin-top: -8px; border: solid var(--sel-ink); border-width: 0 3px 3px 0; transform: rotate(45deg); }
   .big { font: 700 20px var(--ff-display); margin: 0; }
   .picked { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
   .line { display: grid; grid-template-columns: 1fr 190px; gap: var(--space-3); align-items: center; }

@@ -2,6 +2,8 @@
   // Users & devices: the people on the field app (giver / driver / receiver) and office staff; scopes (UA-02, §17.7);
   // PIN reset and remote sign-out of lost phones (MA-08).
   import { ref, type User } from '@btw/api';
+  import Tabs from '../components/page/Tabs.svelte';
+  const GROUP_LABEL = { all: 'Active', field: 'Field app', office: 'Office', inactive: 'Deactivated' } as const;
   import { Badge, ago, say } from '@btw/ui';
   import { users, FIELD_ROLES, OFFICE_ROLES, isNotAvailable, type AdminUser, type Device, type UserInput } from '../lib/admin';
   import { watch, attempt } from '../lib/load.svelte';
@@ -90,11 +92,7 @@
   <button class="btn btn-primary" onclick={() => open(null)}><UserPlus size={16} />New user</button>
 </div>
 
-<div class="tabs" role="tablist" aria-label="User groups">
-  {#each [['all', 'Active'], ['field', 'Field app'], ['office', 'Office'], ['inactive', 'Deactivated']] as [k, label]}
-    <button role="tab" aria-selected={tab === k} onclick={() => (tab = k as typeof tab)}>{label} <span class="caption">{count(k as typeof tab)}</span></button>
-  {/each}
-</div>
+<Tabs label="User groups" tabs={(['all', 'field', 'office', 'inactive'] as const).map((k) => ({ key: k, label: GROUP_LABEL[k], n: count(k) }))} value={tab} onselect={(k) => (tab = k)} />
 <div class="filters">
   <label class="field"><span>Search</span><span class="search"><Search size={16} /><input class="input" type="search" bind:value={q} placeholder="Name, phone or role" /></span></label>
 </div>

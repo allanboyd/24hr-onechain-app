@@ -44,6 +44,7 @@
   const open = (s: Sale) => s.status !== 'Paid' && total(s) - s.paid > 0.005;
   const SHOW: Record<string, (s: Sale) => boolean> = { month: (s) => Date.parse(s.at) >= monthStart, owed: open, overdue: (s) => open(s) && Date.now() - Date.parse(s.at) > TERMS_DAYS * DAY };
   const rows = $derived((list ?? []).filter((s) => (!scoped || scoped.includes(s.warehouseId)) && (!f.values.show || SHOW[f.values.show]?.(s) !== false) && (!f.values.wh || s.warehouseId === f.values.wh) && (!f.values.status || s.status === f.values.status) && (!f.values.kind || s.kind === f.values.kind) && (!f.values.cust || s.customer.toLowerCase().includes(f.values.cust.toLowerCase()))));
+  const inScope = $derived((list ?? []).filter((s) => !scoped || scoped.includes(s.warehouseId)).length);
   const total = (s: Sale) => s.lines.reduce((a, l) => a + amount(l.qty, l.price), 0);
   const balances = $derived.by(() => {
     const m = new Map<string, number>();
@@ -102,7 +103,7 @@
   {#snippet primary()}<ActionInCompany label="New sale" what="sale" feature="sales" intent="new-sale" onclick={openNew} />{/snippet}
 </PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
-<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Sales summary" />
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Sales summary" noun="sales" total={list ? inScope : null} shown={list ? rows.length : null} />
 
 <div class="layout">
   <div>

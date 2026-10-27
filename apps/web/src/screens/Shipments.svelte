@@ -39,11 +39,14 @@
     { key: 'noCheckin', label: 'No check-in', value: list ? fig.noCheckin : null, status: fig.noCheckin ? 'warn' : undefined, statusLabel: fig.noCheckin ? 'Call the driver' : undefined, info: infoOf('noCheckin') },
   ]);
   let defaulted = false;
+  let auto = $state(''); // the needs-action filter the page opened on (the strip says so)
   $effect(() => {
     if (defaulted || !list) return;
     defaulted = true;
     if (['show', 'q', 'route', 'company'].some((k) => readQuery(k))) return;
-    f.set('show', can(user, 'trucks') && fig.delayed ? 'delayed' : 'road');
+    const pick = can(user, 'trucks') && fig.delayed ? 'delayed' : 'road';
+    if (pick === 'delayed') auto = pick; // "On the road" is the usual view, not an action list
+    f.set('show', pick);
   });
   const rows = $derived(scoped.filter((sh) => (!f.values.show || f.values.show === 'all' || TEST[f.values.show]?.(sh))
     && (!f.values.company || sh.receivingCompanyId === f.values.company) && (!f.values.route || sh.legs.some((l) => l.routeId === f.values.route))
@@ -75,7 +78,7 @@
   {/snippet}
 </PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
-<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Shipments summary" />
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Shipments summary" allValue="all" noun="shipments" total={list ? scoped.length : null} shown={list ? rows.length : null} {auto} labels={{ delivered: 'Delivered' }} />
 <FilterBar bind:search placeholder="Shipment, PO, truck or driver" {active} onclear={clearAll}>
   <label class="field"><span>Show</span><select class="select" value={f.values.show || 'all'} onchange={(e) => f.set('show', e.currentTarget.value)}>
     <option value="road">On the road</option><option value="delayed">Delayed</option><option value="border">At a border</option><option value="noCheckin">No check-in</option><option value="delivered">Delivered</option><option value="all">All shipments</option></select></label>
