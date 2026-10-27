@@ -3,17 +3,13 @@ import { canAny, type Feature } from './lib/features';
 import type { RouteDef } from '@btw/ui';
 import LayoutDashboard from '@lucide/svelte/icons/layout-dashboard';
 import FileText from '@lucide/svelte/icons/file-text';
-import ListOrdered from '@lucide/svelte/icons/list-ordered';
 import Truck from '@lucide/svelte/icons/truck';
-import Map from '@lucide/svelte/icons/map';
 import Boxes from '@lucide/svelte/icons/boxes';
 import ShoppingCart from '@lucide/svelte/icons/shopping-cart';
 import Wallet from '@lucide/svelte/icons/wallet';
-import TrendingUp from '@lucide/svelte/icons/trending-up';
 import Database from '@lucide/svelte/icons/database';
 import Bell from '@lucide/svelte/icons/bell';
 import UsersIcon from '@lucide/svelte/icons/users';
-import PlugZap from '@lucide/svelte/icons/plug-zap';
 import ChartArea from '@lucide/svelte/icons/chart-area';
 import CalendarRange from '@lucide/svelte/icons/calendar-range';
 import Container from '@lucide/svelte/icons/container';
@@ -21,7 +17,6 @@ import ScrollText from '@lucide/svelte/icons/scroll-text';
 import Receipt from '@lucide/svelte/icons/receipt';
 import Tag from '@lucide/svelte/icons/tag';
 import ArrowRightLeft from '@lucide/svelte/icons/arrow-right-left';
-import ClipboardCheck from '@lucide/svelte/icons/clipboard-check';
 
 
 /** docs/14 screens share one lazy chunk (one import → a smaller entry). */
@@ -36,6 +31,8 @@ export const routes: WebRoute[] = [
   { path: '/overview', load: () => import('./screens/dash/Home.svelte'), title: 'Home' },
   { path: '/period-plans', load: () => import('./screens/PeriodPlans.svelte'), title: 'Period plans' },
   { path: '/period-plans/new', load: () => import('./screens/PeriodPlanNew.svelte'), title: 'New period plan' },
+  // "Plan / check a period" (moved from the retired Reports page, docs/17 §4)
+  { path: '/period-plans/check', load: () => import('./screens/PeriodCheck.svelte'), title: 'Plan or check a period' },
   { path: '/period-plans/:id', load: () => import('./screens/PeriodPlanDetail.svelte'), title: 'Period plan' },
   // docs/09 §4: one Purchase orders area (no drafts). Old /plans links (bookmarks, notifications) redirect to it.
   { path: '/plans', load: () => import('./screens/PlanRedirect.svelte'), title: 'Purchase orders' },
@@ -45,26 +42,22 @@ export const routes: WebRoute[] = [
   { path: '/pos/new', load: () => import('./screens/PoEdit.svelte'), title: 'Create purchase order' },
   { path: '/pos/:id/edit', load: () => import('./screens/PoEdit.svelte'), title: 'Update purchase order' },
   { path: '/pos/:id', load: () => import('./screens/POView.svelte'), title: 'Purchase order' },
-  { path: '/loading', load: () => import('./screens/Loading.svelte'), title: 'Loading' },
   { path: '/shipments', load: () => import('./screens/Shipments.svelte'), title: 'Shipments' },
   { path: '/shipments/:id', load: () => import('./screens/ShipmentDetail.svelte'), title: 'Shipment' },
-  { path: '/tracking', load: () => import('./screens/Tracking.svelte'), title: 'Tracking' },
+  // docs/17 Phase 2: Truck desk tabs Board · Queues (was Loading & waiting list) · Providers & trucks · Costs
   { path: '/trucks', load: () => import('./screens/TruckDesk.svelte'), title: 'Truck desk' },
-  { path: '/inventory', load: () => import('./screens/Inventory.svelte'), title: 'Inventory' },
+  // Stock = Inventory + Warehouse stock; Transport costs = Trip financials + Transport fees (docs/17 §4)
+  { path: '/stock', load: () => import('./screens/Stock.svelte'), title: 'Stock' },
   { path: '/sales', load: () => import('./screens/Sales.svelte'), title: 'Sales' },
-  { path: '/finance', load: () => import('./screens/Finance.svelte'), title: 'Trip financials' },
-  { path: '/analytics', load: () => import('./screens/Analytics.svelte'), title: 'Sales velocity' },
-  { path: '/reports', load: () => import('./screens/Reports.svelte'), title: 'Reports' },
+  { path: '/transport-costs', load: () => import('./screens/TransportCosts.svelte'), title: 'Transport costs' },
   { path: '/master', load: () => import('./screens/MasterData.svelte'), title: 'Master data' },
   { path: '/notifications', load: () => import('./screens/Notifications.svelte'), title: 'Notifications' },
   { path: '/users', load: () => import('./screens/Users.svelte'), title: 'Users & devices' },
   { path: '/integrations', load: () => import('./screens/Integrations.svelte'), title: 'Integrations' },
   { path: '/audit', load: () => import('./screens/Audit.svelte'), title: 'Audit log' },
   // docs/14 (workstream B): warehouse money and data
-  { path: '/warehouse-stock', load: mo('WarehouseStock'), title: 'Warehouse stock' },
   { path: '/warehouse-expenses', load: mo('WarehouseExpenses'), title: 'Warehouse expenses' },
   { path: '/re-exports', load: mo('Reexports'), title: 'Re-export orders' },
-  { path: '/transport-fees', load: mo('TransportFees'), title: 'Transport fees' },
   { path: '/selling-prices', load: mo('SellingPrices'), title: 'Selling prices' },
   { path: '/performance', load: mo('Performance'), title: 'Performance' },
   { path: '/dev/charts', load: () => import('./screens/ChartGallery.svelte'), title: 'Chart gallery' }, // dev/demo only: the screen checks showDemoHelpers
@@ -79,36 +72,29 @@ export const nav: { label: string; items: NavItem[] }[] = [
     { href: '#/pos', label: 'Purchase orders', icon: FileText, feature: 'purchase-orders' },
   ] },
   { label: 'Logistics', items: [
-    { href: '#/trucks', label: 'Truck desk', icon: Container, feature: 'trucks' },
-    { href: '#/loading', label: 'Loading & waiting list', icon: ListOrdered, feature: 'loading' },
-    { href: '#/shipments', label: 'Shipments & legs', icon: Truck, feature: 'logistics' },
-    { href: '#/tracking', label: 'Tracking map', icon: Map, feature: 'fleet' },
+    { href: '#/trucks', label: 'Truck desk', icon: Container, feature: ['trucks', 'loading'] },
+    { href: '#/shipments', label: 'Shipments', icon: Truck, feature: 'logistics' },
     { href: '#/re-exports', label: 'Re-export orders', icon: ArrowRightLeft, feature: 're-export' },
   ] },
   { label: 'Stock & sales', items: [
-    { href: '#/inventory', label: 'Inventory', icon: Boxes, feature: 'inventory' },
-    { href: '#/sales', label: 'Sales', icon: ShoppingCart, feature: 'sales' },
-    { href: '#/warehouse-stock', label: 'Warehouse stock', icon: ClipboardCheck, feature: 'warehouse-stock' },
+    { href: '#/stock', label: 'Stock', icon: Boxes, feature: ['inventory', 'warehouse-stock'] },
     { href: '#/warehouse-expenses', label: 'Warehouse expenses', icon: Receipt, feature: 'warehouse-expenses' },
+    { href: '#/sales', label: 'Sales', icon: ShoppingCart, feature: 'sales' },
   ] },
   { label: 'Finance', items: [
     { href: '#/performance', label: 'Performance', icon: ChartArea, feature: 'performance' },
     { href: '#/selling-prices', label: 'Selling prices', icon: Tag, feature: 'selling-prices' },
-    { href: '#/finance', label: 'Trip financials', icon: Wallet, feature: 'finance' },
-    { href: '#/transport-fees', label: 'Transport fees', icon: Wallet, feature: 'transport-fees' },
-  ] },
-  { label: 'Analytics', items: [
-    { href: '#/reports', label: 'Reports & planning', icon: ChartArea, feature: 'reports' },
-    { href: '#/analytics', label: 'Sales velocity', icon: TrendingUp, feature: 'reports' },
+    { href: '#/transport-costs', label: 'Transport costs', icon: Wallet, feature: ['finance', 'transport-fees'] },
   ] },
   { label: 'Admin', items: [
     { href: '#/master', label: 'Master data', icon: Database, feature: ['master-data', 'master-data.static', 'master-data.transport'] },
     { href: '#/users', label: 'Users & devices', icon: UsersIcon, feature: 'users' },
     { href: '#/audit', label: 'Audit log', icon: ScrollText, feature: 'audit' },
-    { href: '#/integrations', label: 'Integrations', icon: PlugZap, feature: 'integrations' },
     { href: '#/notifications', label: 'Notifications', icon: Bell },
   ] },
 ];
+/** Pages not in the sidebar, with the feature that opens them (Integrations lives under Admin settings → Master data, docs/17 §4). */
+const HIDDEN: Record<string, Feature | Feature[]> = { integrations: 'integrations' };
 
 /** Nav groups this user may see (role × feature matrix, docs/07 §E). */
 export const navFor = (u: User | null) => nav.map((g) => ({ ...g, items: g.items.filter((i) => !i.feature || canAny(u, i.feature)) })).filter((g) => g.items.length);
@@ -125,5 +111,6 @@ export function canOpen(path: string, u: User | null): boolean {
   const seg = path.split('?')[0].split('/')[1] ?? '';
   if (seg === '') return true;
   const item = nav.flatMap((g) => g.items).find((i) => i.href === `#/${seg}`);
-  return !item?.feature || canAny(u, item.feature);
+  const f = item?.feature ?? HIDDEN[seg];
+  return !f || canAny(u, f);
 }

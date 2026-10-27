@@ -118,7 +118,7 @@ export class LogisticsService implements InboundHandler {
       const ids = reorderQueue(q.map((x) => x.id), entryId, position ?? i + 1 + dir);
       for (const [k, id] of ids.entries()) { const w = q.find((x) => x.id === id)!; if (w.position !== k + 1) await tx.update(t.waitingEntries).set({ position: k + 1 }).where(eq(t.waitingEntries.id, id)); }
       const to = ids.indexOf(entryId) + 1;
-      if (to !== i + 1) await this.notify.notify(tx, 'Loading queue changed', `${await this.lpCode(e.loadingPointId)}: ${await this.ref.truckReg(e.truckId)} moved from #${i + 1} to #${to} by ${p.name}`, `#/loading?lp=${e.loadingPointId}`, ['loader'], { entityId: e.entityId });
+      if (to !== i + 1) await this.notify.notify(tx, 'Loading queue changed', `${await this.lpCode(e.loadingPointId)}: ${await this.ref.truckReg(e.truckId)} moved from #${i + 1} to #${to} by ${p.name}`, `#/trucks?tab=queues&lp=${e.loadingPointId}`, ['loader'], { entityId: e.entityId });
       return map.waiting((await tx.select().from(t.waitingEntries).where(eq(t.waitingEntries.id, entryId)))[0]);
     });
     return out;
@@ -136,7 +136,7 @@ export class LogisticsService implements InboundHandler {
       await tx.delete(t.waitingEntries).where(eq(t.waitingEntries.id, entryId));
       await this.renumber(tx, e.loadingPointId);
       await tx.insert(t.auditLog).values({ userId: p.id, channel: p.channel, method: 'DELETE', path: `/waiting/${entryId}`, status: 200, entityId: e.entityId, feature: 'waiting', recordType: 'waiting', recordId: entryId, summary: why || 'removed from the queue', detail: { loadingPointId: e.loadingPointId, truckId: e.truckId, position: e.position, reason: why || null } });
-      await this.notify.notify(tx, 'Truck removed from the queue', `${await this.lpCode(e.loadingPointId)}: ${await this.ref.truckReg(e.truckId)} removed by ${p.name}${why ? ` — ${why}` : ''}`, `#/loading?lp=${e.loadingPointId}`, ['loader'], { entityId: e.entityId });
+      await this.notify.notify(tx, 'Truck removed from the queue', `${await this.lpCode(e.loadingPointId)}: ${await this.ref.truckReg(e.truckId)} removed by ${p.name}${why ? ` — ${why}` : ''}`, `#/trucks?tab=queues&lp=${e.loadingPointId}`, ['loader'], { entityId: e.entityId });
       return true;
     });
   }

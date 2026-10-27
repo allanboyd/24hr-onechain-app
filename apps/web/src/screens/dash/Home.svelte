@@ -7,7 +7,7 @@
   import { company, GROUP } from '../../lib/company.svelte';
   import { roleText } from '../../lib/roles';
   import { can } from '../../lib/features';
-  import RecordFor from '../../components/RecordFor.svelte';
+  import { dashDef } from '@btw/api/dashboards';
   import Board from './Board.svelte';
   import Filters from './Filters.svelte';
   let { user, params }: { user: User; params?: { group?: string } } = $props();
@@ -27,6 +27,7 @@
   const wanted = $derived(params?.group ?? (location.hash.startsWith('#/overview') ? 'companies' : 'mine'));
   const active = $derived((tabs.find((t) => t.key === wanted) ?? tabs[0]).key);
   const keys = $derived(active === 'mine' ? home : mine.filter((d) => d.group === active).map((d) => d.key));
+  const analysisKeys = $derived(keys.filter((k) => dashDef(k)?.analysis));
   const hrefOf = (k: string) => (k === 'mine' ? '#/' : `#/dashboards/${k}`);
   let filter = $state<DashFilter>({});
   let options = $state<DashResponse['options'] | null>(null);
@@ -37,10 +38,9 @@
   <div><div class="overline crumb">{roleText(user.roles)}{groupView ? ' · Group view (read-only)' : ''}</div>
     <h1>Good {hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening'}, {user.name.split(' ')[0]}</h1>
     <p class="caption">{tabs.find((t) => t.key === active)?.blurb ?? ''}</p></div>
-  <div class="row">
-    {#if can(user, 'reports')}<a class="btn btn-secondary" href="#/reports">All reports</a>{/if}
-    {#if user.roles.includes('planner')}<RecordFor what="a purchase order" cue={false}><a class="btn btn-primary" href="#/plans/new">New purchase order</a></RecordFor>{/if}
-  </div>
+  {#if user.roles.includes('planner') && can(user, 'purchase-orders')}
+    {#await import('../../components/page/ActionInCompany.svelte') then A}<A.default label="New purchase order" what="purchase order" href="#/pos/new" />{/await}
+  {/if}
 </div>
 
 {#if tabs.length > 1}
@@ -58,7 +58,8 @@
   <div class="card empty"><h2>No dashboards for your role yet</h2><p class="small">Use the menu to open your work.</p></div>
 {:else}
   <Filters bind:filter {options} money={director} />
-  {#key active}<Board {keys} {filter} onload={(r) => (options = r.options)} />{/key}
+  {#key active}<Board {keys} {filter} onload={(r) => (options = r.options)} />
+    {#if analysisKeys.length}{#await import('./Analysis.svelte') then An}<An.default keys={analysisKeys} {filter} {user} />{/await}{/if}{/key}
 {/if}
 
 <style>

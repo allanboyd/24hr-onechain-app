@@ -12,6 +12,7 @@ The phone app's home screens (D-A1) are a separate piece of work.
 | `#/` **Home** | **One page with tabs** (26 Oct 2026): *My dashboards* (the person's own set, §3; directors: the Today view, §3.1) first, then one tab per feature group they may open (Business, Purchasing, Loading, Fleet, Fees & expenses, Deliveries, Warehouse, Sales, Alerts & admin), and for directors in the Group view *Companies* (side by side). Every web user starts here. |
 | `#/dashboards/<group>` | Opens Home on that group's tab (`business`, `purchasing`, `loading`, `fleet`, `fees`, `deliveries`, `warehouse`, `sales`, `admin`). |
 | `#/overview` | Opens Home on the *Companies* tab (directors, Group view); the separate command view page was removed. |
+| Analysis sections (27 Oct 2026) | Under each feature tab's dashboards: the reports of the retired Reports and Sales velocity pages and the charts of the removed page Overview tabs ([doc 17 §7.4](17-page-design-review.md)): Purchasing (Orders, Planned vs actual, Purchase planning), Loading (Loading queues), Fleet (Trucks and deliveries, Logistics report), Fees & expenses (Trip costs, Landing cost report), Warehouse (Fast and slow products, Stock positions, Stock report, Sales velocity), Sales (Sales report, Quarterly review). Old `#/reports?r=…` and `#/analytics` links open the matching tab. |
 
 Every panel uses `DashboardPanel`: metric definition (ⓘ), unit / currency, date range, freshness ("Updated …" = time of the
 **newest underlying record**, amber after 30 days without a new record; live panels 6–12 h), **View data**, **Export** CSV / Excel / PDF,
@@ -33,28 +34,28 @@ Who: D = Daniel, Michael · K = Kabonge · T = Testfie · L = loaders (Joel, Eri
 | C-P1-02 | Combined performance (`combined-performance`) | D | Totals at product / warehouse / company / business level | link card (sales, profit, margin, landed per case) | `performanceReport` | `#/performance` |
 | C-P1-03 ★2 | Profit and margin (`profit-margin`) | D | How do sales become profit? | `Waterfall` sales → goods → truck → warehouse → other → profit + `ColumnsLine` (monthly goods cost / truck + warehouse + other / profit, margin % line; new chart file) | `performanceReport` per month (6 months) | `#/performance` |
 | C-P1-04 | Landed cost per product (`landed-product`) | D | What makes up landed cost per case? | `StackedBarH` goods / truck / warehouse per case | performance rows (product) | `#/performance` |
-| C-P1-05 | Landed cost per truck (`landed-truck`) | D | What did each truck cost? | stacked bars by cost category + table, above average (> 10 % over the mean per case) flagged | trip costs (USD) | `#/finance` |
+| C-P1-05 | Landed cost per truck (`landed-truck`) | D | What did each truck cost? | stacked bars by cost category + table, above average (> 10 % over the mean per case) flagged | trip costs (USD) | `#/transport-costs?tab=trips` |
 | C-P1-06 | Selling price & target margin (`selling-price`) | D | Do prices meet the target margin? | `Gauge` + products below target with the price needed | performance rows + selling prices | `#/selling-prices` (calculator) |
 | C-P1-07 | PO pipeline (`po-pipeline`) | K, D | How many orders at each stage? | `StageBars` planned → raised → loading → dispatched → delivered (count + value); click a stage → its orders listed with links | plans, POs, loadings, shipments, acks | `#/pos/:id`, `#/plans/:id` |
 | C-P1-08 | Ordered vs loaded vs delivered (`ordered-loaded-delivered`) | K, D | Where do quantities go missing? | `GroupedBars` + `GapTable` | root order lines, loadings, acknowledgements | `#/pos/:id` |
 | C-P2 (§10) | Open orders (`open-orders`) | K, D | Which orders wait to load? | table with age bands < 3 / 3–7 / > 7 days | PO facts | `#/pos/:id` |
-| C-P2 (§10) | Plan vs actual (`plan-vs-actual`) | K, D | Is purchasing following the plan? | existing `PlanUsedTile` | `reports.plannedVsActual` | `#/reports?r=pv` |
-| C-P1-09 | Today's loading list (`loading-list`) | L, T (GBI), D | What do I load today? | cards with status chips (ready to load / waiting for a truck / loaded) + queue — **no prices** | loadings, waiting list | `#/loading` |
+| C-P2 (§10) | Plan vs actual (`plan-vs-actual`) | K, D | Is purchasing following the plan? | existing `PlanUsedTile` | `reports.plannedVsActual` | `#/period-plans` |
+| C-P1-09 | Today's loading list (`loading-list`) | L, T (GBI), D | What do I load today? | cards with status chips (ready to load / waiting for a truck / loaded) + queue — **no prices** | loadings, waiting list | `#/trucks?tab=queues` |
 | C-P1-10 | Loading status (`loading-status`) | K, D | How far is each order loaded? | progress bar per order + document / photo counts | PO facts | `#/pos/:id` |
 | C-P2 (§10) | Dispatched today (`dispatched-today`) | L, D | Which trucks left in 24 h? | count tiles + list by loading point | shipments | `#/shipments/:id` |
 | C-P1-11 | Live fleet board (`fleet-board`) | T, D | Where is every truck? | `KanbanBoard` loaded / in transit / at border / stopped-delayed / arrived, grouped by route; faded after 12 h without an update | truck desk (`trucks.ts`) | `#/shipments/:id` |
 | C-P1-12 | Delayed trucks (`delayed-trucks`) | T, D | Which are late, why, who acts? | table by days late with severity bar and owner | truck desk, issues | `#/shipments/:id` |
 | C-P1-13 | Truck issues (`truck-issues`) | T, D | Open issues; repeats? | open-issues table (days stopped) + bars by truck and provider | leg issues | `#/shipments/:id` |
 | C-P1-14 | Driver status updates (`driver-updates`) | T, D | Which trucks have gone quiet? | timeline (48 h: check-ins, issues, GPS, source) + last-update badges, amber > 6 h, red > 12 h | leg passes / issues / pings | `#/shipments/:id` |
-| C-X-02 ★4 | Border and stop analysis (`border-stops`) | D | Where do trucks wait? | `Heatmap` route × border / weighbridge, average days with the trip count in each cell (≥ 90 days) | checkpoint passes | `#/reports?r=logistics` |
+| C-X-02 ★4 | Border and stop analysis (`border-stops`) | D | Where do trucks wait? | `Heatmap` route × border / weighbridge, average days with the trip count in each cell (≥ 90 days) | checkpoint passes | `#/shipments?show=border` |
 | C-P1-15 | Agreed price vs actual (`agreed-vs-actual`) | T, D | Did trucks cost what was agreed? | paired bars + variance (red when over); actual = transport + loading / storage / other (no duties or clearing) | fee rows (`finance/fees`) | `#/shipments/:id` |
-| C-P1-16 | Transport fee payments (`fee-payments`) | T, D | Paid / part / unpaid, against which reference? | chips + payment progress + reference search | fee rows | `#/transport-fees` |
-| C-P1-17 | Unpaid & ageing fees (`unpaid-fees`) | D | Who is owed, how old? | `AgeingBars` by provider (bands from `[fees]`) | `M.feeAgeing` | `#/transport-fees` |
+| C-P1-16 | Transport fee payments (`fee-payments`) | T, D | Paid / part / unpaid, against which reference? | chips + payment progress + reference search | fee rows | `#/transport-costs` |
+| C-P1-17 | Unpaid & ageing fees (`unpaid-fees`) | D | Who is owed, how old? | `AgeingBars` by provider (bands from `[fees]`) | `M.feeAgeing` | `#/transport-costs` |
 | C-P1-18 | Expenses per truck (`truck-expenses`) | T, D | What does each trip cost? | stacked bar per trip by category; click → its legs | fee rows (costs with leg) | `#/shipments/:id` |
 | C-P1-19 | Incoming deliveries (`incoming`) | A, Y, D | What is coming, what to acknowledge? | cards (acknowledge first, then by ETA) — quantities only | shipments | `#/shipments/:id` |
 | C-P1-20 | Received, damaged, short (`received-damaged-short`) | A, Y, D | What arrived damaged or short? | `StackedBarH` per delivery + photos / signature | acknowledgements | `#/shipments/:id` |
 | C-X-03 ★5 | Delivery losses (`delivery-losses`) | D, A, Y | Which causes drive losses? | `Pareto` (≥ 90 days) | `M.lossByReason` (B-08 reasons) | acknowledged shipments |
-| C-P1-21 ★6 | Stock on hand (`stock-on-hand`) | A, Y, D | Running out or not moving? | `StockCoverBands` (≤ 7 … > 60 days, click a band) + `StockCoverBars` (min 14 / slow 60 days, to confirm) + held / moved out / damaged bars | `M.warehouseStock` (quantities) | `#/warehouse-stock` |
+| C-P1-21 ★6 | Stock on hand (`stock-on-hand`) | A, Y, D | Running out or not moving? | `StockCoverBands` (≤ 7 … > 60 days, click a band) + `StockCoverBars` (min 14 / slow 60 days, to confirm) + held / moved out / damaged bars | `M.warehouseStock` (quantities) | `#/stock` |
 | C-P1-22 | Stock in transit (`stock-in-transit`) | D, A, Y | What is on the road, arriving when? | timeline by expected arrival day + totals per warehouse | shipments + ETA | `#/shipments/:id` |
 | C-P1-23 | Warehouse expenses (`warehouse-expenses`) | A, Y, D | What do warehouses spend? | stacked monthly columns + category donut (same colours) | `M.expenseSummary` | `#/warehouse-expenses` |
 | B-03 (§10) | Re-export orders (`reexports`) | Asie, Y, D | Where are the re-exports? | status list + "owner not assigned" tag | re-export orders | `#/re-exports` |
@@ -63,7 +64,7 @@ Who: D = Daniel, Michael · K = Kabonge · T = Testfie · L = loaders (Joel, Eri
 | C-P1-26 | Users and logins (`users-logins`) | D | Who uses the system? | count tiles + table with role chips, inactive (30 days) flagged | users + last sign-in | `#/users` |
 | C-P1-27 | Audit log (`audit-log`) | D | Who did what? | activity sparkline + latest changes | `GET /audit` (browser) | `#/audit` |
 | C-P1-28 | Alerts centre (`alerts`) | D, T, K | Which alert first? | `TriageMatrix` (impact × severity) + kind chips + `ExceptionList` (owner, due, status) | derived from the records the person sees: delays, quiet trucks, not acknowledged > 24 h, shortages / damages (14 days), unpaid fees (amber / red), agreed price missing, orders waiting > 3 days, stock < 7 days, warehouses without expenses this month | each alert's record |
-| C-X-01 ★3 | Fast and slow products (`fast-slow`) | D | Which are slow and overstocked? | `QuadrantScatter` sales speed × days of stock (median speed, 60 days), bubble = stock value | performance rows | `#/analytics` |
+| C-X-01 ★3 | Fast and slow products (`fast-slow`) | D | Which are slow and overstocked? | `QuadrantScatter` sales speed × days of stock (median speed, 60 days), bubble = stock value | performance rows | `#/stock` (now on Home · Warehouse) |
 
 ## 3. Home screens (C-05, web)
 

@@ -12,7 +12,9 @@
   import Money from './panels/Money.svelte';
   import Stock from './panels/Stock.svelte';
   import Admin from './panels/Admin.svelte';
-  let { keys, filter, cols = 2, onload }: { keys: DashKey[]; filter: DashFilter; cols?: 1 | 2 | 3; onload?: (r: DashResponse) => void } = $props();
+  let { keys: allKeys, filter, cols = 2, onload }: { keys: DashKey[]; filter: DashFilter; cols?: 1 | 2 | 3; onload?: (r: DashResponse) => void } = $props();
+  // analysis sections (docs/17 Phase 2) render under the grid (Analysis.svelte), not as panels
+  const keys = $derived(allKeys.filter((k) => !dashDef(k)?.analysis));
   let res = $state<DashResponse | null>(null);
   const serverKeys = $derived(keys.filter((k) => !dashDef(k)?.client));
   const w = watch(async () => {
@@ -48,7 +50,7 @@
       {@const def = dashDef(k)}
       {@const r = res?.results[k]}
       {#if def && (r || def.client)}
-        {@const P = C[def.group]}
+        {@const P = C[k === 'fast-slow' ? 'business' : def.group]}
         <P key={k} {r} link={def.link} span={spans[k]} />
       {/if}
     {/each}

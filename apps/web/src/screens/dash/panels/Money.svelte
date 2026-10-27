@@ -38,7 +38,7 @@
     <div class="chips">{#each Object.entries(d.counts ?? {}) as [s, n]}<StatusBadge status={feeTone(s)} label="{s}: {n}" />{/each}<span class="small">Open balance <b>{money(d.balance)}</b></span></div>
     <div class="table-wrap"><table class="table">
       <thead><tr><th>Trip</th><th>Status</th><th class="num">Paid of agreed</th><th class="hide-sm">References</th></tr></thead>
-      <tbody>{#each fees.slice(0, 20) as x}<tr class="clickable" onclick={() => go(`#/transport-fees?q=${encodeURIComponent(x.ref)}`)}>
+      <tbody>{#each fees.slice(0, 20) as x}<tr class="clickable" onclick={() => go(`#/transport-costs?q=${encodeURIComponent(x.ref)}`)}>
         <td><b>{x.truck}</b><div class="caption">{x.ref} · {x.provider} · {day(x.loadedAt)}</div></td>
         <td><StatusBadge status={feeTone(x.status)} label={x.status} />{#if x.flag === 'red' || x.flag === 'amber'} <StatusBadge status={ageTone(x.flag)} label="{x.ageDays} d" />{/if}</td>
         <td class="num">{#if x.agreed == null}<span class="caption">no agreed price</span>{:else}<div class="pbar"><span style:width="{Math.min(100, (x.paid / Math.max(1, x.agreed)) * 100)}%"></span></div><span class="small">{money(x.paid)} / {money(x.agreed)}</span>{/if}</td>
@@ -48,7 +48,7 @@
   </DashboardPanel>
 {:else if key === 'unpaid-fees'}
   <DashboardPanel span={span ?? 1} title="Unpaid and ageing fees" subtitle="open balance by provider and age" {...fr} rows={() => [['Provider', ...(d.bands ?? []).map((b: any) => `${b.name} (${C})`)], ...(d.providers ?? []).map((p: string, i: number) => [p, ...d.bands.map((b: any) => cvRow(b.values[i]))])]} filename="unpaid-fees-ageing" {drill}>
-    <AgeingBars label="Unpaid transport fees by provider and age" entities={d.providers ?? []} bands={d.bands ?? []} tones={['good', 'warn', 'bad']} format={money} onselect={() => go('#/transport-fees')} />
+    <AgeingBars label="Unpaid transport fees by provider and age" entities={d.providers ?? []} bands={d.bands ?? []} tones={['good', 'warn', 'bad']} format={money} onselect={() => go('#/transport-costs')} />
     <p class="caption">Total open {money(d.total)}.</p>
   </DashboardPanel>
 {:else if key === 'truck-expenses'}
@@ -72,7 +72,7 @@
   </DashboardPanel>
 {:else if key === 'customer-balances'}
   <DashboardPanel span={span ?? 1} title="Customer balances" subtitle="what each customer owes, by age · overdue in red" {...fr} rows={() => [['Customer', ...(d.bands ?? []).map((b: any) => `${b.name} (${C})`)], ...(d.customers ?? []).map((c: string, i: number) => [c, ...d.bands.map((b: any) => cvRow(b.values[i]))])]} filename="customer-balances" {drill}>
-    <AgeingBars label="Customer balances by ageing band" entities={d.customers ?? []} bands={d.bands ?? []} tones={['good', 'warn', 'bad']} format={money} onselect={() => go('#/sales?tab=list&status=Unpaid')} />
+    <AgeingBars label="Customer balances by ageing band" entities={d.customers ?? []} bands={d.bands ?? []} tones={['good', 'warn', 'bad']} format={money} onselect={() => go('#/sales?show=owed')} />
     <p class="caption">Owed {money(d.total)}, of which overdue {money(d.overdue)} (terms {d.terms} days, to confirm).</p>
   </DashboardPanel>
 {/if}

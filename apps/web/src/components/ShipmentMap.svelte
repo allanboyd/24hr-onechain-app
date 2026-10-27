@@ -1,23 +1,21 @@
 <script lang="ts">
-  import { watch } from '../lib/load.svelte';
-  import ErrorState from '../components/ErrorState.svelte';
-  // TR-02 / TR-03: active-truck list + map. Leaflet is lazy-loaded so it is not part of the main bundle.
-  import { lookup, ref, shipments, tracking, type Leg, type Shipment, type User } from '@btw/api';
+  // Map view of the Shipments page (docs/17 Phase 2: replaces the separate Tracking page). Shows the trucks of the list
+  // it is given (the page's filters and strip apply) that are not delivered yet. Leaflet loads lazily (not in any entry).
+  import { lookup, ref, shipments, tracking, type Leg, type Shipment } from '@btw/api';
   import { Badge, ago, fmtDateTime, hoursLabel } from '@btw/ui';
   import { onDestroy } from 'svelte';
-  let { user }: { user: User } = $props();
+  let { items }: { items: Shipment[] } = $props();
 
   const r = ref();
-  let list = $state<Shipment[]>([]);
   let el: HTMLDivElement;
   let L: typeof import('leaflet') | null = null;
   let map: import('leaflet').Map | null = null;
   let layer: import('leaflet').LayerGroup | null = null;
   const markers = new Map<string, import('leaflet').Marker>();
   let selected = $state<string | null>(null);
+  let ready = $state(false);
 
-  const active = $derived(list.filter((s) => s.status !== 'Acknowledged')
-    .filter((sh) => !user.roles.includes('receiver') || user.roles.includes('director') || user.warehouseIds.includes(sh.warehouseId)));
+  const active = $derived(items.filter((s) => s.status !== 'Acknowledged'));
   const legOf = (sh: Shipment): Leg => sh.legs.find((l) => l.status !== 'Acknowledged') ?? sh.legs.at(-1)!;
 
   function position(leg: Leg): [number, number] {
@@ -67,11 +65,11 @@
     L = (mod as any).default ?? mod;
     map = L!.map(el, { zoomControl: true, attributionControl: true }).setView([-0.8, 32.5], 6);
     L!.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenStreetMap contributors' }).addTo(map);
-    draw();
+    ready = true;
   }
-  async function load() { list = await shipments.list(); draw(); }
   $effect(() => { init(); });
-  const w = watch(load);
+  // redraw when the filtered list changes
+  $effect(() => { active; if (ready) draw(); });
   onDestroy(() => map?.remove());
 
   function focus(sh: Shipment) {
@@ -81,22 +79,18 @@
   }
 </script>
 
-<div class="page-head">
-  <div><div class="overline crumb">Logistics</div><h1>Tracking</h1></div>
-  <div class="row small muted">
-    <span class="legend"><i style="background:var(--primary)"></i>Loading point</span>
-    <span class="legend"><i style="background:var(--warning-solid)"></i>Border</span>
-    <span class="legend"><i style="background:var(--success)"></i>Warehouse</span>
-    <span class="legend"><i style="background:var(--text-subtle)"></i>Town / weighbridge</span>
-    <span class="legend"><b class="tag solid">KDA</b>GPS position</span>
-    <span class="legend"><b class="tag dashed">KDA</b>Last checkpoint</span>
-  </div>
+<div class="row small muted legendrow">
+  <span class="legend"><i style="background:var(--primary)"></i>Loading point</span>
+  <span class="legend"><i style="background:var(--warning-solid)"></i>Border</span>
+  <span class="legend"><i style="background:var(--success)"></i>Warehouse</span>
+  <span class="legend"><i style="background:var(--text-subtle)"></i>Town / weighbridge</span>
+  <span class="legend"><b class="tag solid">KDA</b>GPS position</span>
+  <span class="legend"><b class="tag dashed">KDA</b>Last checkpoint</span>
 </div>
-<ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
 
 <div class="layout">
   <aside class="card flush list">
-    <header><h3>Active trucks</h3><span class="caption">{active.length}</span></header>
+    <header><h3>Trucks on the map</h3><span class="caption">{active.length}</span></header>
     <ul>
       {#each active as sh (sh.id)}
         {@const leg = legOf(sh)}
@@ -113,14 +107,14 @@
           {#if od}<Badge tone="danger">No check-in · {hoursLabel(od.hours)} overdue</Badge>{:else if dw}<Badge tone={dw.over ? 'warning' : 'neutral'}>{hoursLabel(dw.hours)} at {lookup.checkpoint(dw.checkpointId)?.name?.split(' (')[0]} · plan {hoursLabel(dw.plannedDwellHours)}</Badge>{/if}
           <div class="caption">{leg.lastPing ? `GPS ping ${ago(leg.lastPing.at)}` : 'No GPS — shown at last checkpoint'}</div>
         </button></li>
-      {:else}<li class="empty">No trucks on the road</li>{/each}
+      {:else}<li class="empty">No trucks on the road match these filters</li>{/each}
     </ul>
   </aside>
   <div class="card flush mapcard"><div class="map" bind:this={el}></div></div>
 </div>
 
 <style>
-  .layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: var(--space-4); height: calc(100vh - 190px); min-height: 480px; }
+  .layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: var(--space-4); height: calc(100vh - 330px); min-height: 480px; }
   .list { display: flex; flex-direction: column; min-height: 0; }
   .list ul { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
   .list li button { all: unset; box-sizing: border-box; display: flex; flex-direction: column; gap: var(--space-1); width: 100%; padding: var(--space-3) var(--space-5); border-bottom: 1px solid var(--border); cursor: pointer; }
@@ -128,6 +122,7 @@
   .list li button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
   .mapcard { min-height: 0; }
   .map { width: 100%; height: 100%; min-height: 420px; }
+  .legendrow { flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin-bottom: var(--space-3); }
   .legend { display: inline-flex; align-items: center; gap: 6px; }
   .tag { font: 700 10px/1 var(--ff-body); padding: 2px 4px; border-radius: var(--radius-sm); }
   .tag.solid { background: var(--accent); color: var(--text-on-accent); border: 1px solid var(--accent); }

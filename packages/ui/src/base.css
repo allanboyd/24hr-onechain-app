@@ -82,6 +82,8 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: var(--space-4) 
 
 /* Tables (paper order layout, §7.2) */
 .table-wrap { overflow-x: auto; }
+/* a flush card that is also the table scroller: scroll, and keep absolutely positioned cell content inside it */
+.card.flush.table-wrap { overflow-x: auto; position: relative; }
 .table { width: 100%; border-collapse: collapse; font-size: var(--fs-body); }
 .table th { background: var(--surface-sunken); text-align: left; padding: var(--space-2) var(--space-3); font-family: var(--ff-display); font-size: var(--fs-overline); font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; border-bottom: 1px solid var(--border); }
 .table th.num { text-align: right; }

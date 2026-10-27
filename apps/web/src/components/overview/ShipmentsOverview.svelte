@@ -16,7 +16,7 @@
   const done = $derived(legs.filter((l) => l.passes.at(-1)?.arrivedAt && l.departedAt));
   const STATUSES = ['Planned', 'Loaded', 'Dispatched', 'In transit', 'At border', 'Delayed', 'Arrived', 'Acknowledged'];
   const byStatus = $derived(STATUSES.map((st) => ({ label: st === 'Acknowledged' ? 'Delivered' : st, value: list.filter((s) => s.status === st).length })).filter((x) => x.value));
-  const chipFor = (label: string) => (label === 'Delivered' ? 'Acknowledged' : label === 'Delayed' || label === 'At border' ? label : 'active');
+  const chipFor = (label: string) => (label === 'Delivered' ? 'delivered' : label === 'Delayed' ? 'delayed' : label === 'At border' ? 'border' : 'road');
 
   // Transit time by lane: actual (completed legs) vs planned hours
   const lanes = $derived.by(() => {
@@ -54,22 +54,11 @@
     return { label: `${sh?.ref ?? ''} · leg ${leg?.seq ?? ''}`, id: sh?.id, short: a.lines.reduce((x, l) => x + Math.max(0, l.expected - l.received), 0), damaged: a.lines.reduce((x, l) => x + l.damaged, 0) };
   }).filter((x) => x.short + x.damaged > 0).sort((a, b) => b.short + b.damaged - (a.short + a.damaged)));
   const worst = $derived(losses.slice(0, 10));
-  import CompanySplit from '../group/CompanySplit.svelte';
-  import { shipmentsSplit } from '../../lib/splits';
 </script>
-
-<CompanySplit title="Trucks by company" metrics={shipmentsSplit()} />
-
-<div class="tiles">
-  <StatTile label="On the road" value={String(fig.onRoad)} hint="{fig.delivered} delivered" onclick={() => drill(B, { chip: 'active' })} />
-  <StatTile label="Delayed" value={String(fig.delayed)} hint="6 h or more behind, or an open issue" onclick={() => drill(B, { chip: 'Delayed' })} />
-  <StatTile label="At a border" value={String(fig.atBorder)} hint="waiting to clear" onclick={() => drill(B, { chip: 'At border' })} />
-  <StatTile label="No check-in" value={String(fig.noCheckin)} hint="next checkpoint overdue" onclick={() => drill(B, { chip: 'no-checkin' })} />
-</div>
 
 <div class="charts-grid">
   <ChartCard title="Trucks by status" rows={() => [['Status', 'Shipments'], ...byStatus.map((x) => [x.label, x.value])]}>
-    <Donut label="Shipments by status" data={byStatus} center={String(list.length)} onselect={(l) => drill(B, { chip: chipFor(l) })} />
+    <Donut label="Shipments by status" data={byStatus} center={String(list.length)} onselect={(l) => drill(B, { show: chipFor(l) })} />
   </ChartCard>
   <ChartCard title="Arriving on time" subtitle="delivered trips within 6 h of plan" rows={() => [['Measure', 'Value'], ['Delivered trips', delivered.length], ['On time', delivered.filter(onTimeOf).length], ['Late', delivered.filter((s) => !onTimeOf(s)).length]]}>
     <div class="stack" style="align-items:center;padding:var(--space-2) 0">
@@ -80,14 +69,6 @@
         <Meter label="No check-in" value={fig.noCheckin} max={Math.max(1, fig.onRoad)} format={(n) => `${n} of ${fig.onRoad}`} tone="danger" />
       </div>
     </div>
-  </ChartCard>
-  <ChartCard title="Transit time by lane" subtitle="hours, completed legs vs plan" rows={() => [['Lane', 'Average actual (h)', 'Planned (h)', 'Legs'], ...lanes.map((x) => [x.name, x.actual, x.planned, x.n])]}>
-    {#if lanes.length}<BarChart label="Transit time by lane" horizontal categories={lanes.map((x) => x.name)} series={[{ name: 'Actual', values: lanes.map((x) => x.actual) }, { name: 'Planned', values: lanes.map((x) => x.planned), slot: 8 }]} format={(n) => `${n} h`} />
-    {:else}<p class="empty small">No completed legs yet.</p>{/if}
-  </ChartCard>
-  <ChartCard title="Border waits" subtitle="average hours stopped vs planned dwell" rows={() => [['Border', 'Average wait (h)', 'Planned (h)', 'Crossings'], ...borders.map((x) => [x.name, x.avg, x.planned, x.n])]}>
-    {#if borders.length}<BarChart label="Border waiting time" horizontal categories={borders.map((x) => x.name)} series={[{ name: 'Average wait', values: borders.map((x) => x.avg), slot: 1 }, { name: 'Planned', values: borders.map((x) => x.planned), slot: 8 }]} format={(n) => `${n} h`} onselect={() => drill(B, { chip: 'At border' })} />
-    {:else}<p class="empty small">No border crossings recorded yet.</p>{/if}
   </ChartCard>
   <ChartCard span={2} title="Worst legs for shortages and damage" subtitle="top 10 by cases lost · every leg in View data" rows={() => [['Leg', 'Short (cases)', 'Damaged (cases)'], ...losses.map((x) => [x.label, x.short, x.damaged])]}>
     {#if losses.length}<BarChart label="Shortages and damage by leg" stacked horizontal categories={worst.map((x) => x.label)} series={[{ name: 'Short', values: worst.map((x) => x.short), slot: 1 }, { name: 'Damaged', values: worst.map((x) => x.damaged), slot: 6 }]}

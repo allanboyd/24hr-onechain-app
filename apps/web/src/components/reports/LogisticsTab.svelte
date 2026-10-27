@@ -19,7 +19,7 @@
     <StatTile label="On-time deliveries" value={r.onTimePct === null ? '—' : pct(r.onTimePct)} delta={points(r.onTimePct, r.prevOnTimePct)} deltaLabel="points vs previous period" hint="{r.delivered} delivered · within 6 h of plan" trend={r.trend.map((t) => t.onTimePct ?? 0)} />
     <StatTile label="Average transit" value={r.avgTransitDays === null ? '—' : `${r.avgTransitDays} days`} hint="loading point → final warehouse" upIsGood={false} />
     <StatTile label="Damaged or short" value={r.damagePct === null ? '—' : pct(r.damagePct, 2)} upIsGood={false} hint="of cases expected at delivery" />
-    <StatTile label="On the road now" value={String(r.open.active)} hint="{r.open.delayed} delayed · {r.open.atBorder} at a border · {r.open.overdue} missed check-in" onclick={() => drill('/shipments', { chip: r!.open.overdue ? 'no-checkin' : r!.open.delayed ? 'Delayed' : 'active' })} />
+    <StatTile label="On the road now" value={String(r.open.active)} hint="{r.open.delayed} delayed · {r.open.atBorder} at a border · {r.open.overdue} missed check-in" onclick={() => drill('/shipments', { show: r!.open.overdue ? 'noCheckin' : r!.open.delayed ? 'delayed' : 'road' })} />
   </div>
   <div class="charts-grid">
     <ChartCard span={2} title="On-time deliveries by month" subtitle="share of deliveries within 6 h of the planned arrival" filename="on-time-trend"

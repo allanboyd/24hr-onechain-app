@@ -7,7 +7,7 @@ async function company(s, word) {
   const v = await s.page.$$eval('select[aria-label="Company"] option', (os, x) => os.find((o) => o.textContent.includes(x))?.value, word);
   await s.page.selectOption('select[aria-label="Company"]', v); await w(s, 1800);
 }
-async function firstPo(s) { await s.go('/pos?tab=list', 1200); await s.page.locator('a[href^="#/pos/"]').first().click(); await w(s, 1800); }
+async function firstPo(s) { await s.go('/pos', 1200); await s.page.locator('a[href^="#/pos/"]').first().click(); await w(s, 1800); }
 
 let s = await open({ app: 'web', user: '', outDir: out });
 await shot(s, 'H01-web-signin-companies', 'Sign in · three companies', 'The three sibling companies on the sign-in page; demo accounts grouped as Group (directors, admins, staff of all three) and per company. One tap signs in.');

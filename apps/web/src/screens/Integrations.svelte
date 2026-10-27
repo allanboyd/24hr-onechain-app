@@ -43,7 +43,7 @@
   ];
 </script>
 
-<div class="page-head"><div><div class="overline crumb">Admin</div><h1>Integrations</h1></div></div>
+<div class="page-head"><div><div class="overline crumb"><a href="#/master">Admin settings</a></div><h1>Integrations</h1></div></div>
 
 {#if unavailable || (w.error && !w.loaded)}
   {#if unavailable}

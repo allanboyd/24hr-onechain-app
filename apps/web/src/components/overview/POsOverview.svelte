@@ -18,18 +18,7 @@
   const fig = $derived(poTiles(list, loads, ships, (id) => lookup.route(id)?.stops ?? []));
   const months = $derived(byMonth(list, (p) => p.date));
   const bySupplier = $derived.by(() => { const m = new Map<string, number>(); for (const po of list) { const s = lookup.supplier(po.supplierId); const k = s ? `${s.code} ${s.city}` : po.supplierId; m.set(k, (m.get(k) ?? 0) + value(po)); } return [...m.entries()].map(([label, v]) => ({ label, value: Math.round(v) })).sort((a, b) => b.value - a.value); });
-  import CompanySplit from '../group/CompanySplit.svelte';
-  import { plansSplit } from '../../lib/splits';
 </script>
-
-<CompanySplit title="Orders by company" metrics={plansSplit()} />
-
-<div class="tiles">
-  <StatTile label="Purchase orders" value={String(list.length)} hint={usd(list.reduce((a, p) => a + value(p), 0))} />
-  <StatTile label="Not yet sent" value={String(list.filter((p) => !p.sentAt && p.status === 'Issued').length)} hint="to the supplier export section" onclick={() => drill('/pos', { stage: 'Created' })} />
-  <StatTile label="Trucks to load" value={String(fig.toLoad)} hint="on {fig.ordersToLoad} orders awaiting loading" />
-  <StatTile label="Delivered" value={String(fig.delivered)} hint="{fig.onRoad} on the road" />
-</div>
 
 <div class="charts-grid">
   <ChartCard span={2} title="Open orders: truck progress" subtitle="trucks per order, oldest first" rows={() => [['PO', 'To load', 'On the road', 'Delivered'], ...all.map((x) => [x.po.ref, x.toLoad, x.moving, x.delivered])]}>

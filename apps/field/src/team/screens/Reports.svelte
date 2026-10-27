@@ -80,7 +80,7 @@
       </div>
     </section>
   {/if}
-  <WebButton path="/reports" label="All reports in web app" />
+  <WebButton path="/dashboards/sales" label="All analysis in web app" />
 {/if}
 
 <style>

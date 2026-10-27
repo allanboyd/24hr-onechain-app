@@ -26,7 +26,7 @@ await finish(s);
 // Planner flow
 s = await open({ app: 'web', user: 'u-kabonge', outDir: out });
 const P = s.page;
-await s.go('/plans?tab=list');
+await s.go('/plans');
 await shot(s, 'A06-web-plans-list', 'Plans list (planner)', 'Status tabs with counts, search and entity filter; every plan shows trucks, cases and amount in the order currency (PL-01, PL-02).');
 await s.go('/plans/new');
 await shot(s, 'A07-web-plan-new', 'New plan — step 1', 'Pick the ordering entity (letterhead) and supplier export section; the lanes from that loading point and the reference format are shown (§7.1, §17.2, PO-02).');
@@ -64,7 +64,7 @@ await P.mouse.up(); await sleep(200);
 await shot(s, 'A11-web-approve-sign-dialog', 'Approve & sign', 'On-screen e-signature; on confirm the date stamp is applied, the plan locks and the PO is generated with no retyping (PL-03, PO-01).', { fullPage: false });
 await P.click('dialog button:has-text("Approve & sign")'); await sleep(3500);
 await shot(s, 'A12-web-plan-approved', 'Approved plan with history', 'Locked plan with full approval history and the signature; amendments go through a new version (PL-03, PL-04).');
-await s.go('/pos?tab=list', 800);
+await s.go('/pos', 800);
 await shot(s, 'A13-web-po-list', 'Purchase orders', 'POs generated from approved plans with send status and per-truck progress: loaded, on the road, delivered (PO-01, PO-03, PO-04).');
 await P.click('table td.mono a >> nth=0'); await sleep(800);
 await shot(s, 'A14-web-po-letter', 'PO letter (screen)', 'Order letter on the entity letterhead: date, export section, Re: title/ref, instruction, truck lines with brand subtotals and total, prepared/approved, signature and date stamp (§7.1, PO-02, PO-05).');

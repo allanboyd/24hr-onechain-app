@@ -74,7 +74,8 @@
 </script>
 
 <div class="page-head">
-  <div><div class="overline crumb">Admin</div><h1>{full ? 'Master data' : 'Transport master data'}</h1>{#if !full}<p class="muted small">Transport providers, trucks, trailers and drivers — read only for your role (Kabonge and the directors keep them up to date).</p>{/if}</div>
+  <div><div class="overline crumb">Admin</div><h1>{full ? 'Master data' : 'Transport master data'}</h1>{#if !full}<p class="muted small">Transport providers, trucks, trailers and drivers — read only for your role (Kabonge and the directors keep them up to date).</p>{/if}
+    {#if can(user, 'integrations')}<p class="small" style="margin:var(--space-1) 0 0">Admin settings: <a href="#/integrations">Integrations (GPS, SMS, e-mail, accounting)</a></p>{/if}</div>
   {#if staticEdit && (tab === 'Goods' || tab === 'Suppliers' || tab === 'Companies' || tab === 'Receiving companies')}<div class="row"><button class="btn btn-secondary" onclick={importXls}><Upload size={16} />Import from Excel</button><button class="btn btn-primary" onclick={() => sd?.open(tab === 'Goods' ? 'product' : tab === 'Suppliers' ? 'supplier' : tab === 'Companies' ? 'entity' : 'receiving-company', null)}><Plus size={16} />Add {tab === 'Goods' ? 'goods' : tab === 'Suppliers' ? 'supplier' : tab === 'Companies' ? 'company' : 'receiving company'}</button></div>{/if}
 </div>
 <StaticDialog bind:this={sd} />

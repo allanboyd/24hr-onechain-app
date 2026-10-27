@@ -94,7 +94,7 @@
   <DashboardPanel span={span ?? 2} title="Fast and slow products" subtitle="sales speed against days of stock · bubble = stock value" {...fr} rows={fsRows} filename="fast-slow-products" {drill}>
     <QuadrantScatter label="Products by sales speed and days of stock" points={d.points ?? []} {groups} xLabel="Sales speed (cases/day)" yLabel="Days of stock" xThreshold={d.xThreshold ?? undefined} yThreshold={d.yThreshold}
       quadrants={{ topLeft: { label: 'Slow & overstocked', status: 'bad' }, topRight: { label: 'Fast, well stocked', status: 'good' }, bottomLeft: { label: 'Slow, little stock', status: 'none' }, bottomRight: { label: 'Fast & running low', status: 'warn' } }}
-      formatX={(n) => `${n}/day`} formatY={(n) => `${n} d`} sizeLabel="Stock value {currency.code}" onselect={() => go('#/analytics')} />
+      formatX={(n) => `${n}/day`} formatY={(n) => `${n} d`} sizeLabel="Stock value {currency.code}" onselect={() => go('#/stock')} />
     {#if d.noSales?.length}<p class="caption">{d.noSales.length} product{d.noSales.length === 1 ? '' : 's'} with stock and no sales in the period (not plotted): {d.noSales.slice(0, 4).map((x: any) => x.label).join(', ')}{d.noSales.length > 4 ? '…' : ''}</p>{/if}
   </DashboardPanel>
 {/if}

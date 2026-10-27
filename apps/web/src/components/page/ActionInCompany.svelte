@@ -62,7 +62,8 @@
     if (href) { router.go(withCo(href, id)); return; }
     if (switching && intent) {
       // the screen remounts for the new company: leave the intent in the address for it
-      const [p, qs = ''] = router.path.split('?');
+      // the live address (filters written in place with replaceState are not in router.path)
+      const [p, qs = ''] = (location.hash.slice(1) || '/').split('?');
       const q = new URLSearchParams(qs); q.set('co', companyBrand(id).code); q.set('do', intent);
       router.go(`${p}?${q}`);
       return;

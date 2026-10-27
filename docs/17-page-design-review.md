@@ -1,4 +1,4 @@
-# 17 — Page design review: which pages start with an overview (26 Oct 2026, for review)
+# 17 — Page design review: which pages start with an overview (26 Oct 2026; Phases 0–3 built 27 Oct 2026)
 
 Senior-engineer / system-design review of every web page, done by opening each page as Daniel (director, Group view) on the
 running build. Screenshots: `scratchpad/audit-pages/` (one per page).
@@ -112,3 +112,78 @@ Each phase ends with `pnpm verify`, QA and e2e green, and a demo update. Phase 0
 2. Merge **Inventory + Warehouse stock** → "Stock", and **Trip financials + Transport fees** → "Transport costs"? (Recommended.)
 3. Fold **Loading** into Truck desk and **Tracking** into a Map view? Loaders work on the phone, so the web Loading page is used by Kabonge and Testfie only. (Recommended.)
 4. Keep **Performance** as a separate page, or make it the Home "Business" tab? (Recommended: keep. It is the directors' pricing workspace.)
+
+## 7. Status: built (27 Oct 2026)
+Your decisions (§6): **1** Reports retired into Home · **2** Stock and Transport costs merged · **3** Loading folded into the Truck desk, Tracking into a Map view · **4** Performance kept as its own page. Phase 0 is in [doc 18](18-metrics.md); Phases 1–3 are built as below. Tracker: [CHECKLIST](CHECKLIST.md) F-1 … F-3.
+
+### 7.1 Sidebar (16 entries)
+Home · Period plans · Purchase orders · Truck desk · Shipments · Re-export orders · Stock · Warehouse expenses · Sales · Performance · Selling prices · Transport costs · Master data · Users & devices · Audit log · Notifications. (§4 says "22 → 15"; its own list has 16 — the old sidebar had 23.) Integrations left the sidebar: it opens from **Master data → Admin settings** (same `integrations` feature). Each role still sees only the entries its features allow ([doc 12](12-roles-access.md)): Truck desk = `trucks` or `loading` (loaders see only its Queues tab), Stock = `inventory` or `warehouse-stock`, Transport costs = `finance` or `transport-fees`.
+
+### 7.2 What each page opens on
+| Page | Opens on | Summary strip (metric registry, [doc 18](18-metrics.md)) | Needs-action default (only when the address names no filter) |
+|---|---|---|---|
+| Period plans | plan list | In force today · Upcoming · Plan used this quarter (vs expected by today, not a filter) | none — plans are suggestions, nothing waits |
+| Purchase orders | order list | (Awaiting approval, when approvals are on) · Not sent · (Sent, waiting to load, when approvals are off) · Loading · On the road (orders) | directors with approvals on → Awaiting approval; planners → Not sent |
+| Truck desk | Board tab | Board: status counts; Queues: Trucks waiting · Longest wait · Trucks to load · Loaded today; Costs: transport owed · price not recorded | see §7.3 |
+| Shipments | list (Map view toggle `?view=map`) | On the road · Delayed · At a border · No check-in | Truck desk users → Delayed when any; everyone else → On the road |
+| Re-export orders | order list | Open · Loaded · In transit · Delivered | the person who loads (Asie) → Open when any |
+| Stock | stock list | Stock value (prices only) · Cases on hand · In transit · Needs attention | people who see prices → Needs attention when any; receivers → every line of their warehouses |
+| Warehouse expenses | this month's expenses | This month · Last month (with the change) · Largest category | This month |
+| Sales | sales list, latest first | Sales this month · Owed by customers · Overdue | none — people come to record and look up sales; overdue is on Today |
+| Selling prices | price list | Missing prices · Below target margin | Missing prices when any, else Below target |
+| Transport costs | Fees tab | Open balance · Over 14 d · Over 30 d · Price not recorded | see §7.3 |
+| Performance | Summary section | KPI row (analysis page) | sections Summary · Products · Trucks · Pricing helper (`?tab=`) |
+
+Every work page has the shared header (title, one-line description, ⓘ, one primary action through `ActionInCompany`, "See the analysis → Home · …") and a filter bar whose filters live in the address. The "Choose a company to record …: BTW / NUD / Kivu" rows are gone: in the Group view the action asks "Which company?".
+
+### 7.3 Merged pages
+- **Truck desk** (`#/trucks?tab=board|queues|providers|costs`): *Board* (needs `trucks`) — strip on the road · delayed · at a border · waiting to load (`deskKpis`, same road state as Home), tiles filter the truck list (`show`), idle trucks folded behind "Show N idle trucks", detail in a drawer; *Queues* (needs `loading`; loaders see only this tab) — everything of the old Loading page: per loading point (`lp`), reorder / move / remove with a reason, add a known or market truck, record loading, waiting to be loaded, recently loaded; strip trucks waiting · longest wait · trucks to load · loaded today; *Providers & trucks* (needs `trucks`) — providers, trucks and drivers (editing as in Master data); *Costs* (needs `truck-expenses` or `finance`) — transport owed by provider and by truck, record agreed price / trip expense; strip transport owed · price not recorded · waiting for a director. Heights at 1280 px: Board ≈ 1,240 px, Queues ≈ 900, Costs ≈ 1,390 (was 5,575 px for the whole page). Providers & trucks is still long (one card per provider, ≈ 3,400 px).
+- **Transport costs** (`#/transport-costs?tab=fees|trips|expenses`): *Fees* (needs `transport-fees`; default) — agreed vs paid per trip, references, age flags, record payment / approve; *Trips* (needs `finance`) — per-trip costs, landing cost, payments, provider balances folded; *Expenses* (needs `finance` or `truck-expenses`) — every trip cost line with kind / provider / route / month filters. One strip on every tab (open balance · over 14 d · over 30 d · price not recorded; finance-only roles get the same figures from the trips). Default for people who record payments: *Over 30 days* when any, else *Over 14 days*. Testfie records agreed prices and expenses, never payments; directors record and approve; every amount goes through the unusual-amount check.
+- **Stock** (`#/stock`): one line per company × warehouse × product with the movements of the last 30 days (opening, received, damaged, short, sent on / out, sold, count ±, on hand, in transit, level and cover, last count) and *Count / adjust*; directors and other price roles also see landed cost and value. Receivers keep *In transit* (their tile filters on it). Detail drawer: movements, counts and adjustments, the stock ledger.
+- **Shipments** Map view: the trucks of the filtered list on the map (Leaflet still loads lazily); the strip and filters apply to both views.
+
+### 7.4 Analysis moved to Home (nothing dropped)
+New Home sections (browser-built, `analysis: true` entries in `packages/api/src/dashboards.ts`, rendered by `screens/dash/Analysis.svelte` under the tab's dashboards, using the Home period / warehouse / product filters):
+
+| Home tab | Section | From |
+|---|---|---|
+| Purchasing | Orders (truck progress per order, trucks by stage, value by supplier and month) · Planned vs actual · Purchase planning | POs Overview tab · Reports → Planned vs actual, Planning |
+| Loading | Loading queues (queue and wait per loading point, loaded per day, ordered vs loaded) | Loading Overview tab |
+| Fleet | Trucks and deliveries (by status, on time, worst legs) · Logistics report | Shipments Overview tab · Reports → Logistics |
+| Fees & expenses | Trip costs (expenses by month, payments awaiting approval) · Landing cost report | Trip financials Overview tab · Reports → Finance |
+| Warehouse | Fast and slow products (moved from Business) · Stock positions · Stock report · Sales velocity | Inventory Overview tab · Reports → Inventory · Sales velocity page |
+| Sales | Sales report · Quarterly review | Reports → Sales, Quarterly review (the Sales Overview tab duplicated these and Home · Sales and was removed) |
+
+"Plan or check a period" is now `#/period-plans/check` (secondary action on Period plans; the check needs the Reports feature). Charts that already existed on Home were not copied (e.g. "transit time by lane" and "border waits" from the Shipments Overview tab: the Logistics report and the border heatmap show them; the "X by company" charts: Home · Companies). Access is unchanged: each section opens for the same audiences / features as the page it came from (`features` on the entry, e.g. the Reports feature).
+
+### 7.5 Redirects (`apps/web/src/lib/redirects.ts`)
+| Old | New |
+|---|---|
+| `#/inventory?…`, `#/warehouse-stock?…` | `#/stock?…` |
+| `#/finance?…` | `#/transport-costs?tab=trips&…` |
+| `#/transport-fees?…` | `#/transport-costs?…` (Fees) |
+| `#/loading?lp=…` | `#/trucks?tab=queues&lp=…` |
+| `#/tracking` | `#/shipments?view=map` |
+| `#/analytics` | `#/dashboards/warehouse` |
+| `#/reports?r=sales / quarterly / logistics / inventory / pv / planning / finance` | `#/dashboards/sales / sales / fleet / warehouse / purchasing / purchasing / fees` |
+| `#/reports?r=period&mode=…&wh=…` | `#/period-plans/check?mode=…&wh=…` |
+| `?tab=overview`, `?tab=list` on any page | dropped |
+| `#/shipments?chip=Delayed / At border / no-checkin / Acknowledged / active` | `#/shipments?show=delayed / border / noCheckin / delivered / road` |
+| `#/trucks?view=expenses` | `#/trucks?tab=costs` |
+
+Every hash link in the shared code (dashboards drill-downs, alerts, notifications from the server and the mock, reports, e-mails) was moved to the new routes; `packages/api/test/redirects.test.ts` fails the build if a retired route or an old filter appears again. The phone maps the new links (`#/trucks?tab=queues` → Queue, `#/transport-costs` → Money, `#/stock`).
+
+### 7.6 Removed
+Pages: Inventory, Warehouse stock, Trip financials, Transport fees, Loading & waiting list, Tracking map, Sales velocity, Reports. Components: the Overview / List tabs (`PageTabs`, `lib/tab.ts currentTab`), the Sales overview.
+
+### 7.7 Tests (27 Oct 2026)
+- `pnpm test`: new `packages/api/test/redirects.test.ts` (206 checks: every old route and filter → the new page, no redirect chains, every target / sidebar entry / dashboard drill-down is a route, no retired link or old filter left in the shared code, the sidebar list, Home analysis access per role, the phone mapping); `metrics.test.ts` now 138 checks (the new strips: orders by stage, plans, queues, re-exports, expenses, sales overdue — page helper = registry, five scopes).
+- `pnpm verify` green; QA 1,179 / 1,179; e2e journeys updated (old links land on the new pages, the loader lands on the queues, the viewport checks cover the new pages).
+
+### 7.8 Deviations
+- Sidebar has 16 entries, not 15 (see §7.1).
+- *Fast and slow products* moved from Home · Business to Home · Warehouse (next to Sales velocity), as §4 assumed it already was.
+- Sales has no needs-action default; Period plans neither (see §7.2).
+- Group view on the Truck desk: header actions carry the intent in the link so the tab and loading point survive the company switch; *Record loading* still switches to the order's own company with one button.
+- The metric registry moved to `packages/api/src/metric-registry.ts` (functions stay in `metrics.ts`) so the definitions stay out of the entry chunks — web entry 107.8 KB (was 109.1), phone 85.3 KB (was 85.2; the sales report now also returns the overdue part).
+- Deck and demo refresh not redone; mockup flows (`tools/mockups`) dropped `tab=list` but still open some old routes, which redirect.

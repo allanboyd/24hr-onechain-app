@@ -30,25 +30,18 @@
   const toPoint = (c: string) => per.find((p) => p.name === c)?.id;
 </script>
 
-<div class="tiles">
-  <StatTile label="Trucks waiting" value={ready ? String(queue.length) : '…'} hint="in the queue at {points.length} loading points" />
-  <StatTile label="Longest wait" value={queue.length ? `${Math.round(Math.max(...queue.map(waitH)))} h` : '—'} hint="since the truck arrived" />
-  <StatTile label="Trucks to load" value={String(loadingTiles(loads, ids).toLoad)} hint="on purchase orders awaiting loading" />
-  <StatTile label="Loaded · 7 days" value={String(last7)} delta={prev7 ? last7 / prev7 - 1 : null} deltaLabel="vs the 7 days before" />
-</div>
-
 <div class="charts-grid">
   <ChartCard title="Queue by loading point" subtitle="trucks waiting now" rows={() => [['Loading point', 'Waiting', 'Average wait (h)', 'Lines to load'], ...per.map((p) => [p.name, p.n, p.avg, p.pending])]}>
-    <BarChart label="Trucks waiting by loading point" horizontal categories={per.map((p) => p.name)} series={[{ name: 'Waiting', values: per.map((p) => p.n) }]} onselect={(c) => drill('/loading', { lp: toPoint(c) })} />
+    <BarChart label="Trucks waiting by loading point" horizontal categories={per.map((p) => p.name)} series={[{ name: 'Waiting', values: per.map((p) => p.n) }]} onselect={(c) => drill('/trucks', { tab: 'queues', lp: toPoint(c) })} />
   </ChartCard>
   <ChartCard title="Average waiting time" subtitle="hours, trucks in the queue now" rows={() => [['Loading point', 'Average wait (h)'], ...per.map((p) => [p.name, p.avg])]}>
-    <BarChart label="Average waiting time by loading point" horizontal categories={per.map((p) => p.name)} series={[{ name: 'Average wait', values: per.map((p) => p.avg), slot: 1 }]} format={(n) => `${n} h`} onselect={(c) => drill('/loading', { lp: toPoint(c) })} />
+    <BarChart label="Average waiting time by loading point" horizontal categories={per.map((p) => p.name)} series={[{ name: 'Average wait', values: per.map((p) => p.avg), slot: 1 }]} format={(n) => `${n} h`} onselect={(c) => drill('/trucks', { tab: 'queues', lp: toPoint(c) })} />
   </ChartCard>
   <ChartCard span={2} title="Trucks loaded per day" period="last 30 days" rows={() => [['Date', 'Trucks loaded'], ...days.map((d, i) => [d, loadedPerDay[i]])]}>
     <LineChart label="Trucks loaded per day" labels={days} series={[{ name: 'Trucks loaded', values: loadedPerDay, area: true }]} rangeslider={false} />
   </ChartCard>
   <ChartCard span={2} title="Ordered vs loaded" subtitle="cases on completed loadings · overall {totOrd ? pct(totLd / totOrd, 1) : '—'} of ordered" rows={() => [['Loading point', 'Ordered', 'Loaded', 'Variance', 'Variance %'], ...variance.map((x) => [x.name, x.ordered, x.loaded, x.loaded - x.ordered, x.ordered ? Math.round(((x.loaded - x.ordered) / x.ordered) * 1000) / 10 : 0])]}>
-    {#if variance.length}<BarChart label="Ordered vs loaded cases by loading point" categories={variance.map((x) => x.name)} series={[{ name: 'Ordered', values: variance.map((x) => x.ordered), slot: 8 }, { name: 'Loaded', values: variance.map((x) => x.loaded) }]} onselect={(c) => drill('/loading', { lp: toPoint(c) })} />
+    {#if variance.length}<BarChart label="Ordered vs loaded cases by loading point" categories={variance.map((x) => x.name)} series={[{ name: 'Ordered', values: variance.map((x) => x.ordered), slot: 8 }, { name: 'Loaded', values: variance.map((x) => x.loaded) }]} onselect={(c) => drill('/trucks', { tab: 'queues', lp: toPoint(c) })} />
     {:else}<p class="empty small">No completed loadings yet.</p>{/if}
   </ChartCard>
 </div>

@@ -10,7 +10,7 @@
     "dev:field": "pnpm tokens && pnpm --filter @btw/field dev",
     "check": "pnpm -r --filter './apps/*' check",
     "check:text": "node scripts/check-ui-text.mjs",
-    "test": "tsx packages/api/test/workflow.e2e.ts && tsx packages/api/test/reports.test.ts && tsx packages/api/test/plans.test.ts && tsx packages/api/test/pos.test.ts && tsx packages/api/test/trucks.test.ts && tsx packages/api/test/access.test.ts && tsx packages/api/test/money.test.ts && tsx packages/api/test/dashboards.test.ts && tsx packages/api/test/amounts.test.ts && tsx packages/api/test/metrics.test.ts",
+    "test": "tsx packages/api/test/workflow.e2e.ts && tsx packages/api/test/reports.test.ts && tsx packages/api/test/plans.test.ts && tsx packages/api/test/pos.test.ts && tsx packages/api/test/trucks.test.ts && tsx packages/api/test/access.test.ts && tsx packages/api/test/money.test.ts && tsx packages/api/test/dashboards.test.ts && tsx packages/api/test/amounts.test.ts && tsx packages/api/test/metrics.test.ts && tsx packages/api/test/redirects.test.ts",
     "build": "pnpm tokens && pnpm -r --filter './apps/*' build",
     "size": "node scripts/check-size.mjs",
     "verify": "pnpm tokens && pnpm check:text && pnpm check && pnpm test && pnpm api:test && pnpm build && pnpm size",

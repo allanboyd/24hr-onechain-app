@@ -2,6 +2,8 @@
   // docs/14 B-05: selling price per product, set by the directors (§7: directors only until someone else is named, Q6) —
   // a company-wide price with optional per-warehouse prices, each from an effective date (history kept). The target-margin
   // helper (§6.4) proposes price = landed cost per case ÷ (1 − target margin). New sales default their line price from here.
+  // docs/17 Phase 1: work page with a strip (registry: missing prices · below target margin) that filters the price list.
+  // Needs-action default (no filter in the address): Missing prices when any, else Below target when any.
   import { lookup, pricing, ref, reports, type PerfRow, type SellingPrice, type User } from '@btw/api';
   import { fmtDate, fmtNum, say, router } from '@btw/ui';
   import { marginAt, priceForMargin, sellingPriceFor, validateSellingPrice } from '@btw/api/money';
@@ -9,6 +11,8 @@
   import { attempt, watch } from '../lib/load.svelte';
   import { companyLabel } from '../lib/companies';
   import ErrorState from '../components/ErrorState.svelte';
+  import { PageHeader, SummaryStrip, FilterBar, queryFilters, readQuery, type SummaryTile } from '../components/page';
+  import { priceTiles, infoOf } from '../lib/tiles';
   let { user }: { params?: any; user: User } = $props();
 
   const entities = $derived(ref().entities.filter((e) => user.allowedEntityIds.includes(e.id)));
@@ -42,6 +46,15 @@
     const unit = row?.landedPerUnit ?? (row && row.qtySold ? row.cogs / row.qtySold : null);
     return { productId: p.id, warehouseId: wh, price: sellingPriceFor(prices ?? [], entityId, wh, p.id, today), own, unit, row };
   }).filter((x): x is Line => !!x)));
+  const f = queryFilters({ show: '' });
+  const fig = $derived(priceTiles(lines, target / 100));
+  const tiles = $derived<SummaryTile[]>([
+    { key: 'missing', label: 'Missing prices', value: prices ? fig.missing : null, sub: 'no price in force', status: fig.missing ? 'warn' : undefined, statusLabel: fig.missing ? 'Set a price' : undefined, info: infoOf('pricesMissing') },
+    { key: 'below', label: `Below ${target} % margin`, value: prices ? fig.below : null, sub: 'over landed cost', status: fig.below ? 'bad' : undefined, statusLabel: fig.below ? 'Review' : undefined, info: infoOf('pricesBelow') },
+  ]);
+  let defaulted = false;
+  $effect(() => { if (defaulted || !prices || !landed.size) return; defaulted = true; if (readQuery('show') || readQuery('product')) return; if (fig.missing) f.set('show', 'missing'); else if (fig.below) f.set('show', 'below'); });
+  const shownLines = $derived(lines.filter((l) => !f.values.show || (f.values.show === 'missing' ? fig.isMissing(l) : fig.isBelow(l))));
   const status = (m: number | null) => (m === null ? 'none' : m >= target / 100 ? 'good' : m >= 0 ? 'warn' : 'bad');
 
   // set a price
@@ -61,17 +74,16 @@
   const exportRows = () => [['Product', 'Warehouse', 'Selling price', 'Landed per case', 'Margin', `Price for ${target} %`], ...lines.map((l) => [lookup.product(l.productId)?.brand ?? l.productId, l.warehouseId ? lookup.warehouse(l.warehouseId)?.name ?? '' : 'All warehouses', l.price ?? '', l.unit === null ? '' : Math.round(l.unit * 100) / 100, l.price && l.unit !== null ? Math.round(marginAt(l.price, l.unit)! * 1000) / 10 : '', l.unit === null ? '' : priceForMargin(l.unit, target / 100) ?? ''])];
 </script>
 
-<div class="page-head">
-  <div><div class="overline crumb">Finance · directors</div><h1>Selling prices</h1>
-    <p class="muted small">The price per case the directors set for each product — company-wide, or for one warehouse. New sales start from it. The landed cost per case (last 90 days) and the target-margin helper show what the price earns.</p></div>
-  <a class="btn btn-secondary" href="#/performance">Performance and margins</a>
-</div>
-
-<div class="filters">
+<PageHeader overline="Finance" title="Selling prices" description="The price per case of each product, company-wide or for one warehouse." analysis="business"
+  info="New sales start from the price in force. A warehouse price wins over the company price. Landed cost per case is over the last 90 days; the helper proposes price = landed cost ÷ (1 − target margin).">
+  {#snippet secondary()}<a class="btn btn-secondary" href="#/performance">Performance and margins</a>{/snippet}
+</PageHeader>
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Selling prices summary" />
+<FilterBar bind:search={q} searchLabel="Product" placeholder="Brand, pack or SKU" active={f.values.show ? 1 : 0} onclear={() => { f.clear(); q = ''; }}>
   <label class="field"><span>Company</span><select class="select" bind:value={entityId}>{#each entities as e (e.id)}<option value={e.id}>{companyLabel(e.id)}</option>{/each}</select></label>
-  <label class="field"><span>Product</span><input class="input" type="search" bind:value={q} placeholder="Brand, pack or SKU" /></label>
   <label class="field" style="min-width:120px"><span>Target margin %</span><input class="input num" type="number" min="0" max="90" bind:value={target} /></label>
-</div>
+  {#snippet end()}{#if prices}<span class="caption">{shownLines.length} of {lines.length} price lines</span>{/if}{/snippet}
+</FilterBar>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
 
 {#if form}
@@ -104,10 +116,10 @@
     <table class="table">
       <thead><tr><th>Product</th><th>Applies to</th><th class="num">Selling price</th><th class="num">Landed per case</th><th class="num">Margin</th><th class="num">Price for {target} %</th><th></th></tr></thead>
       <tbody>
-        {#each lines as l (`${l.productId}|${l.warehouseId}`)}
+        {#each shownLines as l (`${l.productId}|${l.warehouseId}`)}
           {@const m = l.price !== null && l.unit !== null ? marginAt(l.price, l.unit) : null}
           <tr class:sub={!!l.warehouseId}>
-            <td>{#if !l.warehouseId}<strong>{lookup.product(l.productId)?.brand}</strong> <span class="caption">{lookup.product(l.productId)?.pack}</span>{/if}</td>
+            <td>{#if !l.warehouseId || f.values.show}<strong>{lookup.product(l.productId)?.brand}</strong> <span class="caption">{lookup.product(l.productId)?.pack}</span>{/if}</td>
             <td class="small">{l.warehouseId ? lookup.warehouse(l.warehouseId)?.name : 'All warehouses'}{#if l.warehouseId && !l.own}<span class="caption"> · company price</span>{/if}</td>
             <td class="num">{l.price === null ? '—' : fmtNum(l.price, 2)}</td>
             <td class="num">{l.unit === null ? '—' : fmtNum(l.unit, 2)}</td>

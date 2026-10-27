@@ -17,6 +17,8 @@ Each surface had its own definition. Now every figure that appears on more than 
 | Summary call (`analytics.summary`), on the server and in the mock | `apps/api/src/domain/stock.service.ts`, `packages/api/src/mock-client.ts` |
 | Reports and exports (stock report, sales report, deliveries / on time) | `packages/api/src/reports.ts` |
 
+The functions live in `packages/api/src/metrics.ts`; the registry itself (`METRICS`, `computeAll`) is in `packages/api/src/metric-registry.ts` (27 Oct 2026), so the definitions' text stays out of the apps' entry chunks. The work-page summary strips of docs/17 Phase 1 added entries for orders by stage, period plans, loading queues, re-exports, warehouse expenses and selling prices (§2, "Work-page strips").
+
 Each registry entry (`METRICS`) has:
 - a key
 - a label
@@ -83,6 +85,19 @@ The Truck desk board uses the same state rule (`metrics.roadState`), so its colu
 | `profit` | Profit | Sales − cost of units sold at landed cost v2 − warehouse costs of months with nothing received ("other"). |
 | `margin` | Margin | Profit ÷ sales, with the same profit as above. |
 | `landed-per-case` | Landed cost per case | Goods + truck costs + warehouse share of the goods received in the period ÷ cases received good. |
+
+### Work-page strips (docs/17 Phase 1, 27 Oct 2026)
+| Key | Figure | Definition |
+|---|---|---|
+| `orders-awaiting-approval` · `orders-not-sent` · `orders-sent` · `orders-loading` · `orders-on-the-road` | Purchase orders at a stage | Latest revision, not deleted, at that stage now (Awaiting approval only with approvals on) |
+| `plans-in-force` · `plans-upcoming` | Period plans | Active plans covering today · starting after today |
+| `plan-used` | Plan used | Cases ordered this quarter ÷ cases planned, shown against the share expected by today |
+| `trucks-waiting` · `longest-wait` · `loaded-today` | Loading queues | Trucks waiting in a queue now · hours of the longest wait · loadings completed today |
+| `reexports-open` · `-loaded` · `-in-transit` · `-delivered` | Re-export orders | Orders at that status now |
+| `expenses-this-month` · `expenses-last-month` · `expenses-top-category` | Warehouse expenses (USD) | Spent this month · last month · the largest category this month |
+| `prices-missing` · `prices-below-target` | Selling prices | Price lines without a price in force · prices under the target margin over landed cost |
+
+The Sales page's *Overdue* tile is `overdue-by-customers` (now also on the sales report's receivables).
 
 ## 3. What disagreed before, and why
 | Figure | Before | Cause | Now |

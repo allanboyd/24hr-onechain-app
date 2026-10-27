@@ -193,7 +193,7 @@ function initial(): DB {
 
   notify('Truck stopped at border', 'UBA 789C at Elegu/Nimule for 20 h — clearing documents pending', `#/shipments/${d.shipments.find((x) => x.legs[0]?.truckId === 't3' && x.status !== 'Acknowledged')?.id}`, ['director', 'fleet', 'operations'], 'e-btw');
   notify('Delivery discrepancy', `${sh3.ref} leg 1: 6 cases damaged at Asie Gisenyi`, `#/shipments/${sh3.id}`, ['director', 'operations', 'accounts'], sh3.entityId);
-  notify('Payment needs approval', 'USD 850 transport balance · KBV 894T', '#/finance', ['director', 'accounts'], sh1.entityId);
+  notify('Payment needs approval', 'USD 850 transport balance · KBV 894T', '#/transport-costs?tab=trips', ['director', 'accounts'], sh1.entityId);
   notify('Agreed price not recorded', `T 733 DKL · ${d.shipments.find((x) => x.poId === 'po-3')?.ref} loaded without a transport price — record the agreed price`, `#/trucks`, ['truck_planner', 'director'], 'e-kivu');
   notify('Truck at border', 'T 733 DKL reached Rusumo', `#/shipments/${d.shipments.find((x) => x.poId === 'po-3')?.id}`, ['fleet', 'operations'], 'e-kivu');
   seedAudit(d, now);

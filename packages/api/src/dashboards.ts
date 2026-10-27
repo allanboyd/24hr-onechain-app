@@ -14,6 +14,7 @@ import * as M from './money';
 import * as A from './access';
 import { truckDesk, type TruckRow } from './trucks';
 import * as MX from './metrics';
+import { METRICS, type MetricSource } from './metric-registry';
 import type {
   Acknowledgement, AppConfig, CostKind, FeatureKey, ID, Leg, Plan, PurchaseOrder, ReexportOrder, Role, SellingPrice, Shipment, TransportFeeRow,
   UserAdmin, WaitingEntry, WarehouseExpense,
@@ -47,51 +48,71 @@ export type DashKey =
   | 'incoming' | 'received-damaged-short' | 'delivery-losses'
   | 'stock-on-hand' | 'stock-in-transit' | 'warehouse-expenses' | 'reexports'
   | 'sales-summary' | 'customer-balances'
-  | 'alerts' | 'users-logins' | 'audit-log';
+  | 'alerts' | 'users-logins' | 'audit-log'
+  // docs/17 Phase 2: analysis moved to Home from the retired Reports / Sales velocity pages and the page Overview tabs
+  | 'orders-analysis' | 'plan-vs-actual-report' | 'purchase-planning' | 'loading-queues' | 'shipment-analysis' | 'logistics-report'
+  | 'trip-costs' | 'finance-report' | 'stock-analysis' | 'inventory-report' | 'sales-velocity' | 'sales-report' | 'quarterly-review';
 export interface DashDef {
   key: DashKey; id: string; title: string; group: DashGroup; who: Who[];
   /** the business question it answers */ question: string; /** the visual */ visual: string;
   /** an existing screen it opens (drill-down) */ link?: string;
   /** computed in the browser from an existing endpoint (no builder here) */ client?: boolean;
+  /** a full-width analysis section (browser-built report, docs/17 Phase 2) shown under the tab's dashboards */ analysis?: boolean;
+  /** also open to anyone with one of these features (the old Reports page gates), besides the audiences in `who` */ features?: FeatureKey[];
 }
 const d = (key: DashKey, id: string, title: string, group: DashGroup, who: Who[], question: string, visual: string, link?: string, client?: boolean): DashDef => ({ key, id, title, group, who, question, visual, link, client });
+const a = (key: DashKey, title: string, group: DashGroup, who: Who[], features: FeatureKey[], question: string, visual: string, link: string): DashDef => ({ key, id: 'F-2', title, group, who, question, visual, link, client: true, analysis: true, features });
 export const DASHBOARDS: DashDef[] = [
   d('director-today', 'C-05', 'Today', 'home', ['dir'], 'What needs a director\'s decision today, and where does the business stand?', 'KPI strip with sparklines, daily sales and profit, decision list, stock health, sales by company / warehouse, top products'),
   d('exec-overview', 'C-P1-01', 'Executive overview', 'business', ['dir'], 'Where does the business stand today?', 'KPI scorecard + exception list', '#/notifications'),
   d('combined-performance', 'C-P1-02', 'Combined performance', 'business', ['dir'], 'Quantity, landed cost, sales, profit and margin at product / warehouse / company / business level', 'Link card + level report', '#/performance'),
   d('profit-margin', 'C-P1-03', 'Profit and margin', 'business', ['dir'], 'How do sales become profit, month by month?', 'Waterfall + monthly stacked columns with a margin line', '#/performance'),
   d('landed-product', 'C-P1-04', 'Landed cost per product', 'business', ['dir'], 'What makes up landed cost per case?', 'Horizontal stacked bars (goods, truck, warehouse)', '#/performance'),
-  d('landed-truck', 'C-P1-05', 'Landed cost per truck', 'business', ['dir'], 'What did each truck cost, and which are above average?', 'Stacked bar per truck + table', '#/finance'),
+  d('landed-truck', 'C-P1-05', 'Landed cost per truck', 'business', ['dir'], 'What did each truck cost, and which are above average?', 'Stacked bar per truck + table', '#/transport-costs?tab=trips'),
   d('selling-price', 'C-P1-06', 'Selling price & target margin', 'business', ['dir'], 'Are selling prices meeting the target margin?', 'Gauge + link to the calculator', '#/selling-prices'),
-  d('fast-slow', 'C-X-01', 'Fast and slow products', 'business', ['dir'], 'Which products are slow and overstocked?', 'Quadrant scatter (sales speed × days of stock)', '#/analytics'),
+  d('fast-slow', 'C-X-01', 'Fast and slow products', 'warehouse', ['dir'], 'Which products are slow and overstocked?', 'Quadrant scatter (sales speed × days of stock)', '#/stock'),
   d('po-pipeline', 'C-P1-07', 'Purchase order pipeline', 'purchasing', ['dir', 'kab'], 'How many orders sit at each stage?', 'Stage bars (count + value); click a stage for its orders', '#/pos'),
   d('ordered-loaded-delivered', 'C-P1-08', 'Ordered vs loaded vs delivered', 'purchasing', ['dir', 'kab'], 'Where do quantities go missing?', 'Grouped bars + gap table', '#/pos'),
   d('open-orders', 'C-P2', 'Open orders', 'purchasing', ['dir', 'kab'], 'Which orders are raised but not loaded, and for how long?', 'Sorted table with age bands', '#/pos'),
-  d('plan-vs-actual', 'C-P2', 'Plan vs actual', 'purchasing', ['dir', 'kab'], 'Is purchasing following the period plan?', 'Plan used vs expected', '#/reports?r=pv', true),
-  d('loading-list', 'C-P1-09', "Today's loading list", 'loading', ['ld', 'tf', 'dir'], 'What do I load today?', 'Cards with status chips — no prices', '#/loading'),
-  d('loading-status', 'C-P1-10', 'Loading status', 'loading', ['dir', 'kab'], 'How far is each order loaded, with documents and photos?', 'Progress bar per order + document / photo icons', '#/loading'),
+  d('plan-vs-actual', 'C-P2', 'Plan vs actual', 'purchasing', ['dir', 'kab'], 'Is purchasing following the period plan?', 'Plan used vs expected', '#/period-plans', true),
+  d('loading-list', 'C-P1-09', "Today's loading list", 'loading', ['ld', 'tf', 'dir'], 'What do I load today?', 'Cards with status chips — no prices', '#/trucks?tab=queues'),
+  d('loading-status', 'C-P1-10', 'Loading status', 'loading', ['dir', 'kab'], 'How far is each order loaded, with documents and photos?', 'Progress bar per order + document / photo icons', '#/trucks?tab=queues'),
   d('dispatched-today', 'C-P2', 'Dispatched today', 'loading', ['ld', 'dir'], 'Which trucks left in the last 24 hours?', 'List grouped by loading point + count tiles', '#/shipments'),
   d('fleet-board', 'C-P1-11', 'Live fleet board', 'fleet', ['dir', 'tf'], 'Where is every truck?', 'Kanban by status, grouped by route; stale positions faded', '#/trucks'),
-  d('delayed-trucks', 'C-P1-12', 'Delayed trucks', 'fleet', ['dir', 'tf'], 'Which trucks are late, why, and who acts?', 'Table by days late with a severity bar and owner', '#/shipments?chip=Delayed'),
+  d('delayed-trucks', 'C-P1-12', 'Delayed trucks', 'fleet', ['dir', 'tf'], 'Which trucks are late, why, and who acts?', 'Table by days late with a severity bar and owner', '#/shipments?show=delayed'),
   d('truck-issues', 'C-P1-13', 'Truck issues', 'fleet', ['dir', 'tf'], 'What is open, and which trucks / providers repeat?', 'Open-issues table + repeat issues by truck and provider', '#/trucks'),
-  d('driver-updates', 'C-P1-14', 'Driver status updates', 'fleet', ['tf', 'dir'], 'Which trucks have gone quiet?', 'Timeline feed + last-update badges', '#/tracking'),
-  d('border-stops', 'C-X-02', 'Border and stop analysis', 'fleet', ['dir'], 'Where do trucks wait?', 'Heatmap route × stop (average days, trips)', '#/reports?r=logistics'),
-  d('agreed-vs-actual', 'C-P1-15', 'Agreed transport price vs actual', 'fees', ['dir', 'tf'], 'Did trucks cost what was agreed?', 'Paired bars per truck + variance', '#/transport-fees'),
-  d('fee-payments', 'C-P1-16', 'Transport fee payments', 'fees', ['dir', 'tf'], 'Which fees are paid, part paid or unpaid — against which reference?', 'Table with status chips, progress and reference search', '#/transport-fees'),
-  d('unpaid-fees', 'C-P1-17', 'Unpaid and ageing fees', 'fees', ['dir'], 'Who is owed transport fees, and how old are they?', 'Ageing stacked bars by provider', '#/transport-fees'),
-  d('truck-expenses', 'C-P1-18', 'Expenses per truck', 'fees', ['dir', 'tf'], 'What does each trip cost, by category and leg?', 'Stacked bar per trip, legs expandable', '#/finance'),
+  d('driver-updates', 'C-P1-14', 'Driver status updates', 'fleet', ['tf', 'dir'], 'Which trucks have gone quiet?', 'Timeline feed + last-update badges', '#/shipments?view=map'),
+  d('border-stops', 'C-X-02', 'Border and stop analysis', 'fleet', ['dir'], 'Where do trucks wait?', 'Heatmap route × stop (average days, trips)', '#/shipments?show=border'),
+  d('agreed-vs-actual', 'C-P1-15', 'Agreed transport price vs actual', 'fees', ['dir', 'tf'], 'Did trucks cost what was agreed?', 'Paired bars per truck + variance', '#/transport-costs'),
+  d('fee-payments', 'C-P1-16', 'Transport fee payments', 'fees', ['dir', 'tf'], 'Which fees are paid, part paid or unpaid — against which reference?', 'Table with status chips, progress and reference search', '#/transport-costs'),
+  d('unpaid-fees', 'C-P1-17', 'Unpaid and ageing fees', 'fees', ['dir'], 'Who is owed transport fees, and how old are they?', 'Ageing stacked bars by provider', '#/transport-costs'),
+  d('truck-expenses', 'C-P1-18', 'Expenses per truck', 'fees', ['dir', 'tf'], 'What does each trip cost, by category and leg?', 'Stacked bar per trip, legs expandable', '#/transport-costs?tab=expenses'),
   d('incoming', 'C-P1-19', 'Incoming deliveries', 'deliveries', ['rcv', 'dir'], 'Which trucks are coming to my warehouse, and which wait for acknowledgement?', 'Cards by expected arrival', '#/shipments'),
-  d('received-damaged-short', 'C-P1-20', 'Received, damaged, short', 'deliveries', ['rcv', 'dir'], 'What arrived, what was damaged or short?', 'Stacked bar per delivery + photos / signature', '#/shipments?chip=Acknowledged'),
-  d('delivery-losses', 'C-X-03', 'Delivery losses by cause', 'deliveries', ['dir', 'rcv'], 'Which causes drive delivery losses?', 'Pareto (bars + cumulative % + 80 % line)', '#/shipments?chip=Acknowledged'),
-  d('stock-on-hand', 'C-P1-21', 'Stock on hand', 'warehouse', ['rcv', 'dir'], 'Which stock needs action — running out or not moving?', 'Stock-cover bands + bars against minimum', '#/warehouse-stock'),
+  d('received-damaged-short', 'C-P1-20', 'Received, damaged, short', 'deliveries', ['rcv', 'dir'], 'What arrived, what was damaged or short?', 'Stacked bar per delivery + photos / signature', '#/shipments?show=delivered'),
+  d('delivery-losses', 'C-X-03', 'Delivery losses by cause', 'deliveries', ['dir', 'rcv'], 'Which causes drive delivery losses?', 'Pareto (bars + cumulative % + 80 % line)', '#/shipments?show=delivered'),
+  d('stock-on-hand', 'C-P1-21', 'Stock on hand', 'warehouse', ['rcv', 'dir'], 'Which stock needs action — running out or not moving?', 'Stock-cover bands + bars against minimum', '#/stock'),
   d('stock-in-transit', 'C-P1-22', 'Stock in transit', 'warehouse', ['dir', 'rcv'], 'What is on the road to each warehouse, and when does it arrive?', 'Timeline of expected arrivals + totals per warehouse', '#/shipments'),
   d('warehouse-expenses', 'C-P1-23', 'Warehouse expenses', 'warehouse', ['rcv', 'dir'], 'What do the warehouses spend, by category and month?', 'Stacked monthly columns + category share', '#/warehouse-expenses'),
   d('reexports', 'B-03', 'Re-export orders', 'warehouse', ['rx', 'rcv', 'dir'], 'Where are the Rwanda → Juba re-exports?', 'Status list', '#/re-exports'),
   d('sales-summary', 'C-P1-24', 'Sales summary', 'sales', ['dir'], 'How do cash, credit and batch sales move; who and what sells most?', 'Stacked columns by month + ranked bars', '#/sales'),
-  d('customer-balances', 'C-P1-25', 'Customer balances', 'sales', ['dir'], 'Who owes what, and how old is it?', 'Ageing stacked bars per customer', '#/sales?tab=list&status=Unpaid'),
+  d('customer-balances', 'C-P1-25', 'Customer balances', 'sales', ['dir'], 'Who owes what, and how old is it?', 'Ageing stacked bars per customer', '#/sales?show=owed'),
   d('alerts', 'C-P1-28', 'Alerts centre', 'admin', ['dir', 'tf', 'kab'], 'Which alert do I handle first?', 'Triage matrix + prioritised list', '#/notifications'),
   d('users-logins', 'C-P1-26', 'Users and logins', 'admin', ['dir'], 'Who uses the system; who is inactive?', 'Count tiles + table with role chips', '#/users'),
   d('audit-log', 'C-P1-27', 'Audit log', 'admin', ['dir'], 'Who did what and when?', 'Activity sparkline + latest changes', '#/audit', true),
+  // docs/17 Phase 2 — analysis sections (browser-built from the report endpoints, same server gates as before)
+  a('orders-analysis', 'Orders', 'purchasing', ['dir', 'kab'], [], 'How far have the open orders got; what do we order, from whom, per month?', 'Truck progress per order, trucks by stage, value by supplier and month', '#/pos'),
+  a('plan-vs-actual-report', 'Planned vs actual', 'purchasing', ['dir', 'kab'], ['planned-vs-actual'], 'Is purchasing following the period plans, by brand and company?', 'Running total, plan used by brand, by company', '#/period-plans'),
+  a('purchase-planning', 'Purchase planning', 'purchasing', ['dir'], ['reports', 'period-plans'], 'What should we order next, and by when?', 'Suggested orders, days to stock-out, demand forecast', '#/pos/new'),
+  a('loading-queues', 'Loading queues', 'loading', ['dir', 'kab', 'tf', 'ld'], [], 'Where do trucks wait to load, and how much is loaded each day?', 'Queue and waiting time per loading point, trucks loaded per day, ordered vs loaded', '#/trucks?tab=queues'),
+  a('shipment-analysis', 'Trucks and deliveries', 'fleet', ['dir', 'tf', 'kab'], [], 'Where are the trucks; do they arrive on time; which legs lose goods?', 'Trucks by status, on-time gauge, worst legs for shortages and damage', '#/shipments'),
+  a('logistics-report', 'Logistics report', 'fleet', ['dir'], ['reports'], 'How long do lanes and borders take; why are trucks delayed; how are trucks and drivers used?', 'On-time trend, transit by lane, border waiting, delays by cause, truck use, drivers', '#/shipments'),
+  a('trip-costs', 'Trip costs', 'fees', ['dir'], ['finance'], 'What do trips cost each month, and which payments wait for a director?', 'Trip expenses by month and type, payments awaiting approval', '#/transport-costs?tab=trips'),
+  a('finance-report', 'Landing cost report', 'fees', ['dir'], ['reports'], 'What does a case cost to land, by month and lane; where does the money go?', 'Landing cost per case, transport per case, by lane, cost mix, margin by brand, transport by provider', '#/transport-costs'),
+  a('stock-analysis', 'Stock positions', 'warehouse', ['dir', 'rcv'], ['inventory'], 'Where is stock held, how old is it, which products hold the most value?', 'On hand vs in transit, stock level, ageing, top value products', '#/stock'),
+  a('inventory-report', 'Stock report', 'warehouse', ['dir'], ['reports'], 'What is the stock worth, how old is it, and which lines need action?', 'Stock value by warehouse, age, status, days of cover, stock by brand and warehouse', '#/stock'),
+  a('sales-velocity', 'Sales velocity', 'warehouse', ['dir'], ['reports'], 'Which products sell fast or slowly in each warehouse; what should move where?', 'Velocity heatmap, ranking, suggested transfers, flags, velocity table', '#/stock'),
+  a('sales-report', 'Sales report', 'sales', ['dir'], ['reports', 'sales'], 'How do revenue, brands, warehouses, sale types and customers move?', 'Revenue trend vs last year, by brand, warehouse and type, receivables ageing, top customers', '#/sales'),
+  a('quarterly-review', 'Quarterly review', 'sales', ['dir'], ['reports'], 'How did the quarter go against last year?', 'Revenue by month this year vs last, warehouses', '#/sales'),
 ];
 export const dashDef = (k: string) => DASHBOARDS.find((x) => x.key === k);
 
@@ -100,7 +121,7 @@ const WHO: Record<Who, (u: { roles: Role[] }) => boolean> = {
   dir: (u) => A.isDirector(u), kab: (u) => has(u, 'planner'), tf: (u) => has(u, 'truck_planner'), ld: (u) => has(u, 'loader'), rcv: (u) => has(u, 'receiver'), rx: (u) => has(u, 'reexport'),
 };
 /** May this person open this dashboard? */
-export const canSeeDash = (u: { roles: Role[] }, key: string) => !!dashDef(key)?.who.some((w) => WHO[w](u));
+export const canSeeDash = (u: { roles: Role[] }, key: string) => { const x = dashDef(key); return !!x && (x.who.some((w) => WHO[w](u)) || !!x.features?.some((f) => hasFeature(u.roles, f))); };
 export const dashboardsFor = (u: { roles: Role[] }) => DASHBOARDS.filter((x) => canSeeDash(u, x.key));
 /** C-05 home screens (dashboards document §10): each person's own set, in this order. */
 export const HOME: Record<Who, DashKey[]> = {
@@ -267,7 +288,7 @@ interface Ctx {
 }
 const memo = <T>(c: Ctx, k: string, fn: () => T): T => { if (!c.memo.has(k)) c.memo.set(k, fn()); return c.memo.get(k) as T; };
 /** docs/18: the shared figures (metrics.ts) over this dashboard's scoped, filtered data. */
-const fig = (c: Ctx): MX.MetricSource => memo(c, 'fig', () => ({
+const fig = (c: Ctx): MetricSource => memo(c, 'fig', () => ({
   now: c.now, shipments: c.src.shipments, stopsOf: names(c.src).stops, loadings: c.src.loadings, pos: c.src.pos,
   stock: c.src.pricesHidden ? undefined : c.src.stock, sales: c.usd.sales, fees: c.src.fees ?? undefined,
   feeDays: { amber: M.feesConfig(c.raw.config).amberDays, red: M.feesConfig(c.raw.config).redDays },
@@ -428,7 +449,7 @@ function alerts(c: Ctx): DashAlert[] {
       out.push({ id: `loss-${a.id}`, kind: 'Shortage / damage', severity: share >= 0.02 || lost >= 50 ? 'high' : 'medium', impact: lost >= 50 ? 'High' : 'Medium', title: `${lost} cases short or damaged — ${sh?.ref ?? a.shipmentId}`, detail: `${n.warehouse(a.warehouseId)}${reasons ? ` · ${reasons}` : ' · no reason given'}`, owner: receiverOf(c, a.warehouseId) ?? a.receiverName, due: iso(t(a.at) + 2 * DAY), status: 'Awaiting review', href: `#/shipments/${a.shipmentId}`, at: a.at });
     }
     for (const x of c.src.fees ?? []) {
-      if (x.flag === 'red' || x.flag === 'amber') out.push({ id: `fee-${x.shipmentId}`, kind: 'Unpaid fee', severity: x.flag === 'red' ? 'high' : 'medium', impact: 'Medium', title: `Transport fee ${x.status.toLowerCase()} for ${x.ageDays} days — ${x.ref}`, detail: `${n.provider(x.providerId)} · balance USD ${Math.round(x.balanceUsd ?? 0).toLocaleString('en-US')}`, owner: 'Directors', due: x.loadedAt ? iso(t(x.loadedAt) + (c.raw.config?.fees?.redDays ?? 30) * DAY) : null, status: x.status, href: `#/transport-fees?q=${encodeURIComponent(x.ref)}`, at: x.loadedAt });
+      if (x.flag === 'red' || x.flag === 'amber') out.push({ id: `fee-${x.shipmentId}`, kind: 'Unpaid fee', severity: x.flag === 'red' ? 'high' : 'medium', impact: 'Medium', title: `Transport fee ${x.status.toLowerCase()} for ${x.ageDays} days — ${x.ref}`, detail: `${n.provider(x.providerId)} · balance USD ${Math.round(x.balanceUsd ?? 0).toLocaleString('en-US')}`, owner: 'Directors', due: x.loadedAt ? iso(t(x.loadedAt) + (c.raw.config?.fees?.redDays ?? 30) * DAY) : null, status: x.status, href: `#/transport-costs?q=${encodeURIComponent(x.ref)}`, at: x.loadedAt });
       else if (x.status === 'Not recorded' && x.ageDays >= 2 && !x.reexport) out.push({ id: `agreed-${x.shipmentId}`, kind: 'Agreed price missing', severity: 'low', impact: 'Medium', title: `Agreed transport price not recorded — ${x.ref}`, detail: `${n.truck(x.truckId)} · loaded ${x.ageDays} d ago`, owner: tf, due: x.loadedAt ? iso(t(x.loadedAt) + DAY) : null, status: 'Not recorded', href: '#/trucks', at: x.loadedAt });
     }
     for (const p of poFacts(c)) {
@@ -436,7 +457,7 @@ function alerts(c: Ctx): DashAlert[] {
       out.push({ id: `po-${p.id}`, kind: 'Order waiting', severity: p.daysWaiting > 7 ? 'medium' : 'low', impact: p.daysWaiting > 7 ? 'Medium' : 'Low', title: `${p.ref} raised ${p.daysWaiting} d ago, not loaded`, detail: `${n.entity(p.entityId)}–${n.supplier(p.supplierId)} · ${p.ordered.toLocaleString('en-US')} cases`, owner: plannerOf(c, p.entityId, p.supplierId), due: iso(t(p.date) + 7 * DAY), status: 'Waiting to load', href: `#/pos/${p.id}`, at: p.date });
     }
     if (c.src.moves.length) for (const x of stockItems(c).filter((i) => i.cover !== null && i.cover < 7 && i.held > 0).slice(0, 6))
-      out.push({ id: `stock-${x.productId}`, kind: 'Low stock', severity: x.cover! < 3 ? 'high' : 'medium', impact: 'High', title: `${x.label}: ${x.cover} days of stock left`, detail: `${x.held} cases held · ${x.perDay} cases/day`, owner: plannerOf(c, '', '') ?? 'Purchasing', due: iso(c.now + Math.max(0, x.cover!) * DAY), status: 'Reorder', href: '#/warehouse-stock', at: null });
+      out.push({ id: `stock-${x.productId}`, kind: 'Low stock', severity: x.cover! < 3 ? 'high' : 'medium', impact: 'High', title: `${x.label}: ${x.cover} days of stock left`, detail: `${x.held} cases held · ${x.perDay} cases/day`, owner: plannerOf(c, '', '') ?? 'Purchasing', due: iso(c.now + Math.max(0, x.cover!) * DAY), status: 'Reorder', href: '#/stock', at: null });
     const day = new Date(c.now).getUTCDate();
     if ((c.src.expenses?.length ?? 0) > 0 && day > 7) {
       const month = iso(c.now).slice(0, 7);
@@ -609,10 +630,10 @@ function directorToday(c: Ctx): Out {
   const badPrice = sellers.filter((r) => r.sellingPrice === null || (r.marginAtPrice !== null && r.marginAtPrice < target));
   const redDays = c.raw.config?.fees?.redDays ?? 30;
   const decisions: TodayDecision[] = [
-    { key: 'approvals', label: 'Truck payments to approve', count: pend.length, value: pend.length ? r2(sum(pend, (p) => p.amountUsd ?? p.amount)) : null, detail: pend.length ? `Oldest ${day(pend.map((p) => p.at).sort()[0])}` : 'Nothing waiting', owner: 'Directors', href: '#/finance', severity: pend.length ? 'high' : 'low' },
+    { key: 'approvals', label: 'Truck payments to approve', count: pend.length, value: pend.length ? r2(sum(pend, (p) => p.amountUsd ?? p.amount)) : null, detail: pend.length ? `Oldest ${day(pend.map((p) => p.at).sort()[0])}` : 'Nothing waiting', owner: 'Directors', href: '#/transport-costs', severity: pend.length ? 'high' : 'low' },
     { key: 'trucks', label: 'Delayed or silent trucks', count: late.length + quiet.length, value: null, detail: late.length + quiet.length ? [late.length && `${late.length} delayed`, quiet.length && `${quiet.length} silent > ${UPDATE_GAP.red} h`].filter(Boolean).join(' · ') : 'Every truck on plan', owner: tf, href: '#/dashboards/fleet', severity: late.some((a) => a.severity === 'critical') ? 'critical' : late.length ? 'high' : quiet.length ? 'medium' : 'low' },
-    { key: 'fees', label: `Fees unpaid > ${redDays} days`, count: redFees ? redFees.length : null, value: redFees?.length ? r2(sum(redFees, (x) => Math.max(0, x.balanceUsd ?? 0))) : null, detail: redFees === null ? 'No fee data' : redFees.length ? [...new Set(redFees.map((x) => n.provider(x.providerId)))].slice(0, 2).join(', ') : 'No old balances', owner: 'Directors · accounts', href: '#/transport-fees', severity: redFees?.length ? 'high' : 'low' },
-    { key: 'stock', label: `Stock under ${COVER.min} days`, count: c.src.moves.length ? risk.length : null, value: null, detail: risk.length ? risk.slice(0, 2).map((x) => `${x.label} ${x.cover} d`).join(' · ') : c.src.moves.length ? 'Cover above the minimum' : 'No stock records', owner: c.src.people?.find((p) => p.roles.includes('planner'))?.name ?? 'Purchasing', href: '#/warehouse-stock', severity: risk.some((x) => (x.cover ?? 99) <= 7) ? 'high' : risk.length ? 'medium' : 'low' },
+    { key: 'fees', label: `Fees unpaid > ${redDays} days`, count: redFees ? redFees.length : null, value: redFees?.length ? r2(sum(redFees, (x) => Math.max(0, x.balanceUsd ?? 0))) : null, detail: redFees === null ? 'No fee data' : redFees.length ? [...new Set(redFees.map((x) => n.provider(x.providerId)))].slice(0, 2).join(', ') : 'No old balances', owner: 'Directors · accounts', href: '#/transport-costs?show=red', severity: redFees?.length ? 'high' : 'low' },
+    { key: 'stock', label: `Stock under ${COVER.min} days`, count: c.src.moves.length ? risk.length : null, value: null, detail: risk.length ? risk.slice(0, 2).map((x) => `${x.label} ${x.cover} d`).join(' · ') : c.src.moves.length ? 'Cover above the minimum' : 'No stock records', owner: c.src.people?.find((p) => p.roles.includes('planner'))?.name ?? 'Purchasing', href: '#/stock?show=attention', severity: risk.some((x) => (x.cover ?? 99) <= 7) ? 'high' : risk.length ? 'medium' : 'low' },
     { key: 'acks', label: 'Not signed for > 24 h', count: noAck.length, value: null, detail: noAck.length ? noAck.slice(0, 2).map((a) => a.detail.split(' · ')[0]).join(', ') : 'Every arrival signed', owner: [...new Set(noAck.map((a) => a.owner).filter(Boolean))].join(', ') || 'Receivers', href: '#/shipments', severity: noAck.some((a) => a.severity === 'high') ? 'high' : noAck.length ? 'medium' : 'low' },
     { key: 'prices', label: 'Top sellers below target', count: cur ? badPrice.length : null, value: null, detail: badPrice.length ? `${badPrice.filter((r) => r.sellingPrice === null).length} no price · ${badPrice.filter((r) => r.sellingPrice !== null).length} under ${Math.round(target * 100)} % margin` : cur ? `Top ${sellers.length} priced at target` : 'No sales yet', owner: 'Directors', href: '#/selling-prices', severity: badPrice.length ? 'medium' : 'low' },
   ];
@@ -621,7 +642,7 @@ function directorToday(c: Ctx): Out {
 
   const data: TodayData = { period, prev, mtd, sales: salesK, profit: profitK, cash: cashK, trucks: trucksK, daily, decisions, stock, distribution, top, targetMargin: target, cover: COVER, terms: TERMS_DAYS };
   return out(data, {
-    definition: `Sales = cases × price (USD at the approved month rate; sales between our own companies removed in the Group view), ${mtd ? 'month to date against the same days of last month' : 'the chosen period against the one before'}. Profit = sales − cost of units sold at landed cost v2 (goods + truck + warehouse share) − other warehouse costs; margin = profit ÷ sales. Daily profit uses each product's landed cost per case since ${fmtDay(start)}. Cash to collect = unpaid and part-paid sales; overdue after ${TERMS_DAYS} days. ${MX.METRICS.onRoad.label}: ${MX.METRICS.onRoad.definition} ${MX.METRICS.onTime.label}: ${MX.METRICS.onTime.definition} ${MX.METRICS.stockValue.label}: ${MX.METRICS.stockValue.definition}`,
+    definition: `Sales = cases × price (USD at the approved month rate; sales between our own companies removed in the Group view), ${mtd ? 'month to date against the same days of last month' : 'the chosen period against the one before'}. Profit = sales − cost of units sold at landed cost v2 (goods + truck + warehouse share) − other warehouse costs; margin = profit ÷ sales. Daily profit uses each product's landed cost per case since ${fmtDay(start)}. Cash to collect = unpaid and part-paid sales; overdue after ${TERMS_DAYS} days. ${METRICS.onRoad.label}: ${METRICS.onRoad.definition} ${METRICS.onTime.label}: ${METRICS.onTime.definition} ${METRICS.stockValue.label}: ${METRICS.stockValue.definition}`,
     currency: 'USD', unit: 'USD · trucks · cases', period,
     freshness: newest(sales.map((s) => s.at), desk(c).map((r) => r.lastMoveAt), c.src.moves.map((m) => m.at), pend.map((p) => p.at)),
     empty: !anySales && !anyTrips && !items.length,
@@ -647,18 +668,18 @@ const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
     const salesTrend = c.usd.sales.length ? weeks.map((w) => r2(sum(c.usd.sales.filter((s) => t(s.at) >= w && t(s.at) < w + 7 * DAY), (s) => sum(s.lines, (l) => l.qty * l.price)))) : null;
     const stockValue = c.src.pricesHidden ? null : MX.stockValue(c.src.stock);
     const kpis = [
-      { key: 'onRoad', label: MX.METRICS.onRoad.label, value: fl.onRoad, prev: null, unit: 'count', note: `${fl.delayed} delayed`, status: fl.delayed ? 'bad' : 'good', href: '#/trucks' },
-      { key: 'delayed', label: 'Delayed trucks', value: fl.delayed, prev: null, unit: 'count', upIsGood: false, status: fl.delayed ? 'bad' : 'good', href: '#/shipments?chip=Delayed' },
-      { key: 'waiting', label: MX.METRICS.ordersToLoad.label, value: MX.ordersToLoad(c.src.loadings, c.src.pos), prev: null, unit: 'count', upIsGood: false, note: `${waiting.filter((p) => (p.daysWaiting ?? 0) > 7).length} over 7 days`, href: '#/pos' },
+      { key: 'onRoad', label: METRICS.onRoad.label, value: fl.onRoad, prev: null, unit: 'count', note: `${fl.delayed} delayed`, status: fl.delayed ? 'bad' : 'good', href: '#/trucks' },
+      { key: 'delayed', label: 'Delayed trucks', value: fl.delayed, prev: null, unit: 'count', upIsGood: false, status: fl.delayed ? 'bad' : 'good', href: '#/shipments?show=delayed' },
+      { key: 'waiting', label: METRICS.ordersToLoad.label, value: MX.ordersToLoad(c.src.loadings, c.src.pos), prev: null, unit: 'count', upIsGood: false, note: `${waiting.filter((p) => (p.daysWaiting ?? 0) > 7).length} over 7 days`, href: '#/pos' },
       { key: 'sales', label: 'Sales', value: cur ? cur.totals.revenue : null, prev: prev ? prev.totals.revenue : null, unit: 'usd', changeKind: 'pct', trend: salesTrend, href: '#/sales' },
       { key: 'profit', label: 'Profit', value: MX.profitOf(cur), prev: MX.profitOf(prev), unit: 'usd', changeKind: 'pct', note: cur?.totals.estimated ? 'part estimated' : undefined, href: '#/performance' },
       { key: 'margin', label: 'Margin', value: MX.marginOf(cur), prev: MX.marginOf(prev), unit: 'pct', changeKind: 'pp', href: '#/performance' },
-      { key: 'stock', label: 'Stock value', value: stockValue, prev: null, unit: 'usd', note: 'at landed cost', href: '#/warehouse-stock' },
+      { key: 'stock', label: 'Stock value', value: stockValue, prev: null, unit: 'usd', note: 'at landed cost', href: '#/stock' },
       { key: 'alerts', label: 'Open alerts', value: al.length, prev: null, unit: 'count', upIsGood: false, note: `${high.length} high priority`, status: high.length ? 'warn' : 'good', href: '#/dashboards/admin' },
     ];
     const exceptions = al.filter((a) => a.kind === 'Delay' || a.severity === 'critical' || a.severity === 'high').slice(0, 12);
     return out({ kpis, exceptions, previous: c.prev }, {
-      definition: `Each figure separate. Sales, profit (after truck, warehouse and other costs, landed cost v2) and margin compare with the previous period of the same length; the other figures are as of now. ${MX.METRICS.onRoad.label}: ${MX.METRICS.onRoad.definition} ${MX.METRICS.ordersToLoad.label}: ${MX.METRICS.ordersToLoad.definition} ${MX.METRICS.stockValue.label}: ${MX.METRICS.stockValue.definition} Exceptions = delayed trucks and high-priority alerts.`,
+      definition: `Each figure separate. Sales, profit (after truck, warehouse and other costs, landed cost v2) and margin compare with the previous period of the same length; the other figures are as of now. ${METRICS.onRoad.label}: ${METRICS.onRoad.definition} ${METRICS.ordersToLoad.label}: ${METRICS.ordersToLoad.definition} ${METRICS.stockValue.label}: ${METRICS.stockValue.definition} Exceptions = delayed trucks and high-priority alerts.`,
       currency: 'USD', unit: 'USD · trucks · orders', freshness: newest(c.usd.sales.map((s) => s.at), rows.map((r) => r.lastMoveAt), al.map((a) => a.at)), empty: false,
     });
   },

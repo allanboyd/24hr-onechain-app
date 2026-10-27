@@ -83,7 +83,7 @@
   {#snippet header()}
     <PageHeader overline="Logistics" title="Shipments" description="Every truck from loading to signed delivery." analysis="fleet"
       info="Position comes from checkpoint check-ins: the driver app, SMS, geofence or the office. A truck with no check-in for longer than its plan shows under No check-in.">
-      {#snippet secondary()}<a class="btn btn-secondary" href="#/tracking"><MapIcon size={16} aria-hidden="true" />Map view</a>{/snippet}
+      {#snippet secondary()}<a class="btn btn-secondary" href="#/shipments?view=map"><MapIcon size={16} aria-hidden="true" />Map view</a>{/snippet}
       {#snippet primary()}<ActionInCompany label="Record a shipment" what="shipment" feature="logistics" onclick={(id) => say(`Record a shipment for ${companyLabel(id)}`)} />{/snippet}
     </PageHeader>
   {/snippet}

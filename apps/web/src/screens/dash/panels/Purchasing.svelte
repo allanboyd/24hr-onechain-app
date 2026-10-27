@@ -54,7 +54,7 @@
 {:else if key === 'plan-vs-actual'}
   <PlanUsedTile />
 {:else if key === 'loading-list'}
-  <DashboardPanel span={span ?? 1} title="Today's loading list" subtitle="ready · waiting for a truck · loaded today — quantities only" {...fr} rows={() => [['Order', 'Loading point', 'Truck', 'Driver', 'Ordered (cases)', 'Loaded (cases)', 'Status'], ...(d.rows ?? []).map((x: any) => [x.poRef, x.loadingPoint, x.truck, x.driver, x.ordered, x.loaded ?? '', x.status])]} filename="loading-list" drill={{ label: 'Open loading', href: '#/loading' }} empty={!(d.rows ?? []).length && !(d.queue ?? []).length} emptyText="Nothing to load today">
+  <DashboardPanel span={span ?? 1} title="Today's loading list" subtitle="ready · waiting for a truck · loaded today — quantities only" {...fr} rows={() => [['Order', 'Loading point', 'Truck', 'Driver', 'Ordered (cases)', 'Loaded (cases)', 'Status'], ...(d.rows ?? []).map((x: any) => [x.poRef, x.loadingPoint, x.truck, x.driver, x.ordered, x.loaded ?? '', x.status])]} filename="loading-list" drill={{ label: 'Open the queues', href: '#/trucks?tab=queues' }} empty={!(d.rows ?? []).length && !(d.queue ?? []).length} emptyText="Nothing to load today">
     <ul class="cards">
       {#each d.rows ?? [] as x}
         <li class="lcard"><div class="row between"><b>{x.truck ?? 'No truck yet'}</b><StatusBadge status={chip(x.status)} label={x.status} /></div>

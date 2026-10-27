@@ -16,7 +16,8 @@ export function parse(path: string): View {
   const s = p.split('/').filter(Boolean).map(decodeURIComponent);
   switch (s[0]) {
     case undefined: return { tab: 'home' };
-    case 'trucks': case 'shipments': case 'tracking': return { tab: 'trucks', id: s[1] };
+    // web routes of docs/17 Phase 2: #/trucks?tab=queues = the queues, #/transport-costs = money, #/stock
+    case 'trucks': case 'shipments': case 'tracking': return /[?&]tab=queues/.test(path) ? { tab: 'queue' } : { tab: 'trucks', id: s[1] };
     case 'queue': case 'loading': return { tab: 'queue' };
     case 'load': return { tab: 'load' };
     case 'fleet': return { tab: 'fleet', id: s[1] };
@@ -26,11 +27,11 @@ export function parse(path: string): View {
     case 'pos': return { tab: 'orders', kind: s[1] ? 'po' : undefined, id: s[1] };
     case 'plans': return { tab: 'orders', kind: s[1] ? 'draft' : undefined, id: s[1] };
     case 'period-plans': return s[1] ? { tab: 'orders', kind: 'period', id: s[1] } : { tab: 'orders' };
-    case 'stock': case 'inventory': return { tab: 'stock' };
+    case 'stock': case 'inventory': case 'warehouse-stock': return { tab: 'stock' };
     case 'sales': return { tab: 'sales' };
-    case 'money': case 'finance': return { tab: 'money', id: s[1] };
+    case 'money': case 'finance': case 'transport-costs': case 'transport-fees': return { tab: 'money', id: s[1] };
     case 'notifications': return { tab: 'notifications' };
-    case 'reports': case 'analytics': return { tab: 'reports' };
+    case 'reports': case 'analytics': case 'dashboards': return { tab: 'reports' };
     case 'approvals': return { tab: 'approvals' };
     case 'more': return { tab: 'more' };
     case 'glance': return s[1] ? { tab: 'glance', id: s[1] } : { tab: 'home' };

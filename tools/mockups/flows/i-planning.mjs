@@ -44,7 +44,7 @@ const planUrl = await s.page.evaluate(() => location.hash);
 await as(s, 'u-daniel');
 await s.go('/period-plans', 2500);
 await shot(s, 'I04-web-period-plans-overview', 'Period plans · overview', 'Plans in force today, awaiting approval, upcoming periods; planned purchases by month and cases planned by supplier.');
-await s.go('/period-plans?tab=list', 1500);
+await s.go('/period-plans', 1500);
 await shot(s, 'I05-web-period-plans-list', 'Period plans · list', 'Every period plan with its period, kind, lines, cases, value and status; directors land on “Awaiting approval”.');
 await s.go(planUrl.slice(1), 1800);
 await btn(s, 'Approve & sign').click(); await w(s, 500); await sign(s);

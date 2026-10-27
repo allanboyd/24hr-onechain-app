@@ -3,6 +3,8 @@
   // (a truck from the list or a market truck — no prices) and it ships as a new shipment with the order's ref; Yonas
   // acknowledges it into Juba stock. Yonas sees what is coming, Testfie follows the trucks up (owner to confirm, Q3), the
   // directors see everything.
+  // docs/17 Phase 1: work page with a strip (registry: open · loaded · in transit · delivered) that filters the list.
+  // Needs-action default: the person who loads (Asie) opens on Open orders when there are any.
   import { lookup, ref, reexports, warehouse, type ReexportOrder, type User, type WarehouseStockRow } from '@btw/api';
   import { fmtDateTime, fmtNum, say } from '@btw/ui';
   import { REEXPORT_ROUTE, canRaiseReexport } from '@btw/api/money';
@@ -10,6 +12,10 @@
   import { attempt, watch } from '../lib/load.svelte';
   import { companyLabel } from '../lib/companies';
   import ErrorState from '../components/ErrorState.svelte';
+  import { PageHeader, SummaryStrip, FilterBar, EmptyState, queryFilters, readQuery, type SummaryTile } from '../components/page';
+  import { reexportTiles, infoOf } from '../lib/tiles';
+  import Plus from '@lucide/svelte/icons/plus';
+  import SearchX from '@lucide/svelte/icons/search-x';
   let { user }: { params?: any; user: User } = $props();
 
   const fromWhs = $derived(ref().warehouses.filter((w) => canRaiseReexport(user, w.id)));
@@ -20,6 +26,21 @@
     orders = await reexports.list();
     if (raiser) stock = (await warehouse.stock({ warehouseId: fromWhs[0].id })).filter((r) => r.held > 0);
   });
+  const f = queryFilters({ show: '', q: '' });
+  let search = $state(f.values.q);
+  $effect(() => { if (search !== f.values.q) f.set('q', search); });
+  const fig = $derived(reexportTiles(orders ?? []));
+  const KEY: Record<string, ReexportOrder['status']> = { open: 'Open', loaded: 'Loaded', transit: 'In transit', delivered: 'Delivered', cancelled: 'Cancelled' };
+  const tiles = $derived<SummaryTile[]>([
+    { key: 'open', label: 'Open', value: orders ? fig.open : null, sub: 'to load', status: fig.open && raiser ? 'warn' : undefined, statusLabel: fig.open && raiser ? 'To load' : undefined, info: infoOf('rxOpen') },
+    { key: 'loaded', label: 'Loaded', value: orders ? fig.loaded : null, info: infoOf('rxLoaded') },
+    { key: 'transit', label: 'In transit', value: orders ? fig.transit : null, info: infoOf('rxInTransit') },
+    { key: 'delivered', label: 'Delivered', value: orders ? fig.delivered : null, info: infoOf('rxDelivered') },
+  ]);
+  let defaulted = false;
+  $effect(() => { if (defaulted || !orders) return; defaulted = true; if (!readQuery('show') && !readQuery('q') && raiser && fig.open) f.set('show', 'open'); });
+  const shown = $derived((orders ?? []).filter((o) => (!f.values.show || o.status === KEY[f.values.show]) && (!f.values.q || `${o.ref} ${o.note ?? ''} ${o.lines.map((l) => lookup.product(l.productId)?.brand).join(' ')}`.toLowerCase().includes(f.values.q.toLowerCase()))));
+  function clearAll() { f.clear(); search = ''; }
   const STATUS: Record<ReexportOrder['status'], string> = { Open: 'none', Loaded: 'warn', 'In transit': 'warn', Delivered: 'good', Cancelled: 'none' };
   const cases = (o: ReexportOrder) => o.lines.reduce((a, l) => a + (l.loadedQty ?? l.qty), 0);
   const pname = (id: string) => `${lookup.product(id)?.brand ?? id} · ${lookup.product(id)?.pack ?? ''}`;
@@ -52,12 +73,12 @@
   async function cancel(o: ReexportOrder) { if (!confirm(`Cancel ${o.ref}?`)) return; const e = await attempt(() => reexports.cancel(o.id, 'Cancelled from the web')); say(e || `${o.ref} cancelled`); }
 </script>
 
-<div class="page-head">
-  <div><div class="overline crumb">Logistics</div><h1>Re-export orders</h1>
-    <p class="muted small">Goods re-exported from Asie's warehouse in Rwanda (Gisenyi) to Yonas in Juba: raised from stock, loaded at the warehouse (no prices), shipped as a new shipment with the order's reference and acknowledged in Juba. Follow-up: Testfie (to confirm).</p></div>
-  {#if raiser}<button class="btn btn-primary" onclick={newDraft} disabled={!stock.length}>New re-export order</button>{/if}
-</div>
+<PageHeader overline="Logistics" title="Re-export orders" description="Goods re-exported from Gisenyi (Rwanda) to Juba." analysis="warehouse"
+  info="Asie raises an order from her Gisenyi stock and loads it at the warehouse (no prices). It ships as a new shipment with the order's reference and Yonas signs for it in Juba. Truck follow-up: Testfie (to confirm).">
+  {#snippet primary()}{#if raiser}<button class="btn btn-primary" onclick={newDraft} disabled={!stock.length}><Plus size={16} aria-hidden="true" />New re-export order</button>{/if}{/snippet}
+</PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Re-export orders summary" />
 
 {#if draft}
   <section class="card form-card" aria-label="New re-export order">
@@ -100,12 +121,16 @@
   </section>
 {/if}
 
+<FilterBar bind:search placeholder="Order, note or product" active={f.values.show ? 1 : 0} onclear={clearAll}>
+  <label class="field"><span>Status</span><select class="select" value={f.values.show} onchange={(e) => f.set('show', e.currentTarget.value)}><option value="">All</option>{#each Object.entries(KEY) as [k, v]}<option value={k}>{v}</option>{/each}</select></label>
+  {#snippet end()}{#if orders}<span class="caption">{shown.length} of {orders.length} orders</span>{/if}{/snippet}
+</FilterBar>
 <div class="card flush table-wrap">
   <table class="table">
     <thead><tr><th>Order</th><th>Status</th><th>From → to</th><th>Company</th><th>Goods</th><th class="num">Cases</th><th>Truck</th><th>Raised</th><th></th></tr></thead>
     <tbody>
       {#if !orders}{#each Array(3) as _}<tr><td colspan="9"><div class="skeleton"></div></td></tr>{/each}{/if}
-      {#each orders ?? [] as o (o.id)}
+      {#each shown as o (o.id)}
         <tr>
           <td><strong>{o.ref}</strong>{#if o.note}<div class="caption">{o.note}</div>{/if}</td>
           <td><StatusBadge status={STATUS[o.status]} label={o.status} size={12} /></td>
@@ -121,7 +146,7 @@
           </td>
         </tr>
       {/each}
-      {#if orders && !orders.length}<tr><td colspan="9" class="muted">No re-export orders yet.</td></tr>{/if}
+      {#if orders && !shown.length}<tr><td colspan="9">{#if orders.length}<EmptyState title="No re-export orders match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState>{:else}<EmptyState title="No re-export orders yet" compact />{/if}</td></tr>{/if}
     </tbody>
   </table>
 </div>

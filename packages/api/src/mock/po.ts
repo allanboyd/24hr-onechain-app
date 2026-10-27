@@ -66,7 +66,7 @@ function snapshot(d: DB, po: PurchaseOrder, plan: Plan, basePoId: ID, revision: 
 export const snapshotOriginal = (d: DB, po: PurchaseOrder) => { const plan = d.plans.find((p) => p.id === po.planId)!; snapshot(d, po, plan, po.id, 0, 'original', [], null, plan.createdById, po.approvedAt); };
 function trucksToLoad(plan: Plan) {
   const lp = seed.suppliers.find((s) => s.id === plan.supplierId);
-  notify('New trucks to load', `${plan.ref} · ${new Set(plan.lines.map((l) => l.truckNo)).size} trucks at ${lp?.code} ${lp?.city}`, '#/loading', ['loader', 'operations', 'fleet'], plan.entityId);
+  notify('New trucks to load', `${plan.ref} · ${new Set(plan.lines.map((l) => l.truckNo)).size} trucks at ${lp?.code} ${lp?.city}`, '#/trucks?tab=queues', ['loader', 'operations', 'fleet'], plan.entityId);
 }
 /** One loading per truck: new trucks get one, pending ones the new quantities, trucks gone from the PO lose their pending loading. */
 export function syncLoadings(d: DB, po: PurchaseOrder, plan: Plan) {

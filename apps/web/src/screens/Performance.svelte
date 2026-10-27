@@ -9,6 +9,7 @@
   import { DashboardGrid, DashboardPanel, StackedBarH, StatusBadge, Waterfall } from '../components/dashboard';
   import { watch } from '../lib/load.svelte';
   import { companyLabel } from '../lib/companies';
+  import { PageHeader, readQuery, writeQuery } from '../components/page';
   let { user: _user }: { params?: any; user: User } = $props();
 
   const PERIODS = [['last-30', 'Last 30 days'], ['last-90', 'Last 90 days'], ['this-quarter', 'This quarter'], ['last-quarter', 'Last quarter'], ['ytd', 'Year to date'], ['last-12m', 'Last 12 months']] as const;
@@ -53,14 +54,22 @@
   const trucks = $derived(rep?.byTruck ?? []);
   const truckRows = () => [['Shipment', 'Truck', 'Warehouse', 'Company', 'Received', 'Good cases', 'Goods', 'Truck', 'Warehouse', 'Total', 'Per case'], ...trucks.map((t) => [t.ref, lookup.truck(t.truckId)?.reg ?? '', lookup.warehouse(t.warehouseId)?.name ?? '', companyLabel(t.entityId), t.at.slice(0, 10), t.good, t.goods, t.truck, t.warehouse, t.total, t.perUnit ?? ''])];
   const whs = ref().warehouses;
+  // docs/17 Phase 2 (F8): the long page is split into sections (in the address: ?tab=summary|products|trucks|pricing)
+  const SECTIONS = [['summary', 'Summary'], ['products', 'Products'], ['trucks', 'Trucks'], ['pricing', 'Pricing helper']] as const;
+  type Sec = (typeof SECTIONS)[number][0];
+  let sec = $state<Sec>((SECTIONS.find(([k]) => k === readQuery('tab'))?.[0] ?? 'summary') as Sec);
+  function go(k: Sec) { sec = k; writeQuery({ tab: k === 'summary' ? null : k }); }
   const fsRows = () => [['Product', 'Speed (cases/day)', 'Days of stock', 'Held'], ...(rep?.fast ?? []).map((x) => [`Fast: ${lookup.product(x.productId)?.brand}`, x.perDay, x.cover ?? '', x.held]), ...(rep?.slow ?? []).map((x) => [`Slow: ${lookup.product(x.productId)?.brand}`, x.perDay, x.cover ?? 'no sales', x.held])];
 </script>
 
-<div class="page-head">
-  <div><div class="overline crumb">Finance · directors</div><h1>Performance and margins</h1>
-    <p class="muted small">What it costs to put each product in the warehouse (goods + truck + a share of the warehouse expenses), what it sells for, and the profit — by product, warehouse, company or the whole business.</p></div>
-  <a class="btn btn-secondary" href="#/selling-prices">Selling prices</a>
-</div>
+<PageHeader overline="Finance" title="Performance and margins" description="Landed cost, selling price and profit by product, warehouse, company or the whole business."
+  info="Landed cost = goods + truck + a share of the warehouse expenses of the month the goods were received (landed cost v2). Profit = revenue − cost of units sold − warehouse costs of months with nothing received.">
+  {#snippet secondary()}<a class="btn btn-secondary" href="#/selling-prices">Selling prices</a>{/snippet}
+</PageHeader>
+
+<nav class="sections" aria-label="Sections">
+  {#each SECTIONS as [k, l] (k)}<a href="#/performance{k === 'summary' ? '' : `?tab=${k}`}" class:on={sec === k} aria-current={sec === k ? 'page' : undefined} onclick={(e) => { e.preventDefault(); go(k); }}>{l}</a>{/each}
+</nav>
 
 <div class="filters">
   <label class="field"><span>Period</span><select class="select" bind:value={period}>{#each PERIODS as [k, l]}<option value={k}>{l}</option>{/each}</select></label>
@@ -69,7 +78,7 @@
   <label class="field" style="min-width:120px"><span>Target margin %</span><input class="input num" type="number" min="0" max="90" step="1" bind:value={target} /></label>
 </div>
 
-{#if rep}
+{#if rep && sec === 'summary'}
   <div class="grid-kpi kpis">
     <div class="card kpi"><div class="overline">Revenue</div><div class="display">{usd(rep.totals.revenue)}</div><div class="caption">{fmtNum(rep.totals.qtySold)} cases sold</div></div>
     <div class="card kpi"><div class="overline">Cost of units sold</div><div class="display">{usd(rep.totals.cogs)}</div><div class="caption">landed cost of what was sold</div></div>
@@ -79,17 +88,22 @@
 {/if}
 
 <DashboardGrid cols={2}>
+  {#if sec === 'summary'}
   <DashboardPanel title="Profit bridge" subtitle="revenue → goods → truck → warehouse → other → profit" unit="USD" period={periodLabel} updatedAt={rep?.generatedAt} {filterText}
     definition="Revenue of the period less the landed cost of the units sold, split into goods, truck and warehouse parts; Other = warehouse expenses of months with no goods received (not in any landed cost)."
     loading={!rep && !w.error} error={w.error} onretry={w.retry} rows={() => [['Step', 'USD'], ...steps.map((s) => [s.label, s.value])]} filename="profit-bridge">
     <Waterfall label="Profit bridge, USD" steps={steps} format={usd} />
   </DashboardPanel>
+  {/if}
+  {#if sec === 'summary'}
   <DashboardPanel title="Landed cost per case" subtitle="goods + truck + warehouse share · top 10 by cases received" unit="USD per case" period={periodLabel} updatedAt={rep?.generatedAt} {filterText}
     definition={rep?.method ?? ''} loading={!rep && !w.error} error={w.error} onretry={w.retry} filename="landed-cost-per-case"
     rows={() => [['Name', 'Goods', 'Truck', 'Warehouse'], ...comp.cats.map((c, i) => [c, ...comp.parts.map((p) => Math.round(p.values[i] * 100) / 100)])]}>
     <StackedBarH label="Landed cost per case, USD" categories={comp.cats} parts={comp.parts} format={usd2} />
   </DashboardPanel>
+  {/if}
 
+  {#if sec === 'products'}
   <DashboardPanel span="full" title="Combined performance" subtitle="{LEVELS.find(([k]) => k === level)?.[1]} · in-cell bars: revenue and profit" unit="USD · cases" period={periodLabel} updatedAt={rep?.generatedAt} {filterText}
     definition={rep?.method ?? ''} loading={!rep && !w.error} error={w.error} onretry={w.retry} rows={tableRows} filename="combined-performance">
     <div class="table-wrap">
@@ -97,7 +111,7 @@
         <thead><tr><th>{LEVELS.find(([k]) => k === level)?.[1]}</th><th class="num">Received</th><th class="num">Goods</th><th class="num">Truck</th><th class="num">Warehouse</th><th class="num">Landed</th><th class="num">Per case</th><th class="num">Selling price</th><th class="num">Sold</th><th>Revenue</th><th class="num">Cost of sold</th><th>Profit</th><th class="num">Margin</th><th class="num">On hand</th><th class="num">Price for {target} %</th></tr></thead>
         <tbody>
           {#each rows as r (r.key)}
-            <tr class:picked={helper?.key === r.key} onclick={() => (pick = r.key)}>
+            <tr class:picked={helper?.key === r.key} class="clickable" onclick={() => { pick = r.key; go('pricing'); }}>
               <td><strong>{nameOf(r)}</strong>{#if r.estimated}<div class="caption">cost estimated (no receipts yet)</div>{/if}</td>
               <td class="num">{fmtNum(r.qtyReceived)}</td><td class="num">{fmtNum(r.goodsCost)}</td><td class="num">{fmtNum(r.truckCost)}</td><td class="num">{fmtNum(r.warehouseCost)}</td>
               <td class="num">{fmtNum(r.landedCost)}</td><td class="num">{r.landedPerUnit === null ? '—' : fmtNum(r.landedPerUnit, 2)}</td><td class="num">{r.sellingPrice === null ? '—' : fmtNum(r.sellingPrice, 2)}</td>
@@ -115,11 +129,13 @@
         {/if}
       </table>
     </div>
-    <p class="caption">Goods moved between our own warehouses (Gisenyi → Goma, re-exports to Juba) count once in company and business totals; their extra truck and warehouse costs stay. Click a row for the target-margin helper.</p>
+    <p class="caption">Goods moved between our own warehouses (Gisenyi → Goma, re-exports to Juba) count once in company and business totals; their extra truck and warehouse costs stay. Click a row to open it in the pricing helper.</p>
   </DashboardPanel>
+  {/if}
 
+  {#if sec === 'pricing'}
   <DashboardPanel title="Target-margin helper" subtitle="price needed = landed cost per case ÷ (1 − target margin)" unit="USD per case" period={periodLabel}
-    definition="Uses the landed cost per case of the row picked in the table (this period's receipts; else the cost of what was sold)." empty={!helper} emptyText="Pick a row in the table">
+    definition="Uses the landed cost per case of the row picked here or in the Products table (this period's receipts; else the cost of what was sold)." empty={!helper} emptyText="No rows for this period">
     {#if helper}
       {@const unit = unitOf(helper)}
       <div class="helper">
@@ -135,7 +151,9 @@
       </div>
     {/if}
   </DashboardPanel>
+  {/if}
 
+  {#if sec === 'products'}
   <DashboardPanel title="Fast and slow products" subtitle="cases sold per day · days of stock" unit="cases" period={periodLabel} updatedAt={rep?.generatedAt}
     definition="Speed = cases sold per day in the period. Days of stock = stock on hand ÷ speed (no sales = slowest)." loading={!rep && !w.error} rows={fsRows} filename="fast-slow">
     <div class="fs">
@@ -143,7 +161,9 @@
       <div><h3 class="small">Slowest</h3><ol>{#each rep?.slow ?? [] as x (x.productId)}<li><span class="grow">{lookup.product(x.productId)?.brand}</span><span class="num">{fmtNum(x.held)} held</span><StatusBadge status={x.cover === null || x.cover > 60 ? 'bad' : 'warn'} label={x.cover === null ? 'no sales' : `${x.cover} d`} size={12} /></li>{/each}</ol></div>
     </div>
   </DashboardPanel>
+  {/if}
 
+  {#if sec === 'trucks'}
   <DashboardPanel span="full" title="Landed cost per truck" subtitle="received in the period, newest first" unit="USD" period={periodLabel} updatedAt={rep?.generatedAt}
     definition="Each shipment's goods cost, its truck costs (all legs) and the warehouse share at the warehouse that received it, ÷ good cases received." loading={!rep && !w.error} rows={truckRows} filename="landed-cost-per-truck">
     <div class="table-wrap" style="max-height:420px">
@@ -153,9 +173,14 @@
       </table>
     </div>
   </DashboardPanel>
+  {/if}
 </DashboardGrid>
 
 <style>
+  .sections { display: flex; flex-wrap: wrap; gap: 0 var(--space-1); border-bottom: 1px solid var(--border); margin: 0 0 var(--space-4); }
+  .sections a { padding: var(--space-2) var(--space-3); color: var(--text-muted); text-decoration: none; border-bottom: 3px solid transparent; font-weight: 600; font-size: 14px; white-space: nowrap; }
+  .sections a.on { color: var(--text); border-bottom-color: var(--nav-indicator, var(--primary)); }
+  @media (max-width: 600px) { .sections { flex-wrap: nowrap; overflow-x: auto; } }
   .kpis { margin-bottom: var(--space-4); display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-3); }
   .perf td:first-child { min-width: 200px; }
   .perf tbody tr { cursor: pointer; }

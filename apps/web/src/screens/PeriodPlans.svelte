@@ -1,97 +1,60 @@
 <script lang="ts">
-  // Period plans (§8.3 PL-06..PL-12): what each company plans to buy over a month / quarter / half year / year.
-  import { lookup, type User } from '@btw/api';
-  import { Badge, fmtMoney, fmtNum, router } from '@btw/ui';
-  import Plus from '@lucide/svelte/icons/plus';
-  import { untrack } from 'svelte';
-  import RecordFor from '../components/RecordFor.svelte';
+  // Period plans (§8.3 PL-06..PL-12; docs/17 Phase 1): what each company plans to buy over a month / quarter / half year /
+  // year. Work page: opens on the plan list with a strip (registry: in force · upcoming · plan used vs expected). The
+  // planned-vs-actual charts live on Home · Purchasing; "Plan or check a period" (from the retired Reports page) is a
+  // secondary action. No needs-action default: the list is short and plans are suggestions (nothing waits for approval).
+  import { type User } from '@btw/api';
+  import { Badge, fmtNum, router } from '@btw/ui';
+  import SearchX from '@lucide/svelte/icons/search-x';
+  import CalendarSearch from '@lucide/svelte/icons/calendar-search';
   import ErrorState from '../components/ErrorState.svelte';
-  import PageTabs from '../components/PageTabs.svelte';
   import CompanyCell from '../components/CompanyCell.svelte';
-  import CompanyMark from '../components/CompanyMark.svelte';
-  import { companyLabel } from '../lib/companies';
-  import { BarChart, ChartCard, StatTile, usd } from '../components/charts';
   import { watch } from '../lib/load.svelte';
-  import { currentTab, qp, drill } from '../lib/tab';
-  import { isGroup } from '../lib/company.svelte';
-  import { canEditPeriodPlans, KIND_LABEL, monthsOf, onPlanningChange, periodLabel, periodPlans, planTotals, type PeriodPlan } from '../lib/planning';
+  import { PageHeader, SummaryStrip, FilterBar, ActionInCompany, EmptyState, queryFilters, type SummaryTile } from '../components/page';
+  import { planTiles, infoOf } from '../lib/tiles';
+  import { canEditPeriodPlans, KIND_LABEL, onPlanningChange, periodFor, periodLabel, periodPlans, plannedVsActual, planTotals, type PeriodPlan, type PlannedVsActual } from '../lib/planning';
   let { user }: { user: User } = $props();
-  const tab = currentTab();
-  const B = '/period-plans';
   let list = $state<PeriodPlan[] | null>(null);
   // Plans are suggestions (no approval): Active, or Replaced by a newer plan (kept for history, hidden by default).
-  let showReplaced = $state(untrack(() => qp('status') === 'Replaced'));
-  let status = $state(untrack(() => qp('status') === 'Replaced' ? 'Replaced' : ''));
-  let q = $state('');
-  const w = watch(async () => { list = await periodPlans.list({ all: showReplaced }); }, () => showReplaced);
-  $effect(() => onPlanningChange(() => w.retry()));
-  const STATUSES = ['Active', 'Replaced'] as const;
-  const count = (s: string) => (list ?? []).filter((p) => !s || p.status === s).length;
-  const rows = $derived((list ?? []).filter((p) => (!status || p.status === status) && (!q || `${p.ref} ${p.title}`.toLowerCase().includes(q.toLowerCase()))));
+  const f = queryFilters({ show: '', status: '', q: '' });
+  let search = $state(f.values.q);
+  $effect(() => { if (search !== f.values.q) f.set('q', search); });
+  const showReplaced = $derived(f.values.status === 'Replaced' || f.values.status === 'all');
+  let pv = $state<PlannedVsActual | null>(null);
   const today = new Date().toISOString().slice(0, 10);
-  const active = $derived((list ?? []).filter((p) => p.status === 'Active'));
-  const inForce = $derived(active.filter((p) => p.from <= today && p.to >= today));
-  const upcoming = $derived(active.filter((p) => p.from > today));
-  // Planned value per month (active plans), spread by the monthly split or evenly.
-  const byMonth = $derived.by(() => {
-    const m = new Map<string, number>();
-    for (const p of active) {
-      const ms = monthsOf(p.from, p.to);
-      for (const l of p.lines) for (const k of ms) m.set(k, (m.get(k) ?? 0) + (l.months?.[k] ?? l.cases / ms.length) * l.price);
-    }
-    return [...m.entries()].sort().slice(-12).map(([k, v]) => ({ k, v: Math.round(v) }));
-  });
-  const bySupplier = $derived.by(() => {
-    const m = new Map<string, number>();
-    for (const p of inForce) for (const l of p.lines) { const s = lookup.supplier(l.supplierId); const k = s ? `${s.code} ${s.city}` : l.supplierId; m.set(k, (m.get(k) ?? 0) + l.cases); }
-    return [...m.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
-  });
+  const w = watch(async () => {
+    [list, pv] = await Promise.all([periodPlans.list({ all: showReplaced }), plannedVsActual(periodFor('quarter', today)).catch(() => null)]);
+  }, () => showReplaced);
+  $effect(() => onPlanningChange(() => w.retry()));
+  // docs/18: strip figures from the registry (plans in force / upcoming; this quarter's plan used vs expected by today)
+  const fig = $derived(planTiles(list ?? [], pv?.measures ?? null));
+  const pctS = (n: number) => `${Math.round(n * 100)} %`;
+  const tiles = $derived<SummaryTile[]>([
+    { key: 'inforce', label: 'In force today', value: list ? fig.inForce : null, info: infoOf('plansInForce') },
+    { key: 'upcoming', label: 'Upcoming', value: list ? fig.upcoming : null, sub: 'plans starting later', info: infoOf('plansUpcoming') },
+    { key: 'used', label: 'Plan used this quarter', value: fig.used, format: pctS, filter: false, sub: fig.expected !== null ? `${pctS(fig.expected)} expected by today` : undefined,
+      status: fig.used === null || fig.expected === null || !pv ? undefined : fig.used < fig.expected * pv.thresholds.behind ? 'warn' : fig.used > pv.thresholds.over ? 'bad' : 'good',
+      statusLabel: fig.used === null || fig.expected === null || !pv ? undefined : fig.used < fig.expected * pv.thresholds.behind ? 'Behind' : fig.used > pv.thresholds.over ? 'Over plan' : 'On track', info: infoOf('planUsed') },
+  ]);
+  const SHOW: Record<string, (p: PeriodPlan) => boolean> = { inforce: (p) => p.status === 'Active' && p.from <= today && p.to >= today, upcoming: (p) => p.status === 'Active' && p.from > today };
+  const rows = $derived((list ?? []).filter((p) => (!f.values.show || SHOW[f.values.show]?.(p) !== false) && (!f.values.status || f.values.status === 'all' || p.status === f.values.status)
+    && (!f.values.q || `${p.ref} ${p.title}`.toLowerCase().includes(f.values.q.toLowerCase()))));
   const canCreate = $derived(canEditPeriodPlans(user));
+  const active = $derived((f.values.show ? 1 : 0) + (f.values.status ? 1 : 0));
+  function clearAll() { f.clear(); search = ''; }
 </script>
 
-<div class="page-head">
-  <div><div class="overline crumb">Procurement</div><h1>Period plans</h1><p class="muted small">What each company plans to buy over a month, quarter, half year or year. Plans are suggestions: saved directly, never overlapping, and shown on purchase orders for information.</p></div>
-  {#if canCreate}<RecordFor what="a period plan"><a class="btn btn-primary" href="#/period-plans/new"><Plus size={16} />New period plan</a></RecordFor>{/if}
-</div>
+<PageHeader overline="Procurement" title="Period plans" description="What each company plans to buy over a month, quarter, half year or year." analysis="purchasing"
+  info="Plans are suggestions: saved directly (no approval), never overlapping for one company, and shown on purchase orders for information. Plan used = cases ordered this quarter ÷ cases planned; the expected share assumes orders spread evenly over the period.">
+  {#snippet secondary()}<a class="btn btn-secondary" href="#/period-plans/check"><CalendarSearch size={16} aria-hidden="true" />Plan or check a period</a>{/snippet}
+  {#snippet primary()}<ActionInCompany label="New period plan" what="period plan" href="#/period-plans/new" when={canCreate} />{/snippet}
+</PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
-<PageTabs base={B} current={tab} listLabel="Plan list" />
-
-{#if tab === 'overview'}
-  {#if !list}<div class="tiles">{#each Array(4) as _}<div class="card"><div class="skeleton" style="height:56px"></div></div>{/each}</div>
-  {:else}
-    <div class="tiles">
-      <StatTile label="Plans in force today" value={String(inForce.length)} hint={usd(inForce.reduce((a, p) => a + planTotals(p).value, 0))} onclick={() => drill(B, {})} />
-      <StatTile label="Upcoming periods" value={String(upcoming.length)} hint="plans starting later" onclick={() => drill(B, {})} />
-      <StatTile label="Cases planned in force" value={fmtNum(inForce.reduce((a, p) => a + planTotals(p).cases, 0))} hint="active plans covering today" />
-    </div>
-    <div class="charts-grid">
-      <ChartCard title="Planned purchases by month" subtitle="active plans, USD" rows={() => [['Month', 'Planned (USD)'], ...byMonth.map((x) => [x.k, x.v])]}>
-        {#if byMonth.length}<BarChart label="Planned purchases by month" categories={byMonth.map((x) => x.k)} series={[{ name: 'Planned', values: byMonth.map((x) => x.v) }]} format={usd} />
-        {:else}<p class="empty small">No period plans yet.</p>{/if}
-      </ChartCard>
-      <ChartCard title="Cases planned by supplier" subtitle="plans in force today" rows={() => [['Supplier', 'Cases'], ...bySupplier.map((x) => [x.label, x.value])]}>
-        {#if bySupplier.length}<BarChart label="Cases planned by supplier" horizontal categories={bySupplier.map((x) => x.label)} series={[{ name: 'Cases', values: bySupplier.map((x) => x.value) }]} />
-        {:else}<p class="empty small">No plan covers today.</p>{/if}
-      </ChartCard>
-    </div>
-    <section class="card flush" style="margin-top:var(--space-4)">
-      <header><h3>In force today</h3><a class="small" href="#/reports?r=pv">Planned vs actual →</a></header>
-      <ul class="rows">
-        {#each inForce as p (p.id)}
-          <li><a href="#/period-plans/{p.id}" class="grow"><strong class="mono">{p.ref}</strong> · {p.title}</a>{#if isGroup()}<span class="small row" style="gap:6px"><CompanyMark entityId={p.entityId} size={18} />{companyLabel(p.entityId)}</span>{/if}<span class="small">{periodLabel(p)}</span><span class="num small">{fmtMoney(planTotals(p).value, 'USD')}</span></li>
-        {:else}<li class="empty small">No plan covers today. {#if canCreate}Create one to compare purchase orders with it.{/if}</li>{/each}
-      </ul>
-    </section>
-  {/if}
-{:else}
-  {#if showReplaced}
-    <div class="tabs" role="tablist" aria-label="Plan status">
-      <button role="tab" aria-selected={status === ''} onclick={() => (status = '')}>All <span class="caption">{count('')}</span></button>
-      {#each STATUSES as s}<button role="tab" aria-selected={status === s} onclick={() => (status = s)}>{s} <span class="caption">{count(s)}</span></button>{/each}
-    </div>
-  {/if}
-  <div class="filters"><label class="field"><span>Search</span><input class="input" type="search" bind:value={q} placeholder="Reference or title" /></label>
-    <label class="row small toggle"><input type="checkbox" bind:checked={showReplaced} onchange={() => { if (!showReplaced) status = ''; }} />Show replaced plans</label></div>
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Period plans summary" />
+<FilterBar bind:search placeholder="Reference or title" {active} onclear={clearAll}>
+  <label class="field"><span>Status</span><select class="select" value={f.values.status} onchange={(e) => f.set('status', e.currentTarget.value)}><option value="">Active</option><option value="Replaced">Replaced</option><option value="all">Active and replaced</option></select></label>
+  {#snippet end()}{#if list}<span class="caption">{rows.length} plans</span>{/if}{/snippet}
+</FilterBar>
   <div class="card flush table-wrap">
     <table class="table">
       <thead><tr><th>Reference</th><th>Title</th><CompanyCell head /><th>Period</th><th>Kind</th><th class="num">Lines</th><th class="num">Cases</th><th class="num">Value (USD)</th><th>Status</th></tr></thead>
@@ -109,15 +72,8 @@
             <td class="num">{fmtNum(planTotals(p).value, 2)}</td>
             <td><Badge tone={p.status === 'Active' ? 'success' : 'neutral'}>{p.status}</Badge>{#if p.version > 1}<span class="caption"> v{p.version}</span>{/if}</td>
           </tr>
-        {:else}{#if list}<tr><td colspan="9" class="empty">No period plans match. {#if status || q}<button class="btn btn-ghost btn-sm" onclick={() => { status = ''; q = ''; }}>Clear filters</button>{/if}</td></tr>{/if}{/each}
+        {:else}{#if list}<tr><td colspan="9">{#if active || f.values.q}<EmptyState title="No period plans match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState>{:else}<EmptyState title="No period plans yet" hint={canCreate ? 'Create one to compare purchase orders with it.' : undefined} compact />{/if}</td></tr>{/if}{/each}
       </tbody>
     </table>
   </div>
-{/if}
 
-<style>
-  .rows { list-style: none; margin: 0; padding: 0; }
-  .rows li { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-  .rows li:last-child { border-bottom: 0; }
-  .toggle { gap: var(--space-2); align-self: flex-end; padding-bottom: var(--space-2); }
-</style>

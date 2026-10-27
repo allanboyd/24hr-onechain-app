@@ -17,8 +17,8 @@
   <div class="tiles">
     <StatTile label="Landing cost per case" value={perCase(r.totals.perCase)} upIsGood={false} hint="{r.totals.trips} trucks loaded · goods + all trip costs" trend={r.trend.map((x) => x.perCase ?? 0)} />
     <StatTile label="Landing cost (total)" value={usd(r.totals.landing)} hint="goods {usd(r.totals.goods)} + costs {usd(r.totals.expenses)}" />
-    <StatTile label="Owed to transporters" value={usd(r.payments.dueAmount)} upIsGood={false} hint="{r.payments.dueTrips} trips · {r.payments.overdueTrips} over 30 days ({usd(r.payments.overdueAmount)})" onclick={() => drill('/finance', {})} />
-    <StatTile label="Payments awaiting approval" value={String(r.payments.pendingCount)} hint={r.payments.pendingCount ? usd(r.payments.pendingApproval) : 'nothing waiting'} onclick={() => drill('/finance', {})} />
+    <StatTile label="Owed to transporters" value={usd(r.payments.dueAmount)} upIsGood={false} hint="{r.payments.dueTrips} trips · {r.payments.overdueTrips} over 30 days ({usd(r.payments.overdueAmount)})" onclick={() => drill('/transport-costs', { tab: 'trips' })} />
+    <StatTile label="Payments awaiting approval" value={String(r.payments.pendingCount)} hint={r.payments.pendingCount ? usd(r.payments.pendingApproval) : 'nothing waiting'} onclick={() => drill('/transport-costs', { tab: 'trips' })} />
     <StatTile label="Agreed price not recorded" value={String(r.totals.agreedMissing ?? 0)} upIsGood={false} hint={(r.totals.agreedMissing ?? 0) ? 'trucks loaded without an agreed transport price — counted, not as zero' : 'every truck has its agreed price'} onclick={() => drill('/trucks', {})} />
   </div>
   <div class="charts-grid">
@@ -35,10 +35,10 @@
       <Donut label="Trip costs by kind" data={r.costMix.map((c) => ({ label: c.kind, value: c.amount }))} format={usd} center={usd(r.totals.expenses)} />
     </ChartCard>
     <ChartCard title="Gross margin by brand" subtitle="sales − cases sold × landing cost per case" filename="margin-by-brand" rows={() => [['Brand', 'Pack', 'Revenue (USD)', 'Cost of goods (USD)', 'Margin (USD)', 'Margin %'], ...r!.byBrand.map((b) => [b.brand, b.pack, b.revenue, b.cogs, b.margin, pct(b.marginPct, 1)])]}>
-      <BarChart label="Gross margin by brand" horizontal categories={r.byBrand.map((b) => b.brand)} series={[{ name: 'Margin', values: r.byBrand.map((b) => b.margin), slot: 3 }]} format={usd} onselect={(c) => drill('/analytics', { brand: r!.byBrand.find((b) => b.brand === c)?.productId })} />
+      <BarChart label="Gross margin by brand" horizontal categories={r.byBrand.map((b) => b.brand)} series={[{ name: 'Margin', values: r.byBrand.map((b) => b.margin), slot: 3 }]} format={usd} onselect={(c) => drill('/performance', { tab: 'products' })} />
     </ChartCard>
     <ChartCard title="Transport by provider" subtitle="agreed vs paid, in this period" filename="transport-by-provider" rows={() => [['Provider', 'Trucks', 'Agreed (USD)', 'Paid (USD)', 'Balance (USD)', 'Agreed price not recorded (trucks)'], ...r!.byProvider.map((p) => [p.name, p.trips, p.agreed, p.paid, p.balance, p.agreedMissing ?? 0])]}>
-      <BarChart label="Transport agreed and paid by provider" horizontal categories={r.byProvider.map((p) => p.name)} series={[{ name: 'Paid', values: r.byProvider.map((p) => p.paid) }, { name: 'Still owed', values: r.byProvider.map((p) => p.balance), slot: 1 }]} stacked format={usd} onselect={() => drill('/finance', {})} />
+      <BarChart label="Transport agreed and paid by provider" horizontal categories={r.byProvider.map((p) => p.name)} series={[{ name: 'Paid', values: r.byProvider.map((p) => p.paid) }, { name: 'Still owed', values: r.byProvider.map((p) => p.balance), slot: 1 }]} stacked format={usd} onselect={() => drill('/transport-costs', { tab: 'trips' })} />
     </ChartCard>
   </div>
 {/if}

@@ -176,7 +176,7 @@ function nextBucket(key: string, g: GroupBy) {
 }
 
 export { landedCostMap } from './landed';
-import { casesOnHand, deliveredAt, onTimeOf, openSales, owedByCustomers, salesPace, stockRisk, stockValue as stockValueOf } from './metrics';
+import { casesOnHand, deliveredAt, onTimeOf, openSales, overdueByCustomers, owedByCustomers, salesPace, stockRisk, stockValue as stockValueOf } from './metrics';
 import { landedCostMap } from './landed';
 
 const finalAck = (sh: Shipment, acks: Acknowledgement[]) => { const last = sh.legs.at(-1); return last?.ackId ? acks.find((a) => a.id === last.ackId) : undefined; };
@@ -224,7 +224,7 @@ export interface SalesReport {
   byWarehouse: { warehouseId: ID; name: string; revenue: number; cases: number; share: number; change: number | null }[];
   byKind: { kind: Sale['kind']; revenue: number; orders: number }[];
   topCustomers: { customer: string; revenue: number; cases: number; outstanding: number; orders: number }[];
-  receivables: { buckets: { label: string; amount: number; count: number }[]; total: number };
+  receivables: { buckets: { label: string; amount: number; count: number }[]; total: number; /** the part older than the payment terms (metrics.overdueByCustomers) */ overdue: number };
   avgDailyCases: number;
 }
 export function salesReport(dt: ReportData, f: ReportFilter & { groupBy?: GroupBy } = {}): SalesReport {
@@ -272,7 +272,7 @@ export function salesReport(dt: ReportData, f: ReportFilter & { groupBy?: GroupB
     range: { from: new Date(from).toISOString(), to: new Date(to).toISOString() }, groupBy: g, totals: T, prev: P, lastYear: L, series, byBrand, byWarehouse,
     byKind: [...kinds].map(([kind, v]) => ({ kind, revenue: r2(v.revenue), orders: v.orders })).sort((a, b) => b.revenue - a.revenue),
     topCustomers: [...custs].map(([customer, v]) => ({ customer, revenue: r2(v.revenue), cases: v.cases, outstanding: r2(v.outstanding), orders: v.orders })).sort((a, b) => b.revenue - a.revenue).slice(0, 10),
-    receivables: { buckets, total: owedByCustomers(recSales, asOf) },
+    receivables: { buckets, total: owedByCustomers(recSales, asOf), overdue: overdueByCustomers(recSales, asOf) },
     avgDailyCases: r1(T.cases / Math.max(1, (Math.min(to, dt.now) - from) / DAY)),
   };
 }
@@ -826,7 +826,7 @@ export function captureCheck(dt: ReportData, f: ReportFilter = {}): CaptureCheck
     if (ld.status !== 'Loaded' || !inR(t(ld.loadedAt))) continue;
     count('Loading'); count('Quantities');
     const po = dt.pos.find((p) => p.id === ld.poId); const sh = dt.shipments.find((s) => s.poId === ld.poId && s.truckNo === ld.truckNo);
-    const link = sh ? `#/shipments/${sh.id}` : '#/loading';
+    const link = sh ? `#/shipments/${sh.id}` : '#/trucks?tab=queues';
     if (!ld.documents?.length) add({ area: 'Loading', kind: 'No loading documents', severity: 'medium', text: `${po?.ref ?? ''} truck ${ld.truckNo} (${reg(ld.truckId)}) loaded with no delivery note, invoice or gate-pass photo.`, at: ld.loadedAt!, link, ref: po?.ref });
     // docs/12 A-04: the agreed price is recorded after loading (Truck desk) — flag it while it is still missing
     const agreed = Number(ld.agreedTransport) > 0 || (!!sh && dt.costs.some((c) => c.shipmentId === sh.id && c.kind === 'Transport'));
@@ -844,19 +844,19 @@ export function captureCheck(dt: ReportData, f: ReportFilter = {}): CaptureCheck
   for (const tr of tripsOf(dt)) {
     if (!inR(tr.loadedAt) || !whOk(tr.s.warehouseId)) continue;
     count('Transport payments');
-    if (tr.transport - tr.paid > 1 && dt.now - tr.loadedAt > 45 * DAY) add({ area: 'Transport payments', kind: 'Transport unpaid > 45 days', severity: 'medium', text: `${tr.s.ref}: USD ${Math.round(tr.transport - tr.paid)} of agreed transport still unpaid ${Math.round((dt.now - tr.loadedAt) / DAY)} days after loading.`, at: iso(tr.loadedAt), link: '#/finance', ref: tr.s.ref });
+    if (tr.transport - tr.paid > 1 && dt.now - tr.loadedAt > 45 * DAY) add({ area: 'Transport payments', kind: 'Transport unpaid > 45 days', severity: 'medium', text: `${tr.s.ref}: USD ${Math.round(tr.transport - tr.paid)} of agreed transport still unpaid ${Math.round((dt.now - tr.loadedAt) / DAY)} days after loading.`, at: iso(tr.loadedAt), link: '#/transport-costs?tab=trips', ref: tr.s.ref });
   }
   for (const p of dt.payments) {
     if (!inR(t(p.at))) continue;
-    if (!p.reference?.trim()) { const sh = dt.shipments.find((s) => s.id === p.shipmentId); add({ area: 'Transport payments', kind: 'Payment without reference', severity: 'medium', text: `USD ${p.amount} paid on ${fmt(t(p.at))} for ${sh?.ref ?? p.shipmentId} has no M-Pesa or bank reference.`, at: p.at, link: '#/finance', ref: sh?.ref }); }
+    if (!p.reference?.trim()) { const sh = dt.shipments.find((s) => s.id === p.shipmentId); add({ area: 'Transport payments', kind: 'Payment without reference', severity: 'medium', text: `USD ${p.amount} paid on ${fmt(t(p.at))} for ${sh?.ref ?? p.shipmentId} has no M-Pesa or bank reference.`, at: p.at, link: '#/transport-costs?tab=trips', ref: sh?.ref }); }
   }
   // Sales: missing customer, inconsistent payment status, silent days
   const salesR = dt.sales.filter((s) => inR(t(s.at)) && whOk(s.warehouseId));
   count('Sales', salesR.length);
   for (const s of salesR) {
-    if (!s.customer?.trim()) add({ area: 'Sales', kind: 'Sale without customer', severity: 'low', text: `${s.ref} (${fmt(t(s.at))}) has no customer recorded.`, at: s.at, link: '#/sales?tab=list', ref: s.ref });
+    if (!s.customer?.trim()) add({ area: 'Sales', kind: 'Sale without customer', severity: 'low', text: `${s.ref} (${fmt(t(s.at))}) has no customer recorded.`, at: s.at, link: '#/sales', ref: s.ref });
     const tot = saleTotal(s); const should = s.paid >= tot - 0.01 ? 'Paid' : s.paid > 0 ? 'Part-paid' : 'Unpaid';
-    if (should !== s.status) add({ area: 'Sales', kind: 'Payment status inconsistent', severity: 'medium', text: `${s.ref}: marked ${s.status} but USD ${r2(s.paid)} of ${r2(tot)} recorded as paid.`, at: s.at, link: '#/sales?tab=list', ref: s.ref });
+    if (should !== s.status) add({ area: 'Sales', kind: 'Payment status inconsistent', severity: 'medium', text: `${s.ref}: marked ${s.status} but USD ${r2(s.paid)} of ${r2(tot)} recorded as paid.`, at: s.at, link: '#/sales', ref: s.ref });
   }
   for (const w of dt.warehouses.filter((x) => whOk(x.id))) {
     const days = new Set(dt.sales.filter((s) => s.warehouseId === w.id).map((s) => ymd(t(s.at))));
@@ -864,7 +864,7 @@ export function captureCheck(dt: ReportData, f: ReportFilter = {}): CaptureCheck
     if (usual < 0.5) continue;
     for (let d = dayStart(from); d < dayStart(to); d += DAY) {
       if (days.has(ymd(d))) continue;
-      add({ area: 'Sales', kind: 'No sales recorded on a trading day', severity: 'medium', text: `${w.name} recorded no sales on ${new Date(d).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'UTC' })} (usually ${Math.round(usual)} a day) — possible missed capture.`, at: iso(d), link: '#/sales?tab=list', ref: w.name });
+      add({ area: 'Sales', kind: 'No sales recorded on a trading day', severity: 'medium', text: `${w.name} recorded no sales on ${new Date(d).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'UTC' })} (usually ${Math.round(usual)} a day) — possible missed capture.`, at: iso(d), link: '#/sales', ref: w.name });
     }
   }
   // Stock ledger: rows without reference; balances that went negative
@@ -878,8 +878,8 @@ export function captureCheck(dt: ReportData, f: ReportFilter = {}): CaptureCheck
       if (!inR(t(m.at))) continue;
       count('Stock ledger');
       const [wh, pid] = k.split('|');
-      if (!m.ref?.trim()) add({ area: 'Stock ledger', kind: 'Ledger entry without reference', severity: 'medium', text: `${m.kind} of ${m.qty} cases of ${dt.products.find((p) => p.id === pid)?.brand ?? pid} at ${dt.warehouses.find((w) => w.id === wh)?.name ?? wh} on ${fmt(t(m.at))} has no document reference.`, at: m.at, link: '#/inventory?tab=list' });
-      if (run < 0 && !flagged) { flagged = true; add({ area: 'Stock ledger', kind: 'Stock went negative', severity: 'high', text: `${dt.products.find((p) => p.id === pid)?.brand ?? pid} at ${dt.warehouses.find((w) => w.id === wh)?.name ?? wh} fell to ${run} cases on ${fmt(t(m.at))} — a receipt was probably not captured.`, at: m.at, link: '#/inventory?tab=list' }); }
+      if (!m.ref?.trim()) add({ area: 'Stock ledger', kind: 'Ledger entry without reference', severity: 'medium', text: `${m.kind} of ${m.qty} cases of ${dt.products.find((p) => p.id === pid)?.brand ?? pid} at ${dt.warehouses.find((w) => w.id === wh)?.name ?? wh} on ${fmt(t(m.at))} has no document reference.`, at: m.at, link: '#/stock' });
+      if (run < 0 && !flagged) { flagged = true; add({ area: 'Stock ledger', kind: 'Stock went negative', severity: 'high', text: `${dt.products.find((p) => p.id === pid)?.brand ?? pid} at ${dt.warehouses.find((w) => w.id === wh)?.name ?? wh} fell to ${run} cases on ${fmt(t(m.at))} — a receipt was probably not captured.`, at: m.at, link: '#/stock' }); }
     }
   }
   const areasAll: CaptureArea[] = ['Tracking', 'Receiving', 'Loading', 'Purchase orders', 'Transport payments', 'Sales', 'Stock ledger', 'Quantities'];

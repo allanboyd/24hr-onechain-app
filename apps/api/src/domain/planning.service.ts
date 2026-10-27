@@ -310,7 +310,7 @@ export class PlanningService implements OnModuleInit {
   }
   private async trucksToLoad(tx: Tx, plan: Plan) {
     const lp = (await this.ref.get()).bundle.suppliers.find((s) => s.id === plan.supplierId);
-    await this.notify.notify(tx, 'New trucks to load', `${plan.ref} · ${new Set(plan.lines.map((l) => l.truckNo)).size} trucks at ${lp?.code} ${lp?.city}`, '#/loading', ['loader', 'operations', 'fleet'], { entityId: plan.entityId });
+    await this.notify.notify(tx, 'New trucks to load', `${plan.ref} · ${new Set(plan.lines.map((l) => l.truckNo)).size} trucks at ${lp?.code} ${lp?.city}`, '#/trucks?tab=queues', ['loader', 'operations', 'fleet'], { entityId: plan.entityId });
   }
   /** One loading per truck number: new trucks get a loading, pending ones the new quantities, trucks no longer on the PO
    *  lose their pending loading. Loaded trucks are never touched. */

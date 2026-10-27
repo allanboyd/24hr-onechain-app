@@ -19,7 +19,7 @@
     <StatTile label="Sales revenue" value={usd(r.totals.revenue)} delta={change(r.totals.revenue, r.prev.revenue)} deltaLabel="vs previous period" trend={r.series.map((s) => s.revenue)} hint={r.lastYear.revenue ? `last year ${usd(r.lastYear.revenue)} (${pct(change(r.totals.revenue, r.lastYear.revenue) ?? 0)})` : undefined} />
     <StatTile label="Cases sold" value={compact(r.totals.cases)} delta={change(r.totals.cases, r.prev.cases)} trend={r.series.map((s) => s.cases)} hint="{compact(r.avgDailyCases)} a day on average" />
     <StatTile label="Average price per case" value={usd(r.totals.avgPrice)} delta={change(r.totals.avgPrice, r.prev.revenue && r.prev.cases ? r.prev.revenue / r.prev.cases : null)} />
-    <StatTile label="Unpaid from these sales" value={usd(r.totals.outstanding)} upIsGood={false} delta={change(r.totals.outstanding, r.prev.outstanding)} hint="{r.totals.orders.toLocaleString()} sales" onclick={() => drill('/sales', { status: 'Unpaid' })} />
+    <StatTile label="Unpaid from these sales" value={usd(r.totals.outstanding)} upIsGood={false} delta={change(r.totals.outstanding, r.prev.outstanding)} hint="{r.totals.orders.toLocaleString()} sales" onclick={() => drill('/sales', { show: 'owed' })} />
   </div>
 
   <div class="charts-grid">
@@ -40,7 +40,7 @@
       <Donut label="Sales by type" data={r.byKind.map((k) => ({ label: k.kind, value: k.revenue }))} format={usd} center={usd(r.totals.revenue)} onselect={(l) => drill('/sales', { kind: l })} />
     </ChartCard>
     <ChartCard title="Receivables ageing" subtitle="unpaid customer balances at the end of the period" filename="receivables-ageing" rows={() => [['Age', 'Amount (USD)', 'Sales'], ...r!.receivables.buckets.map((b) => [b.label, b.amount, b.count])]}>
-      <BarChart label="Receivables by age" categories={r.receivables.buckets.map((b) => b.label)} series={[{ name: 'Unpaid', values: r.receivables.buckets.map((b) => b.amount), slot: 2 }]} format={usd} onselect={() => drill('/sales', { status: 'Unpaid' })} />
+      <BarChart label="Receivables by age" categories={r.receivables.buckets.map((b) => b.label)} series={[{ name: 'Unpaid', values: r.receivables.buckets.map((b) => b.amount), slot: 2 }]} format={usd} onselect={() => drill('/sales', { show: 'owed' })} />
     </ChartCard>
     <ChartCard span={2} title="Top customers" subtitle="click a customer to see their sales" filename="top-customers" rows={() => [['Customer', 'Revenue (USD)', 'Cases', 'Sales', 'Outstanding (USD)'], ...r!.topCustomers.map((c) => [c.customer, c.revenue, c.cases, c.orders, c.outstanding])]}>
       <div class="table-wrap"><table class="table">

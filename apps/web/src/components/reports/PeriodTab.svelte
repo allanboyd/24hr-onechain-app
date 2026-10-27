@@ -10,7 +10,7 @@
   import { openPrefilledPos } from './draft';
   import { day, dayLong, pct } from './fmt';
   import { untrack } from 'svelte';
-  let { mode = $bindable('plan'), wh = '' }: { mode?: 'plan' | 'check'; wh?: string } = $props();
+  let { mode = $bindable('plan'), wh = '', canCheck = true }: { mode?: 'plan' | 'check'; wh?: string; /** the capture check needs the Reports feature */ canCheck?: boolean } = $props();
   let planPreset = $state<PeriodPreset | 'custom'>('next-60'), planFrom = $state(''), planTo = $state(''), planWh = $state(untrack(() => wh)), planProd = $state('');
   let chkPreset = $state<PeriodPreset | 'custom'>('last-quarter'), chkFrom = $state(''), chkTo = $state(''), chkWh = $state(untrack(() => wh));
   let plan = $state<PeriodForecast | null>(null);
@@ -37,7 +37,7 @@
 
 <div class="modes" role="tablist" aria-label="Period mode">
   <button role="tab" aria-selected={mode === 'plan'} onclick={() => (mode = 'plan')}><b>Plan a period</b><span>What will we need, and is it already planned?</span></button>
-  <button role="tab" aria-selected={mode === 'check'} onclick={() => (mode = 'check')}><b>Check a period</b><span>Was everything captured properly?</span></button>
+  {#if canCheck}<button role="tab" aria-selected={mode === 'check'} onclick={() => (mode = 'check')}><b>Check a period</b><span>Was everything captured properly?</span></button>{/if}
 </div>
 
 {#if mode === 'plan'}

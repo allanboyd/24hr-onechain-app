@@ -4,7 +4,7 @@
 // has for the person's scope; the functions below never re-scope, so the same scope and period give the same number.
 // Pure, no I/O; `now` is always a parameter. Lazy-loaded with the pages that use it (not in the apps' entry chunks).
 import { DAY, H, etaOf, overdue } from './rules';
-import type { EtaInfo, ID, Leg, Loading, PurchaseOrder, RouteStop, Sale, Shipment, StockRow, TripCost, TripPayment } from './types';
+import type { EtaInfo, ID, Leg, Loading, PeriodPlan, PoStage, PurchaseOrder, ReexportOrder, ReexportStatus, RouteStop, Sale, Shipment, StockRow, TripCost, TripPayment, WaitingEntry, WarehouseExpense } from './types';
 
 const sum = <T>(xs: T[], f: (x: T) => number) => xs.reduce((a, x) => a + f(x), 0);
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -186,50 +186,54 @@ export const marginOf = (p: PerfLike | null | undefined) => (p && p.totals.reven
 export const landedPerCaseOf = (p: PerfLike | null | undefined) => (p && p.totals.qtyReceived ? r2(p.totals.landedCost / p.totals.qtyReceived) : null);
 
 // =====================================================================================================================
-// The registry: key, label, plain-English definition and unit of each shared figure (docs/18).
+// Work-page summary strips (docs/17 Phase 1): orders by stage, period plans, loading queues, re-exports, warehouse
+// expenses, selling prices. One definition each, so the page strip, Home and the phone agree.
 // =====================================================================================================================
-export type MetricUnit = 'trucks' | 'orders' | 'cases' | 'usd' | 'share' | 'stock lines' | 'trips';
-/** What a surface hands to `compute`: only the parts that figure needs, already cut to the person's scope (sales in
- *  USD, intercompany removed in the Group view). Missing data → null ("No data yet"), never 0. */
-export interface MetricSource {
-  now: number; period?: Period | null;
-  shipments?: Shipment[]; stopsOf?: (routeId: ID) => RouteStop[];
-  loadings?: Pick<Loading, 'poId' | 'status'>[]; pos?: Pick<PurchaseOrder, 'id' | 'status' | 'supersededById'>[] | null;
-  stock?: StockRow[]; sales?: (SaleL & Pick<Sale, 'entityId' | 'warehouseId'>)[];
-  fees?: FeeLike[]; feeDays?: { amber: number; red: number };
-  perf?: PerfLike | null;
+export type OrderLike = Pick<PurchaseOrder, 'status' | 'supersededById'> & { stage?: PoStage };
+/** Purchase orders (latest revision, not deleted) at one stage now. */
+export const ordersAtStage = (pos: OrderLike[], stage: PoStage) => pos.filter((p) => p.status !== 'Deleted' && !p.supersededById && p.stage === stage).length;
+
+const ymd = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+export type PlanLike = Pick<PeriodPlan, 'status' | 'from' | 'to'>;
+/** Active period plans covering today. */
+export const plansInForce = <P extends PlanLike>(plans: P[], now: number) => plans.filter((p) => p.status === 'Active' && p.from <= ymd(now) && p.to >= ymd(now));
+/** Active period plans that start after today. */
+export const plansUpcoming = <P extends PlanLike>(plans: P[], now: number) => plans.filter((p) => p.status === 'Active' && p.from > ymd(now));
+/** Planned vs actual measures (reports.plannedVsActual) → ordered ÷ planned and expected-by-today ÷ planned. */
+export interface PvLike { planned: number; ordered: number; expectedToDate: number }
+export const planUsed = (m: PvLike | null | undefined) => (m && m.planned ? Math.round((m.ordered / m.planned) * 1000) / 1000 : null);
+export const planExpected = (m: PvLike | null | undefined) => (m && m.planned ? Math.round((m.expectedToDate / m.planned) * 1000) / 1000 : null);
+
+export type WaitLike = Pick<WaitingEntry, 'status' | 'arrivedAt'> & { loadingPointId?: ID };
+/** Trucks in a loading queue now (arrived, not yet given an order). */
+export const trucksWaiting = <W extends WaitLike>(w: W[]) => w.filter((x) => x.status === 'Waiting');
+/** Longest wait in a queue now, hours (0 when nobody waits). */
+export const longestWaitHours = (w: WaitLike[], now: number) => Math.round(Math.max(0, ...trucksWaiting(w).map((x) => (now - t(x.arrivedAt)) / H)) * 10) / 10;
+/** Trucks loaded today (UTC day). */
+export const loadedToday = (loadings: Pick<Loading, 'status' | 'loadedAt'>[], now: number) => loadings.filter((l) => l.status === 'Loaded' && t(l.loadedAt) >= dayStartOf(now)).length;
+
+/** Re-export orders at one status now. */
+export const reexportsAt = (list: Pick<ReexportOrder, 'status'>[], status: ReexportStatus) => list.filter((x) => x.status === status).length;
+
+export type ExpenseLike = Pick<WarehouseExpense, 'date' | 'amountUsd' | 'category'>;
+/** Calendar month [from, to) containing `now`, shifted by `n` months. */
+export const monthOf = (now: number, n = 0): Period => { const d = new Date(now); return { from: Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + n, 1), to: Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + n + 1, 1) }; };
+/** Warehouse expenses dated in the period, USD. */
+export const expensesIn = (list: ExpenseLike[], p?: Period | null) => r2(sum(list.filter((x) => inP(t(x.date + 'T00:00:00Z'), p)), (x) => x.amountUsd));
+/** The largest expense category in the period (null when nothing was spent). */
+export function topExpenseCategory(list: ExpenseLike[], p?: Period | null): { category: string; usd: number } | null {
+  const m = new Map<string, number>();
+  for (const x of list) if (inP(t(x.date + 'T00:00:00Z'), p)) m.set(x.category, (m.get(x.category) ?? 0) + x.amountUsd);
+  const [c, v] = [...m.entries()].sort((a, b) => b[1] - a[1])[0] ?? [];
+  return c === undefined ? null : { category: c, usd: r2(v!) };
 }
-export interface MetricDef { key: string; label: string; definition: string; unit: MetricUnit; period: boolean; compute: (s: MetricSource) => number | null }
-const def = (key: string, label: string, unit: MetricUnit, period: boolean, definition: string, compute: (s: MetricSource) => number | null): MetricDef => ({ key, label, unit, period, definition, compute });
-const fleet = (s: MetricSource) => (s.shipments && s.stopsOf ? fleetFigures({ shipments: s.shipments, stopsOf: s.stopsOf, now: s.now }) : null);
-const has = <T>(x: T | undefined | null, f: (x: T) => number | null) => (x ? f(x) : null);
-export const METRICS = {
-  onRoad: /* @__PURE__ */ def('trucks-on-road', 'Trucks on the road', 'trucks', false, 'Trucks that have left the loading point and not yet arrived at the destination warehouse: the current leg is dispatched, in transit, at a border or delayed. Trucks still at the loading point (loaded, not left) and trucks that arrived but are not signed for yet are not counted.', (s) => fleet(s)?.onRoad ?? null),
-  delayed: /* @__PURE__ */ def('trucks-delayed', 'Delayed', 'trucks', false, `Trucks on the road that are ${DELAY_HOURS} h or more behind the planned time, marked delayed, or with an open issue (breakdown, border hold, documents…).`, (s) => fleet(s)?.delayed ?? null),
-  atBorder: /* @__PURE__ */ def('trucks-at-border', 'At a border', 'trucks', false, 'Trucks on the road stopped at a border now (delayed ones are counted as delayed).', (s) => fleet(s)?.atBorder ?? null),
-  inTransit: /* @__PURE__ */ def('trucks-in-transit', 'In transit', 'trucks', false, 'Trucks on the road moving on plan: neither delayed nor at a border.', (s) => fleet(s)?.inTransit ?? null),
-  noCheckin: /* @__PURE__ */ def('trucks-no-checkin', 'No check-in', 'trucks', false, `Trucks on the road whose next checkpoint check-in is more than ${CHECKIN_GRACE_HOURS} h overdue.`, (s) => fleet(s)?.noCheckin ?? null),
-  arrivingToday: /* @__PURE__ */ def('arriving-today', 'Arriving today', 'trucks', false, 'Trucks on the road expected at their destination today (latest expected arrival).', (s) => fleet(s)?.arrivingToday ?? null),
-  delivered: /* @__PURE__ */ def('delivered', 'Delivered', 'trucks', true, 'Truck trips signed for at their destination, counted on the day they arrived there. First trips from the supplier, onward trips between our warehouses and re-exports all count.', (s) => has(s.shipments, (x) => deliveredIn(x, s.period).length)),
-  onTime: /* @__PURE__ */ def('on-time', 'On time', 'share', true, `Share of the trips delivered in the period that arrived at most ${DELAY_HOURS} h after the planned arrival.`, (s) => has(s.shipments, (x) => onTimeShare(x, s.period))),
-  ordersToLoad: /* @__PURE__ */ def('orders-to-load', 'Orders awaiting loading', 'orders', false, 'Purchase orders (latest revision, not deleted, not waiting for approval) with at least one truck still to load.', (s) => has(s.loadings, (x) => ordersToLoad(x, s.pos))),
-  trucksToLoad: /* @__PURE__ */ def('trucks-to-load', 'Trucks to load', 'trucks', false, 'Truck lines of those purchase orders not loaded yet.', (s) => has(s.loadings, (x) => trucksToLoad(x, s.pos).length)),
-  stockValue: /* @__PURE__ */ def('stock-value', 'Stock value', 'usd', false, 'Cases on hand × landed cost per case of each product (goods + all trip costs ÷ cases loaded, over its deliveries; list price × 1.21 before its first delivery), USD.', (s) => has(s.stock, stockValue)),
-  casesOnHand: /* @__PURE__ */ def('cases-on-hand', 'Cases on hand', 'cases', false, 'Cases in our warehouses now (received + transfers in − transfers out − damaged ± counts − sold), per company, warehouse and product; a negative balance counts as zero.', (s) => has(s.stock, casesOnHand)),
-  stockInTransit: /* @__PURE__ */ def('stock-in-transit', 'In transit', 'cases', false, 'Cases loaded on trucks that are not signed for yet.', (s) => has(s.stock, casesInTransit)),
-  needsAttention: /* @__PURE__ */ def('stock-needs-attention', 'Needs attention', 'stock lines', false, `Stock lines (company × warehouse × product) out of stock, under ${COVER_DAYS.low} days of cover, over ${COVER_DAYS.over} days, or without a sale in ${COVER_DAYS.noSaleDays} days. Cover = cases on hand ÷ cases sold per day over the last 30 days.`, (s) => (s.stock && s.sales ? needsAttention(s.stock, s.sales, s.now).length : null)),
-  sales: /* @__PURE__ */ def('sales', 'Sales', 'usd', true, 'Cases × price of every sale dated in the period, USD at the approved month rate; sales between our own companies removed in the Group view.', (s) => has(s.sales, (x) => salesValue(x, s.period))),
-  casesSold: /* @__PURE__ */ def('cases-sold', 'Cases sold', 'cases', true, 'Cases on every sale dated in the period (sales between our own companies removed in the Group view).', (s) => has(s.sales, (x) => casesSold(x, s.period))),
-  owed: /* @__PURE__ */ def('owed-by-customers', 'Owed by customers', 'usd', false, 'Unpaid and part-paid sales now: sale value − amount paid, USD.', (s) => has(s.sales, (x) => owedByCustomers(x, s.now))),
-  overdue: /* @__PURE__ */ def('overdue-by-customers', 'Overdue', 'usd', false, `The part of what customers owe on sales older than the ${TERMS_DAYS}-day payment terms.`, (s) => has(s.sales, (x) => overdueByCustomers(x, s.now))),
-  transportOwed: /* @__PURE__ */ def('transport-owed', 'Transport owed', 'usd', false, 'Open balance to transporters: agreed transport price − approved payments, over trips not fully paid (payments waiting for a director are not deducted yet), USD.', (s) => has(s.fees, transportOwed)),
-  feesAmber: /* @__PURE__ */ def('fees-over-amber', 'Unpaid over 14 days', 'trips', false, 'Trips with an open transport balance loaded at least the amber number of days ago (config [fees] amber_days, 14).', (s) => has(s.fees, (x) => feesOlderThan(x, s.feeDays?.amber ?? 14).length)),
-  feesRed: /* @__PURE__ */ def('fees-over-red', 'Unpaid over 30 days', 'trips', false, 'Trips with an open transport balance loaded at least the red number of days ago (config [fees] red_days, 30).', (s) => has(s.fees, (x) => feesOlderThan(x, s.feeDays?.red ?? 30).length)),
-  priceNotRecorded: /* @__PURE__ */ def('price-not-recorded', 'Agreed price not recorded', 'trips', false, 'Loaded trips (re-exports included) without an agreed transport price yet.', (s) => has(s.fees, priceNotRecorded)),
-  landedPerCase: /* @__PURE__ */ def('landed-per-case', 'Landed cost per case', 'usd', true, 'Goods + truck costs + warehouse share of the goods received in the period ÷ cases received good (landed cost v2).', (s) => landedPerCaseOf(s.perf)),
-  profit: /* @__PURE__ */ def('profit', 'Profit', 'usd', true, 'Sales − cost of units sold at landed cost v2 − warehouse costs of months with nothing received ("other"), USD.', (s) => profitOf(s.perf)),
-  margin: /* @__PURE__ */ def('margin', 'Margin', 'share', true, 'Profit ÷ sales (the same profit as above).', (s) => marginOf(s.perf)),
-} satisfies Record<string, MetricDef>;
-export type MetricName = keyof typeof METRICS;
-/** Every figure of the registry for one source (null where the source lacks the data). */
-export const computeAll = (s: MetricSource) => Object.fromEntries(Object.entries(METRICS).map(([k, m]) => [k, m.compute(s)])) as Record<MetricName, number | null>;
+
+/** A product's price line: selling price in force (null = none) and landed cost per case (null = unknown). */
+export interface PriceLike { price: number | null; unit: number | null }
+/** Products that sell or hold stock with no selling price in force. */
+export const pricesMissing = <L extends PriceLike>(lines: L[]) => lines.filter((l) => l.price === null);
+/** Prices in force whose margin over landed cost is under the target margin (share, e.g. 0.2). */
+export const pricesBelowTarget = <L extends PriceLike>(lines: L[], target: number) => lines.filter((l) => l.price !== null && l.unit !== null && l.price > 0 && (l.price - l.unit) / l.price < target);
+
+// The registry (key, label, definition, unit, compute) is in ./metric-registry.ts: kept out of this module so the
+// definitions' text never lands in an app entry chunk that only needs these functions (the mock imports this module lazily).

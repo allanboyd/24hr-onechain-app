@@ -8,6 +8,7 @@
   import { API_MODE } from './lib/mode';
   import { roleText } from './lib/roles';
   import { routes, navFor, canOpen, isFieldOnly, homeOf, type WebRoute } from './routes';
+  import { redirectOf } from './lib/redirects';
   import Login from './screens/Login.svelte';
   import CompanySwitcher from './components/CompanySwitcher.svelte';
   import CompanyMark from './components/CompanyMark.svelte';
@@ -53,6 +54,9 @@
 
   // Roles without the dashboard start on their own home (truck planner → Truck desk).
   $effect(() => { if (user && router.path === '/' && homeOf(user) !== '/') location.replace(`#${homeOf(user)}`); });
+  // docs/17 Phase 2: old pages (Inventory, Loading, Reports, …) and old filters land on the new page / tab
+  const redirect = $derived(redirectOf(router.path));
+  $effect(() => { if (redirect) location.replace(`#${redirect}`); });
   const matched = $derived(router.match(routes as any) as { route: WebRoute; params: Record<string, string> } | null);
   // UA-02 / §17.7: show the user's data scope in words, not ids
   const scope = $derived.by(() => {
@@ -127,7 +131,9 @@
         <button class="btn btn-ghost btn-sm" onclick={logout} aria-label="Sign out"><LogOut size={18} /></button>
       </header>
       <main class="content">
-        {#if matched && !canOpen(router.path, user)}
+        {#if redirect}
+          <div class="stack" aria-busy="true"><div class="skeleton" style="height:36px;width:35%"></div></div>
+        {:else if matched && !canOpen(router.path, user)}
           <div class="card empty" role="alert"><h2>Not available for your role</h2><p class="small">This page isn’t part of your work as {user.roles.join(', ')}. Ask an administrator if you need it.</p><p><a class="btn btn-secondary btn-sm" href="#{homeOf(user)}">Back to {homeOf(user) === '/' ? 'dashboard' : 'your home page'}</a></p></div>
         {:else if matched}
           {#key screenKey}

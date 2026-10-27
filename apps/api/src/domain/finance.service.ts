@@ -112,7 +112,7 @@ export class FinanceService {
     auditNote({ recordType: 'payment', recordId: row.id, entityId: s.entityId, summary: `${s.ref}: paid ${cost!.currency} ${input.amount} · ${row.reference}${unusualNote(check)}` });
     await db.transaction(async (tx) => {
       await tx.insert(t.tripPayments).values(row);
-      if (status === 'Pending approval') await this.notify.notify(tx, 'Payment needs approval', `${cost!.currency} ${input.amount} · ${input.reference} · ${s.ref}`, '#/finance', ['director'], { email: true, entityId: s.entityId });
+      if (status === 'Pending approval') await this.notify.notify(tx, 'Payment needs approval', `${cost!.currency} ${input.amount} · ${input.reference} · ${s.ref}`, '#/transport-costs?tab=trips', ['director'], { email: true, entityId: s.entityId });
     });
     return map.payment(row as typeof t.tripPayments.$inferSelect);
   }

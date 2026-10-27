@@ -1,22 +1,25 @@
 <script lang="ts">
-  import { destinationLabel } from '../lib/planning';
-  import { watch } from '../lib/load.svelte';
-  import ErrorState from '../components/ErrorState.svelte';
+  // Sales velocity (was the Sales velocity page; docs/17 §4: retired into Home · Warehouse next to Fast & slow products).
+  // Rolling 30 days: velocity index = actual ÷ benchmark × 100 (benchmark = director target, else the same product's
+  // average across warehouses); heatmap, ranking, suggested transfers, thresholds, flags and the full table.
+  import { destinationLabel } from '../../lib/planning';
+  import { watch } from '../../lib/load.svelte';
+  import ErrorState from '../ErrorState.svelte';
   import { analytics, inventory, lookup, ref, type Flag, type StockRow, type VelocityRow, type User } from '@btw/api';
   import { Badge, fmtNum, say, toneOf, velocityGlyph } from '@btw/ui';
-  import ExportMenu from '../components/ExportMenu.svelte';
-  import PageTabs from '../components/PageTabs.svelte';
-  import { BarChart, ChartCard, Heatmap, StatTile } from '../components/charts';
-  import { currentTab, drill as openList, qp } from '../lib/tab';
+  import ExportMenu from '../ExportMenu.svelte';
+  import { BarChart, ChartCard, Heatmap, StatTile } from '../charts';
   import X from '@lucide/svelte/icons/x';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
-  let { user }: { params?: any; user: User } = $props();
+  let { user }: { user: User } = $props();
   const r = ref();
   let rows = $state<VelocityRow[] | null>(null);
   let flags = $state<Flag[]>([]);
   let stock = $state<StockRow[]>([]);
-  const tab = currentTab();
-  let wh = $state(qp('wh')); let brand = $state(qp('brand')); let cls = $state(qp('cls'));
+  let wh = $state(''); let brand = $state(''); let cls = $state('');
+  let tableEl = $state<HTMLElement>();
+  /** filter the table below and scroll to it */
+  function openList(_: string, f: { wh?: string; brand?: string; cls?: string }) { wh = f.wh ?? ''; brand = f.brand ?? ''; cls = f.cls ?? ''; tableEl?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
   let drill = $state<{ kind: 'brand' | 'warehouse'; id: string } | null>(null);
   async function load() { [rows, flags, stock] = await Promise.all([analytics.velocity(), analytics.flags(), inventory.stock()]); }
   const w = watch(load);
@@ -66,16 +69,8 @@
     ...shown.map((x) => [lookup.product(x.productId)!.brand, lookup.product(x.productId)!.pack, lookup.warehouse(x.warehouseId)!.name, x.sold30, x.perDay, x.index, x.cover >= 999 ? '' : x.cover, x.daysSinceSale >= 99 ? '' : x.daysSinceSale, x.cls, x.flags.join('; ')])];
 </script>
 
-<div class="page-head">
-  <div><div class="overline crumb">Analytics</div><h1>Sales velocity & flags</h1>
-    <p class="muted small" style="max-width:620px;margin:var(--space-1) 0 0">Rolling 30 days. Velocity index = actual ÷ benchmark × 100; benchmark = director target, else the average of the same SKU across warehouses. In the real build dashboards read the reporting store.</p></div>
-  <ExportMenu name="sales-velocity" rows={exportRows} />
-</div>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
 
-<PageTabs base="/analytics" current={tab} listLabel="Velocity table" />
-
-{#if tab === 'overview'}
 <div class="tiles" style="margin-bottom:var(--space-4)">
   {#each counts as [c, n]}
     <StatTile label="{velocityGlyph[c]} {c}" value={String(n)} hint="SKU × warehouse positions" onclick={() => openList('/analytics', { cls: c })} />
@@ -110,7 +105,7 @@
         <div class="table-wrap"><table class="table">
           <thead><tr><th>{drill.kind === 'brand' ? 'Warehouse' : 'Brand · Package'}</th><th class="num">On hand</th><th class="num">Sold (30 d)</th><th class="num">Share</th><th class="num">Index</th><th class="num">Cover</th><th>Class</th><th></th></tr></thead>
           <tbody>
-            {#each drillRows as x (x.productId + x.warehouseId)}
+            {#each drillRows as x (`${x.entityId}|${x.productId}|${x.warehouseId}`)}
               <tr>
                 <td>{drill.kind === 'brand' ? destinationLabel(x.warehouseId) : label(x.productId)}</td>
                 <td class="num">{fmtNum(onHand(x.productId, x.warehouseId))}</td>
@@ -154,7 +149,7 @@
       <div class="th"><span class="small grow">Overstock cover &gt;</span><input class="input num" type="number" bind:value={edit.overstockDays} disabled={!isDirector} aria-label="Overstock days" /><span class="small">d</span></div>
       <div class="th"><span class="small grow">Stock-out risk cover &lt;</span><input class="input num" type="number" bind:value={edit.stockOutDays} disabled={!isDirector} aria-label="Stock-out days" /><span class="small">d</span></div>
       {#if isDirector}<div class="row" style="justify-content:flex-end"><button class="btn btn-ghost btn-sm" disabled={!dirty} onclick={() => (edit = { ...t })}>Reset</button><button class="btn btn-primary btn-sm" disabled={!dirty} onclick={applyThresholds}>Apply</button></div>{/if}
-      <p class="caption">Per brand/branch targets and the measurement period are to be confirmed (Q13).</p>
+      <p class="caption">Per brand and branch targets and the measurement period are to be confirmed.</p>
     </details>
 
     <section class="card flush">
@@ -168,8 +163,8 @@
   </aside>
 </div>
 
-{:else}
-<div class="stack">
+<div class="stack" bind:this={tableEl} style="margin-top:var(--space-4)">
+  <div class="row between"><h3>Velocity table</h3><ExportMenu name="sales-velocity" rows={exportRows} /></div>
     <div class="filters" style="margin:0">
     <label class="field"><span>Warehouse</span><select class="select" bind:value={wh}><option value="">All</option>{#each whs as w}<option value={w.id}>{destinationLabel(w.id)}</option>{/each}</select></label>
     <label class="field"><span>Brand</span><select class="select" bind:value={brand}><option value="">All</option>{#each prods as p}<option value={p}>{label(p)}</option>{/each}</select></label>
@@ -183,7 +178,7 @@
       <thead><tr><th>Brand / SKU</th><th>Warehouse</th><th class="num">Sold (30 days)</th><th class="num">Avg / day</th><th class="num">Velocity index</th><th class="num">Stock cover</th><th class="num">Days since sale</th><th>Class and flags</th></tr></thead>
       <tbody>
         {#if !rows}<tr><td colspan="8"><div class="skeleton"></div></td></tr>{/if}
-        {#each shown as x (x.productId + x.warehouseId)}
+        {#each shown as x (`${x.entityId}|${x.productId}|${x.warehouseId}`)}
           <tr>
             <td><span style="white-space:nowrap">{lookup.product(x.productId)?.brand}</span> <span class="muted small" style="white-space:nowrap">{lookup.product(x.productId)?.pack}</span></td>
             <td>{destinationLabel(x.warehouseId)}</td>
@@ -200,12 +195,9 @@
   </section>
 </div>
 
-{/if}
-
 <style>
   .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: var(--space-4); align-items: start; }
   @media (max-width: 1100px) { .layout { grid-template-columns: minmax(0, 1fr); } }
-  .page-head p { font-family: var(--ff-body); }
   .drill { border-top: 3px solid var(--accent); }
   .bar { display: inline-block; vertical-align: middle; width: 48px; height: 6px; margin-right: 8px; border-radius: 3px; background: linear-gradient(90deg, var(--primary) var(--w), var(--surface-sunken) var(--w)); }
   .list { list-style: none; margin: 0; padding: 0; max-height: 340px; overflow-y: auto; }

@@ -52,7 +52,7 @@ All have `label` / `aria-label`s, keyboard-reachable click targets and a table v
 <DashboardGrid cols={2}>
   <DashboardPanel title="Profit bridge" definition="Sales less goods cost, truck cost, …" unit="USD" period="1–25 Oct 2026"
     updatedAt={report.generatedAt} rows={() => [['Step', 'USD'], ...]} filterText="Company: BTW"
-    drill={{ label: 'Open the performance report', href: '#/reports?r=performance' }} loading={!report} error={w.error} onretry={w.retry}>
+    drill={{ label: 'Open the performance report', href: '#/performance' }} loading={!report} error={w.error} onretry={w.retry}>
     {#snippet filters()}…scoped selects…{/snippet}
     <Waterfall label="Profit bridge" steps={steps} format={usd} />
   </DashboardPanel>

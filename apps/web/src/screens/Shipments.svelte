@@ -1,42 +1,56 @@
 <script lang="ts">
+  // Shipments work page (TR-02, docs/17 Phase 1–2): opens on the list with the fleet strip (metric registry, same numbers as
+  // Home and the Truck desk), filters in the address, and a Map view toggle (replaces the separate Tracking page).
+  // Needs-action default (no filter in the address): truck follow-up roles (Truck desk users) open on Delayed when any truck
+  // is delayed; everyone else (receivers, planners) on the trucks on the road.
   import { destinationLabel } from '../lib/planning';
   import CompanyCell from '../components/CompanyCell.svelte';
   import { watch } from '../lib/load.svelte';
   import ErrorState from '../components/ErrorState.svelte';
-  // TR-02: list of active and closed shipments with position, next checkpoint and ETA.
   import { lookup, ref, shipments, tracking, type Leg, type Shipment, type User } from '@btw/api';
   import { Badge, ago, fmtDateTime, hoursLabel, router } from '@btw/ui';
   import Clock from '@lucide/svelte/icons/clock';
-  import PageTabs from '../components/PageTabs.svelte';
-  import ShipmentsOverview from '../components/overview/ShipmentsOverview.svelte';
-  import { currentTab, qp } from '../lib/tab';
+  import MapIcon from '@lucide/svelte/icons/map';
+  import ListIcon from '@lucide/svelte/icons/list';
+  import SearchX from '@lucide/svelte/icons/search-x';
+  import { PageHeader, SummaryStrip, FilterBar, EmptyState, queryFilters, readQuery, type SummaryTile } from '../components/page';
   import { chainOf, fromLabel } from '../lib/journey';
-  import { shipmentTiles } from '../lib/tiles';
+  import { shipmentTiles, infoOf } from '../lib/tiles';
+  import { can } from '../lib/features';
   const stopsOf = (id: string) => lookup.route(id)?.stops ?? [];
   let { user }: { user: User } = $props();
-  const tab = currentTab();
   const r = ref();
   let list = $state<Shipment[] | null>(null);
-  let chip = $state<'active' | 'all' | 'Delayed' | 'At border' | 'no-checkin' | 'Acknowledged'>((qp('chip') || 'active') as 'active');
-  let route = $state(''); let company = $state('');
   async function load() { list = await shipments.list(); }
   const w = watch(load);
+  const f = queryFilters({ show: '', route: '', company: '', q: '', view: '' });
+  let search = $state(f.values.q);
+  $effect(() => { if (search !== f.values.q) f.set('q', search); });
 
   const activeLeg = (sh: Shipment): Leg => sh.legs.find((l) => l.status !== 'Acknowledged') ?? sh.legs.at(-1)!;
   const scoped = $derived((list ?? []).filter((sh) => !user.roles.includes('receiver') || user.roles.includes('director') || user.warehouseIds.includes(sh.warehouseId)));
-  // docs/18: the same figures as Home and the phone (metrics registry); each chip filters the list to its figure
+  // docs/18: the same figures as Home and the phone (metrics registry); each tile filters the list to its figure
   const fig = $derived(shipmentTiles(scoped, stopsOf));
-  const chips = $derived([
-    { key: 'active', label: 'On the road', n: fig.onRoad },
-    { key: 'Delayed', label: 'Delayed', n: fig.delayed },
-    { key: 'At border', label: 'At a border', n: fig.atBorder },
-    { key: 'no-checkin', label: 'No check-in', n: fig.noCheckin },
-    { key: 'Acknowledged', label: 'Delivered', n: fig.delivered },
-    { key: 'all', label: 'All', n: scoped.length },
-  ] as const);
-  const rows = $derived(scoped.filter((sh) =>
-    (chip === 'all' || (chip === 'active' ? fig.is.road(sh) : chip === 'Delayed' ? fig.is.delayed(sh) : chip === 'At border' ? fig.is.border(sh) : chip === 'no-checkin' ? fig.is.noCheckin(sh) : fig.is.delivered(sh)))
-    && (!company || sh.receivingCompanyId === company) && (!route || sh.legs.some((l) => l.routeId === route))));
+  const TEST: Record<string, (s: Shipment) => boolean> = { road: (s) => fig.is.road(s), delayed: (s) => fig.is.delayed(s), border: (s) => fig.is.border(s), noCheckin: (s) => fig.is.noCheckin(s), delivered: (s) => fig.is.delivered(s) };
+  const tiles = $derived<SummaryTile[]>([
+    { key: 'road', label: 'On the road', value: list ? fig.onRoad : null, sub: `${fig.delivered} delivered`, info: infoOf('onRoad') },
+    { key: 'delayed', label: 'Delayed', value: list ? fig.delayed : null, status: fig.delayed ? 'bad' : undefined, statusLabel: fig.delayed ? 'Needs action' : undefined, info: infoOf('delayed') },
+    { key: 'border', label: 'At a border', value: list ? fig.atBorder : null, info: infoOf('atBorder') },
+    { key: 'noCheckin', label: 'No check-in', value: list ? fig.noCheckin : null, status: fig.noCheckin ? 'warn' : undefined, statusLabel: fig.noCheckin ? 'Call the driver' : undefined, info: infoOf('noCheckin') },
+  ]);
+  let defaulted = false;
+  $effect(() => {
+    if (defaulted || !list) return;
+    defaulted = true;
+    if (['show', 'q', 'route', 'company'].some((k) => readQuery(k))) return;
+    f.set('show', can(user, 'trucks') && fig.delayed ? 'delayed' : 'road');
+  });
+  const rows = $derived(scoped.filter((sh) => (!f.values.show || f.values.show === 'all' || TEST[f.values.show]?.(sh))
+    && (!f.values.company || sh.receivingCompanyId === f.values.company) && (!f.values.route || sh.legs.some((l) => l.routeId === f.values.route))
+    && (!f.values.q || `${sh.ref} ${sh.truckNo} ${lookup.poRef(sh.poId)} ${sh.legs.map((l) => `${lookup.truck(l.truckId)?.reg} ${lookup.driver(l.driverId)?.name}`).join(' ')}`.toLowerCase().includes(f.values.q.toLowerCase()))));
+  const map = $derived(f.values.view === 'map');
+  const active = $derived((f.values.show && f.values.show !== 'all' ? 1 : 0) + (f.values.route ? 1 : 0) + (f.values.company ? 1 : 0));
+  function clearAll() { f.clear(['show', 'route', 'company', 'q']); f.set('show', 'all'); search = ''; }
 
   function where(leg: Leg) {
     const i = leg.passes.reduce((a, p, k) => (p.arrivedAt ? k : a), -1);
@@ -53,29 +67,26 @@
   }
 </script>
 
-<div class="page-head">
-  <div><div class="overline crumb">Logistics</div><h1>Shipments & legs</h1>
-    <p class="muted small">Every truck from loading to acknowledgement. Position comes from checkpoint check-ins (driver app, SMS, geofence or office).</p></div>
-  <a class="btn btn-secondary" href="#/tracking">Map view</a>
-</div>
+<PageHeader overline="Logistics" title="Shipments" description="Every truck from loading to signed delivery." analysis="fleet"
+  info="Position comes from checkpoint check-ins: the driver app, SMS, a geofence or the office. A truck whose next check-in is more than 3 hours overdue shows under No check-in. The Map view shows the trucks of the list below on a map.">
+  {#snippet secondary()}
+    {#if map}<button class="btn btn-secondary" onclick={() => f.set('view', '')}><ListIcon size={16} aria-hidden="true" />List view</button>
+    {:else}<button class="btn btn-secondary" onclick={() => f.set('view', 'map')}><MapIcon size={16} aria-hidden="true" />Map view</button>{/if}
+  {/snippet}
+</PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
-<PageTabs base="/shipments" current={tab} listLabel="Shipment list" />
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Shipments summary" />
+<FilterBar bind:search placeholder="Shipment, PO, truck or driver" {active} onclear={clearAll}>
+  <label class="field"><span>Show</span><select class="select" value={f.values.show || 'all'} onchange={(e) => f.set('show', e.currentTarget.value)}>
+    <option value="road">On the road</option><option value="delayed">Delayed</option><option value="border">At a border</option><option value="noCheckin">No check-in</option><option value="delivered">Delivered</option><option value="all">All shipments</option></select></label>
+  <label class="field"><span>Route</span><select class="select" value={f.values.route} onchange={(e) => f.set('route', e.currentTarget.value)}><option value="">All routes</option>{#each r.routes as rt}<option value={rt.id}>{rt.name}</option>{/each}</select></label>
+  <label class="field"><span>Receiving company</span><select class="select" value={f.values.company} onchange={(e) => f.set('company', e.currentTarget.value)}><option value="">All</option>{#each r.receivingCompanies as c}<option value={c.id}>{c.name}</option>{/each}</select></label>
+  {#snippet end()}{#if list}<span class="caption">{rows.length} of {scoped.length} shipments</span>{/if}{/snippet}
+</FilterBar>
 
-{#if tab === 'overview'}
-  {#if !list}<div class="tiles">{#each Array(4) as _}<div class="card"><div class="skeleton" style="height:56px"></div></div>{/each}</div>
-  {:else}<ShipmentsOverview list={scoped} />{/if}
+{#if map}
+  {#await import('../components/ShipmentMap.svelte') then M}<M.default items={rows} />{/await}
 {:else}
-
-<div class="chips" role="tablist" aria-label="Quick filters">
-  {#each chips as c}
-    <button role="tab" aria-selected={chip === c.key} class:warn={c.key === 'no-checkin' && c.n > 0} onclick={() => (chip = c.key)}>{c.label} <span class="n">{c.n}</span></button>
-  {/each}
-</div>
-<div class="filters">
-  <label class="field"><span>Route</span><select class="select" bind:value={route}><option value="">All routes</option>{#each r.routes as rt}<option value={rt.id}>{rt.name}</option>{/each}</select></label>
-  <label class="field"><span>Receiving company</span><select class="select" bind:value={company}><option value="">All</option>{#each r.receivingCompanies as c}<option value={c.id}>{c.name}</option>{/each}</select></label>
-</div>
-
 <div class="card flush table-wrap wide-only">
   <table class="table">
     <thead><tr><CompanyCell head /><th>Shipment</th><th>From</th><th>Truck</th><th>Route · leg</th><th>Last check-in</th><th>Next checkpoint</th><th>Status</th><th>ETA</th></tr></thead>
@@ -100,7 +111,7 @@
           <td><Badge status={sh.status} /></td>
           <td>{#if sh.status !== 'Acknowledged'}<Badge status={eta.state}>{eta.state}{eta.state !== 'On time' ? ` ${hoursLabel(eta.hours)}` : ''}</Badge><div class="caption nowrap">{fmtDateTime(eta.eta)}</div>{:else}<span class="caption">Delivered</span>{/if}</td>
         </tr>
-      {:else}{#if list}<tr><td colspan="9" class="empty">No shipments match these filters. <button class="btn btn-ghost btn-sm" onclick={() => { chip = 'all'; route = ''; company = ''; }}>Clear filters</button></td></tr>{/if}{/each}
+      {:else}{#if list}<tr><td colspan="9"><EmptyState title="No shipments match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState></td></tr>{/if}{/each}
     </tbody>
   </table>
 </div>
@@ -122,18 +133,12 @@
       </div>
       {#if od}<Badge tone="danger">No check-in at {w.next} · {hoursLabel(od.hours)} overdue</Badge>{/if}
     </a></li>
-  {:else}{#if list}<li class="empty">No shipments match</li>{/if}{/each}
+  {:else}{#if list}<li><EmptyState title="No shipments match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState></li>{/if}{/each}
 </ul>
 
 {/if}
 
 <style>
-  .chips { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-4); }
-  .chips button { display: inline-flex; align-items: center; gap: var(--space-2); height: 32px; padding: 0 var(--space-3); border-radius: var(--radius-md); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font: 600 13px var(--ff-body); cursor: pointer; }
-  .chips button[aria-selected='true'] { background: var(--primary); border-color: var(--primary); color: var(--text-on-primary); }
-  .chips .n { font-variant-numeric: tabular-nums; background: var(--surface-sunken); color: var(--text-muted); border-radius: var(--radius-sm); padding: 1px 6px; font-size: 12px; }
-  .chips button[aria-selected='true'] .n { background: transparent; color: inherit; }
-  .chips button.warn:not([aria-selected='true']) .n { background: var(--danger-subtle); color: var(--danger); }
   .nowrap, .mono { white-space: nowrap; }
   .cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
   .cards a.card { display: flex; flex-direction: column; gap: var(--space-1); color: inherit; text-decoration: none; padding: var(--space-4); }

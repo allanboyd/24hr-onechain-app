@@ -154,7 +154,7 @@
       <span class="chg">{#if pc != null}<span class="chip {pc >= 0 ? 'up' : 'down'}">{#if pc >= 0}<ArrowUpRight size={13} />{:else}<ArrowDownRight size={13} />{/if}{pc >= 0 ? '+' : ''}{(pc * 100).toFixed(1)}%</span>{/if}<span class="sub">{mpp != null ? `margin ${mpp >= 0 ? '+' : ''}${mpp.toFixed(1)} pp` : 'landed cost based'}{d.profit.estimated ? ' · part estimated' : ''}</span></span>
       <span class="spk"><SparkArea values={d.profit.spark} /></span>
     </a>
-    <a class="kpi" href="#/sales?tab=list&status=Unpaid">
+    <a class="kpi" href="#/sales?show=owed">
       <span class="lbl">Cash to collect</span>
       <span class="val">{#if d.cash.value == null}No data yet{:else}<small>{currency.code}</small> {amount(d.cash.value)}{/if}</span>
       <span class="chg">{#if d.cash.overdue}<span class="chip warn">{currency.code} {amount(d.cash.overdue)} overdue</span>{:else if d.cash.value != null}<span class="chip up">Nothing overdue</span>{/if}<span class="sub">{d.cash.collectedShare != null ? `${Math.round(d.cash.collectedShare * 100)}% of ${periodShort.toLowerCase()}'s sales paid` : `${d.cash.customers} customers`}</span></span>

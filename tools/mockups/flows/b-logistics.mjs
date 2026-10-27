@@ -6,7 +6,7 @@ const dlg = (s) => s.page.locator('dialog[open]');
 
 // ---- Walkthrough: loader → office → transfer ----
 const s = await open({ app: 'web', user: 'u-joel', outDir: out });
-await s.go('/loading?tab=list');
+await s.go('/loading');
 await shot(s, 'B01-web-loading-kbl', 'Loading & waiting list — KBL Nairobi (loader Joel)', 'Ordered truck queue for the loading point with reorder/remove, driver app status and time waited; PO truck lines waiting to be loaded and recently loaded trucks linked to their shipments. LD-01, §17.4.');
 await s.page.getByRole('button', { name: 'Add truck' }).click(); await s.page.waitForTimeout(300);
 await shot(s, 'B02-web-loading-add-known', 'Add truck to queue — known truck', 'Trucks already in the queue are disabled; drivers without the app are marked (they check in by SMS). §17.4.', { fullPage: false });
@@ -54,16 +54,16 @@ await finish(s);
 
 // ---- Director views ----
 const d = await open({ app: 'web', user: 'u-daniel', outDir: out });
-await d.go('/shipments?tab=list');
+await d.go('/shipments');
 await shot(d, 'B11-web-shipments-list', 'Shipments & legs', 'Quick filters with counts (on the road, delayed, at border, no check-in, delivered). Last check-in with its source and age, time at a checkpoint vs planned dwell, next checkpoint and ETA. TR-02, TR-04.');
 await d.page.getByRole('tab', { name: /No check-in/ }).click(); await d.page.waitForTimeout(300);
 await shot(d, 'B12-web-shipments-no-checkin', 'Shipments — “No check-in” filter', 'KBV 894T left Kampala but has not checked in at Mbarara: expected time + current delay passed by more than 3 h. Drivers without GPS are caught this way. TR-05.');
 await d.page.getByRole('tab', { name: /On the road/ }).click(); await d.page.waitForTimeout(200);
 await d.page.locator('tr', { hasText: 'UBA 789C' }).click(); await d.page.waitForTimeout(700);
 await shot(d, 'B13-web-shipment-delayed-border', 'Shipment — delayed at border with open issue', 'UBA 789C at Elegu/Nimule for 20 h against a planned 16 h stop; clearing documents pending; ETA late 32 h because the issue’s new due date overrides the plan. §17.5, TR-04.');
-await d.go('/shipments?tab=list'); await d.page.locator('tr', { hasText: 'KBV 894T' }).click(); await d.page.waitForTimeout(700);
+await d.go('/shipments'); await d.page.locator('tr', { hasText: 'KBV 894T' }).click(); await d.page.waitForTimeout(700);
 await shot(d, 'B14-web-shipment-overdue', 'Shipment — overdue check-in', 'Red banner with the driver’s phone when the next checkpoint is overdue; office can record the position after a call. TR-05.');
-await d.go('/shipments?tab=list'); await d.page.locator('tr', { hasText: 'RAE 551F' }).click(); await d.page.waitForTimeout(700);
+await d.go('/shipments'); await d.page.locator('tr', { hasText: 'RAE 551F' }).click(); await d.page.waitForTimeout(700);
 await shot(d, 'B15-web-shipment-seeded-multileg', 'Seeded chain Nairobi → Gisenyi → Goma', 'Shipment 2 of 2: Gisenyi → Goma in transit; the Journey card shows shipment 1 received into stock at Gisenyi. Doc 08 §2.');
 await d.go('/tracking', 2800);
 await shot(d, 'B16-web-tracking-light', 'Tracking map', 'Active trucks with ETA, overdue and dwell flags; map of checkpoints by kind, dashed route lines (red when late), solid labels for GPS positions and dashed labels when the position is the last checkpoint. TR-02/03.', { fullPage: false });
@@ -76,17 +76,17 @@ await finish(d);
 const k = await open({ app: 'web', user: 'u-daniel', theme: 'dark', outDir: out });
 await k.go('/tracking', 2800);
 await shot(k, 'B18-web-tracking-dark', 'Tracking map — dark theme', 'Tiles dimmed for dark mode; markers and list use theme tokens.', { fullPage: false });
-await k.go('/shipments?tab=list'); await k.page.locator('tr', { hasText: 'UBA 789C' }).click(); await k.page.waitForTimeout(700);
+await k.go('/shipments'); await k.page.locator('tr', { hasText: 'UBA 789C' }).click(); await k.page.waitForTimeout(700);
 await shot(k, 'B19-web-shipment-dark', 'Shipment detail — dark theme', 'Same screen in dark mode.');
 await finish(k);
 
 const t = await open({ app: 'web', user: 'u-testfie', width: 1024, height: 800, outDir: out });
-await t.go('/loading?tab=list'); await t.page.getByRole('tab', { name: /GBI/ }).click(); await t.page.waitForTimeout(300);
+await t.go('/loading'); await t.page.getByRole('tab', { name: /GBI/ }).click(); await t.page.waitForTimeout(300);
 await shot(t, 'B20-web-loading-1024-empty', 'Loading at 1024 px — GBI Mombasa (empty states)', 'Testfie loads only at GBI Mombasa; empty queue and no pending lines explain what to do next.');
 await finish(t);
 
 const m = await open({ app: 'web', user: 'u-daniel', width: 390, height: 844, outDir: out });
-await m.go('/shipments?tab=list');
+await m.go('/shipments');
 await shot(m, 'B21-web-shipments-390', 'Shipments on a phone browser (390 px)', 'Table becomes one card per truck with status, ETA and overdue flag.');
 await m.go('/tracking', 2800);
 await shot(m, 'B22-web-tracking-390', 'Tracking on a phone browser (390 px)', 'List above, map below.');

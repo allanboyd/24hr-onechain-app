@@ -155,7 +155,7 @@
       <div class="muted small">PO <a class="mono" href="#/pos/{sh.poId}">{poRef}</a> · Delivered to {lookup.company(sh.receivingCompanyId)?.name} · {destinationLabel(sh.warehouseId)} · {sh.legs.length} leg{sh.legs.length > 1 ? 's' : ''}</div>
     </div>
     <div class="row">
-      <a class="btn btn-secondary" href="#/finance">Trip costs & landing cost</a>
+      <a class="btn btn-secondary" href="#/transport-costs?tab=trips">Trip costs & landing cost</a>
       {#if canMoney && agreed}{#if agreed.recorded}<span class="caption">Agreed transport USD {fmtNum(agreed.usd, 2)}</span>{:else}<Badge tone="warning">Agreed price: not recorded yet</Badge><button class="btn btn-secondary" onclick={() => { apAmount = ''; apErr = ''; apDlg?.showModal(); }}>Record agreed price</button>{/if}{/if}
       {#if canAddLeg && mayOnward}<RecordFor entityId={(sh as { entityId?: string }).entityId} cue={false}><button class="btn btn-primary" onclick={openLeg}><Plus size={16} />Send on — new shipment</button></RecordFor>{/if}
     </div>

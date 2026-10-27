@@ -1,43 +1,49 @@
 <script lang="ts">
+  // Sales work page (docs/17 Phase 1): opens on the sales list (latest first) with a strip of the registry's sales figures
+  // (same numbers as Home · Sales and Today), filters in the address and one "New sale" action. Charts: Home · Sales.
+  // No needs-action default: people come here to record and look up sales; overdue balances are one click (the strip) and
+  // on the directors' Today view.
   import { destinationLabel } from '../lib/planning';
   import CompanyCell from '../components/CompanyCell.svelte';
-  import RecordFor from '../components/RecordFor.svelte';
   import { scopeEntity } from '../lib/company.svelte';
   import { companyLabel } from '../lib/companies';
   import { watch } from '../lib/load.svelte';
   import ErrorState from '../components/ErrorState.svelte';
   import { amount, inventory, lookup, pricing, ref, reports, sales, type Sale, type SalesReport, type SellingPrice, type StockRow, type User } from '@btw/api';
-  import { salesTiles } from '../lib/tiles';
+  import { salesTiles, infoOf } from '../lib/tiles';
+  import { PageHeader, SummaryStrip, FilterBar, ActionInCompany, EmptyState, queryFilters, takeIntent, type SummaryTile } from '../components/page';
+  import { TERMS_DAYS } from '@btw/api/metrics';
+  import SearchX from '@lucide/svelte/icons/search-x';
   import { sellingPriceAny } from '@btw/api/money';
   import { Badge, fmtDateTime, fmtMoney, fmtNum, say } from '@btw/ui';
   import Plus from '@lucide/svelte/icons/plus';
   import Trash from '@lucide/svelte/icons/trash-2';
   import ExportMenu from '../components/ExportMenu.svelte';
-  import PageTabs from '../components/PageTabs.svelte';
-  import SalesOverview from '../components/overview/SalesOverview.svelte';
-  import { currentTab, qp } from '../lib/tab';
   let { user }: { params?: any; user: User } = $props();
-  const tab = currentTab();
   const r = ref();
   const scoped = $derived(user.roles.includes('director') || !user.warehouseIds.length ? null : user.warehouseIds);
   const warehouses = $derived(r.warehouses.filter((w) => !scoped || scoped.includes(w.id)));
 
   let list = $state<Sale[] | null>(null);
   let stock = $state<StockRow[]>([]);
-  let fWh = $state(qp('wh'));
-  let fStatus = $state(qp('status'));
-  let fKind = $state(qp('kind'));
-  let fCust = $state(qp('cust'));
+  const f = queryFilters({ show: '', wh: '', status: '', kind: '', cust: '' });
+  let search = $state(f.values.cust);
+  $effect(() => { if (search !== f.values.cust) f.set('cust', search); });
   // docs/14 B-05: new sale lines start from the directors' selling price (warehouse price, else company price)
   let prices = $state<SellingPrice[]>([]);
   // docs/18: the tiles come from the sales report over every sale (the list holds the latest ones only) — same figures as Home
-  let rep30 = $state<SalesReport | null>(null);
+  let rep = $state<SalesReport | null>(null);
+  const DAY = 864e5;
+  const monthStart = (() => { const d = new Date(); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1); })();
   async function load() {
-    const p = reports.resolvePeriod('last-30', Date.now());
-    [list, stock, prices, rep30] = await Promise.all([sales.list(), inventory.stock(), pricing.list().catch(() => [] as SellingPrice[]), reports.sales({ from: p.from, to: p.to }).catch(() => null)]);
+    // this month to now: the same period as the Today view's Sales card
+    [list, stock, prices, rep] = await Promise.all([sales.list(), inventory.stock(), pricing.list().catch(() => [] as SellingPrice[]), reports.sales({ from: new Date(monthStart).toISOString(), to: new Date(Date.now() + DAY).toISOString() }).catch(() => null)]);
+    if (takeIntent('new-sale')) openNew();
   }
   const w = watch(load);
-  const rows = $derived((list ?? []).filter((s) => (!scoped || scoped.includes(s.warehouseId)) && (!fWh || s.warehouseId === fWh) && (!fStatus || s.status === fStatus) && (!fKind || s.kind === fKind) && (!fCust || s.customer.toLowerCase().includes(fCust.toLowerCase()))));
+  const open = (s: Sale) => s.status !== 'Paid' && total(s) - s.paid > 0.005;
+  const SHOW: Record<string, (s: Sale) => boolean> = { month: (s) => Date.parse(s.at) >= monthStart, owed: open, overdue: (s) => open(s) && Date.now() - Date.parse(s.at) > TERMS_DAYS * DAY };
+  const rows = $derived((list ?? []).filter((s) => (!scoped || scoped.includes(s.warehouseId)) && (!f.values.show || SHOW[f.values.show]?.(s) !== false) && (!f.values.wh || s.warehouseId === f.values.wh) && (!f.values.status || s.status === f.values.status) && (!f.values.kind || s.kind === f.values.kind) && (!f.values.cust || s.customer.toLowerCase().includes(f.values.cust.toLowerCase()))));
   const total = (s: Sale) => s.lines.reduce((a, l) => a + amount(l.qty, l.price), 0);
   const balances = $derived.by(() => {
     const m = new Map<string, number>();
@@ -45,15 +51,16 @@
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   });
 
-  const since = Date.now() - 30 * 864e5;
-  const kpi = $derived.by(() => {
-    const r30 = rows.filter((s) => Date.parse(s.at) >= since);
-    const val = r30.reduce((a, s) => a + total(s), 0);
-    const fig = rep30 ? salesTiles(rep30) : null;
-    return { val: fig?.sales ?? val, cases: fig?.cases ?? r30.reduce((a, s) => a + s.lines.reduce((b, l) => b + l.qty, 0), 0), count: rep30?.totals.orders ?? r30.length,
-      credit: val ? Math.round((r30.filter((s) => s.kind === 'Credit').reduce((a, s) => a + total(s), 0) / val) * 100) : 0,
-      outstanding: fig?.owed ?? balances.reduce((a, [, b]) => a + b, 0) };
-  });
+  // docs/18: figures from the sales report over every sale (USD, intercompany removed in the Group view) — same as Home
+  const fig = $derived(rep ? salesTiles(rep) : null);
+  const usd0 = (n: number) => `USD ${fmtNum(Math.round(n))}`;
+  const tiles = $derived<SummaryTile[]>([
+    { key: 'month', label: 'Sales this month', value: fig?.sales ?? null, format: usd0, sub: rep ? `${fmtNum(rep.totals.orders)} sales · ${fmtNum(rep.totals.cases)} cases` : undefined, info: infoOf('sales') },
+    { key: 'owed', label: 'Owed by customers', value: fig?.owed ?? null, format: usd0, sub: balances.length ? `${balances.length} customers in this list` : undefined, info: infoOf('owed') },
+    { key: 'overdue', label: 'Overdue', value: fig?.overdue ?? null, format: usd0, status: fig?.overdue ? 'warn' : undefined, statusLabel: fig?.overdue ? 'Chase' : undefined, sub: `over ${TERMS_DAYS} days`, info: infoOf('overdue') },
+  ]);
+  const active = $derived(['show', 'wh', 'status', 'kind'].filter((k) => f.values[k as 'show']).length);
+  function clearAll() { f.clear(); search = ''; }
   const exportRows = () => [['Sale No.', 'Date', 'Warehouse', 'Customer', 'Type', 'SKU', 'Qty (cases)', 'Price (USD)', 'Amount (USD)', 'Paid (USD)', 'Status'],
     ...rows.flatMap((s) => s.lines.map((l) => [s.ref, s.at.slice(0, 10), lookup.warehouse(s.warehouseId)!.name, s.customer, s.kind, lookup.product(l.productId)!.sku, l.qty, l.price, amount(l.qty, l.price), s.paid, s.status]))];
 
@@ -89,33 +96,22 @@
   }
 </script>
 
-<div class="page-head">
-  <div><div class="overline crumb">Stock & sales</div><h1>Sales</h1></div>
-  <div class="row"><ExportMenu name="sales" rows={exportRows} /><RecordFor what="a sale"><button class="btn btn-primary" onclick={openNew}><Plus size={16} />New sale</button></RecordFor></div>
-</div>
+<PageHeader overline="Stock & sales" title="Sales" description="Cash, credit and batch sales from our warehouses." analysis="sales"
+  info="Stock reduces when a sale is saved. Amounts are in USD at the approved month rate; in the Group view sales between our own companies are left out of the figures. Returns and credit notes that restore stock come in a later release.">
+  {#snippet secondary()}<ExportMenu name="sales" rows={exportRows} />{/snippet}
+  {#snippet primary()}<ActionInCompany label="New sale" what="sale" feature="sales" intent="new-sale" onclick={openNew} />{/snippet}
+</PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
-<PageTabs base="/sales" current={tab} listLabel="Sales list" />
-
-{#if tab === 'overview'}
-  <SalesOverview warehouseId={scoped?.length === 1 ? scoped[0] : undefined} />
-{:else}
-
-<div class="grid grid-kpi" style="margin-bottom:var(--space-4)">
-  <div class="card kpi"><div class="overline">Sales · 30 days (USD)</div><div class="value">{fmtNum(kpi.val)}</div><div class="delta">{fmtNum(kpi.count)} sales</div></div>
-  <div class="card kpi"><div class="overline">Cases sold · 30 days</div><div class="value">{fmtNum(kpi.cases)}</div><div class="delta">drives velocity</div></div>
-  <div class="card kpi"><div class="overline">Outstanding (USD)</div><div class="value accent-text">{fmtNum(kpi.outstanding)}</div><div class="delta">{balances.length} customers owe</div></div>
-  <div class="card kpi"><div class="overline">Credit share</div><div class="value">{kpi.credit}%</div><div class="delta">of 30-day sales value</div></div>
-</div>
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Sales summary" />
 
 <div class="layout">
   <div>
-    <div class="filters">
-      <label class="field"><span>Warehouse</span><select class="select" bind:value={fWh}><option value="">All</option>{#each warehouses as w}<option value={w.id}>{destinationLabel(w.id)}</option>{/each}</select></label>
-      <label class="field"><span>Payment</span><select class="select" bind:value={fStatus}><option value="">All</option><option>Paid</option><option>Part-paid</option><option>Unpaid</option></select></label>
-      <label class="field"><span>Type</span><select class="select" bind:value={fKind}><option value="">All</option><option>Cash</option><option>Credit</option><option>Batch</option></select></label>
-      <label class="field"><span>Customer</span><input class="input" type="search" bind:value={fCust} placeholder="Search customer" /></label>
-      {#if fWh || fStatus || fKind || fCust}<button class="btn btn-ghost" onclick={() => { fWh = ''; fStatus = ''; fKind = ''; fCust = ''; }}>Clear</button>{/if}
-    </div>
+    <FilterBar bind:search searchLabel="Customer" placeholder="Search customer" {active} onclear={clearAll}>
+      <label class="field"><span>Warehouse</span><select class="select" value={f.values.wh} onchange={(e) => f.set('wh', e.currentTarget.value)}><option value="">All</option>{#each warehouses as w}<option value={w.id}>{destinationLabel(w.id)}</option>{/each}</select></label>
+      <label class="field"><span>Payment</span><select class="select" value={f.values.status} onchange={(e) => f.set('status', e.currentTarget.value)}><option value="">All</option><option>Paid</option><option>Part-paid</option><option>Unpaid</option></select></label>
+      <label class="field"><span>Type</span><select class="select" value={f.values.kind} onchange={(e) => f.set('kind', e.currentTarget.value)}><option value="">All</option><option>Cash</option><option>Credit</option><option>Batch</option></select></label>
+      {#snippet end()}{#if list}<span class="caption">{fmtNum(rows.length)} sales</span>{/if}{/snippet}
+    </FilterBar>
     <div class="card flush table-wrap">
       <table class="table">
         <thead><tr><CompanyCell head /><th>Sale No.</th><th>Date</th><th>Warehouse</th><th>Customer</th><th>Type</th><th>Brand · Package</th><th class="num">Qty</th><th class="num">Amount (USD)</th><th class="num">Paid</th><th>Status</th></tr></thead>
@@ -135,11 +131,11 @@
               <td class="num">{fmtNum(s.paid, 2)}</td>
               <td><Badge status={s.status} /></td>
             </tr>
-          {:else}{#if list}<tr><td colspan="10" class="empty">No sales match these filters</td></tr>{/if}{/each}
+          {:else}{#if list}<tr><td colspan="11"><EmptyState title="No sales match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState></td></tr>{/if}{/each}
         </tbody>
       </table>
     </div>
-    <p class="caption" style="margin-top:var(--space-2)">{#if rows.length > 100}Showing latest 100 of {fmtNum(rows.length)} — server-side paging in the real build. {/if}Returns and credit notes that restore stock come in the follow-on release.</p>
+    {#if rows.length > 100}<p class="caption" style="margin-top:var(--space-2)">Showing the latest 100 of {fmtNum(rows.length)}.</p>{/if}
   </div>
 
   <aside class="card flush">
@@ -149,8 +145,6 @@
     </ul>
   </aside>
 </div>
-
-{/if}
 
 <dialog class="sheet" bind:this={dialog} style="width:min(720px,calc(100vw - 32px))">
   <form class="body stack" onsubmit={save}>

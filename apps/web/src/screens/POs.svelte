@@ -1,69 +1,75 @@
 <script lang="ts">
-  // docs/09 §4: the one Purchase orders area — list (search, filters, status chips), create, view, update, delete.
+  // docs/09 §4 + docs/17 Phase 1: the Purchase orders work page — opens on the order list with a summary strip (orders by
+  // stage, from the metric registry), filters in the address, and one "Create purchase order" action. Charts: Home · Purchasing.
+  // Needs-action default (no filter in the address): directors with approvals on → Awaiting approval; planners → Not sent.
   import { watch } from '../lib/load.svelte';
   import ErrorState from '../components/ErrorState.svelte';
-  import RecordFor from '../components/RecordFor.svelte';
-  import { loading, lookup, plans, pos, ref, shipments, type Loading, type Plan, type PoStage, type PurchaseOrder, type Shipment, type User } from '@btw/api';
+  import { loading, lookup, pos, ref, shipments, type Loading, type PoStage, type PurchaseOrder, type Shipment, type User } from '@btw/api';
   import { Badge, fmtDate, fmtMoney, fmtNum, router } from '@btw/ui';
-  import Plus from '@lucide/svelte/icons/plus';
-  import { untrack } from 'svelte';
-  import PageTabs from '../components/PageTabs.svelte';
-  import POsOverview from '../components/overview/POsOverview.svelte';
-  import { currentTab, qp } from '../lib/tab';
+  import SearchX from '@lucide/svelte/icons/search-x';
+  import { PageHeader, SummaryStrip, FilterBar, ActionInCompany, EmptyState, queryFilters, readQuery, type SummaryTile } from '../components/page';
   import { labelTone, poApprovals, revTag, STAGES, stageLabel } from '../lib/orders';
+  import { poStageTiles, infoOf } from '../lib/tiles';
   import { seesPrices } from '@btw/api/access';
   let { user }: { params?: any; user: User } = $props();
   const money = $derived(seesPrices(user)); // loaders and receivers: no prices (docs/12 A-04)
-  const tab = currentTab();
   const approvals = poApprovals();
-  const canCreate = $derived(user.roles.some((r) => r === "planner" || r === "director" || r === "admin"));
+  const canCreate = $derived(user.roles.some((r) => r === 'planner' || r === 'director' || r === 'admin'));
   let list = $state<PurchaseOrder[] | null>(null);
-  let planList = $state<Plan[]>([]);
   let loads = $state<Loading[]>([]);
   let ships = $state<Shipment[]>([]);
-  async function load() { [list, planList, loads, ships] = await Promise.all([pos.list({ all: true }), plans.list(), loading.list().catch(() => []), shipments.list().catch(() => [])]); }
+  async function load() { [list, loads, ships] = await Promise.all([pos.list({ all: true }), loading.list().catch(() => []), shipments.list().catch(() => [])]); }
   const w = watch(load);
-  // Directors land on what needs them when approval is on
-  let stage = $state<PoStage | ''>(untrack(() => (qp('stage') as PoStage) || (approvals && user.roles.includes('director') && !user.roles.includes('planner') ? 'Awaiting approval' : '')));
-  let entity = $state(qp('entity'));
-  let supplier = $state(qp('supplier'));
-  let q = $state(qp('q'));
+
+  const f = queryFilters({ stage: '', entity: '', supplier: '', q: '' });
+  let search = $state(f.values.q);
+  $effect(() => { if (search !== f.values.q) f.set('q', search); });
   const live = $derived((list ?? []).filter((p) => p.status !== 'Deleted'));
-  const count = (s: PoStage | '') => (s ? (list ?? []).filter((p) => p.stage === s).length : live.length);
+  // docs/18: the strip counts are the registry's "orders at a stage" (latest revision, not deleted)
+  const fig = $derived(poStageTiles(list ?? []));
+  const atStage = (p: PurchaseOrder, s: string) => p.stage === s && !p.supersededById;
+  const tiles = $derived<SummaryTile[]>([
+    ...(approvals ? [{ key: 'Awaiting approval', label: 'Awaiting approval', value: list ? fig.awaiting : null, status: fig.awaiting ? 'warn' : undefined, statusLabel: fig.awaiting ? 'Needs a director' : undefined, info: infoOf('poAwaiting') }] : []),
+    { key: 'Created', label: 'Not sent', value: list ? fig.notSent : null, sub: 'to the supplier', info: infoOf('poNotSent') },
+    ...(approvals ? [] : [{ key: 'Sent', label: 'Sent, waiting to load', value: list ? fig.sent : null, info: infoOf('poSent') }]),
+    { key: 'Loading', label: 'Loading', value: list ? fig.loading : null, info: infoOf('poLoading') },
+    { key: 'On the road', label: 'On the road', value: list ? fig.onRoad : null, sub: 'orders', info: infoOf('poOnRoad') },
+  ]);
+  // open on what needs this person (only when nothing is chosen in the address)
+  let defaulted = false;
+  $effect(() => {
+    if (defaulted || !list) return;
+    defaulted = true;
+    if (readQuery('stage') || readQuery('q') || readQuery('entity') || readQuery('supplier')) return;
+    if (approvals && user.roles.includes('director') && fig.awaiting) f.set('stage', 'Awaiting approval');
+    else if (user.roles.includes('planner') && fig.notSent) f.set('stage', 'Created');
+  });
+  const stage = $derived(f.values.stage as PoStage | '');
+  const tileKeys = $derived(tiles.map((t) => t.key));
   const rows = $derived((stage === 'Deleted' ? list ?? [] : live).filter((p) =>
-    (!stage || p.stage === stage) && (!entity || p.entityId === entity) && (!supplier || p.supplierId === supplier) &&
-    (!q || `${p.ref} ${p.baseRef ?? ''} ${p.title}`.toLowerCase().includes(q.toLowerCase()))));
+    (!stage || (tileKeys.includes(stage) ? atStage(p, stage) : p.stage === stage)) && (!f.values.entity || p.entityId === f.values.entity) && (!f.values.supplier || p.supplierId === f.values.supplier) &&
+    (!f.values.q || `${p.ref} ${p.baseRef ?? ''} ${p.title}`.toLowerCase().includes(f.values.q.toLowerCase()))));
   const r = ref();
   function progress(po: PurchaseOrder) {
     const ld = loads.filter((l) => l.poId === po.id), sh = ships.filter((s) => s.poId === po.id && !s.fromWarehouseId);
     return { trucks: ld.length || po.trucks || 0, loaded: ld.filter((l) => l.status === 'Loaded').length, delivered: sh.filter((s) => s.status === 'Acknowledged').length };
   }
+  const active = $derived((f.values.entity ? 1 : 0) + (f.values.supplier ? 1 : 0) + (stage ? 1 : 0));
+  function clearAll() { f.clear(); search = ''; }
 </script>
 
-<div class="page-head">
-  <div><div class="overline crumb">Procurement</div><h1>Purchase orders</h1>
-    <p class="muted small" style="max-width:70ch">A purchase order is created, updated or deleted — never drafted. {approvals ? 'A director approves each new PO before it goes to the supplier.' : 'A new PO is approved automatically.'} An update or a difference at loading saves the next revision (…-rev001); the original and every version stay viewable.</p></div>
-  {#if canCreate}<RecordFor what="a purchase order"><a class="btn btn-primary" href="#/pos/new"><Plus size={16} />Create purchase order</a></RecordFor>{/if}
-</div>
+<PageHeader overline="Procurement" title="Purchase orders" description="Orders to suppliers, from creation to delivery." analysis="purchasing"
+  info="A purchase order is created, updated or deleted — never drafted. {approvals ? 'A director approves each new order before it goes to the supplier.' : 'A new order is approved automatically.'} An update, or a difference at loading, saves the next revision (…-rev001); the original and every version stay viewable on the order.">
+  {#snippet primary()}<ActionInCompany label="Create purchase order" what="purchase order" href="#/pos/new" when={canCreate} />{/snippet}
+</PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
-<PageTabs base="/pos" current={tab} listLabel="Order list" />
-
-{#if tab === 'overview'}
-  {#if !list}<div class="tiles">{#each Array(4) as _}<div class="card"><div class="skeleton" style="height:56px"></div></div>{/each}</div>
-  {:else}<POsOverview list={live} plans={planList} {loads} {ships} />{/if}
-{:else}
-
-<div class="tabs chips" role="tablist" aria-label="Status">
-  <button role="tab" aria-selected={stage === ''} onclick={() => (stage = '')}>All <span class="caption">{count('')}</span></button>
-  {#each STAGES() as s}
-    <button role="tab" aria-selected={stage === s} onclick={() => (stage = s)}>{stageLabel(s)} <span class="caption">{count(s)}</span></button>
-  {/each}
-</div>
-<div class="filters">
-  <label class="field"><span>Search</span><input class="input" type="search" bind:value={q} placeholder="Reference or title" /></label>
-  <label class="field"><span>Ordering company</span><select class="select" bind:value={entity}><option value="">All companies</option>{#each r.entities as e}<option value={e.id}>{e.shortName || e.code}</option>{/each}</select></label>
-  <label class="field"><span>Supplier</span><select class="select" bind:value={supplier}><option value="">All suppliers</option>{#each r.suppliers as s}<option value={s.id}>{s.code} {s.city}</option>{/each}</select></label>
-</div>
+<SummaryStrip {tiles} bind:value={f.values.stage} param="stage" label="Purchase orders by stage" />
+<FilterBar bind:search placeholder="Reference or title" {active} onclear={clearAll}>
+  <label class="field"><span>Status</span><select class="select" value={stage} onchange={(e) => f.set('stage', e.currentTarget.value)}><option value="">All (not deleted)</option>{#each STAGES() as s}<option value={s}>{stageLabel(s)}</option>{/each}</select></label>
+  <label class="field"><span>Ordering company</span><select class="select" value={f.values.entity} onchange={(e) => f.set('entity', e.currentTarget.value)}><option value="">All companies</option>{#each r.entities as e}<option value={e.id}>{e.shortName || e.code}</option>{/each}</select></label>
+  <label class="field"><span>Supplier</span><select class="select" value={f.values.supplier} onchange={(e) => f.set('supplier', e.currentTarget.value)}><option value="">All suppliers</option>{#each r.suppliers as s}<option value={s.id}>{s.code} {s.city}</option>{/each}</select></label>
+  {#snippet end()}{#if list}<span class="caption">{rows.length} of {live.length} orders</span>{/if}{/snippet}
+</FilterBar>
 
 <div class="card flush table-wrap desktop">
   <table class="table">
@@ -85,7 +91,7 @@
           <td><Badge tone={labelTone(po.stage ?? '')}>{stageLabel(po.stage)}</Badge></td>
           <td>{#if po.status === 'Issued'}<span class="small">{pr.loaded}/{pr.trucks} loaded{#if pr.delivered} · {pr.delivered} delivered{/if}</span>{/if}</td>
         </tr>
-      {:else}{#if list}<tr><td colspan="10" class="empty">{stage || q || entity || supplier ? 'No purchase orders match.' : 'No purchase orders yet — create one.'}</td></tr>{/if}{/each}
+      {:else}{#if list}<tr><td colspan="10">{#if stage || f.values.q || f.values.entity || f.values.supplier}<EmptyState title="No purchase orders match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState>{:else}<EmptyState title="No purchase orders yet" hint="Create one with the button above." compact />{/if}</td></tr>{/if}{/each}
     </tbody>
   </table>
 </div>
@@ -98,13 +104,10 @@
       <div>{po.title || '—'} · <span class="muted">{lookup.supplier(po.supplierId)?.code} {lookup.supplier(po.supplierId)?.city}</span></div>
       <div class="row between"><span class="small">{po.trucks} trucks · {fmtNum(po.cases ?? 0)} cases</span>{#if money && po.amount !== undefined}<strong class="num">{fmtMoney(po.amount, po.currency)}</strong>{/if}</div>
     </a></li>
-  {:else}{#if list}<li class="empty">No purchase orders match.</li>{/if}{/each}
+  {:else}{#if list}<li><EmptyState title="No purchase orders match" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState></li>{/if}{/each}
 </ul>
 
-{/if}
-
 <style>
-  .chips { flex-wrap: wrap; }
   tr.deleted td { color: var(--text-muted); }
   tr.deleted .mono a { text-decoration: line-through; }
   .cards { list-style: none; margin: 0; padding: 0; display: none; flex-direction: column; gap: var(--space-3); }

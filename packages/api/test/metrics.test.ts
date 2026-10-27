@@ -1,10 +1,12 @@
 // docs/18 (CHECKLIST F-0b, docs/17 F3): one metric registry — every shared figure computed through each surface's own code
 // path (Home dashboards builders, the web page tile helpers, the team app helpers, the summary call, the reports) for
 // several scopes (Group, BTW, Kabonge, Testfie, Asie) must be identical. Plus the registry itself and the definitions.
-import * as MX from '../src/metrics';
+import * as MXF from '../src/metrics';
+import * as REG from '../src/metric-registry';
+const MX = { ...MXF, ...REG };
 import { deskKpis, truckDesk } from '../src/trucks';
 import { feesConfig } from '../src/money';
-import { feeTiles, inventoryTiles, poTiles, salesTiles, shipmentTiles, tripMoneyTiles } from '../../../apps/web/src/lib/tiles';
+import { expenseTiles, feeTiles, inventoryTiles, planTiles, poStageTiles, poTiles, queueTiles, reexportTiles, salesTiles, shipmentTiles, tripMoneyTiles } from '../../../apps/web/src/lib/tiles';
 import { directorFigures, truckFigures } from '../../../apps/field/src/team/figures';
 
 let fails = 0, checks = 0;
@@ -83,7 +85,7 @@ for (const [who, id, entity] of [['Group (Daniel)', 'u-daniel', null], ['BTW (Da
     const rep = await api.reports.sales({ from: monthFrom, to: monthTo });
     same(`${who} · sales (month to date)`, { 'Sales page': salesTiles(rep).sales, 'Home Today': today?.sales.value, 'Home exec': ek('sales'), 'phone director': phone.sales });
     same(`${who} · owed by customers`, { 'Sales page': salesTiles(rep).owed, 'Home Today': today?.cash.value, 'Home customer balances': (dash?.results['customer-balances']?.data as { total: number } | undefined)?.total, summary: sum?.unpaidBalance });
-    same(`${who} · overdue`, { 'Home Today': today?.cash.overdue, 'Home customer balances': (dash?.results['customer-balances']?.data as { overdue: number } | undefined)?.overdue });
+    same(`${who} · overdue`, { 'Sales page': salesTiles(rep).overdue, 'Home Today': today?.cash.overdue, 'Home customer balances': (dash?.results['customer-balances']?.data as { overdue: number } | undefined)?.overdue });
     same(`${who} · profit (month to date)`, { registry: reg.profit, 'Home Today': today?.profit.value, 'Home exec': ek('profit'), 'phone director': phone.profit });
     same(`${who} · margin (month to date)`, { registry: reg.margin, 'Home Today': today?.profit.margin, 'Home exec': ek('margin'), 'phone director': phone.margin });
   }
@@ -95,6 +97,15 @@ for (const [who, id, entity] of [['Group (Daniel)', 'u-daniel', null], ['BTW (Da
     same(`${who} · unpaid over ${cfg.amberDays} d`, { registry: reg.feesAmber, 'Transport fees page': ft.amber, 'phone': dir ? phone.feesAmber?.length : MX.feesOlderThan(fees, cfg.amberDays).length });
     same(`${who} · unpaid over ${cfg.redDays} d`, { registry: reg.feesRed, 'Transport fees page': ft.red, 'phone': dir ? phone.feesRed?.length : MX.feesOlderThan(fees, cfg.redDays).length });
   }
+  // ---- docs/17 Phase 1: the work-page summary strips (page tile helper = registry, per scope)
+  const [plansL, pv, rx, exp] = await Promise.all([settle(() => api.periodPlans.list()), settle(() => api.reports.plannedVsActual(api.reports.resolvePeriod('this-quarter', now) as never)), settle(() => api.reexports.list()), settle(() => api.warehouse.expenses({}))]);
+  const reg2 = MX.computeAll({ now, orders: orders ?? undefined, plans: plansL ?? undefined, pv: pv?.measures ?? null, waiting: waiting ?? undefined, loaded: loads ?? undefined, reexports: rx ?? undefined, expenses: exp ?? undefined });
+  if (orders) { const t = poStageTiles(orders); same(`${who} · POs not sent`, { registry: reg2.poNotSent, 'POs strip': t.notSent }); same(`${who} · POs loading`, { registry: reg2.poLoading, 'POs strip': t.loading }); same(`${who} · POs on the road`, { registry: reg2.poOnRoad, 'POs strip': t.onRoad }); }
+  if (plansL) { const t = planTiles(plansL, pv?.measures ?? null, now); same(`${who} · plans in force`, { registry: reg2.plansInForce, 'Period plans strip': t.inForce }); same(`${who} · plans upcoming`, { registry: reg2.plansUpcoming, 'Period plans strip': t.upcoming }); if (t.used !== null) same(`${who} · plan used`, { registry: reg2.planUsed, 'Period plans strip': t.used }); }
+  if (waiting && loads) { const t = queueTiles(waiting, loads, orders, now); same(`${who} · trucks waiting`, { registry: reg2.trucksWaiting, 'Queues strip': t.waiting }); same(`${who} · loaded today`, { registry: reg2.loadedToday, 'Queues strip': t.loadedToday }); same(`${who} · trucks to load (queues)`, { registry: reg.trucksToLoad, 'Queues strip': t.toLoad }); }
+  if (rx) { const t = reexportTiles(rx); same(`${who} · re-exports open`, { registry: reg2.rxOpen, 'Re-exports strip': t.open }); same(`${who} · re-exports delivered`, { registry: reg2.rxDelivered, 'Re-exports strip': t.delivered }); }
+  if (exp) { const t = expenseTiles(exp, now); same(`${who} · expenses this month`, { registry: reg2.expensesMonth, 'Warehouse expenses strip': t.month }); same(`${who} · expenses last month`, { registry: reg2.expensesLastMonth, 'Warehouse expenses strip': t.last }); }
+
 }
 
 // ---- docs/17 F3: the two disagreements that started this ------------------------------------------------------------------

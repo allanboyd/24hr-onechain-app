@@ -22,6 +22,7 @@
     "./performance": "./src/performance.ts",
     "./dashboards": "./src/dashboards.ts",
     "./metrics": "./src/metrics.ts",
+    "./metric-registry": "./src/metric-registry.ts",
     "./landed": "./src/landed.ts"
   },
   "sideEffects": [

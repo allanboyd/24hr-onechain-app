@@ -53,7 +53,7 @@
     <StockCoverBands days={(d.items ?? []).map((x: any) => x.cover)} selected={band?.label ?? null} onselect={(b) => (band = b)} />
   </DashboardPanel>
   <DashboardPanel span={span ?? 1} title="Stock on hand against minimum" subtitle={band ? `band ${band.label}` : 'lowest cover first'} {...fr} rows={() => [['Product', 'Held (cases)', 'Moved out', 'Damaged', 'Short', 'Sold 30 days', 'Days of cover', 'Minimum', 'Slow above', 'State'], ...(d.items ?? []).map((x: any) => [x.label, x.held, x.movedOut, x.damaged, x.short, x.sold30, x.cover ?? 'No data yet', x.min, x.max, coverStatus({ label: x.label, days: x.cover, min: x.min, max: x.max }).label])]} filename="stock-on-hand" empty={!coverItems.length}>
-    <StockCoverBars label="Days of stock cover against minimum by product" items={coverItems} onselect={() => go('#/warehouse-stock')} />
+    <StockCoverBars label="Days of stock cover against minimum by product" items={coverItems} onselect={() => go('#/stock?show=attention')} />
     <BarChart label="Cases held, moved out and damaged by product (30 days)" horizontal stacked categories={(d.items ?? []).slice(0, 10).map((x: any) => x.label)} series={[{ name: 'Held', values: (d.items ?? []).slice(0, 10).map((x: any) => Math.max(0, x.held)) }, { name: 'Moved out / sent on', values: (d.items ?? []).slice(0, 10).map((x: any) => x.movedOut), slot: 2 }, { name: 'Damaged', values: (d.items ?? []).slice(0, 10).map((x: any) => x.damaged), slot: 3 }]} format={(n) => n0(n)} />
   </DashboardPanel>
 {:else if key === 'stock-in-transit'}

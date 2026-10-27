@@ -483,7 +483,7 @@ export const finance = {
     const status = amountUsd > threshold ? 'Pending approval' as const : 'Paid' as const;
     const p = { id: m.uid('pay'), entityId: sh!.entityId, shipmentId, costId, amount, at: new Date().toISOString(), reference, status, fxRate: rate, amountUsd };
     m.db.payments.push(p); log('POST', '/finance/payments', { recordType: 'payment', recordId: p.id, entityId: p.entityId, summary: `${reference} · ${cost.currency} ${amount}${note}` });
-    if (status === 'Pending approval') m.notify('Payment needs approval', `USD ${amountUsd} · ${reference}`, '#/finance', ['director'], sh!.entityId);
+    if (status === 'Pending approval') m.notify('Payment needs approval', `USD ${amountUsd} · ${reference}`, '#/transport-costs?tab=trips', ['director'], sh!.entityId);
     return commit(p);
   },
   /** docs/14 B-04: each trip's transport fee — paid / part paid / unpaid against references, with its age (Testfie, directors). */
@@ -558,7 +558,7 @@ export const queue = {
     const ids = R.reorderQueue(q.map((w) => w.id), entryId, position);
     ids.forEach((id, k) => (m.db.waiting.find((w) => w.id === id)!.position = k + 1));
     if (e.position !== before) log('POST', `/waiting/${entryId}/move`, { recordType: 'waiting', recordId: entryId, entityId: e.entityId, before: { position: before }, after: { position: e.position } });
-    if (e.position !== before) m.notify('Loading queue changed', `${seed.suppliers.find((x) => x.id === e.loadingPointId)?.code ?? ''}: ${m.truckReg(e.truckId)} moved from #${before} to #${e.position} by ${current?.name ?? ''}`, `#/loading?lp=${e.loadingPointId}`, ['loader'], e.entityId);
+    if (e.position !== before) m.notify('Loading queue changed', `${seed.suppliers.find((x) => x.id === e.loadingPointId)?.code ?? ''}: ${m.truckReg(e.truckId)} moved from #${before} to #${e.position} by ${current?.name ?? ''}`, `#/trucks?tab=queues&lp=${e.loadingPointId}`, ['loader'], e.entityId);
     return commit(e);
   },
   /** Take a truck out of the queue, with the reason the loader sees. */
@@ -571,7 +571,7 @@ export const queue = {
     m.db.waiting = m.db.waiting.filter((w) => w.id !== entryId);
     log('DELETE', `/waiting/${entryId}`, { recordType: 'waiting', recordId: entryId, entityId: e.entityId, summary: reason?.trim() || 'removed' });
     queueAt(e.loadingPointId).forEach((w, k) => (w.position = k + 1));
-    m.notify('Truck removed from the queue', `${seed.suppliers.find((x) => x.id === e.loadingPointId)?.code ?? ''}: ${m.truckReg(e.truckId)} removed by ${current?.name ?? ''}${reason?.trim() ? ` — ${reason.trim()}` : ''}`, `#/loading?lp=${e.loadingPointId}`, ['loader'], e.entityId);
+    m.notify('Truck removed from the queue', `${seed.suppliers.find((x) => x.id === e.loadingPointId)?.code ?? ''}: ${m.truckReg(e.truckId)} removed by ${current?.name ?? ''}${reason?.trim() ? ` — ${reason.trim()}` : ''}`, `#/trucks?tab=queues&lp=${e.loadingPointId}`, ['loader'], e.entityId);
     return commit(true);
   },
   /** Register a non-regular (market) truck + driver on the spot and queue it (§17.4: company, truck, trailer, driver). */

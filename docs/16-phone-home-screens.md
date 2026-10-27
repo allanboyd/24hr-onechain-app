@@ -38,3 +38,6 @@ Phone entry unchanged: **79.4 KB** gzipped (budget 90 KB). New lazy chunks (gzip
 
 - **API gaps (none blocking):** no history of "delayed trucks" or "stock value" to compare with a previous period (shown without a change); trucks on the road "a week ago" is reconstructed from shipment dates. A `GET /v1/dashboards/:key` endpoint (web work) could later replace the phone-side derivations.
 - **To confirm:** the driver silence thresholds (12 h amber, 24 h red); whether Yonas should also see re-exports to Juba on his strip (today: Asie only).
+
+## 6. Page design review (27 Oct 2026)
+Sections renamed to the new web pages ([doc 17 §7](17-page-design-review.md)): *Loading queues* → **Truck desk queues**, *Payments* → **Transport costs** (bottom tab still *Money*), *Tracking* → **Shipments map**; *Stock* unchanged. Links from notifications and dashboards that use the new web routes open the right screen: `#/trucks?tab=queues` → Queue, `#/transport-costs` (and the old `#/transport-fees`, `#/finance`) → Money, `#/stock` (and `#/warehouse-stock`) → Stock, `#/dashboards/…` → Reports. Figures already come from the metric registry ([doc 18](18-metrics.md)). The *All reports* web button opens Home · Sales.

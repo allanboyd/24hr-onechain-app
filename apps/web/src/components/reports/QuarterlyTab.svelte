@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { reports, type QuarterlyReport, type ReportFilter } from '@btw/api';
+  import { lookup, reports, type QuarterlyReport, type ReportFilter } from '@btw/api';
   import { BarChart, ChartCard, StatTile, downloadCsv, usd } from '../charts';
   import { drill } from '../../lib/tab';
   import { watch } from '../../lib/load.svelte';
@@ -66,9 +66,9 @@
         <h3>Brands</h3>
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Top by revenue</th><th class="num">Revenue</th><th class="num">vs prev.</th><th class="num">Margin</th></tr></thead>
-          <tbody>{#each r.topBrands as b}<tr class="clickable" onclick={() => drill('/analytics', { brand: b.productId })}><td>{b.brand} <span class="caption">{b.pack}</span></td><td class="num">{usd(b.revenue)}</td><td class="num {tone(b.change === null ? null : b.change > 0)}">{b.change === null ? '—' : pct(b.change, 1)}</td><td class="num">{pct(b.marginPct, 1)}</td></tr>{/each}</tbody>
+          <tbody>{#each r.topBrands as b}<tr class="clickable" onclick={() => drill('/stock', { q: lookup.product(b.productId)?.sku })}><td>{b.brand} <span class="caption">{b.pack}</span></td><td class="num">{usd(b.revenue)}</td><td class="num {tone(b.change === null ? null : b.change > 0)}">{b.change === null ? '—' : pct(b.change, 1)}</td><td class="num">{pct(b.marginPct, 1)}</td></tr>{/each}</tbody>
           <thead><tr><th>Weakest change</th><th class="num">Revenue</th><th class="num">vs prev.</th><th class="num">Margin</th></tr></thead>
-          <tbody>{#each r.bottomBrands as b}<tr class="clickable" onclick={() => drill('/analytics', { brand: b.productId })}><td>{b.brand} <span class="caption">{b.pack}</span></td><td class="num">{usd(b.revenue)}</td><td class="num {tone(b.change === null ? null : b.change > 0)}">{b.change === null ? '—' : pct(b.change, 1)}</td><td class="num">{pct(b.marginPct, 1)}</td></tr>{/each}</tbody>
+          <tbody>{#each r.bottomBrands as b}<tr class="clickable" onclick={() => drill('/stock', { q: lookup.product(b.productId)?.sku })}><td>{b.brand} <span class="caption">{b.pack}</span></td><td class="num">{usd(b.revenue)}</td><td class="num {tone(b.change === null ? null : b.change > 0)}">{b.change === null ? '—' : pct(b.change, 1)}</td><td class="num">{pct(b.marginPct, 1)}</td></tr>{/each}</tbody>
         </table></div>
       </section>
     </div>

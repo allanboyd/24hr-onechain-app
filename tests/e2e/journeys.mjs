@@ -32,6 +32,7 @@ export async function roleGuards(ctx) {
   await step('loading-point user on the web: loading allowed, users/finance blocked', lo, async () => {
     await webSignIn(lo, PH.joel);
     await webGo(lo, '/loading', 1500); must(/Loading/i.test(await text(lo.page)), 'loading screen missing');
+    must(lo.page.url().includes('#/trucks?tab=queues') && !/Not available for your role/.test(await text(lo.page)), 'old /loading link did not open the Truck desk queues for the loader');
     for (const hash of ['/users', '/finance', '/pos/new']) {
       await webGo(lo, hash, 900);
       must(/no access|not available|isn.t available for your role|Only planners and directors/i.test(await text(lo.page)), `loader reached ${hash}`);
@@ -254,7 +255,7 @@ export async function fullChain(ctx) {
     await page.fill('dialog[open] textarea', 'E2E: raised by mistake');
     await page.click('dialog[open] button:has-text("Delete purchase order")'); await sleep(2000);
     must(/Deleted/.test(await text(page)) && /raised by mistake/.test(await text(page)), 'PO not shown as deleted with its reason');
-    await webGo(planner, '/pos?tab=list', 1500);
+    await webGo(planner, '/pos', 1500);
     must(!(await text(page)).includes(ref), 'deleted PO still in the default list');
     return `${ref} → ${ref}-rev001 → deleted (${id})`;
   });
@@ -347,7 +348,8 @@ export async function fullChain(ctx) {
     await webGo(director, `/shipments/${ctx.chain.shipmentId}`, 2000);
     const t = await text(director.page);
     must(/driver tap/.test(t) && /SMS/.test(t), 'timeline sources missing');
-    await webGo(director, '/tracking', 3000);
+    await webGo(director, '/tracking', 3000); // old link → Shipments map view (docs/17 Phase 2)
+    must(director.page.url().includes('#/shipments?view=map') && await director.page.locator('.leaflet-container').count(), 'old /tracking link did not open the Shipments map view');
   });
 
   // Receiver
@@ -394,12 +396,15 @@ export async function fullChain(ctx) {
     await webGo(director, '/notifications', 1500); must(/discrepanc/i.test(await text(page)), 'no discrepancy notification');
     const after = await kglTotals();
     must(after.received - stockBefore.received === 1800 && after.damaged - stockBefore.damaged === 6, `stock delta received ${after.received - stockBefore.received} damaged ${after.damaged - stockBefore.damaged}`);
-    await webGo(director, '/inventory', 1500);
+    await webGo(director, '/inventory', 1500); // old link → Stock
+    must(page.url().includes('#/stock') && await page.locator('.strip[role=group]').count(), 'old /inventory link did not open Stock with its summary strip');
     await webGo(director, `/shipments/${ctx.chain.shipmentId}`, 1800); must(/Agreed transport USD 1,650/.test(await text(page)), 'agreed USD 1,650 not on the trip for the director');
     const trip = (await apiGet(token, '/finance/trips')).find((t) => t.shipment?.id === ctx.chain.shipmentId);
     must(trip && trip.agreedRecorded !== false && Math.round(trip.transport) === 1650, `finance trip transport ${trip?.transport} recorded ${trip?.agreedRecorded}`);
     await webGo(director, '/finance', 1800); must(!(await page.locator('.err[role=alert]').count()), 'finance error state');
+    must(page.url().includes('#/transport-costs?tab=trips'), `old /finance link landed on ${page.url()}`);
     await webGo(director, '/analytics', 2000); must(!(await page.locator('.err[role=alert]').count()), 'analytics error state');
+    must(page.url().includes('#/dashboards/warehouse') && /Sales velocity/.test(await text(page)), 'old /analytics link did not open Home · Warehouse with Sales velocity');
     const sh = (await apiGet(token, '/shipments')).find((s) => s.id === ctx.chain.shipmentId); must(sh.status === 'Acknowledged', `shipment ${sh.status}`);
   });
   await joel.ctx.close(); await planner.ctx.close();
@@ -614,7 +619,7 @@ async function focusVisible(page, selector, maxTabs = 40) {
   }
   return null;
 }
-const WEB_PAGES = ['/', '/pos', '/pos/new', '/pos/po-1', '/pos/po-1/edit', '/loading', '/shipments', '/tracking', '/inventory', '/sales', '/finance', '/analytics', '/master', '/notifications', '/users'];
+const WEB_PAGES = ['/', '/pos', '/pos/new', '/pos/po-1', '/pos/po-1/edit', '/period-plans', '/trucks', '/trucks?tab=queues', '/shipments', '/shipments?view=map', '/stock', '/sales', '/transport-costs', '/transport-costs?tab=trips', '/dashboards/warehouse', '/master', '/notifications', '/users']; // docs/17: the new pages (old routes are covered by the redirect steps)
 export async function layoutSweep() {
   startJourney('6 · Layout, errors and keyboard focus on every page');
   for (const [vw, viewport] of [['1440', VIEW.desktop], ['1024', VIEW.laptop], ['390', VIEW.phone]]) {
@@ -627,7 +632,7 @@ export async function layoutSweep() {
     for (const pg of [...WEB_PAGES, ...(vw === '1440' ? ['/integrations'] : [])]) {
       if (pg === '/integrations') await webSignIn(p, PH.admin);
       await step(`web @${vw} ${pg}`, p, async () => {
-        await webGo(p, pg, pg === '/tracking' ? 3000 : 1500);
+        await webGo(p, pg, pg.includes('view=map') || pg.startsWith('/dashboards') ? 3000 : 1500);
         const o = await overflow(p.page); must(!o.over, `page ${o.width}px wide in ${o.viewport}px: ${o.culprits.join(', ')}`);
         must(!(await p.page.locator('.err[role=alert]').count()), 'error state shown');
       });

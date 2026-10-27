@@ -128,7 +128,7 @@
       <div class="row between"><span class="muted">Planned cases</span><strong class="num">{fmtNum(totals.cases)}</strong></div>
       <div class="row between"><span class="muted">Planned value</span><strong class="num">{fmtMoney(totals.value, 'USD')}</strong></div>
       <div class="row between"><span class="muted">Months</span><span>{months.length}</span></div>
-      {#if plan.status === 'Active'}<a class="small" href="#/reports?r=pv">Planned vs actual →</a>{/if}
+      {#if plan.status === 'Active'}<a class="small" href="#/dashboards/purchasing">Planned vs actual →</a>{/if}
     </section>
   </div>
 
