@@ -36,8 +36,13 @@
 </script>
 
 <div class="modes" role="tablist" aria-label="Period mode">
-  <button role="tab" aria-selected={mode === 'plan'} onclick={() => (mode = 'plan')}><b>Plan a period</b><span>What will we need, and is it already planned?</span></button>
-  {#if canCheck}<button role="tab" aria-selected={mode === 'check'} onclick={() => (mode = 'check')}><b>Check a period</b><span>Was everything captured properly?</span></button>{/if}
+  <!-- radio-style cards: the chosen one is filled, ticked and labelled "Selected" so it can't be missed -->
+  <button role="tab" aria-selected={mode === 'plan'} onclick={() => (mode = 'plan')}>
+    <i class="dot" aria-hidden="true"></i><span class="txt"><b>Plan a period</b><span>What will we need, and is it already planned?</span></span>{#if mode === 'plan'}<em>Selected</em>{/if}
+  </button>
+  {#if canCheck}<button role="tab" aria-selected={mode === 'check'} onclick={() => (mode = 'check')}>
+    <i class="dot" aria-hidden="true"></i><span class="txt"><b>Check a period</b><span>Was everything captured properly?</span></span>{#if mode === 'check'}<em>Selected</em>{/if}
+  </button>{/if}
 </div>
 
 {#if mode === 'plan'}
@@ -117,9 +122,17 @@
 
 <style>
   .modes { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); margin-bottom: var(--space-4); }
-  .modes button { text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4); cursor: pointer; display: flex; flex-direction: column; gap: 2px; color: var(--text); font: inherit; }
-  .modes button span { color: var(--text-muted); font-size: var(--fs-body-sm); }
-  .modes button[aria-selected='true'] { border-color: var(--primary); box-shadow: inset 0 -3px 0 var(--accent); }
+  .modes button { text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4); cursor: pointer; display: flex; align-items: center; gap: var(--space-3); color: var(--text-muted); font: inherit; transition: background .15s, border-color .15s; }
+  .modes button:hover { border-color: var(--border-strong); background: var(--surface-sunken); }
+  .modes .txt { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+  .modes .txt span { font-size: var(--fs-body-sm); }
+  .modes .dot { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--border-strong); background: var(--surface); position: relative; }
+  .modes em { flex: none; font-style: normal; font: 600 12px var(--ff-body); color: var(--text-on-primary); background: var(--primary); padding: 3px 10px; border-radius: 999px; }
+  .modes button[aria-selected='true'] { border: 2px solid var(--primary); background: var(--primary-subtle); color: var(--text); padding: calc(var(--space-3) - 1px) calc(var(--space-4) - 1px); }
+  .modes button[aria-selected='true'] b { color: var(--primary); }
+  .modes button[aria-selected='true'] .txt span { color: var(--text); }
+  .modes button[aria-selected='true'] .dot { border-color: var(--primary); background: var(--primary); }
+  .modes button[aria-selected='true'] .dot::after { content: ''; position: absolute; left: 5px; top: 2px; width: 5px; height: 9px; border: solid var(--text-on-primary); border-width: 0 2px 2px 0; transform: rotate(45deg); }
   .gap { list-style: none; margin: var(--space-2) 0 0; padding: 0; }
   .gap li { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; border-top: 1px solid var(--border); flex-wrap: wrap; }
   .arow { all: unset; cursor: pointer; display: block; border-radius: var(--radius-sm); padding: 2px 4px; }
