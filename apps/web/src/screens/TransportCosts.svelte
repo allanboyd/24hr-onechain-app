@@ -161,11 +161,12 @@
 </PageHeader>
 <ErrorState error={wf.error ?? wt.error} onretry={() => { wf.retry(); wt.retry(); }} compact={wf.loaded || wt.loaded} />
 
-<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Transport costs summary" onchange={onStrip} allValue="all" noun="trips" total={stripTotal} shown={stripShown} {auto} labels={{ amber: `Over ${cfg.amberDays} days` }} />
-
+<!-- page order (docs/13 Selection states): header → tabs → strip → filters → list -->
 {#if tabs.length > 1}
   <Tabs label="Transport costs" {tabs} value={tab} onselect={setTab} />
 {/if}
+
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Transport costs summary" onchange={onStrip} allValue="all" noun="trips" total={stripTotal} shown={stripShown} {auto} labels={{ amber: `Over ${cfg.amberDays} days` }} />
 
 {#if tab === 'fees' && canFees}
   <Fees rows={fees} {f} amberDays={cfg.amberDays} redDays={cfg.redDays} {flagLabel} {canExpense} {canPay} onopen={openTrip} onact={act} />
