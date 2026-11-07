@@ -4,7 +4,9 @@
   // Needs-action default (no filter in the address): truck follow-up roles (Truck desk users) open on Delayed when any truck
   // is delayed; everyone else (receivers, planners) on the trucks on the road.
   import { destinationLabel } from '../lib/planning';
-  import CompanyCell from '../components/CompanyCell.svelte';
+  import CompanyMark from '../components/CompanyMark.svelte';
+  import { company, GROUP } from '../lib/company.svelte';
+  import { companyLabel } from '../lib/companies';
   import { watch } from '../lib/load.svelte';
   import ErrorState from '../components/ErrorState.svelte';
   import { lookup, ref, shipments, tracking, type Leg, type Shipment, type User } from '@btw/api';
@@ -12,8 +14,7 @@
   import Clock from '@lucide/svelte/icons/clock';
   import MapIcon from '@lucide/svelte/icons/map';
   import ListIcon from '@lucide/svelte/icons/list';
-  import SearchX from '@lucide/svelte/icons/search-x';
-  import { PageHeader, SummaryStrip, FilterBar, EmptyState, queryFilters, readQuery, type SummaryTile } from '../components/page';
+    import { PageHeader, SummaryStrip, FilterBar, DataTable, queryFilters, readQuery, ts, type Column, type SummaryTile } from '../components/page';
   import { chainOf, fromLabel } from '../lib/journey';
   import { shipmentTiles, infoOf } from '../lib/tiles';
   import { can } from '../lib/features';
@@ -68,6 +69,20 @@
       nextPlanned: next?.plannedAt,
     };
   }
+  // the list's columns (DataTable): sort values are numbers / timestamps, the cells are the snippets below the markup
+  const etaOf = (sh: Shipment) => (sh.status === 'Acknowledged' ? null : ts(shipments.eta(activeLeg(sh)).eta));
+  const lastAt = (sh: Shipment) => { const l = activeLeg(sh); const p = l.passes.filter((x) => x.arrivedAt).at(-1); return ts(p?.departedAt ?? p?.arrivedAt); };
+  const columns = $derived<Column<Shipment>[]>([
+    ...(company.active === GROUP ? [{ key: 'company', label: 'Company', value: (sh: Shipment) => companyLabel((sh as { entityId?: string }).entityId ?? ''), cell: companyCell, hideBelow: 960 }] : []),
+    { key: 'ref', label: 'Shipment', sticky: true, width: '240px', value: (sh) => sh.ref, cell: refCell },
+    { key: 'from', label: 'From', value: (sh) => fromLabel(sh), class: 'small', hideBelow: 1200 },
+    { key: 'truck', label: 'Truck', value: (sh) => lookup.truck(activeLeg(sh).truckId)?.reg, cell: truckCell },
+    { key: 'route', label: 'Route · leg', value: (sh) => lookup.route(activeLeg(sh).routeId)?.name, cell: routeCell, class: 'small', hideBelow: 960 },
+    { key: 'last', label: 'Last check-in', sortValue: lastAt, csv: (sh) => where(activeLeg(sh)).cur, cell: lastCell, class: 'small' },
+    { key: 'next', label: 'Next checkpoint', sortValue: (sh) => ts(where(activeLeg(sh)).nextPlanned), csv: (sh) => where(activeLeg(sh)).next, cell: nextCell, class: 'small' },
+    { key: 'status', label: 'Status', value: (sh) => sh.status, cell: statusCell },
+    { key: 'eta', label: 'ETA', sortValue: etaOf, csv: (sh) => (sh.status === 'Acknowledged' ? 'Delivered' : shipments.eta(activeLeg(sh)).eta), cell: etaCell },
+  ]);
 </script>
 
 <PageHeader overline="Logistics" title="Shipments" description="Every truck from loading to signed delivery." analysis="fleet"
@@ -90,61 +105,45 @@
 {#if map}
   {#await import('../components/ShipmentMap.svelte') then M}<M.default items={rows} />{/await}
 {:else}
-<div class="card flush table-wrap wide-only">
-  <table class="table">
-    <thead><tr><CompanyCell head /><th>Shipment</th><th>From</th><th>Truck</th><th>Route · leg</th><th>Last check-in</th><th>Next checkpoint</th><th>Status</th><th>ETA</th></tr></thead>
-    <tbody>
-      {#if !list}{#each Array(3) as _}<tr><td colspan="9"><div class="skeleton"></div></td></tr>{/each}{/if}
-      {#each rows as sh (sh.id)}
-        {@const leg = activeLeg(sh)}
-        {@const eta = shipments.eta(leg)}
-        {@const w = where(leg)}
-        {@const dw = tracking.dwell(leg)}
-        {@const od = tracking.overdue(leg)}
-        {@const chain = chainOf(list ?? [], sh)}
-        <tr class="clickable" onclick={() => router.go(`/shipments/${sh.id}`)}><CompanyCell entityId={(sh as { entityId?: string }).entityId} />
-          <td><a class="mono" href="#/shipments/{sh.id}">{sh.ref}</a><div class="caption">PO <span class="mono">{lookup.poRef(sh.poId)}</span> · Truck {sh.truckNo}</div><div class="caption">→ {lookup.company(sh.receivingCompanyId)?.name} · {destinationLabel(sh.warehouseId)}</div>
-            {#if chain.length > 1}<Badge tone="info">Shipment {chain.findIndex((c) => c.id === sh.id) + 1} of {chain.length}</Badge>{/if}</td>
-          <td class="small">{fromLabel(sh)}</td>
-          <td><strong class="nowrap">{lookup.truck(leg.truckId)?.reg}</strong><div class="caption">{lookup.driver(leg.driverId)?.name}</div></td>
-          <td class="small">{lookup.route(leg.routeId)?.name}<div class="caption">Leg {leg.seq} of {sh.legs.length}</div></td>
-          <td class="small">{w.cur}<div class="caption">{w.last}</div>
-            {#if dw}<Badge tone={dw.over ? 'warning' : 'neutral'}><Clock size={12} />{hoursLabel(dw.hours)} here · plan {hoursLabel(dw.plannedDwellHours)}</Badge>{/if}</td>
-          <td class="small">{w.next}{#if od}<div><Badge tone="danger">No check-in · {hoursLabel(od.hours)} overdue</Badge></div>{:else if w.nextPlanned && sh.status !== 'Acknowledged'}<div class="caption">planned {fmtDateTime(w.nextPlanned)}</div>{/if}</td>
-          <td><Badge status={sh.status} /></td>
-          <td>{#if sh.status !== 'Acknowledged'}<Badge status={eta.state}>{eta.state}{eta.state !== 'On time' ? ` ${hoursLabel(eta.hours)}` : ''}</Badge><div class="caption nowrap">{fmtDateTime(eta.eta)}</div>{:else}<span class="caption">Delivered</span>{/if}</td>
-        </tr>
-      {:else}{#if list}<tr><td colspan="9"><EmptyState title="No shipments match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState></td></tr>{/if}{/each}
-    </tbody>
-  </table>
-</div>
-
-<!-- Phone layout: one card per truck -->
-<ul class="cards narrow-only">
-  {#if !list}<li class="card"><div class="skeleton"></div></li>{/if}
-  {#each rows as sh (sh.id)}
-    {@const leg = activeLeg(sh)}
-    {@const eta = shipments.eta(leg)}
-    {@const w = where(leg)}
-    {@const od = tracking.overdue(leg)}
-    <li><a class="card" href="#/shipments/{sh.id}">
-      <div class="row between"><strong>{lookup.truck(leg.truckId)?.reg}</strong><Badge status={sh.status} /></div>
-      <div class="small">{lookup.route(leg.routeId)?.name} · leg {leg.seq}/{sh.legs.length}</div>
-      <div class="caption"><span class="mono">{sh.ref}</span> · {w.cur} · {w.last}</div>
-      <div class="row between">
-        {#if sh.status !== 'Acknowledged'}<Badge status={eta.state}>{eta.state}{eta.state !== 'On time' ? ` ${hoursLabel(eta.hours)}` : ''}</Badge><span class="caption">ETA {fmtDateTime(eta.eta)}</span>{:else}<span class="caption">Delivered</span>{/if}
-      </div>
-      {#if od}<Badge tone="danger">No check-in at {w.next} · {hoursLabel(od.hours)} overdue</Badge>{/if}
-    </a></li>
-  {:else}{#if list}<li><EmptyState title="No shipments match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState></li>{/if}{/each}
-</ul>
-
+<DataTable id="shipments" label="Shipments" noun="shipments" rows={list ? rows : null} {columns} rowKey={(sh) => sh.id} onrowclick={(sh) => router.go(`/shipments/${sh.id}`)}
+  initialSort={{ key: 'eta', dir: 'asc' }} filename="shipments" onclear={clearAll} card={phoneCard} />
 {/if}
+
+{#snippet companyCell(sh: Shipment)}{@const id = (sh as { entityId?: string }).entityId}<span class="cc"><CompanyMark entityId={id ?? null} size={18} />{id ? companyLabel(id) : '—'}</span>{/snippet}
+{#snippet refCell(sh: Shipment)}
+  {@const chain = chainOf(list ?? [], sh)}
+  <a class="mono" href="#/shipments/{sh.id}">{sh.ref}</a><div class="caption">PO <span class="mono">{lookup.poRef(sh.poId)}</span> · Truck {sh.truckNo}</div><div class="caption">→ {lookup.company(sh.receivingCompanyId)?.name} · {destinationLabel(sh.warehouseId)}</div>
+  {#if chain.length > 1}<Badge tone="info">Shipment {chain.findIndex((c) => c.id === sh.id) + 1} of {chain.length}</Badge>{/if}
+{/snippet}
+{#snippet truckCell(sh: Shipment)}{@const leg = activeLeg(sh)}<strong class="nowrap">{lookup.truck(leg.truckId)?.reg}</strong><div class="caption">{lookup.driver(leg.driverId)?.name}</div>{/snippet}
+{#snippet routeCell(sh: Shipment)}{@const leg = activeLeg(sh)}{lookup.route(leg.routeId)?.name}<div class="caption">Leg {leg.seq} of {sh.legs.length}</div>{/snippet}
+{#snippet lastCell(sh: Shipment)}
+  {@const leg = activeLeg(sh)}{@const w = where(leg)}{@const dw = tracking.dwell(leg)}
+  {w.cur}<div class="caption">{w.last}</div>
+  {#if dw}<Badge tone={dw.over ? 'warning' : 'neutral'}><Clock size={12} />{hoursLabel(dw.hours)} here · plan {hoursLabel(dw.plannedDwellHours)}</Badge>{/if}
+{/snippet}
+{#snippet nextCell(sh: Shipment)}
+  {@const leg = activeLeg(sh)}{@const w = where(leg)}{@const od = tracking.overdue(leg)}
+  {w.next}{#if od}<div><Badge tone="danger">No check-in · {hoursLabel(od.hours)} overdue</Badge></div>{:else if w.nextPlanned && sh.status !== 'Acknowledged'}<div class="caption">planned {fmtDateTime(w.nextPlanned)}</div>{/if}
+{/snippet}
+{#snippet statusCell(sh: Shipment)}<Badge status={sh.status} />{/snippet}
+{#snippet etaCell(sh: Shipment)}
+  {@const eta = shipments.eta(activeLeg(sh))}
+  {#if sh.status !== 'Acknowledged'}<Badge status={eta.state}>{eta.state}{eta.state !== 'On time' ? ` ${hoursLabel(eta.hours)}` : ''}</Badge><div class="caption nowrap">{fmtDateTime(eta.eta)}</div>{:else}<span class="caption">Delivered</span>{/if}
+{/snippet}
+<!-- Phone layout: one card per truck -->
+{#snippet phoneCard(sh: Shipment)}
+  {@const leg = activeLeg(sh)}{@const eta = shipments.eta(leg)}{@const w = where(leg)}{@const od = tracking.overdue(leg)}
+  <div class="row between"><strong>{lookup.truck(leg.truckId)?.reg}</strong><Badge status={sh.status} /></div>
+  <div class="small">{lookup.route(leg.routeId)?.name} · leg {leg.seq}/{sh.legs.length}</div>
+  <div class="caption"><a class="mono" href="#/shipments/{sh.id}">{sh.ref}</a> · {w.cur} · {w.last}</div>
+  <div class="row between">
+    {#if sh.status !== 'Acknowledged'}<Badge status={eta.state}>{eta.state}{eta.state !== 'On time' ? ` ${hoursLabel(eta.hours)}` : ''}</Badge><span class="caption">ETA {fmtDateTime(eta.eta)}</span>{:else}<span class="caption">Delivered</span>{/if}
+  </div>
+  {#if od}<Badge tone="danger">No check-in at {w.next} · {hoursLabel(od.hours)} overdue</Badge>{/if}
+{/snippet}
 
 <style>
   .nowrap, .mono { white-space: nowrap; }
-  .cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
-  .cards a.card { display: flex; flex-direction: column; gap: var(--space-1); color: inherit; text-decoration: none; padding: var(--space-4); }
-  .narrow-only { display: none; }
-  @media (max-width: 760px) { .wide-only { display: none; } .narrow-only { display: flex; } }
+  .cc { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 13px; }
 </style>

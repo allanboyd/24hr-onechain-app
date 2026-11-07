@@ -12,19 +12,22 @@
   import { can } from '../../lib/features';
   import { allowedIds, setCompany } from '../../lib/company.svelte';
   import { companyBrand, companyLabel } from '../../lib/companies';
+  import { DEFAULT_PERIOD, PERIODS, datesOf, type PeriodKey } from '../../screens/dash/period';
   // embedded: shown as the "Companies side by side" tab of Home, which has its own heading
   let { user, embedded = false }: { user: User; embedded?: boolean } = $props();
 
   type Kpis = GroupReport['total'];
+  let period = $state<PeriodKey>(DEFAULT_PERIOD);
+  const periodShort = $derived(PERIODS.find((p) => p.key === period)!.short);
   let g = $state<GroupReport | null>(null);
   let sugg = $state<(Suggestion & { entityId: string })[]>([]);
   const w = watch(async () => {
-    const range = reports.resolvePeriod('last-30', Date.now());
+    const range = datesOf(period);
     const ids = allowedIds(user);
     const [gr, ...plans] = await Promise.all([reports.group(range), ...ids.map((id) => reports.planning({ horizonDays: 60, entityId: id }))]);
     g = gr;
     sugg = plans.flatMap((p, i) => p.suggestions.filter((s) => s.urgency !== 'soon').map((s) => ({ ...s, entityId: ids[i] }))).sort((a, b) => a.orderBy.localeCompare(b.orderBy)).slice(0, 8);
-  });
+  }, () => period);
 
   type Col = { label: string; get: (k: Kpis) => number | null; fmt: (v: number) => string; low?: boolean };
   const cols: Col[] = [
@@ -49,11 +52,13 @@
 </script>
 
 {#if embedded}
-  <p class="caption">BTW Global · Nihna Unique · Kivu combined · last 30 days{g ? ` · ${g.fxBasis}` : ''}</p>
+  <div class="fbar"><p class="caption">BTW Global · Nihna Unique · Kivu combined{g ? ` · ${g.fxBasis}` : ''}</p>
+    <label>Period <select class="select" bind:value={period}>{#each PERIODS as p}<option value={p.key}>{p.label}</option>{/each}</select></label></div>
 {:else}
 <div class="page-head">
   <div><div class="overline crumb">Group command view</div><h1>Good day, {user.name.split(' ')[0]}</h1>
-    <p class="caption">BTW Global · Nihna Unique · Kivu combined · last 30 days{g ? ` · ${g.fxBasis}` : ''}</p></div>
+    <p class="caption">BTW Global · Nihna Unique · Kivu combined{g ? ` · ${g.fxBasis}` : ''}</p></div>
+  <label class="field" style="width:auto">Period <select class="select" bind:value={period}>{#each PERIODS as p}<option value={p.key}>{p.label}</option>{/each}</select></label>
 </div>
 {/if}
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
@@ -64,7 +69,7 @@
   {@const T = g.total}
   {@const split = (f: (k: Kpis) => number | null, fmt: (v: number) => string) => league.map((c) => `${companyLabel(c.entityId)} ${f(c) == null ? '—' : fmt(f(c)!)}`).join(' · ')}
   <div class="tiles">
-    <StatTile label="Group sales · 30 days" value={usd(T.revenue)} hint={league.map((c) => `${companyLabel(c.entityId)} ${pct(c.share)}`).join(' · ')} />
+    <StatTile label="Group sales · {periodShort.toLowerCase()}" value={usd(T.revenue)} hint={league.map((c) => `${companyLabel(c.entityId)} ${pct(c.share)}`).join(' · ')} />
     <StatTile label="Cases sold" value={compact(T.cases)} hint={split((k) => k.cases, compact)} />
     <StatTile label="Gross margin" value={pct(T.marginPct, 1)} hint={split((k) => k.marginPct, (v) => pct(v, 1))} />
     <StatTile label="On-time deliveries" value={T.onTimePct == null ? '—' : pct(T.onTimePct)} hint="{T.deliveries} deliveries · all lanes" />
@@ -131,4 +136,6 @@
   .league td.best { font-weight: 700; color: var(--success); }
   .att { list-style: none; margin: 0; padding: 0; }
   .att li { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-top: 1px solid var(--border); }
+  .fbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
+  .fbar label { display: flex; align-items: center; gap: var(--space-2); font-size: 13px; color: var(--text-muted); }
 </style>

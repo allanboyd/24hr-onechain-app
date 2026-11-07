@@ -71,11 +71,11 @@ Who: D = Daniel, Michael · K = Kabonge · T = Testfie · L = loaders (Joel, Eri
 | Person | Home (in this order) |
 |---|---|
 | Daniel, Michael | **Today** (`director-today`, §3.1) — one curated daily view. Every other dashboard stays on its feature tab (Business, Purchasing, …, Companies in the Group view); each Today card links to the deeper tab. |
-| Kabonge | PO pipeline · ordered vs loaded vs delivered · open orders · plan vs actual · alerts centre |
+| Kabonge | **Order this week** · PO pipeline · open orders · plan vs actual · alerts centre |
 | Testfie | live fleet board · delayed trucks · truck issues · driver updates · agreed price vs actual · fee payments · expenses per truck · today's loading list (GBI Mombasa) |
 | Joel, Eric, Moses | today's loading list · dispatched today — no prices or payments |
-| Asie | incoming deliveries · received / damaged / short · stock on hand · warehouse expenses · re-export orders |
-| Yonas | incoming deliveries · received / damaged / short · stock on hand · warehouse expenses |
+| Asie | **Warehouse today** · incoming deliveries · received / damaged / short · stock on hand · stock movements · warehouse expenses · re-export orders |
+| Yonas | **Warehouse today** · incoming deliveries · received / damaged / short · stock on hand · stock movements · warehouse expenses |
 | Drivers | field app only (the web sends them there; `GET /dashboards` → 403) |
 
 Defined once in `packages/api/src/dashboards.ts` (`DASHBOARDS`, `HOME`, `homeFor`) and used by the web, the server and the mock.

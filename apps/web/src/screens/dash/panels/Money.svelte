@@ -23,7 +23,7 @@
 </script>
 
 {#if key === 'agreed-vs-actual'}
-  <DashboardPanel span={span ?? 1} title="Agreed transport price vs actual" subtitle="per truck · variance red when over" {...fr} rows={() => [['Shipment', 'Truck', 'Provider', `Agreed (${C})`, `Actual (${C})`, `Variance (${C})`], ...(d.rows ?? []).map((x: any) => [x.ref, x.truck, x.provider, x.agreed == null ? 'Not recorded' : cvRow(x.agreed), cvRow(x.actual), cvRow(x.variance)])]} filename="agreed-vs-actual" {drill}>
+  <DashboardPanel span={span ?? 1} title="Did trucks cost what was agreed?" subtitle="per truck · variance red when over" decision="Ask the provider about every trip over the agreed price." {...fr} rows={() => [['Shipment', 'Truck', 'Provider', `Agreed (${C})`, `Actual (${C})`, `Variance (${C})`], ...(d.rows ?? []).map((x: any) => [x.ref, x.truck, x.provider, x.agreed == null ? 'Not recorded' : cvRow(x.agreed), cvRow(x.actual), cvRow(x.variance)])]} filename="agreed-vs-actual" {drill}>
     <GroupedBars label="Agreed and actual transport cost per truck" categories={recent.map((x: any) => `${x.truck} · ${x.ref.slice(-4)}`)} series={[{ name: 'Agreed', values: recent.map((x: any) => x.agreed) }, { name: 'Actual', values: recent.map((x: any) => x.actual) }]} format={money} unit={C} tolerance={0.05} />
     <div class="table-wrap"><table class="table">
       <thead><tr><th>Truck</th><th class="num">Agreed</th><th class="num">Actual</th><th class="num">Variance</th></tr></thead>
@@ -33,7 +33,7 @@
     </table></div>
   </DashboardPanel>
 {:else if key === 'fee-payments'}
-  <DashboardPanel span={span ?? 2} title="Transport fee payments" subtitle="paid · part paid · unpaid against document references" {...fr} rows={() => [['Shipment', 'Truck', 'Provider', 'Loaded', 'Age (days)', `Agreed (${C})`, `Paid (${C})`, `Balance (${C})`, 'Status', 'Flag', 'References'], ...(d.rows ?? []).map((x: any) => [x.ref, x.truck, x.provider, x.loadedAt ?? '', x.ageDays, x.agreed == null ? 'Not recorded' : cvRow(x.agreed), cvRow(x.paid), cvRow(x.balance), x.status, x.flag, x.references.join(' ')])]} filename="transport-fee-payments" {drill} filterText={q ? `Search: ${q}` : ''}>
+  <DashboardPanel span={span ?? 2} title="Which fees are paid, part paid or unpaid?" subtitle="against document references" decision="Pay or query the oldest unpaid balances first." {...fr} rows={() => [['Shipment', 'Truck', 'Provider', 'Loaded', 'Age (days)', `Agreed (${C})`, `Paid (${C})`, `Balance (${C})`, 'Status', 'Flag', 'References'], ...(d.rows ?? []).map((x: any) => [x.ref, x.truck, x.provider, x.loadedAt ?? '', x.ageDays, x.agreed == null ? 'Not recorded' : cvRow(x.agreed), cvRow(x.paid), cvRow(x.balance), x.status, x.flag, x.references.join(' ')])]} filename="transport-fee-payments" {drill} filterText={q ? `Search: ${q}` : ''}>
     {#snippet filters()}<label class="small">Reference <input class="input" style="height:32px" type="search" placeholder="Search reference, truck, provider" bind:value={q} /></label>{/snippet}
     <div class="chips">{#each Object.entries(d.counts ?? {}) as [s, n]}<StatusBadge status={feeTone(s)} label="{s}: {n}" />{/each}<span class="small">Open balance <b>{money(d.balance)}</b></span></div>
     <div class="table-wrap"><table class="table">
@@ -47,12 +47,12 @@
     </table></div>
   </DashboardPanel>
 {:else if key === 'unpaid-fees'}
-  <DashboardPanel span={span ?? 1} title="Unpaid and ageing fees" subtitle="open balance by provider and age" {...fr} rows={() => [['Provider', ...(d.bands ?? []).map((b: any) => `${b.name} (${C})`)], ...(d.providers ?? []).map((p: string, i: number) => [p, ...d.bands.map((b: any) => cvRow(b.values[i]))])]} filename="unpaid-fees-ageing" {drill}>
+  <DashboardPanel span={span ?? 1} title="Who is owed transport fees, and how old are they?" subtitle="open balance by provider and age" decision="Clear the red band before it ages further." {...fr} rows={() => [['Provider', ...(d.bands ?? []).map((b: any) => `${b.name} (${C})`)], ...(d.providers ?? []).map((p: string, i: number) => [p, ...d.bands.map((b: any) => cvRow(b.values[i]))])]} filename="unpaid-fees-ageing" {drill}>
     <AgeingBars label="Unpaid transport fees by provider and age" entities={d.providers ?? []} bands={d.bands ?? []} tones={['good', 'warn', 'bad']} format={money} onselect={() => go('#/transport-costs')} />
     <p class="caption">Total open {money(d.total)}.</p>
   </DashboardPanel>
 {:else if key === 'truck-expenses'}
-  <DashboardPanel span={span ?? 1} title="Expenses per truck" subtitle="per trip by category · open a trip for its legs" {...fr} rows={() => [['Shipment', 'Truck', 'Leg', ...(d.kinds ?? []).map((k: string) => `${k} (${C})`), `Total (${C})`], ...(d.rows ?? []).flatMap((x: any) => [[x.ref, x.truck, 'all', ...d.kinds.map((k: string) => cvRow(x.byKind[k])), cvRow(x.total)], ...(x.legs.length > 1 ? x.legs.map((l: any) => [x.ref, x.truck, `leg ${l.seq}`, ...d.kinds.map((k: string) => cvRow(l.byKind[k])), '']) : [])])]} filename="expenses-per-truck" {drill}>
+  <DashboardPanel span={span ?? 1} title="What does each trip cost?" subtitle="per trip by category · open a trip for its legs" decision="Record missing agreed prices and odd categories." {...fr} rows={() => [['Shipment', 'Truck', 'Leg', ...(d.kinds ?? []).map((k: string) => `${k} (${C})`), `Total (${C})`], ...(d.rows ?? []).flatMap((x: any) => [[x.ref, x.truck, 'all', ...d.kinds.map((k: string) => cvRow(x.byKind[k])), cvRow(x.total)], ...(x.legs.length > 1 ? x.legs.map((l: any) => [x.ref, x.truck, `leg ${l.seq}`, ...d.kinds.map((k: string) => cvRow(l.byKind[k])), '']) : [])])]} filename="expenses-per-truck" {drill}>
     <BarChart label="Trip expenses by category" horizontal stacked categories={(d.rows ?? []).map((x: any) => `${x.truck} — ${x.ref}`)} series={(d.kinds ?? []).map((k: string) => ({ name: k, values: (d.rows ?? []).map((x: any) => x.byKind[k] ?? 0) }))} format={money} onselect={(c) => { const x = d.rows.find((y: any) => `${y.truck} — ${y.ref}` === c); if (x) open = open === x.shipmentId ? null : x.shipmentId; }} />
     {#each (d.rows ?? []).filter((x: any) => x.shipmentId === open) as x}
       <div class="legs"><b class="small">{x.truck} · {x.ref} — legs</b>
@@ -61,17 +61,22 @@
     {/each}
     <p class="caption">Click a bar to see its legs. {(d.rows ?? []).filter((x: any) => !x.agreedRecorded).length} trip(s) without an agreed price yet.</p>
   </DashboardPanel>
+{:else if key === 'cash-vs-credit'}
+  <DashboardPanel span={span ?? 1} title="How much cash did we take against credit given?" subtitle="last 6 months · cash share on the caption" decision="Chase credit when cash share falls; keep the cash customers supplied." {...fr} period="Last 6 months" rows={() => [['Month', `Cash (${C})`, `Credit (${C})`, 'Cash share'], ...(d.months ?? []).map((m: any) => [m.month, cvRow(m.cash), cvRow(m.credit), m.share == null ? '' : `${Math.round(m.share * 100)}%`])]} filename="cash-vs-credit" {drill}>
+    <BarChart label="Cash received against credit given by month" categories={(d.months ?? []).map((m: any) => monthLabel(m.month))} series={[{ name: 'Cash', values: (d.months ?? []).map((m: any) => m.cash), slot: 0 }, { name: 'Credit', values: (d.months ?? []).map((m: any) => m.credit), slot: 1 }]} format={money} onselect={() => go('#/sales')} />
+    <p class="caption">This period: cash {money(d.cash)} · credit {money(d.credit)}{d.share == null ? '' : ` · cash share ${Math.round(d.share * 100)}%`}{d.batch ? ` · batch ${money(d.batch)}` : ''}.</p>
+  </DashboardPanel>
 {:else if key === 'sales-summary'}
-  <DashboardPanel span={span ?? 1} title="Sales by month" subtitle="cash · credit · batch" {...fr} period="Last 6 months" rows={() => [['Month', `Cash (${C})`, `Credit (${C})`, `Batch (${C})`], ...(d.months ?? []).map((m: any) => [m.month, cvRow(m.Cash), cvRow(m.Credit), cvRow(m.Batch)])]} filename="sales-by-month" {drill}>
+  <DashboardPanel span={span ?? 1} title="How do cash, credit and batch sales move?" subtitle="last 6 months" decision="Watch credit share and the customers who buy most." {...fr} period="Last 6 months" rows={() => [['Month', `Cash (${C})`, `Credit (${C})`, `Batch (${C})`], ...(d.months ?? []).map((m: any) => [m.month, cvRow(m.Cash), cvRow(m.Credit), cvRow(m.Batch)])]} filename="sales-by-month" {drill}>
     <BarChart label="Sales by month and kind" stacked categories={(d.months ?? []).map((m: any) => monthLabel(m.month))} series={['Cash', 'Credit', 'Batch'].map((k, i) => ({ name: k, values: (d.months ?? []).map((m: any) => m[k]), slot: i }))} format={money} onselect={() => go('#/sales')} />
   </DashboardPanel>
-  <DashboardPanel span={span ?? 1} title="Top products and customers" subtitle="sales value in the period" {...fr} rows={() => [['Kind', 'Name', `Sales (${C})`], ...(d.topProducts ?? []).map((x: any) => ['Product', x.label, cvRow(x.value)]), ...(d.topCustomers ?? []).map((x: any) => ['Customer', x.label, cvRow(x.value)])]} filename="top-products-customers" empty={!d.topProducts?.length}>
+  <DashboardPanel span={span ?? 1} title="Top products and customers" subtitle="sales value in the period" decision="Keep the top products in stock; visit the customers who buy most." {...fr} rows={() => [['Kind', 'Name', `Sales (${C})`], ...(d.topProducts ?? []).map((x: any) => ['Product', x.label, cvRow(x.value)]), ...(d.topCustomers ?? []).map((x: any) => ['Customer', x.label, cvRow(x.value)])]} filename="top-products-customers" empty={!d.topProducts?.length}>
     <BarChart label="Top products by sales value" horizontal categories={(d.topProducts ?? []).map((x: any) => x.label)} series={[{ name: 'Sales', values: (d.topProducts ?? []).map((x: any) => x.value), slot: 0 }]} format={money} />
     <BarChart label="Top customers by sales value" horizontal categories={(d.topCustomers ?? []).map((x: any) => x.label)} series={[{ name: 'Sales', values: (d.topCustomers ?? []).map((x: any) => x.value), slot: 1 }]} format={money} />
     <p class="caption">{n0(d.count)} sales · {money(d.total)} in the period.</p>
   </DashboardPanel>
 {:else if key === 'customer-balances'}
-  <DashboardPanel span={span ?? 1} title="Customer balances" subtitle="what each customer owes, by age · overdue in red" {...fr} rows={() => [['Customer', ...(d.bands ?? []).map((b: any) => `${b.name} (${C})`)], ...(d.customers ?? []).map((c: string, i: number) => [c, ...d.bands.map((b: any) => cvRow(b.values[i]))])]} filename="customer-balances" {drill}>
+  <DashboardPanel span={span ?? 1} title="Who owes us, and how old is it?" subtitle="what each customer owes, by age · overdue in red" decision="Call the customers in the overdue bands." {...fr} rows={() => [['Customer', ...(d.bands ?? []).map((b: any) => `${b.name} (${C})`)], ...(d.customers ?? []).map((c: string, i: number) => [c, ...d.bands.map((b: any) => cvRow(b.values[i]))])]} filename="customer-balances" {drill}>
     <AgeingBars label="Customer balances by ageing band" entities={d.customers ?? []} bands={d.bands ?? []} tones={['good', 'warn', 'bad']} format={money} onselect={() => go('#/sales?show=owed')} />
     <p class="caption">Owed {money(d.total)}, of which overdue {money(d.overdue)} (terms {d.terms} days, to confirm).</p>
   </DashboardPanel>

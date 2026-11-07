@@ -117,11 +117,11 @@ async function loadRef() {
 
 /** Call once before rendering: validates the stored session and loads reference data (cached for offline). */
 export async function ready() {
+  // Demo pickers on both login screens: always load, even if a session is restored (otherwise a refresh-then-sign-out leaves an empty list).
+  try { demoList = await get<User[]>('/auth/demo-users'); } catch { /* API down — leave empty */ }
   if (session) {
     try { const me = await get<User>('/me'); session = { ...session, user: { ...session.user, ...me } }; write('btw-session', session); restoreEntity(); await loadRef(); }
     catch (e) { if (e instanceof TypeError) return; /* offline: keep cached session + ref */ if (e instanceof ApiError && e.status === 401) expire(); }
-  } else {
-    try { demoList = await get<User[]>('/auth/demo-users'); } catch { demoList = []; }
   }
 }
 

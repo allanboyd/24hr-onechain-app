@@ -40,7 +40,7 @@ export const users = {
 export const FIELD_ROLES: { role: Role; label: string; hint: string }[] = [
   { role: 'loader', label: 'Loader', hint: 'Records loadings at a supplier loading point — quantities and documents, no prices' },
   { role: 'driver', label: 'Driver', hint: 'Updates trip status on the field app, also offline' },
-  { role: 'receiver', label: 'Receiver · warehouse', hint: 'Acknowledges deliveries, records warehouse stock and expenses' },
+  { role: 'receiver', label: 'Warehouse', hint: 'Acknowledges deliveries, records warehouse stock and expenses (Asie is the warehouse-manager demo)' },
   { role: 'reexport', label: 'Re-export planner', hint: 'Raises and loads onward orders from their own warehouse (e.g. Rwanda → Juba)' },
 ];
 export const OFFICE_ROLES: { role: Role; label: string; hint?: string }[] = [

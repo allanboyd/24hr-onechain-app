@@ -21,10 +21,12 @@
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import Plus from '@lucide/svelte/icons/plus';
   import ListChecks from '@lucide/svelte/icons/list-checks';
-  let { user, onlogout, onback }: { user: User; onlogout: () => void; /** opened from BTW Team (Testfie at GBI) */ onback?: () => void } = $props();
+  import { focus } from '../shell/focus.svelte';
+  let { user, onlogout, onback, shell = false }: { user: User; onlogout: () => void; /** opened from BTW Team (Testfie at GBI) */ onback?: () => void; shell?: boolean } = $props();
 
   const points_ = $derived(user.loadingPointIds);
-  let lp = $state(untrack(() => user.loadingPointIds[0] ?? ''));
+  let lp = $state(untrack(() => focus.loadingPointId || user.loadingPointIds[0] || ''));
+  $effect(() => { if (lp) focus.loadingPointId = lp; });
   let work = $state<GiverWork | null>(null);
   let menu = $state(false);
   let handover = $state(false);
@@ -116,7 +118,7 @@
 </script>
 
 <MapView {points} padBottom={sheetH} />
-<TopBar onmenu={() => (menu = true)} {onback} title="{supplier?.code} {supplier?.city}" />
+<TopBar onmenu={shell ? undefined : () => (menu = true)} {onback} title="{supplier?.code} {supplier?.city}" />
 
 <Sheet bind:el={sheetEl}>
   {#if points_.length > 1}
@@ -124,7 +126,7 @@
       {#each points_ as id (id)}<button type="button" class="sel-ticked" aria-pressed={id === lp} onclick={() => (lp = id)}>{lookup.supplier(id)?.code} {lookup.supplier(id)?.city}</button>{/each}
     </div>
   {/if}
-  {#if work}
+  {#if work && !shell}
     <button class="today" onclick={() => (todayOpen = true)}><ListChecks size={20} />Today's list<span class="tn">{pending.length} to load</span></button>
   {/if}
   {#if !work || !queue}

@@ -3,8 +3,9 @@
    chart ships its "view data" table and selective direct labels (relief rule). Never cycle past 8 —
    fold extra categories into "Other". */
 :root {
-  --viz-1: #2a5fa8; --viz-2: #e0601c; --viz-3: #1baf7a; --viz-4: #eda100;
-  --viz-5: #e87ba4; --viz-6: #008300; --viz-7: #4a3aa7; --viz-8: #e34948;
+  /* Identity series only — never green / amber / red (those are status: on track / at risk / danger). */
+  --viz-1: #2a5fa8; --viz-2: #e0601c; --viz-3: #0b7f9a; --viz-4: #c4a35a;
+  --viz-5: #e87ba4; --viz-6: #5c6e8a; --viz-7: #4a3aa7; --viz-8: #8e5aa8;
   --viz-other: #8593a8;
   --viz-grid: #e2e7ef; --viz-axis: #a3b1c6;
   /* sequential (magnitude): one hue, light → dark */
@@ -12,15 +13,15 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500;
-    --viz-5: #d55181; --viz-6: #1a9a1a; --viz-7: #9085e9; --viz-8: #e66767;
+    --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #2eb8c4; --viz-4: #d4b36a;
+    --viz-5: #d55181; --viz-6: #8a9bb5; --viz-7: #9085e9; --viz-8: #b888d4;
     --viz-other: #66768c; --viz-grid: #1b2e4a; --viz-axis: #33435a;
     --seq-1: #15294a; --seq-2: #184f95; --seq-3: #1c5cab; --seq-4: #256abf; --seq-5: #2a78d6; --seq-6: #5598e7; --seq-7: #9ec5f4;
   }
 }
 :root[data-theme="dark"] {
-  --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500;
-  --viz-5: #d55181; --viz-6: #1a9a1a; --viz-7: #9085e9; --viz-8: #e66767;
+  --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #2eb8c4; --viz-4: #d4b36a;
+  --viz-5: #d55181; --viz-6: #8a9bb5; --viz-7: #9085e9; --viz-8: #b888d4;
   --viz-other: #66768c; --viz-grid: #1b2e4a; --viz-axis: #33435a;
   --seq-1: #15294a; --seq-2: #184f95; --seq-3: #1c5cab; --seq-4: #256abf; --seq-5: #2a78d6; --seq-6: #5598e7; --seq-7: #9ec5f4;
 }

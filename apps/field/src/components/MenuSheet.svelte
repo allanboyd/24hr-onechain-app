@@ -6,8 +6,8 @@
   import { ago, say } from '@btw/ui';
   import Sheet from './Sheet.svelte';
   import { lastSynced, syncedLabel } from '../synced';
-  import { APP_VERSION, ROLE_LABEL, fieldRole } from '../lib';
-  let { user, onclose, onlogout, smsHelp = '' }: { user: User; onclose: () => void; onlogout: () => void; smsHelp?: string } = $props();
+  import { APP_VERSION, ROLE_LABEL, WEB_URL, fieldRole } from '../lib';
+  let { user, onclose, onlogout, smsHelp = '', page = false }: { user: User; onclose?: () => void; onlogout: () => void; smsHelp?: string; page?: boolean } = $props();
   let s = $state<OutboxState>({ online: true, pending: [], syncing: false });
   $effect(() => outbox.subscribe((v) => (s = v)));
   let offline = $state(outbox.forcedOffline);
@@ -16,7 +16,7 @@
   const role = $derived(fieldRole(user));
   const opLabel: Record<string, string> = { 'leg.pass': 'Check-in', 'leg.issue': 'Problem report', 'leg.acknowledge': 'Delivery receipt', 'loading.confirm': 'Loading hand-over', 'sale.create': 'Sale' };
 </script>
-<Sheet modal title="Menu" {onclose}>
+{#snippet body()}
   <div class="me">
     <div class="avatar" aria-hidden="true">{user.name.slice(0, 1)}</div>
     <div class="grow"><strong>{user.name}</strong><div class="caption">{role ? ROLE_LABEL[role] : ''} · {user.phone}</div>
@@ -46,9 +46,15 @@
     <label class="row between"><span>Theme</span><select class="select" style="width:auto" bind:value={theme}><option value="">Phone setting</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
   </section>
 
+  <a class="btn btn-secondary btn-block" href={WEB_URL}>Open on the computer</a>
   <button class="btn btn-secondary btn-block" onclick={onlogout}>Sign out</button>
-  <div class="row between caption"><span>BTW Field {APP_VERSION}</span>{#if mode === 'mock'}<button class="link" onclick={() => { demo.reset(); say('Demo data reset'); onclose(); }}>Reset demo data</button>{/if}</div>
-</Sheet>
+  <div class="row between caption"><span>BTW Field {APP_VERSION}</span>{#if mode === 'mock'}<button class="link" onclick={() => { demo.reset(); say('Demo data reset'); onclose?.(); }}>Reset demo data</button>{/if}</div>
+{/snippet}
+{#if page}
+  <div class="page">{@render body()}</div>
+{:else}
+  <Sheet modal title="Menu" onclose={onclose}>{@render body()}</Sheet>
+{/if}
 <style>
   .cos { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
   .me { display: flex; align-items: center; gap: var(--space-3); }
@@ -63,4 +69,5 @@
   .row { display: flex; align-items: center; gap: var(--space-3); }
   .between { justify-content: space-between; }
   .grow { flex: 1; min-width: 0; }
+  .page { padding: calc(env(safe-area-inset-top) + 20px) var(--space-5) calc(var(--field-nav, 68px) + 16px); max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); }
 </style>

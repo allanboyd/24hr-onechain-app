@@ -11,6 +11,7 @@
   import { dashDef } from '@btw/api/dashboards';
   import Board from './Board.svelte';
   import Filters from './Filters.svelte';
+  import { DEFAULT_PERIOD, datesOf } from './period';
   let { user, params }: { user: User; params?: { group?: string } } = $props();
 
   const groupView = company.active === GROUP; // the shell remounts screens on a company switch
@@ -21,7 +22,7 @@
   // Short tab names so every tab fits on one row (the group's full name stays in the page caption)
   const SHORT: Record<string, string> = { business: 'Business', fees: 'Fees & expenses', admin: 'Alerts & admin' };
   const tabs = $derived<Tab[]>([
-    { key: 'mine', label: 'My dashboards', blurb: home.includes('director-today') ? 'Today — what needs your decision and where the business stands. Each card opens the full tab.' : 'Your own set — only the companies, suppliers, routes and warehouses you work on.' },
+    { key: 'mine', label: 'My dashboards', blurb: home.includes('director-today') ? 'Today — what needs your decision and where the business stands. Each card opens the full tab.' : home.includes('warehouse-today') ? 'Today at the warehouse — what to sign, what arrives this week, what is running out.' : home.includes('order-this-week') ? 'What to order this week, then the pipeline and open orders.' : 'Your own set — only the companies, suppliers, routes and warehouses you work on.' },
     ...DASH_GROUPS.filter((g) => mine.some((d) => d.group === g.key)).map((g) => ({ key: g.key as string, label: SHORT[g.key] ?? g.label, blurb: `${g.label} — ${g.blurb}` })),
     ...(director && groupView ? [{ key: 'companies', label: 'Companies', blurb: 'BTW, Nihna and Kivu compared on the same measures.' }] : []),
   ]);
@@ -30,7 +31,7 @@
   const keys = $derived(active === 'mine' ? home : mine.filter((d) => d.group === active).map((d) => d.key));
   const analysisKeys = $derived(keys.filter((k) => dashDef(k)?.analysis));
   const hrefOf = (k: string) => (k === 'mine' ? '#/' : `#/dashboards/${k}`);
-  let filter = $state<DashFilter>({});
+  let filter = $state<DashFilter>(datesOf(DEFAULT_PERIOD));
   let options = $state<DashResponse['options'] | null>(null);
   const hour = new Date().getHours();
 </script>
@@ -58,6 +59,6 @@
 {:else}
   <Filters bind:filter {options} money={director} />
   {#key active}<Board {keys} {filter} onload={(r) => (options = r.options)} />
-    {#if analysisKeys.length}{#await import('./Analysis.svelte') then An}<An.default keys={analysisKeys} {filter} {user} />{/await}{/if}{/key}
+    {#if analysisKeys.length}{#await import('./Analysis.svelte') then An}<An.default keys={analysisKeys} {filter} {user} startOpen={analysisKeys.length === keys.length} />{/await}{/if}{/key}
 {/if}
 

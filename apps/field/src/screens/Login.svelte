@@ -2,25 +2,28 @@
   // Two steps, Bolt-style: phone number → 4-digit PIN (MA-08; biometric unlock replaces the PIN in the native build).
   import { auth, type User } from '@btw/api';
   import { haptic } from '../native';
-  import { DEMO_PIN, ROLE_LABEL, fieldRole, fieldUsers, signIn } from '../lib';
+  import { DEMO_PIN, ROLE_LABEL, WEB_URL, fieldRole, signIn } from '../lib';
   import { logoDark, logoLight } from '../brand';
   import Delete from '@lucide/svelte/icons/delete';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
   let { onlogin }: { onlogin: (u: User) => void } = $props();
-  let step = $state<'phone' | 'pin'>('phone');
-  let phone = $state('');
+  const prefill = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('phone') || '' : '';
+  let step = $state<'phone' | 'pin'>(prefill ? 'pin' : 'phone');
+  let phone = $state(prefill);
   let pin = $state('');
   let error = $state('');
   let busy = $state(false);
-  const demo = fieldUsers();
-  // Office staff (Daniel and Michael, Kabonge, Testfie) sign in with the same phone + PIN and get the BTW Team app.
   const RANK = ['director', 'planner', 'truck_planner', 'fleet', 'operations', 'accounts', 'sales', 'admin'];
   const rank = (u: User) => Math.min(...u.roles.map((r) => RANK.indexOf(r) + 1 || 99));
-  const office = auth.demoUsers().filter((u) => !fieldRole(u)).sort((a, b) => rank(a) - rank(b)).slice(0, 10);
+  const office = auth.demoUsers().filter((u) => !fieldRole(u)).sort((a, b) => rank(a) - rank(b));
+  const field = auth.demoUsers().filter((u) => fieldRole(u));
   const LABEL: Record<string, string> = { director: 'Director', planner: 'Purchase planner · static data', truck_planner: 'Truck follow-up officer' };
-  const cap = (r: string) => LABEL[r] ?? r.charAt(0).toUpperCase() + r.slice(1);
+  const cap = (r: string) => LABEL[r] ?? ROLE_LABEL[r as keyof typeof ROLE_LABEL] ?? r;
   const officeLine = (u: User) => `${u.roles.map(cap).join(' · ')}${u.roles.includes('truck_planner') && u.loadingPointIds.length ? ' · loads at GBI Mombasa' : ''}`;
+  const uname = (u: User) => u.id.replace(/^u-/, '');
+  const webHref = (p: string) => `${WEB_URL.replace(/\/?$/, '/')}?phone=${encodeURIComponent(p)}`;
   function next(e?: Event) { e?.preventDefault(); error = ''; if (phone.replace(/\D/g, '').length < 9) { error = 'Enter your phone number'; return; } step = 'pin'; }
+  function pick(u: User) { phone = u.phone; next(); }
   async function key(d: string) {
     if (busy) return;
     haptic('tap'); error = '';
@@ -44,15 +47,21 @@
       {#if error}<p class="error" role="alert">{error}</p>{/if}
       <button class="btn btn-primary btn-lg btn-block">Continue <ArrowRight size={20} /></button>
       <div class="demo">
-        <div class="overline">Demo accounts · PIN {DEMO_PIN}</div>
-        {#each demo as u (u.id)}
+        <div class="overline">Field · PIN {DEMO_PIN} · web password demo1234</div>
+        {#each field as u (u.id)}
           {@const r = fieldRole(u)!}
-          <button type="button" class="demo-row" onclick={() => { phone = u.phone; next(); }}><span class="grow"><strong>{u.name}</strong><br /><span class="caption">{ROLE_LABEL[r]}{u.roles.includes('reexport') ? ' · re-export planner' : ''}{r === 'loader' && u.loadingPointIds[0] ? ` · ${u.loadingPointIds[0].replace('s-', '').toUpperCase()}` : ''}</span></span><span class="caption mono">{u.phone}</span></button>
+          <div class="demo-row">
+            <button type="button" class="who" onclick={() => pick(u)}><span class="grow"><strong>{u.name}</strong><br /><span class="caption">{u.roles.includes('reexport') && r === 'receiver' ? 'Warehouse manager · re-export' : r === 'receiver' ? 'Warehouse' : ROLE_LABEL[r]}{r === 'loader' && u.loadingPointIds[0] ? ` · ${u.loadingPointIds[0].replace('s-', '').toUpperCase()}` : ''}<br /><span class="mono">{u.phone}</span></span></span></button>
+            <span class="acts"><button type="button" class="btn btn-primary btn-sm" onclick={() => pick(u)}>App</button><a class="btn btn-secondary btn-sm" href={webHref(u.phone)}>Web</a></span>
+          </div>
         {/each}
         {#if office.length}
-          <div class="overline office">Office team · BTW Team app</div>
+          <div class="overline office">Office · PIN {DEMO_PIN} here · web password demo1234</div>
           {#each office as u (u.id)}
-            <button type="button" class="demo-row" onclick={() => { phone = u.phone; next(); }}><span class="grow"><strong>{u.name}</strong><br /><span class="caption">{officeLine(u)}</span></span><span class="caption mono">{u.phone}</span></button>
+            <div class="demo-row">
+              <button type="button" class="who" onclick={() => pick(u)}><span class="grow"><strong>{u.name}</strong><br /><span class="caption">{officeLine(u)}<br /><span class="mono">{uname(u)} · {u.phone}</span></span></span></button>
+              <span class="acts"><button type="button" class="btn btn-primary btn-sm" onclick={() => pick(u)}>App</button><a class="btn btn-secondary btn-sm" href={webHref(u.phone)}>Web</a></span>
+            </div>
           {/each}
         {/if}
       </div>
@@ -81,7 +90,9 @@
   .input.big { height: 60px; font-size: 22px; font-variant-numeric: tabular-nums; }
   .error { color: var(--danger); min-height: 20px; margin: 0; font-weight: 600; }
   .demo { display: flex; flex-direction: column; gap: 2px; margin-top: var(--space-4); }
-  .demo-row { display: flex; align-items: center; gap: var(--space-2); min-height: 52px; border: 0; border-bottom: 1px solid var(--border); background: none; color: var(--text); text-align: left; font: inherit; cursor: pointer; padding: 0 2px; }
+  .demo-row { display: flex; align-items: center; gap: var(--space-2); min-height: 52px; border-bottom: 1px solid var(--border); padding: 4px 2px; }
+  .who { flex: 1; min-width: 0; border: 0; background: none; color: var(--text); text-align: left; font: inherit; cursor: pointer; padding: 0; }
+  .acts { display: flex; gap: 6px; flex: none; }
   .grow { flex: 1; min-width: 0; }
   .office { margin-top: var(--space-4); }
   .link { border: 0; background: none; color: var(--link); font: 600 inherit; cursor: pointer; text-decoration: underline; }

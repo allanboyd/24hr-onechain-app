@@ -32,6 +32,6 @@ export default defineConfig(({ mode }) => ({
   plugins: [svelte(), pwa()],
   resolve: { alias: btwApiAlias(mode) }, // mock or http client, chosen at build time
   base: './',
-  server: { port: 5174, host: true, proxy: { '/v1': { target: process.env.API_URL ?? 'http://localhost:3101', changeOrigin: true } } },
+  server: { port: 5174, host: true, allowedHosts: ['.ngrok-free.dev', '.ngrok-free.app', '.ngrok.app', '.ngrok.dev'], proxy: { '/v1': { target: process.env.API_URL ?? 'http://localhost:3101', changeOrigin: true } } },
   build: { target: 'es2020', cssCodeSplit: false },
 }));

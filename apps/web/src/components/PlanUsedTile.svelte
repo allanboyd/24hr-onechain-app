@@ -16,7 +16,7 @@
 </script>
 
 <section class="card pv">
-  <header class="row between"><div><h3>Planned vs actual</h3><p class="caption">{periodLabel({ ...q, periodKind: 'quarter' })} · purchase orders against the period plans</p></div><a class="small row" href="#/dashboards/purchasing">Open <ArrowRight size={14} /></a></header>
+  <header class="row between"><div><h3>Is purchasing following the period plan?</h3><p class="caption">{periodLabel({ ...q, periodKind: 'quarter' })} · purchase orders against the period plans</p><p class="decision"><b>Decision</b> Raise orders on brands behind plan; hold lines already over plan.</p></div><a class="small row" href="#/dashboards/purchasing">Open <ArrowRight size={14} /></a></header>
   {#if failed}<p class="small muted">Couldn't load the plan comparison.</p>
   {:else if !d}<div class="skeleton" style="height:64px"></div>
   {:else if !d.measures.planned && !d.measures.ordered}<p class="small muted">No period plan covers this quarter yet. <a href="#/period-plans/new">Create one</a>.</p>
@@ -31,6 +31,8 @@
 
 <style>
   .pv { display: flex; flex-direction: column; gap: var(--space-3); }
+  .decision { margin: 6px 0 0; font-size: 13px; color: var(--text); line-height: 1.4; }
+  .decision b { margin-right: 6px; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
   .chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
   .chips a { text-decoration: none; }
   .cos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }

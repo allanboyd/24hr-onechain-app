@@ -23,7 +23,8 @@
   import Siren from '@lucide/svelte/icons/siren';
   import Scale from '@lucide/svelte/icons/scale';
   import Clock from '@lucide/svelte/icons/clock';
-  let { user, onlogout }: { user: User; onlogout: () => void } = $props();
+  import { focus } from '../shell/focus.svelte';
+  let { user, onlogout, shell = false }: { user: User; onlogout: () => void; shell?: boolean } = $props();
 
   const UNDO_SECONDS = 5;
   let driver = $state<LegView['driver'] | null>(null);
@@ -44,7 +45,7 @@
   $effect(() => { const t = setInterval(() => (now = Date.now()), 30_000); return () => { clearInterval(t); clearInterval(timer); }; });
   $effect(() => { if (!sheetEl) return; const ro = new ResizeObserver(() => (sheetH = sheetEl!.offsetHeight)); ro.observe(sheetEl); return () => ro.disconnect(); });
 
-  const current = $derived(trips?.find((t) => !['Loaded', 'Planned'].includes(t.leg.status)) ?? trips?.[0]);
+  const current = $derived(trips?.find((t) => t.leg.id === focus.legId) ?? trips?.find((t) => !['Loaded', 'Planned'].includes(t.leg.status)) ?? trips?.[0]);
   // Optimistic: show queued check-ins immediately, even with no signal.
   const leg = $derived.by(() => {
     if (!current) return null;
@@ -156,7 +157,7 @@
 </script>
 
 <MapView {points} route={points.map((p) => [p.lat, p.lng] as [number, number])} trucks={truckPos} padBottom={sheetH} />
-<TopBar onmenu={() => (menu = true)} />
+<TopBar onmenu={shell ? undefined : () => (menu = true)} />
 
 <Sheet bind:el={sheetEl}>
   {#if !trips}

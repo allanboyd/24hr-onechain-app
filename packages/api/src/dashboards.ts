@@ -8,7 +8,7 @@
 // Scope: `scopeSource` cuts the company-wide data down to what one person may see (roles document §7, access.ts / money.ts),
 // then `narrow` applies the dashboard filters (company, supplier, route, warehouse, product, date range).
 import { DAY, H, etaOf, featuresFor, hasFeature } from './rules';
-import { resolvePeriod, scopeReportData, type ReportData } from './reports';
+import { resolvePeriod, scopeReportData, planningReport, type ReportData } from './reports';
 import { performanceReport, type PerformanceReport } from './performance';
 import * as M from './money';
 import * as A from './access';
@@ -39,16 +39,16 @@ export const DASH_GROUPS: { key: DashGroup; label: string; blurb: string }[] = [
 /** Audiences: dir = Daniel, Michael · kab = Kabonge (planner) · tf = Testfie (truck follow-up) · ld = loaders · rcv = Asie, Yonas · rx = Asie (re-export). */
 export type Who = 'dir' | 'kab' | 'tf' | 'ld' | 'rcv' | 'rx';
 export type DashKey =
-  | 'director-today'
+  | 'director-today' | 'warehouse-today' | 'order-this-week'
   | 'exec-overview' | 'combined-performance' | 'profit-margin' | 'landed-product' | 'landed-truck' | 'selling-price' | 'fast-slow'
   | 'po-pipeline' | 'ordered-loaded-delivered' | 'open-orders' | 'plan-vs-actual'
   | 'loading-list' | 'loading-status' | 'dispatched-today'
   | 'fleet-board' | 'delayed-trucks' | 'truck-issues' | 'driver-updates' | 'border-stops'
   | 'agreed-vs-actual' | 'fee-payments' | 'unpaid-fees' | 'truck-expenses'
   | 'incoming' | 'received-damaged-short' | 'delivery-losses'
-  | 'stock-on-hand' | 'stock-in-transit' | 'warehouse-expenses' | 'reexports'
-  | 'sales-summary' | 'customer-balances'
-  | 'alerts' | 'users-logins' | 'audit-log'
+  | 'stock-on-hand' | 'stock-in-transit' | 'warehouse-expenses' | 'reexports' | 'stock-movements'
+  | 'sales-summary' | 'customer-balances' | 'cash-vs-credit'
+  | 'alerts' | 'users-logins' | 'audit-log' | 'data-completeness'
   // docs/17 Phase 2: analysis moved to Home from the retired Reports / Sales velocity pages and the page Overview tabs
   | 'orders-analysis' | 'plan-vs-actual-report' | 'purchase-planning' | 'loading-queues' | 'shipment-analysis' | 'logistics-report'
   | 'trip-costs' | 'finance-report' | 'stock-analysis' | 'inventory-report' | 'sales-velocity' | 'sales-report' | 'quarterly-review';
@@ -64,6 +64,8 @@ const d = (key: DashKey, id: string, title: string, group: DashGroup, who: Who[]
 const a = (key: DashKey, title: string, group: DashGroup, who: Who[], features: FeatureKey[], question: string, visual: string, link: string): DashDef => ({ key, id: 'F-2', title, group, who, question, visual, link, client: true, analysis: true, features });
 export const DASHBOARDS: DashDef[] = [
   d('director-today', 'C-05', 'Today', 'home', ['dir'], 'What needs a director\'s decision today, and where does the business stand?', 'KPI strip with sparklines, daily sales and profit, decision list, stock health, sales by company / warehouse, top products'),
+  d('warehouse-today', 'C-05b', 'Warehouse today', 'home', ['rcv', 'dir'], 'What do I sign, what arrives this week, and what is running out?', 'Tiles: to sign, arriving, stock at risk, losses; re-exports for Asie', '#/shipments'),
+  d('order-this-week', 'C-05c', 'Order this week', 'home', ['kab', 'dir'], 'What should we order this week, and by when?', 'Suggested orders by urgency with cases, supplier and order-by date', '#/pos/new'),
   d('exec-overview', 'C-P1-01', 'Executive overview', 'business', ['dir'], 'Where does the business stand today?', 'KPI scorecard + exception list', '#/notifications'),
   d('combined-performance', 'C-P1-02', 'Combined performance', 'business', ['dir'], 'Quantity, landed cost, sales, profit and margin at product / warehouse / company / business level', 'Link card + level report', '#/performance'),
   d('profit-margin', 'C-P1-03', 'Profit and margin', 'business', ['dir'], 'How do sales become profit, month by month?', 'Waterfall + monthly stacked columns with a margin line', '#/performance'),
@@ -94,11 +96,14 @@ export const DASHBOARDS: DashDef[] = [
   d('stock-in-transit', 'C-P1-22', 'Stock in transit', 'warehouse', ['dir', 'rcv'], 'What is on the road to each warehouse, and when does it arrive?', 'Timeline of expected arrivals + totals per warehouse', '#/shipments'),
   d('warehouse-expenses', 'C-P1-23', 'Warehouse expenses', 'warehouse', ['rcv', 'dir'], 'What do the warehouses spend, by category and month?', 'Stacked monthly columns + category share', '#/warehouse-expenses'),
   d('reexports', 'B-03', 'Re-export orders', 'warehouse', ['rx', 'rcv', 'dir'], 'Where are the Rwanda → Juba re-exports?', 'Status list', '#/re-exports'),
+  d('stock-movements', 'C-P2', 'Stock movements', 'warehouse', ['rcv', 'dir'], 'What came in and went out, and where is the balance heading?', 'Daily in and out columns with a running balance; movement log', '#/stock'),
   d('sales-summary', 'C-P1-24', 'Sales summary', 'sales', ['dir'], 'How do cash, credit and batch sales move; who and what sells most?', 'Stacked columns by month + ranked bars', '#/sales'),
   d('customer-balances', 'C-P1-25', 'Customer balances', 'sales', ['dir'], 'Who owes what, and how old is it?', 'Ageing stacked bars per customer', '#/sales?show=owed'),
+  d('cash-vs-credit', 'C-P2', 'Cash vs credit', 'sales', ['dir'], 'How much cash did we take against credit given?', 'Paired columns by month with cash share', '#/sales'),
   d('alerts', 'C-P1-28', 'Alerts centre', 'admin', ['dir', 'tf', 'kab'], 'Which alert do I handle first?', 'Triage matrix + prioritised list', '#/notifications'),
   d('users-logins', 'C-P1-26', 'Users and logins', 'admin', ['dir'], 'Who uses the system; who is inactive?', 'Count tiles + table with role chips', '#/users'),
   d('audit-log', 'C-P1-27', 'Audit log', 'admin', ['dir'], 'Who did what and when?', 'Activity sparkline + latest changes', '#/audit', true),
+  d('data-completeness', 'C-P2', 'Data completeness', 'admin', ['dir'], 'Which records are still missing — photos, signatures, prices, expenses?', 'Checklist of gaps with owner and link', '#/notifications'),
   // docs/17 Phase 2 — analysis sections (browser-built from the report endpoints, same server gates as before)
   a('orders-analysis', 'Orders', 'purchasing', ['dir', 'kab'], [], 'How far have the open orders got; what do we order, from whom, per month?', 'Truck progress per order, trucks by stage, value by supplier and month', '#/pos'),
   a('plan-vs-actual-report', 'Planned vs actual', 'purchasing', ['dir', 'kab'], ['planned-vs-actual'], 'Is purchasing following the period plans, by brand and company?', 'Running total, plan used by brand, by company', '#/period-plans'),
@@ -127,10 +132,10 @@ export const dashboardsFor = (u: { roles: Role[] }) => DASHBOARDS.filter((x) => 
 export const HOME: Record<Who, DashKey[]> = {
   // Directors' home = one curated daily view (26 Oct 2026); every other dashboard stays on its feature-group tab.
   dir: ['director-today'],
-  kab: ['po-pipeline', 'ordered-loaded-delivered', 'open-orders', 'plan-vs-actual', 'alerts'],
+  kab: ['order-this-week', 'po-pipeline', 'open-orders', 'plan-vs-actual', 'alerts'],
   tf: ['fleet-board', 'delayed-trucks', 'truck-issues', 'driver-updates', 'agreed-vs-actual', 'fee-payments', 'truck-expenses', 'loading-list'],
   ld: ['loading-list', 'dispatched-today'],
-  rcv: ['incoming', 'received-damaged-short', 'stock-on-hand', 'warehouse-expenses'],
+  rcv: ['warehouse-today', 'incoming', 'received-damaged-short', 'stock-on-hand', 'stock-movements', 'warehouse-expenses'],
   rx: ['reexports'],
 };
 export function homeFor(u: { roles: Role[] }): DashKey[] {
@@ -515,14 +520,20 @@ export interface TodayData {
   };
   top: { productId: ID; brand: string; pack: string; warehouses: string[]; perWeek: number; cases: number; revenue: number; margin: number | null; cover: number | null }[];
   targetMargin: number; cover: typeof COVER; terms: number;
+  owed: {
+    terms: number; total: number | null; overdue: number | null;
+    bands: { name: string; value: number; tone: 'good' | 'warn' | 'bad' }[];
+    top: { customer: string; value: number }[];
+  };
 }
 
 function directorToday(c: Ctx): Out {
   const n = names(c.src); const now = c.now; const d0 = new Date(now);
   const dayStart = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate());
-  // period: month to date (compared with the same days of last month) unless the filter sets one
-  const mtd = !c.f.from;
-  const from = mtd ? Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), 1) : c.from;
+  const monthStart = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), 1);
+  // No dates (tests / old clients) or "this month" from the 1st → month to date vs the same days last month.
+  const mtd = !c.f.from || Math.floor(c.from / DAY) * DAY === monthStart;
+  const from = mtd ? monthStart : c.from;
   const to = mtd ? now + 1 : c.to;
   const pFrom = mtd ? Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth() - 1, 1) : t(c.prev.from);
   const pTo = mtd ? Math.min(pFrom + (to - from), from) : t(c.prev.to);
@@ -546,7 +557,12 @@ function directorToday(c: Ctx): Out {
   for (const x of daily) { if (x.sales !== null) x.sales = r2(x.sales); if (x.profit !== null) x.profit = r2(x.profit); }
   // today is still running: leave it out until its first sale, so the line does not dip to zero every morning
   if (daily.length && !daily.at(-1)!.sales) daily.pop();
-  const sparkOf = (k: 'sales' | 'profit') => { const xs = daily.filter((x) => t(x.day) >= from - DAY + 1 && t(x.day) < to).map((x) => x[k]); return xs.filter((x) => x !== null).length >= 2 ? xs : daily.slice(-14).map((x) => x[k]); };
+  // Short windows (Today) still get a 7-day spark so the KPI is not a flat line at 07:00.
+  const sparkOf = (k: 'sales' | 'profit') => {
+    const winFrom = Math.min(from, dayStart - 6 * DAY);
+    const xs = daily.filter((x) => t(x.day) >= winFrom && t(x.day) < Math.max(to, now + 1)).map((x) => x[k]);
+    return xs.filter((x) => x !== null).length >= 2 ? xs : daily.slice(-14).map((x) => x[k]);
+  };
 
   // ---- sales and profit (landed cost v2) ----
   const cur = perf(c, from, to), old = perf(c, pFrom, pTo);
@@ -640,9 +656,21 @@ function directorToday(c: Ctx): Out {
   const rank = { critical: 0, high: 1, medium: 2, low: 3 };
   decisions.sort((a, b) => Number(!(a.count ?? 0)) - Number(!(b.count ?? 0)) || rank[a.severity] - rank[b.severity]);
 
-  const data: TodayData = { period, prev, mtd, sales: salesK, profit: profitK, cash: cashK, trucks: trucksK, daily, decisions, stock, distribution, top, targetMargin: target, cover: COVER, terms: TERMS_DAYS };
+  const openBal = sales.filter((s) => s.status !== 'Paid').map((s) => ({ customer: s.customer, age: Math.floor((now - t(s.at)) / DAY), balance: r2(sum(s.lines, (l) => l.qty * l.price) - s.paid) })).filter((x) => x.balance > 0.5);
+  const bandDefs = [
+    { name: `Within terms (≤ ${TERMS_DAYS} d)`, lo: 0, hi: TERMS_DAYS + 1, tone: 'good' as const },
+    { name: '1–30 days overdue', lo: TERMS_DAYS + 1, hi: TERMS_DAYS + 31, tone: 'warn' as const },
+    { name: 'Over 30 days overdue', lo: TERMS_DAYS + 31, hi: Infinity, tone: 'bad' as const },
+  ];
+  const owed: TodayData['owed'] = {
+    terms: TERMS_DAYS, total: cashK.value, overdue: cashK.overdue,
+    bands: bandDefs.map((b) => ({ name: b.name, value: r2(sum(openBal.filter((x) => x.age >= b.lo && x.age < b.hi), (x) => x.balance)), tone: b.tone })),
+    top: [...new Set(openBal.map((x) => x.customer))].map((cu) => ({ customer: cu, value: r2(sum(openBal.filter((x) => x.customer === cu), (x) => x.balance)) })).sort((a, b) => b.value - a.value).slice(0, 5),
+  };
+
+  const data: TodayData = { period, prev, mtd, sales: salesK, profit: profitK, cash: cashK, trucks: trucksK, daily, decisions, stock, distribution, top, targetMargin: target, cover: COVER, terms: TERMS_DAYS, owed };
   return out(data, {
-    definition: `Sales = cases × price (USD at the approved month rate; sales between our own companies removed in the Group view), ${mtd ? 'month to date against the same days of last month' : 'the chosen period against the one before'}. Profit = sales − cost of units sold at landed cost v2 (goods + truck + warehouse share) − other warehouse costs; margin = profit ÷ sales. Daily profit uses each product's landed cost per case since ${fmtDay(start)}. Cash to collect = unpaid and part-paid sales; overdue after ${TERMS_DAYS} days. ${METRICS.onRoad.label}: ${METRICS.onRoad.definition} ${METRICS.onTime.label}: ${METRICS.onTime.definition} ${METRICS.stockValue.label}: ${METRICS.stockValue.definition}`,
+    definition: `Sales = cases × price (USD at the approved month rate; sales between our own companies removed in the Group view), ${mtd ? 'month to date against the same days of last month' : 'the chosen period against the one before'}. Profit = sales − cost of units sold at landed cost v2 (goods + truck + warehouse share) − other warehouse costs; margin = profit ÷ sales. Daily profit uses each product's landed cost per case since ${fmtDay(start)}. Cash to collect = unpaid and part-paid sales; overdue after ${TERMS_DAYS} days, shown as ageing bands (within terms, 1–30 days overdue, over 30 days). ${METRICS.onRoad.label}: ${METRICS.onRoad.definition} ${METRICS.onTime.label}: ${METRICS.onTime.definition} ${METRICS.stockValue.label}: ${METRICS.stockValue.definition}`,
     currency: 'USD', unit: 'USD · trucks · cases', period,
     freshness: newest(sales.map((s) => s.at), desk(c).map((r) => r.lastMoveAt), c.src.moves.map((m) => m.at), pend.map((p) => p.at)),
     empty: !anySales && !anyTrips && !items.length,
@@ -650,11 +678,176 @@ function directorToday(c: Ctx): Out {
 }
 const day = (at?: string) => (at ? fmtDay(t(at)) : '—');
 
+export interface WarehouseToday {
+  sign: { count: number; cases: number; rows: { shipmentId: ID; ref: string; truck: string; warehouse: string; cases: number }[] };
+  arriving: { trucks: number; cases: number; rows: { shipmentId: ID; ref: string; truck: string; warehouse: string; eta: string; cases: number; late: boolean }[] };
+  stock: { risk: number; low: number; over: number; nosales: number; items: { label: string; cover: number | null; held: number }[] };
+  losses: { damaged: number; short: number; deliveries: number; topCause: string | null };
+  reexports: { open: number; noOwner: number; rows: { ref: string; status: string; cases: number; owner: string | null }[] } | null;
+}
+
+function warehouseToday(c: Ctx): Out {
+  const n = names(c.src);
+  const mine = A.isDirector(c.v) ? null : c.v.warehouseIds;
+  const facts = c.src.shipments.filter((s) => s.status !== 'Acknowledged' && s.status !== 'Cancelled' && (!mine || mine.includes(s.warehouseId))).map((s) => {
+    const leg = s.legs.find(ACTIVE) ?? s.legs.at(-1)!;
+    const eta = etaOf(leg, n.stops(leg.routeId), c.now);
+    return { shipmentId: s.id, ref: s.ref, truck: n.truck(leg.truckId), warehouse: n.warehouse(s.warehouseId), eta: eta.eta, late: eta.state === 'Late', toAcknowledge: leg.status === 'Arrived', cases: casesOn(s) };
+  });
+  const signRows = facts.filter((x) => x.toAcknowledge);
+  const weekEnd = c.now + 7 * DAY;
+  const arrivingRows = facts.filter((x) => !x.toAcknowledge && t(x.eta) < weekEnd).sort((a, b) => t(a.eta) - t(b.eta));
+  const items = stockItems(c).filter((x) => x.held > 0);
+  const risk = items.filter((x) => x.cover !== null && x.cover <= 7);
+  const low = items.filter((x) => x.cover !== null && x.cover > 7 && x.cover <= COVER.min);
+  const over = items.filter((x) => x.cover !== null && x.cover > COVER.max);
+  const nosales = items.filter((x) => x.cover === null);
+  const acks = c.src.acks.filter((a) => t(a.at) >= c.now - 30 * DAY);
+  const damaged = sum(acks, (a) => sum(a.lines, (l) => l.damaged));
+  const short = sum(acks, (a) => sum(a.lines, (l) => Math.max(0, l.expected - l.received)));
+  const topCause = M.lossByReason(acks)[0]?.label ?? null;
+  const people = new Map((c.src.people ?? []).map((p) => [p.id, p.name]));
+  const openRx = (c.src.reexports ?? []).filter((o) => o.status !== 'Delivered' && o.status !== 'Cancelled');
+  const showRx = c.v.roles.includes('reexport') || A.isDirector(c.v);
+  const reexports = showRx ? {
+    open: openRx.length, noOwner: openRx.filter((o) => !o.followUpById).length,
+    rows: openRx.slice(0, 6).map((o) => ({ ref: o.ref, status: o.status, cases: sum(o.lines, (l) => l.loadedQty ?? l.qty), owner: o.followUpById ? people.get(o.followUpById) ?? null : null })),
+  } : null;
+  const data: WarehouseToday = {
+    sign: { count: signRows.length, cases: sum(signRows, (x) => x.cases), rows: signRows.map(({ shipmentId, ref, truck, warehouse, cases }) => ({ shipmentId, ref, truck, warehouse, cases })) },
+    arriving: { trucks: arrivingRows.length, cases: sum(arrivingRows, (x) => x.cases), rows: arrivingRows.slice(0, 8) },
+    stock: { risk: risk.length, low: low.length, over: over.length, nosales: nosales.length, items: [...risk, ...low, ...nosales].slice(0, 8).map((x) => ({ label: x.label, cover: x.cover, held: x.held })) },
+    losses: { damaged, short, deliveries: acks.length, topCause },
+    reexports,
+  };
+  return out(data, {
+    definition: `Arrived trucks waiting for your signature, trucks expected in the next 7 days, products at or below ${COVER.min} days of cover (at risk ≤ 7 days), and cases damaged or short on acknowledgements of the last 30 days. Quantities only. Re-exports = open Rwanda → Juba orders (Asie).`,
+    unit: 'cases · trucks', period: { from: iso(c.now), to: iso(weekEnd), label: 'Today · arrivals this week' },
+    freshness: newest(c.src.shipments.flatMap((s) => s.legs.map(lastUpdate)), c.src.acks.map((a) => a.at), (c.src.reexports ?? []).map((o) => o.createdAt)),
+    empty: !signRows.length && !arrivingRows.length && !items.length && !acks.length && !(reexports?.open),
+  });
+}
+
+function orderThisWeek(c: Ctx): Out {
+  const plan = planningReport(c.src, { horizonDays: 90 });
+  const week = iso(c.now + 7 * DAY).slice(0, 10);
+  const pick = plan.suggestions.filter((s) => s.urgency === 'overdue' || s.urgency === 'this week' || s.orderBy <= week);
+  const rows = (pick.length ? pick : plan.suggestions).slice(0, 12).map((s) => ({
+    warehouse: s.warehouse, product: `${s.brand} ${s.pack}`.trim(), supplier: s.supplier, lane: s.lane,
+    cases: s.cases, trucks: s.trucks, orderBy: s.orderBy, arriveBy: s.arriveBy, urgency: s.urgency,
+    estValue: c.src.pricesHidden ? null : s.estValue, text: s.text, stockOutDate: s.stockOutDate,
+  }));
+  return out({
+    overdue: plan.suggestions.filter((s) => s.urgency === 'overdue').length,
+    thisWeek: plan.suggestions.filter((s) => s.urgency === 'this week').length,
+    soon: plan.suggestions.filter((s) => s.urgency === 'soon').length,
+    rows, byLane: plan.byLane.slice(0, 6), method: plan.method,
+  }, {
+    definition: `${plan.method} Overdue = already past the order-by date; this week = order in the next 7 days so the truck arrives before stock-out. Cases = a full truck on that lane.`,
+    unit: 'cases · trucks', currency: c.src.pricesHidden ? null : 'USD',
+    period: { from: iso(c.now), to: iso(c.now + 7 * DAY), label: 'Order this week' },
+    freshness: plan.generatedAt, empty: !plan.suggestions.length,
+  });
+}
+
+const MOVE_IN = new Set(['received', 'transferIn', 'adjustment']);
+const MOVE_LABEL: Record<string, string> = { received: 'Received', damaged: 'Damaged', sold: 'Sold', transferIn: 'Transfer in', transferOut: 'Transfer out', adjustment: 'Adjustment' };
+
+function stockMovements(c: Ctx): Out {
+  const n = names(c.src);
+  const start = Date.UTC(new Date(c.from).getUTCFullYear(), new Date(c.from).getUTCMonth(), new Date(c.from).getUTCDate());
+  const days: { key: string; from: number; to: number }[] = [];
+  for (let x = start; x < c.to; x += DAY) days.push({ key: iso(x).slice(0, 10), from: x, to: x + DAY });
+  const shown = days.slice(-14);
+  const windowFrom = shown[0]?.from ?? c.from;
+  const opening = sum(M.warehouseStock(c.src.moves, c.src.acks, { from: windowFrom, to: c.to }), (r) => r.opening);
+  const inPeriodMoves = c.src.moves.filter((m) => t(m.at) >= windowFrom && t(m.at) < c.to);
+  let running = opening;
+  const series = shown.map((d) => {
+    const xs = inPeriodMoves.filter((m) => t(m.at) >= d.from && t(m.at) < d.to);
+    const inn = sum(xs.filter((m) => MOVE_IN.has(m.kind)), (m) => m.qty);
+    const out = sum(xs.filter((m) => !MOVE_IN.has(m.kind)), (m) => m.qty);
+    running += inn - out;
+    return { day: d.key, in: inn, out, closing: running };
+  });
+  const inn = sum(series, (d) => d.in), outQty = sum(series, (d) => d.out);
+  const log = [...inPeriodMoves].sort((a, b) => t(b.at) - t(a.at)).slice(0, 20).map((m) => ({
+    at: m.at, kind: MOVE_LABEL[m.kind] ?? m.kind, qty: m.qty, dir: MOVE_IN.has(m.kind) ? 'in' : 'out',
+    product: n.product(m.productId), warehouse: n.warehouse(m.warehouseId), ref: m.ref, reason: m.reason ?? null,
+  }));
+  return out({ opening, in: inn, out: outQty, closing: opening + inn - outQty, days: series, log }, {
+    definition: 'Daily cases in (received, transfer in, count-up) and out (sold, damaged, transfer out, moved on) for the last 14 days of the period. Running balance starts from cases held at the first of those days. Log = the latest 20 moves.',
+    unit: 'cases', period: shown.length ? periodOf(windowFrom, c.to) : c.period,
+    freshness: newest(c.src.moves.map((m) => m.at)), empty: !inPeriodMoves.length && opening === 0,
+  });
+}
+
+function cashVsCredit(c: Ctx): Out {
+  const total = (s: ReportData['sales'][number]) => sum(s.lines, (l) => l.qty * l.price);
+  const of = (xs: ReportData['sales'], kind: 'Cash' | 'Credit' | 'Batch') => r2(sum(xs.filter((s) => s.kind === kind), total));
+  const ms = months(c.now, 6).map((m) => {
+    const xs = c.usd.sales.filter((s) => t(s.at) >= m.from && t(s.at) < m.to);
+    const cash = of(xs, 'Cash'), credit = of(xs, 'Credit'), batch = of(xs, 'Batch');
+    const given = cash + credit;
+    return { month: m.key, cash, credit, batch, share: given ? r2(cash / given) : null };
+  });
+  const inP = c.usd.sales.filter((s) => inPeriod(c, s.at));
+  const cash = of(inP, 'Cash'), credit = of(inP, 'Credit'), batch = of(inP, 'Batch');
+  const given = cash + credit;
+  return out({ months: ms, cash, credit, batch, share: given ? r2(cash / given) : null, count: inP.length }, {
+    definition: 'Cash received against credit given (sales value, USD at the approved month rate) by month. Cash share = cash ÷ (cash + credit); batch sales sit apart. Sales between our own companies are removed in a multi-company view.',
+    currency: 'USD', unit: 'USD', freshness: newest(c.usd.sales.map((s) => s.at)), empty: !cash && !credit && !batch,
+  });
+}
+
+function dataCompleteness(c: Ctx): Out {
+  const n = names(c.src);
+  const loadings = c.src.loadings.filter((l) => l.status === 'Loaded' && inPeriod(c, l.loadedAt));
+  const noPhoto = loadings.filter((l) => !l.documents.some((d) => d.kind === 'photo'));
+  const live = c.src.shipments.filter((s) => s.status !== 'Cancelled' && s.status !== 'Acknowledged');
+  const arrived = live.filter((s) => s.legs.some((l) => l.status === 'Arrived'));
+  const acks = c.src.acks.filter((a) => inPeriod(c, a.at));
+  const lossAcks = acks.filter((a) => a.lines.some((l) => l.damaged > 0 || l.expected > l.received));
+  const noAckPhoto = lossAcks.filter((a) => !a.photos.length);
+  const unsigned = acks.filter((a) => !a.signature);
+  const fees = (c.src.fees ?? []).filter((f) => inPeriod(c, f.loadedAt));
+  const noAgreed = fees.filter((f) => f.agreedUsd === null);
+  const month = iso(c.now).slice(0, 7);
+  const recorded = new Set((c.src.expenses ?? []).filter((e) => e.date.startsWith(month)).map((e) => e.warehouseId));
+  const warehouses = c.src.warehouses.filter((w) => A.isDirector(c.v) || c.v.warehouseIds.includes(w.id));
+  const noExp = warehouses.filter((w) => !recorded.has(w.id));
+  const check = (key: string, label: string, count: number, of: number, href: string, owner: string, detail: string) => {
+    const gap = of ? count / of : 0;
+    return { key, label, count, of, href, owner, detail, status: (of === 0 || count === 0 ? 'good' : gap > 0.2 ? 'bad' : 'warn') as 'good' | 'warn' | 'bad' };
+  };
+  const checks = [
+    check('load-photos', 'Loadings without photos', noPhoto.length, loadings.length, '#/trucks?tab=queues', 'Loaders', noPhoto.length ? `${noPhoto.length} of ${loadings.length} loaded trucks have no photo` : loadings.length ? 'Every loaded truck has a photo' : 'No loading in the period'),
+    check('acks', 'Arrived, not signed', arrived.length, live.length, '#/shipments', 'Warehouse', arrived.length ? arrived.slice(0, 3).map((s) => n.warehouse(s.warehouseId)).join(', ') : 'No arrived truck waiting'),
+    check('ack-photos', 'Damage or shortage without photos', noAckPhoto.length, lossAcks.length, '#/shipments?show=delivered', 'Warehouse', noAckPhoto.length ? `${noAckPhoto.length} loss acknowledgement(s) with no photo` : 'Losses have photos, or none recorded'),
+    check('unsigned', 'Acknowledgements without a signature', unsigned.length, acks.length, '#/shipments?show=delivered', 'Warehouse', unsigned.length ? `${unsigned.length} of ${acks.length} unsigned` : acks.length ? 'Every acknowledgement is signed' : 'No acknowledgement in the period'),
+    check('agreed', 'Trips without an agreed price', noAgreed.length, fees.length, '#/transport-costs', 'Truck follow-up', noAgreed.length ? `${noAgreed.length} of ${fees.length} trips` : fees.length ? 'Every trip has an agreed price' : 'No trip in the period'),
+    check('expenses', 'Warehouses with no expense this month', noExp.length, warehouses.length, '#/warehouse-expenses', 'Warehouse', noExp.length ? noExp.map((w) => w.name).join(', ') : 'Every warehouse has an entry'),
+  ];
+  const scored = checks.filter((x) => x.of > 0);
+  const score = scored.length ? r2(sum(scored, (x) => 1 - x.count / x.of) / scored.length) : null;
+  const gaps = sum(checks, (x) => x.count);
+  return out({ checks, score, gaps }, {
+    definition: 'Share of expected records that are actually there: loading photos, arrived trucks signed, photos on damaged or short deliveries, signatures, agreed transport prices, warehouse expense entries this calendar month. Score = average completeness of the checks that have something to count.',
+    unit: 'records', period: null, freshness: newest(loadings.map((l) => l.loadedAt), acks.map((a) => a.at), fees.map((f) => f.loadedAt), (c.src.expenses ?? []).map((e) => e.at)),
+    empty: checks.every((x) => x.of === 0),
+  });
+}
+
 // ======================================================================================================
 // BUILDERS (one per dashboard)
 // ======================================================================================================
 const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
   'director-today': directorToday,
+  'warehouse-today': warehouseToday,
+  'order-this-week': orderThisWeek,
+  'stock-movements': stockMovements,
+  'cash-vs-credit': cashVsCredit,
+  'data-completeness': dataCompleteness,
   // C-P1-01 ----------------------------------------------------------------------------------------------------
   'exec-overview': (c) => {
     const cur = perf(c, c.from, c.to), prev = perf(c, t(c.prev.from), t(c.prev.to));
@@ -667,19 +860,38 @@ const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
     const weeks = Array.from({ length: 8 }, (_, i) => c.to - (8 - i) * 7 * DAY);
     const salesTrend = c.usd.sales.length ? weeks.map((w) => r2(sum(c.usd.sales.filter((s) => t(s.at) >= w && t(s.at) < w + 7 * DAY), (s) => sum(s.lines, (l) => l.qty * l.price)))) : null;
     const stockValue = c.src.pricesHidden ? null : MX.stockValue(c.src.stock);
+    const targetMargin = cur?.targetMargin ?? 0.2;
+    const ON_TIME = 0.9;
+    const covers = stockItems(c).map((x) => x.cover).filter((x): x is number => x !== null);
+    const avgCover = covers.length ? r1(sum(covers, (x) => x) / covers.length) : null;
+    const lowCover = stockItems(c).filter((x) => x.cover !== null && x.cover <= COVER.min).length;
+    const riskCover = stockItems(c).filter((x) => x.cover !== null && x.cover <= 7).length;
+    const ragVs = (value: number | null, target: number, warnAt = 0.8): 'good' | 'warn' | 'bad' | 'none' => {
+      if (value == null) return 'none';
+      const r = value / target;
+      return r >= 1 ? 'good' : r >= warnAt ? 'warn' : 'bad';
+    };
+    const marginNow = MX.marginOf(cur);
+    const onTime = MX.onTimeShare(c.src.shipments, { from: c.from, to: c.to });
+    const coverStatus = avgCover == null ? 'none' : avgCover > COVER.max ? 'warn' : ragVs(avgCover, COVER.min);
     const kpis = [
       { key: 'onRoad', label: METRICS.onRoad.label, value: fl.onRoad, prev: null, unit: 'count', note: `${fl.delayed} delayed`, status: fl.delayed ? 'bad' : 'good', href: '#/trucks' },
       { key: 'delayed', label: 'Delayed trucks', value: fl.delayed, prev: null, unit: 'count', upIsGood: false, status: fl.delayed ? 'bad' : 'good', href: '#/shipments?show=delayed' },
-      { key: 'waiting', label: METRICS.ordersToLoad.label, value: MX.ordersToLoad(c.src.loadings, c.src.pos), prev: null, unit: 'count', upIsGood: false, note: `${waiting.filter((p) => (p.daysWaiting ?? 0) > 7).length} over 7 days`, href: '#/pos' },
-      { key: 'sales', label: 'Sales', value: cur ? cur.totals.revenue : null, prev: prev ? prev.totals.revenue : null, unit: 'usd', changeKind: 'pct', trend: salesTrend, href: '#/sales' },
-      { key: 'profit', label: 'Profit', value: MX.profitOf(cur), prev: MX.profitOf(prev), unit: 'usd', changeKind: 'pct', note: cur?.totals.estimated ? 'part estimated' : undefined, href: '#/performance' },
-      { key: 'margin', label: 'Margin', value: MX.marginOf(cur), prev: MX.marginOf(prev), unit: 'pct', changeKind: 'pp', href: '#/performance' },
-      { key: 'stock', label: 'Stock value', value: stockValue, prev: null, unit: 'usd', note: 'at landed cost', href: '#/stock' },
+      { key: 'waiting', label: METRICS.ordersToLoad.label, value: MX.ordersToLoad(c.src.loadings, c.src.pos), prev: null, unit: 'count', upIsGood: false, note: `${waiting.filter((p) => (p.daysWaiting ?? 0) > 7).length} over 7 days`, status: waiting.some((p) => (p.daysWaiting ?? 0) > 7) ? 'warn' : 'good', href: '#/pos' },
+      { key: 'sales', label: 'Sales', value: cur ? cur.totals.revenue : null, prev: prev ? prev.totals.revenue : null, unit: 'usd', changeKind: 'pct', trend: salesTrend, status: cur && prev && prev.totals.revenue && cur.totals.revenue < prev.totals.revenue ? 'warn' : cur ? 'good' : 'none', href: '#/sales' },
+      { key: 'profit', label: 'Profit', value: MX.profitOf(cur), prev: MX.profitOf(prev), unit: 'usd', changeKind: 'pct', note: cur?.totals.estimated ? 'part estimated' : undefined, status: cur && prev && (MX.profitOf(cur) ?? 0) < (MX.profitOf(prev) ?? 0) ? 'warn' : cur ? 'good' : 'none', href: '#/performance' },
+      { key: 'margin', label: 'Margin', value: marginNow, prev: MX.marginOf(prev), unit: 'pct', changeKind: 'pp', note: `target ${Math.round(targetMargin * 100)}%`, status: ragVs(marginNow, targetMargin), href: '#/performance' },
+      { key: 'stock', label: 'Stock value', value: stockValue, prev: null, unit: 'usd', note: riskCover ? `${riskCover} at ≤ 7 days` : lowCover ? `${lowCover} under ${COVER.min} days` : 'at landed cost', status: stockValue == null ? 'none' : riskCover ? 'bad' : lowCover ? 'warn' : 'good', href: '#/stock' },
       { key: 'alerts', label: 'Open alerts', value: al.length, prev: null, unit: 'count', upIsGood: false, note: `${high.length} high priority`, status: high.length ? 'warn' : 'good', href: '#/dashboards/admin' },
     ];
+    const bullets = [
+      { key: 'margin', label: 'Margin vs target', value: marginNow, target: targetMargin, max: Math.max(0.4, targetMargin * 1.5), unit: 'pct' as const, status: ragVs(marginNow, targetMargin), note: cur?.totals.estimated ? 'part estimated' : undefined },
+      { key: 'onTime', label: 'On-time deliveries', value: onTime, target: ON_TIME, max: 1, unit: 'pct' as const, status: ragVs(onTime, ON_TIME), note: `${METRICS.onTime.label}: last ${Math.round((c.to - c.from) / DAY)} days` },
+      { key: 'cover', label: 'Average days of cover', value: avgCover, target: COVER.min, max: Math.max(COVER.max, avgCover ?? 0), unit: 'days' as const, status: coverStatus, note: avgCover != null && avgCover > COVER.max ? `overstocked above ${COVER.max} days` : `minimum ${COVER.min} days` },
+    ];
     const exceptions = al.filter((a) => a.kind === 'Delay' || a.severity === 'critical' || a.severity === 'high').slice(0, 12);
-    return out({ kpis, exceptions, previous: c.prev }, {
-      definition: `Each figure separate. Sales, profit (after truck, warehouse and other costs, landed cost v2) and margin compare with the previous period of the same length; the other figures are as of now. ${METRICS.onRoad.label}: ${METRICS.onRoad.definition} ${METRICS.ordersToLoad.label}: ${METRICS.ordersToLoad.definition} ${METRICS.stockValue.label}: ${METRICS.stockValue.definition} Exceptions = delayed trucks and high-priority alerts.`,
+    return out({ kpis, bullets, exceptions, previous: c.prev }, {
+      definition: `Each figure separate. Sales, profit (after truck, warehouse and other costs, landed cost v2) and margin compare with the previous period of the same length; the other figures are as of now. Margin, on-time share and days of cover are also shown against their targets (${Math.round(targetMargin * 100)} % margin, ${Math.round(ON_TIME * 100)} % on time, ${COVER.min} days of cover). ${METRICS.onRoad.label}: ${METRICS.onRoad.definition} ${METRICS.ordersToLoad.label}: ${METRICS.ordersToLoad.definition} ${METRICS.stockValue.label}: ${METRICS.stockValue.definition} ${METRICS.onTime.label}: ${METRICS.onTime.definition} Exceptions = delayed trucks and high-priority alerts.`,
       currency: 'USD', unit: 'USD · trucks · orders', freshness: newest(c.usd.sales.map((s) => s.at), rows.map((r) => r.lastMoveAt), al.map((a) => a.at)), empty: false,
     });
   },
@@ -687,8 +899,8 @@ const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
   'combined-performance': (c) => {
     const p = perf(c, c.from, c.to);
     const tt = p?.totals;
-    return out(tt ? { revenue: tt.revenue, profit: p!.netProfit, margin: tt.margin, qtyReceived: tt.qtyReceived, landedCost: tt.landedCost, landedPerUnit: tt.landedPerUnit, qtySold: tt.qtySold } : null, {
-      definition: 'Totals of the combined performance report (product / warehouse / company / receiving company / business). Open it to switch level.', currency: 'USD', unit: 'USD · cases',
+    return out(tt ? { revenue: tt.revenue, profit: p!.netProfit, margin: tt.margin, qtyReceived: tt.qtyReceived, landedCost: tt.landedCost, landedPerUnit: tt.landedPerUnit, qtySold: tt.qtySold, targetMargin: p!.targetMargin, costs: r2(tt.revenue - p!.netProfit) } : null, {
+      definition: 'Totals of the combined performance report (product / warehouse / company / receiving company / business). Open it to switch level. Margin is shown against the target.', currency: 'USD', unit: 'USD · cases',
       freshness: p ? newest(c.usd.sales.map((s) => s.at), c.usd.acks.map((a) => a.at)) : null, empty: !tt || (!tt.revenue && !tt.qtyReceived),
     });
   },

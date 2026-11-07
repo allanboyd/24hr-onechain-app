@@ -13,6 +13,7 @@
   import RingDonut from '../../../components/charts/RingDonut.svelte';
   import { compact } from '../../../components/charts/scale';
   import { CODES, currency, setCurrency, cv, cvRow, pctF } from '../fmt.svelte';
+  import { DEFAULT_PERIOD, PERIODS, datesOf, type PeriodKey } from '../period';
   import TodayCard from './TodayCard.svelte';
   import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
   import ArrowDownRight from '@lucide/svelte/icons/arrow-down-right';
@@ -29,24 +30,11 @@
   const DAY = 864e5;
   const groupView = company.active === GROUP;
 
-  // ---- filters (compact: period, warehouse, currency) ----
-  const PRESETS: { key: string; label: string; short: string; range?: () => [number, number] }[] = [
-    { key: 'mtd', label: 'Month to date', short: 'This month' },
-    { key: '7', label: 'Last 7 days', short: 'Last 7 days', range: () => [Date.now() - 7 * DAY, Date.now()] },
-    { key: '30', label: 'Last 30 days', short: 'Last 30 days', range: () => [Date.now() - 30 * DAY, Date.now()] },
-    { key: 'last-month', label: 'Last month', short: 'Last month', range: () => { const d = new Date(); return [Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1), Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) - DAY]; } },
-    { key: '90', label: 'Last 90 days', short: 'Last 90 days', range: () => [Date.now() - 90 * DAY, Date.now()] },
-    { key: 'ytd', label: 'Year to date', short: 'This year', range: () => [Date.UTC(new Date().getUTCFullYear(), 0, 1), Date.now()] },
-  ];
-  let preset = $state('mtd');
+  // ---- filters (compact: period starts on Today, warehouse, currency) ----
+  let preset = $state<PeriodKey>(DEFAULT_PERIOD);
   let warehouseId = $state('');
-  const filter = $derived.by((): DashFilter => {
-    const p = PRESETS.find((x) => x.key === preset)!;
-    const f: DashFilter = warehouseId ? { warehouseId } : {};
-    if (p.range) { const [a, b] = p.range(); f.from = new Date(a).toISOString().slice(0, 10); f.to = new Date(b + DAY).toISOString().slice(0, 10); }
-    return f;
-  });
-  const periodShort = $derived(PRESETS.find((x) => x.key === preset)!.short);
+  const filter = $derived.by((): DashFilter => ({ ...datesOf(preset), ...(warehouseId ? { warehouseId } : {}) }));
+  const periodShort = $derived(PERIODS.find((x) => x.key === preset)!.short);
 
   // ---- data ----
   let res = $state<DashResult<TodayData> | null>(null);
@@ -71,7 +59,7 @@
   const prevText = $derived(d ? (d.mtd ? `vs same days last month` : `vs ${d.prev.label}`) : '');
 
   // ---- main chart ----
-  let range = $state<'30' | '90' | 'year'>('30');
+  let range = $state<'7' | '30' | '90' | 'year'>('7');
   let hideSales = $state(false), hideProfit = $state(false);
   const chart = $derived.by(() => {
     if (!d) return { labels: [] as string[], sales: [] as (number | null)[], profit: [] as (number | null)[], weekly: false };
@@ -97,7 +85,7 @@
   const decRows = () => [['Decision', 'Count', `Value (${currency.code})`, 'Detail', 'Owner', 'Link'], ...(d?.decisions ?? []).map((x) => [x.label, x.count ?? 'No data yet', cvRow(x.value), x.detail, x.owner, x.href])];
 
   // ---- stock ----
-  const BAND_COLOR: Record<string, string> = { risk: 'var(--danger)', low: 'var(--warning-solid)', healthy: 'var(--viz-1)', over: 'var(--viz-other)', nosales: 'var(--border-strong)' };
+  const BAND_COLOR: Record<string, string> = { risk: 'var(--danger)', low: 'var(--warning-solid)', healthy: 'var(--success)', over: 'var(--viz-other)', nosales: 'var(--border-strong)' };
   const BAND_SHORT: Record<string, string> = { risk: 'At risk', low: 'Low', healthy: 'Healthy', over: 'Overstocked', nosales: 'No sales' };
   const bandRange = (k: string) => (!d ? '' : k === 'risk' ? '≤ 7 d' : k === 'low' ? `8–${d.cover.min} d` : k === 'healthy' ? `${d.cover.min + 1}–${d.cover.max} d` : k === 'over' ? `> ${d.cover.max} d` : '30 d');
   const stockRows = () => [['Band', 'Cases', 'Products', `Value (${currency.code})`], ...(d?.stock?.bands ?? []).map((b) => [b.label, b.cases, b.products, cvRow(b.value)])];
@@ -118,15 +106,21 @@
   // ---- top products ----
   const topRows = () => [['Product', 'Pack', 'Warehouses', 'Cases per week', 'Cases sold', `Revenue (${currency.code})`, 'Margin', 'Days of cover'], ...(d?.top ?? []).map((x) => [x.brand, x.pack, x.warehouses.join(', '), x.perWeek, x.cases, cvRow(x.revenue), pctF(x.margin), x.cover ?? 'No sales'])];
   const coverTone = (c: number | null) => (c == null ? 'none' : c <= 7 ? 'bad' : c <= (d?.cover.min ?? 14) ? 'warn' : c > (d?.cover.max ?? 60) ? 'over' : 'ok');
-  // KPI changes
+  // KPI changes — RAG: green progress, amber approaching danger, red danger
   const sc = $derived(d ? change(d.sales.value, d.sales.prev) : null);
   const pc = $derived(d ? change(d.profit.value, d.profit.prev) : null);
   const mpp = $derived(d && d.profit.margin != null && d.profit.prevMargin != null ? (d.profit.margin - d.profit.prevMargin) * 100 : null);
   const td = $derived(d && d.trucks.value != null && d.trucks.prev != null ? d.trucks.value - d.trucks.prev : null);
+  type Rag = 'good' | 'warn' | 'bad' | 'none';
+  const ragSales = $derived<Rag>(sc == null ? 'none' : sc >= 0 ? 'good' : 'bad');
+  const ragProfit = $derived<Rag>(!d || d.profit.margin == null ? 'none' : d.profit.margin >= d.targetMargin ? 'good' : d.profit.margin >= d.targetMargin * 0.8 ? 'warn' : 'bad');
+  const ragCash = $derived<Rag>(!d || d.cash.value == null ? 'none' : !d.cash.overdue ? 'good' : d.cash.overdue / d.cash.value > 0.25 ? 'bad' : 'warn');
+  const ragTrucks = $derived<Rag>(!d || d.trucks.value == null ? 'none' : d.trucks.delayed ? 'bad' : d.trucks.onTimeWeek != null && d.trucks.onTimeWeek < 0.9 ? 'warn' : 'good');
+  const ageTotal = $derived(d ? d.owed.bands.reduce((a, b) => a + b.value, 0) : 0);
 </script>
 
 <div class="fbar" role="group" aria-label="Filters">
-  <label>Period <select class="select" bind:value={preset}>{#each PRESETS as p}<option value={p.key}>{p.label}</option>{/each}</select></label>
+  <label>Period <select class="select" bind:value={preset}>{#each PERIODS as p}<option value={p.key}>{p.label}</option>{/each}</select></label>
   {#if whOptions.length > 1}
     <label>Warehouse <select class="select" bind:value={warehouseId}><option value="">All warehouses</option>{#each whOptions as id}<option value={id}>{lookup.warehouse(id)?.name ?? id}</option>{/each}</select></label>
   {/if}
@@ -142,49 +136,49 @@
 {:else if d}
   <!-- ── KPI strip ── -->
   <div class="kpis" class:busy={w.loading}>
-    <a class="kpi accent" href="#/dashboards/sales" title={res?.definition}>
+    <a class="kpi rag-{ragSales}" href="#/dashboards/sales" title={res?.definition}>
       <span class="lbl">Sales · {periodShort.toLowerCase()}</span>
       <span class="val">{#if d.sales.value == null}No data yet{:else}<small>{currency.code}</small> {amount(d.sales.value)}{/if}</span>
       <span class="chg">{#if sc != null}<span class="chip {sc >= 0 ? 'up' : 'down'}">{#if sc >= 0}<ArrowUpRight size={13} />{:else}<ArrowDownRight size={13} />{/if}{sc >= 0 ? '+' : ''}{(sc * 100).toFixed(1)}%</span>{/if}<span class="sub">{sc != null ? prevText : 'Nothing earlier to compare'}</span></span>
-      <span class="spk"><SparkArea values={d.sales.spark} /></span>
+      <span class="spk {ragSales}"><SparkArea values={d.sales.spark} /></span>
     </a>
-    <a class="kpi" href="#/performance">
+    <a class="kpi rag-{ragProfit}" href="#/performance">
       <span class="lbl">Profit · margin {pctF(d.profit.margin)}</span>
       <span class="val">{#if d.profit.value == null}No data yet{:else}<small>{currency.code}</small> {amount(d.profit.value)}{/if}</span>
-      <span class="chg">{#if pc != null}<span class="chip {pc >= 0 ? 'up' : 'down'}">{#if pc >= 0}<ArrowUpRight size={13} />{:else}<ArrowDownRight size={13} />{/if}{pc >= 0 ? '+' : ''}{(pc * 100).toFixed(1)}%</span>{/if}<span class="sub">{mpp != null ? `margin ${mpp >= 0 ? '+' : ''}${mpp.toFixed(1)} pp` : 'landed cost based'}{d.profit.estimated ? ' · part estimated' : ''}</span></span>
-      <span class="spk"><SparkArea values={d.profit.spark} /></span>
+      <span class="chg">{#if pc != null}<span class="chip {pc >= 0 ? 'up' : 'down'}">{#if pc >= 0}<ArrowUpRight size={13} />{:else}<ArrowDownRight size={13} />{/if}{pc >= 0 ? '+' : ''}{(pc * 100).toFixed(1)}%</span>{/if}{#if d.profit.margin != null}<span class="chip {ragProfit === 'good' ? 'up' : ragProfit === 'warn' ? 'warn' : 'down'}">{ragProfit === 'good' ? 'At target' : 'Below target'} {pctF(d.targetMargin)}</span>{/if}<span class="sub">{mpp != null ? `margin ${mpp >= 0 ? '+' : ''}${mpp.toFixed(1)} pp` : 'landed cost based'}{d.profit.estimated ? ' · part estimated' : ''}</span></span>
+      <span class="spk {ragProfit}"><SparkArea values={d.profit.spark} /></span>
     </a>
-    <a class="kpi" href="#/sales?show=owed">
+    <a class="kpi rag-{ragCash}" href="#/sales?show=owed">
       <span class="lbl">Cash to collect</span>
       <span class="val">{#if d.cash.value == null}No data yet{:else}<small>{currency.code}</small> {amount(d.cash.value)}{/if}</span>
       <span class="chg">{#if d.cash.overdue}<span class="chip warn">{currency.code} {amount(d.cash.overdue)} overdue</span>{:else if d.cash.value != null}<span class="chip up">Nothing overdue</span>{/if}<span class="sub">{d.cash.collectedShare != null ? `${Math.round(d.cash.collectedShare * 100)}% of ${periodShort.toLowerCase()}'s sales paid` : `${d.cash.customers} customers`}</span></span>
-      <span class="spk"><SparkArea values={d.cash.spark} /></span>
+      <span class="spk {ragCash}"><SparkArea values={d.cash.spark} /></span>
     </a>
-    <a class="kpi" href="#/dashboards/fleet">
+    <a class="kpi rag-{ragTrucks}" href="#/dashboards/fleet">
       <span class="lbl">Trucks on the road</span>
       <span class="val">{d.trucks.value ?? 'No data yet'}{#if td != null}<small class="delta">{td >= 0 ? '+' : ''}{td} vs a week ago</small>{/if}</span>
       <span class="chg">{#if d.trucks.delayed}<span class="chip down">{d.trucks.delayed} delayed</span>{:else if d.trucks.value != null}<span class="chip up">None delayed</span>{/if}<span class="sub">{d.trucks.arrivingToday} arriving today{#if d.trucks.onTimeWeek != null} · {Math.round(d.trucks.onTimeWeek * 100)}% on time (7 d){/if}</span></span>
-      <span class="spk"><SparkArea values={d.trucks.spark} /></span>
+      <span class="spk {ragTrucks}"><SparkArea values={d.trucks.spark} /></span>
     </a>
   </div>
 
   <div class="grid" class:busy={w.loading}>
     <!-- ── left: trend + top products ── -->
     <div class="col">
-      <div class="slot o-chart"><TodayCard title="Sales and profit" definition={res?.definition} caption="{currency.code} · {chart.weekly ? 'by week, this year' : `daily, last ${range} days`} · total {compact(chartTotal.sales)} sales, {compact(chartTotal.profit)} profit" updatedAt={res?.freshness ?? null} rows={chartRows} filename="sales-and-profit" empty={!chart.sales.some((v) => v != null)}>
+      <div class="slot o-chart"><TodayCard title="Sales and profit" definition={res?.definition} caption="{currency.code} · {chart.weekly ? 'by week, this year' : `daily, last ${range} days`}{preset === 'today' && range === '7' ? ' · Today, last 7 days behind' : ''} · total {compact(chartTotal.sales)} sales, {compact(chartTotal.profit)} profit" decision="If profit lags sales, open the profit bridge." updatedAt={res?.freshness ?? null} rows={chartRows} filename="sales-and-profit" empty={!chart.sales.some((v) => v != null)}>
         {#snippet actions()}
           <div class="legend" role="group" aria-label="Show or hide a line">
             <button class="lg" aria-pressed={!hideSales} onclick={() => (hideSales = !hideSales)}><i style="background:var(--t-sales)"></i>Sales</button>
             <button class="lg" aria-pressed={!hideProfit} onclick={() => (hideProfit = !hideProfit)}><i style="background:var(--t-profit)"></i>Profit</button>
           </div>
-          <select class="select sm" bind:value={range} aria-label="Chart period"><option value="30">30 days</option><option value="90">90 days</option><option value="year">This year</option></select>
+          <select class="select sm" bind:value={range} aria-label="Chart period"><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="year">This year</option></select>
         {/snippet}
         <SmoothTrend label="Sales and profit, {chart.weekly ? 'weekly this year' : `daily over the last ${range} days`}" labels={chart.labels}
           series={[{ name: 'Sales', values: chart.sales, color: 'var(--t-sales)', area: true, hidden: hideSales }, { name: 'Profit', values: chart.profit, color: 'var(--t-profit)', hidden: hideProfit }]}
           format={axisFmt} xLabel={(s) => (chart.weekly ? dayFmt(s, { month: 'short' }) : dayFmt(s))} tipLabel={(s) => (chart.weekly ? `Week of ${dayFmt(s)}` : dayFmt(s, { weekday: 'short', day: 'numeric', month: 'short' }))} height={300} />
       </TodayCard></div>
 
-      <div class="slot o-top"><TodayCard title="Top products" definition="The products that brought in the most sales in the period. Cases per week = cases sold ÷ weeks in the period. Margin = profit ÷ sales at landed cost v2 (amber when below the target margin). Days of cover = cases held now ÷ average daily sales of the last 30 days." caption="{periodShort} · by sales value" rows={topRows} filename="top-products" empty={!d.top.length} drill={{ label: 'View all in Performance', href: '#/performance' }} flush>
+      <div class="slot o-top"><TodayCard title="Top products" definition="The products that brought in the most sales in the period. Cases per week = cases sold ÷ weeks in the period. Margin = profit ÷ sales at landed cost v2 (amber when below the target margin). Days of cover = cases held now ÷ average daily sales of the last 30 days." caption="{periodShort} · by sales value" decision="Protect cover on the best sellers; review prices below target." rows={topRows} filename="top-products" empty={!d.top.length} drill={{ label: 'View all in Performance', href: '#/performance' }} flush>
         <div class="table-wrap"><table class="tp">
           <thead><tr><th class="rank">#</th><th>Product</th><th class="hide-md">Warehouses</th><th class="num hide-sm">Cases / week</th><th class="num">Revenue</th><th class="num">Margin</th><th class="num">Cover</th></tr></thead>
           <tbody>
@@ -207,7 +201,7 @@
 
     <!-- ── right: decisions, stock, distribution ── -->
     <div class="col side">
-      <div class="slot o-dec"><TodayCard title="Needs your decision today" definition="Things only a director can unblock, most urgent first: truck payments waiting for approval, delayed or silent trucks, transport fees past the red limit, products running below the minimum days of stock, deliveries not signed for a day, and top sellers priced below the target margin. Each row opens the list behind it." caption="{open.length ? `${open.length} open` : 'All clear'} · owner shown on each" updatedAt={res?.freshness ?? null} rows={decRows} filename="decisions-today">
+      <div class="slot o-dec"><TodayCard title="Needs your decision today" definition="Things only a director can unblock, most urgent first: truck payments waiting for approval, delayed or silent trucks, transport fees past the red limit, products running below the minimum days of stock, deliveries not signed for a day, and top sellers priced below the target margin. Each row opens the list behind it." caption="{open.length ? `${open.length} open` : 'All clear'} · owner shown on each" decision="Work the red rows before anything else." updatedAt={res?.freshness ?? null} rows={decRows} filename="decisions-today">
         {#if open.length}
           <ul class="dec">
             {#each open as x (x.key)}
@@ -230,7 +224,7 @@
         {/if}
       </TodayCard></div>
 
-      <div class="slot o-stock"><TodayCard title="Stock health" definition="Cases held now in every warehouse in view, by days of cover (cases held ÷ average daily sales of the last 30 days). Minimum {d.cover.min} days, overstocked above {d.cover.max} days (to confirm per category). Centre = stock value at landed cost." caption="Cases by days of cover · now" updatedAt={res?.freshness ?? null} rows={stockRows} filename="stock-health" empty={!d.stock} drill={{ label: 'View details', href: '#/dashboards/warehouse' }}>
+      <div class="slot o-stock"><TodayCard title="Which stock needs action today?" definition="Cases held now in every warehouse in view, by days of cover (cases held ÷ average daily sales of the last 30 days). Minimum {d.cover.min} days, overstocked above {d.cover.max} days (to confirm per category). Centre = stock value at landed cost." caption="Cases by days of cover · now" decision="Tell purchasing to reorder at-risk products; count no-sales lines." updatedAt={res?.freshness ?? null} rows={stockRows} filename="stock-health" empty={!d.stock} drill={{ label: 'View details', href: '#/dashboards/warehouse' }}>
         {#if d.stock}
           <div class="stock">
             <RingDonut size={140} thickness={14} label="Stock by days of cover" parts={d.stock.bands.map((b) => ({ label: b.label, value: b.cases, color: BAND_COLOR[b.key] }))} centerLabel="Stock value" centerValue={d.stock.value == null ? 'No data yet' : `${currency.code} ${amount(d.stock.value)}`} />
@@ -243,7 +237,22 @@
         {/if}
       </TodayCard></div>
 
-      <div class="slot o-dist"><TodayCard title="Sales distribution" definition="Sales value by company (Group view) or by warehouse, over the last 7 days or the chosen period. Sales between our own companies are removed in the Group view." caption="{currency.code} · {distWhen === 'week' ? 'last 7 days' : periodShort.toLowerCase()}" rows={distRows} filename="sales-distribution" empty={!dist.some((x) => x.v != null)} drill={{ label: 'View details', href: '#/dashboards/sales' }}>
+      <div class="slot o-owed"><TodayCard title="Who owes us?" definition="Unpaid and part-paid sales by days since the sale. Overdue after {d.owed.terms} days payment terms (to confirm). Green = within terms, amber = 1–30 days overdue, red = over 30 days overdue." caption="{currency.code} · terms {d.owed.terms} days" decision="Call the customers in the overdue bands." updatedAt={res?.freshness ?? null} rows={() => [['Band', `Amount (${currency.code})`], ...d.owed.bands.map((b) => [b.name, cvRow(b.value)]), ...d.owed.top.map((x) => [x.customer, cvRow(x.value)])]} filename="who-owes-us" empty={d.owed.total == null} drill={{ label: 'View customer balances', href: '#/sales?show=owed' }}>
+        {#if ageTotal}
+          <div class="age-strip" role="img" aria-label="Receivables ageing">{#each d.owed.bands as b}<span class={b.tone} style:width="{Math.max(0, (b.value / ageTotal) * 100)}%">{b.value ? amount(b.value) : ''}</span>{/each}</div>
+          <ul class="age-leg">{#each d.owed.bands as b}<li><i class={b.tone}></i>{b.name}<b>{moneyTxt(b.value)}</b></li>{/each}</ul>
+        {/if}
+        {#if d.owed.top.length}
+          <ul class="owed">
+            {#each d.owed.top as x}
+              <li><span>{x.customer}</span><b>{moneyTxt(x.value)}</b></li>
+            {/each}
+          </ul>
+        {/if}
+        <p class="caption">{d.owed.overdue ? `${moneyTxt(d.owed.overdue)} overdue of ${moneyTxt(d.owed.total)}` : d.owed.total != null ? `Nothing overdue of ${moneyTxt(d.owed.total)}` : 'No open balances'}</p>
+      </TodayCard></div>
+
+      <div class="slot o-dist"><TodayCard title="Sales distribution" definition="Sales value by company (Group view) or by warehouse, over the last 7 days or the chosen period. Sales between our own companies are removed in the Group view." caption="{currency.code} · {distWhen === 'week' ? 'last 7 days' : periodShort.toLowerCase()}" decision="Ask why a warehouse or company is off the usual share." rows={distRows} filename="sales-distribution" empty={!dist.some((x) => x.v != null)} drill={{ label: 'View details', href: '#/dashboards/sales' }}>
         <div class="drow">
           {#if showCompanies}
             <div class="sel-seg" role="radiogroup" aria-label="Group by">
@@ -296,11 +305,13 @@
   .chip.up { background: var(--success-subtle); color: var(--success); }
   .chip.down { background: var(--danger-subtle); color: var(--danger); }
   .chip.warn { background: var(--warning-subtle); color: var(--warning); }
-  .spk { margin-top: var(--space-3); color: var(--viz-1); }
-  .kpi.accent { background: var(--primary); border-color: transparent; color: var(--text-on-primary); --spark-ring: var(--primary); }
-  .kpi.accent .lbl, .kpi.accent .sub, .kpi.accent .val small { color: color-mix(in srgb, var(--text-on-primary) 75%, transparent); }
-  .kpi.accent .chip { background: color-mix(in srgb, var(--text-on-primary) 16%, transparent); color: var(--text-on-primary); }
-  .kpi.accent .spk { color: var(--text-on-primary); }
+  .spk { margin-top: var(--space-3); color: var(--text-muted); }
+  .spk.good { color: var(--success); }
+  .spk.warn { color: var(--warning-solid); }
+  .spk.bad { color: var(--danger); }
+  .kpi.rag-good { border-left: 3px solid var(--success); }
+  .kpi.rag-warn { border-left: 3px solid var(--warning-solid); }
+  .kpi.rag-bad { border-left: 3px solid var(--danger); }
 
   /* main grid: 2/3 + 1/3 */
   .grid { display: grid; grid-template-columns: minmax(0, 1.85fr) minmax(360px, 1fr); gap: var(--space-5); align-items: start; }
@@ -332,6 +343,8 @@
   .cov { display: inline-block; min-width: 46px; text-align: center; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--surface-sunken); color: var(--text-muted); }
   .cov.bad { background: var(--danger-subtle); color: var(--danger); }
   .cov.warn { background: var(--warning-subtle); color: var(--warning); }
+  .cov.ok { background: var(--success-subtle); color: var(--success); }
+  .cov.over { background: var(--surface-sunken); color: var(--text-muted); }
 
   /* decisions */
   .dec { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
@@ -380,12 +393,25 @@
   .dist b { font-variant-numeric: tabular-nums; text-align: right; }
   .sh { font-size: 12px; color: var(--text-muted); text-align: right; font-variant-numeric: tabular-nums; }
 
+  .age-strip { display: flex; height: 28px; border-radius: 6px; overflow: hidden; margin-bottom: var(--space-3); }
+  .age-strip span { display: flex; align-items: center; justify-content: center; min-width: 0; overflow: hidden; font-size: 11px; font-weight: 700; color: #fff; }
+  .age-strip .good, .age-leg i.good { background: var(--success); }
+  .age-strip .warn, .age-leg i.warn { background: var(--warning-solid); }
+  .age-strip .bad, .age-leg i.bad { background: var(--danger); }
+  .age-leg { list-style: none; margin: 0 0 var(--space-3); padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+  .age-leg li { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: var(--space-2); }
+  .age-leg i { width: 10px; height: 10px; border-radius: 50%; }
+  .age-leg b { font-variant-numeric: tabular-nums; }
+  .owed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+  .owed li { display: flex; justify-content: space-between; gap: var(--space-3); border-top: 1px solid var(--border); padding-top: 8px; }
+  .owed b { font-variant-numeric: tabular-nums; }
+
   @media (max-width: 1280px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 1100px) {
     /* one column: what needs a decision first, then the trend, stock, distribution and products */
     .grid { grid-template-columns: minmax(0, 1fr); }
     .col { display: contents; }
-    .o-dec { order: 1; } .o-chart { order: 2; } .o-stock { order: 3; } .o-dist { order: 4; } .o-top { order: 5; }
+    .o-dec { order: 1; } .o-chart { order: 2; } .o-stock { order: 3; } .o-owed { order: 4; } .o-dist { order: 5; } .o-top { order: 6; }
   }
   @media (min-width: 700px) and (max-width: 1100px) {
     .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

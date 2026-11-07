@@ -32,7 +32,7 @@ export interface ReportData {
 }
 export interface ReportFilter { from?: string; to?: string; warehouseId?: ID; productId?: ID; entityId?: ID }
 export type GroupBy = 'day' | 'week' | 'month' | 'quarter';
-export type PeriodPreset = 'last-30' | 'last-90' | 'this-month' | 'last-month' | 'this-quarter' | 'last-quarter' | 'ytd' | 'last-12m'
+export type PeriodPreset = 'today' | 'last-7' | 'last-30' | 'last-90' | 'this-month' | 'last-month' | 'this-quarter' | 'last-quarter' | 'ytd' | 'last-12m'
   | 'next-30' | 'next-60' | 'next-90' | 'next-quarter';
 
 // ---- company scope, consolidation and currency ---------------------------------------------------------
@@ -135,6 +135,8 @@ export function resolvePeriod(p: PeriodPreset, now: number): { from: string; to:
   const y = d.getUTCFullYear(), m = d.getUTCMonth(), q = Math.floor(m / 3);
   const R = (f: number, to: number, label: string) => ({ from: new Date(f).toISOString(), to: new Date(to).toISOString(), label });
   switch (p) {
+    case 'today': return R(d0, d0 + DAY, 'Today');
+    case 'last-7': return R(d0 - 6 * DAY, d0 + DAY, 'Last 7 days');
     case 'last-30': return R(d0 - 29 * DAY, d0 + DAY, 'Last 30 days');
     case 'last-90': return R(d0 - 89 * DAY, d0 + DAY, 'Last 90 days');
     case 'this-month': return R(Date.UTC(y, m, 1), d0 + DAY, 'This month');

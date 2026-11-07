@@ -2,7 +2,7 @@
 import { auth, lookup, mode, ref, type Role, type User } from '@btw/api';
 
 export type FieldRole = 'driver' | 'loader' | 'receiver';
-export const ROLE_LABEL: Record<FieldRole, string> = { driver: 'Driver', loader: 'Loader', receiver: 'Receiver · warehouse' };
+export const ROLE_LABEL: Record<FieldRole, string> = { driver: 'Driver', loader: 'Loader', receiver: 'Warehouse' };
 /** Office web app: same origin when served from one point (`pnpm start` → /app/), else VITE_WEB_URL, else local dev. */
 export const WEB_URL: string = typeof location !== 'undefined' && location.pathname.startsWith('/app')
   ? `${location.origin}/`

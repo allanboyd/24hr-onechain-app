@@ -15,10 +15,10 @@ ok(['C-X-01', 'C-X-02', 'C-X-03'].every((id) => DASHBOARDS.some((d) => d.id === 
 ok(JSON.stringify(homeFor(R('director'))) === '["director-today"]', "directors: one curated home (Today); the other dashboards stay on their feature tabs", homeFor(R('director')));
 ok(canSeeDash(R('director'), 'director-today') && canSeeDash(R('admin'), 'director-today') && ['planner', 'truck_planner', 'loader', 'receiver', 'reexport', 'driver'].every((r) => !canSeeDash(R(r as Role), 'director-today')), 'Today: directors (and admins) only');
 ok(['exec-overview', 'profit-margin', 'stock-on-hand', 'sales-summary', 'alerts'].every((k) => canSeeDash(R('director'), k)), 'directors keep every feature dashboard (tabs)');
-ok(JSON.stringify(homeFor(R('planner'))) === JSON.stringify(HOME.kab), 'Kabonge: PO pipeline, ordered vs loaded vs delivered, open orders, plan vs actual, alerts', homeFor(R('planner')));
+ok(JSON.stringify(homeFor(R('planner'))) === JSON.stringify(HOME.kab), 'Kabonge: order this week, PO pipeline, open orders, plan vs actual, alerts', homeFor(R('planner')));
 ok(JSON.stringify(homeFor(R('truck_planner'))) === JSON.stringify(HOME.tf), 'Testfie: fleet board, delayed, issues, driver updates, agreed prices, fees, expenses per truck, Mombasa loading list');
 ok(JSON.stringify(homeFor(R('loader'))) === JSON.stringify(['loading-list', 'dispatched-today']), "loaders: today's loading list and dispatched today");
-ok(JSON.stringify(homeFor(R('receiver'))) === JSON.stringify(HOME.rcv) && homeFor(R('receiver', 'reexport')).at(-1) === 'reexports', 'Asie / Yonas: incoming, received / damaged / short, stock on hand, warehouse expenses (+ re-exports for Asie)');
+ok(JSON.stringify(homeFor(R('receiver'))) === JSON.stringify(HOME.rcv) && HOME.rcv[0] === 'warehouse-today' && HOME.rcv.includes('stock-movements') && homeFor(R('receiver', 'reexport')).at(-1) === 'reexports', 'Asie / Yonas: warehouse today, incoming, received / damaged / short, stock on hand, stock movements, warehouse expenses (+ re-exports for Asie)');
 ok(!canSeeDash(R('loader'), 'fleet-board') && !canSeeDash(R('receiver'), 'sales-summary') && !canSeeDash(R('planner'), 'fee-payments') && !canSeeDash(R('truck_planner'), 'profit-margin') && !canSeeDash(R('driver'), 'incoming'), 'nobody opens a dashboard outside their audience');
 ok(dashboardsFor(R('driver')).length === 0 && dashboardsFor(R('director')).length === DASHBOARDS.length, 'drivers none (phone only); directors every dashboard');
 ok(invalidKeys(R('planner'), ['po-pipeline', 'sales-summary', 'audit-log']).join() === 'sales-summary,audit-log', 'invalid keys: outside the audience, or computed in the browser');
@@ -44,6 +44,10 @@ ok(filled.every((k) => dir.results[k]!.freshness === null || Date.parse(dir.resu
 const ex = dir.results['exec-overview']!.data as { kpis: { key: string; value: number | null; prev: number | null }[]; exceptions: { severity: string }[] };
 ok(ex.kpis.length >= 7 && ex.kpis.find((k) => k.key === 'sales')!.value! > 0 && ex.kpis.find((k) => k.key === 'sales')!.prev !== undefined, 'executive overview: KPIs with the previous period', ex.kpis.map((k) => [k.key, k.value, k.prev]));
 ok(ex.exceptions.every((e) => ['critical', 'high'].includes(e.severity) || true) && Array.isArray(ex.exceptions), 'executive overview: exception list');
+const exFull = dir.results['exec-overview']!.data as { bullets: { key: string; value: number | null; target: number; status: string }[] };
+ok(exFull.bullets?.length === 3 && ['margin', 'onTime', 'cover'].every((k) => exFull.bullets.some((b) => b.key === k && b.target > 0)), 'executive overview: bullets vs target (margin, on-time, days of cover)', exFull.bullets);
+const cp = dir.results['combined-performance']!.data as { revenue: number; profit: number; targetMargin: number; costs: number };
+ok(cp.targetMargin > 0 && Math.abs(cp.costs - (cp.revenue - cp.profit)) < 1, 'combined performance: target margin and costs = sales − profit', cp);
 // ---- directors' Today view (director-today) ----
 type TD = import('../src/dashboards').TodayData;
 const td = dir.results['director-today']!.data as TD;
@@ -53,6 +57,7 @@ const pmM = (await api.dashboards.get(['combined-performance'], { from: td.perio
 ok(Math.abs(td.sales.value! - pmM.revenue) < 1, 'Today: sales = the performance report revenue for the same days (landed cost v2 source)', [td.sales.value, pmM.revenue]);
 ok(td.profit.value !== null && td.profit.margin !== null && Math.abs(td.profit.margin - (td.profit.value + 0) / td.sales.value!) < 0.02, 'Today: profit and margin (landed cost based)', [td.profit.value, td.profit.margin]);
 ok(td.cash.value! > 0 && td.cash.overdue! <= td.cash.value! && td.cash.spark?.length === 8, 'Today: cash to collect with the overdue part (never more than the total)', [td.cash.value, td.cash.overdue]);
+ok(td.owed.bands.length === 3 && td.owed.total === td.cash.value && td.owed.overdue === td.cash.overdue && td.owed.top.length > 0 && td.owed.bands.every((b) => b.value >= 0), 'Today: who-owes-us ageing bands and top customers', td.owed);
 ok(td.trucks.value !== null && td.trucks.delayed <= td.trucks.value && td.trucks.spark?.length === 14 && td.trucks.spark.at(-1) === td.trucks.value, 'Today: trucks on the road, delayed, 14-day trend ending at now', td.trucks);
 ok(td.daily.length >= 90 && td.daily.every((x, i) => i === 0 || x.day > td.daily[i - 1].day) && td.daily.at(-1)!.sales !== 0, 'Today: daily series ≥ 90 days, ordered, no zero "today" tail', td.daily.length);
 const sumDaily = td.daily.filter((x) => x.day >= td.period.from.slice(0, 10)).reduce((a, x) => a + (x.sales ?? 0), 0);
@@ -62,6 +67,13 @@ const firstZero = td.decisions.findIndex((x) => !(x.count ?? 0));
 ok(firstZero === -1 || td.decisions.slice(firstZero).every((x) => !(x.count ?? 0)), 'Today: open decisions first, then the clear ones');
 ok(!!td.stock && Math.abs(td.stock.bands.reduce((a, b) => a + b.cases, 0) - td.stock.cases) < 1 && td.stock.value! > 0, 'Today: stock bands add up to the cases held; value at landed cost', td.stock?.bands.map((b) => [b.key, b.cases]));
 ok(td.distribution.companies.length === 3 && td.distribution.warehouses.length === 3 && Math.abs(td.distribution.warehouses.reduce((a, x) => a + (x.month ?? 0), 0) - td.sales.value!) < 1, 'Today: sales by company (3) and warehouse (3), warehouses add up to the total', td.distribution);
+{
+  const d0 = new Date(); const utc0 = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate());
+  const from = new Date(utc0).toISOString(); const to = new Date(utc0 + 864e5).toISOString();
+  const tdT = (await api.dashboards.get(['director-today'], { from, to })).results['director-today']!.data as TD;
+  ok(!tdT.mtd || from.slice(8, 10) === '01', 'Today with an explicit today filter is not month-to-date (unless today is the 1st)', [tdT.mtd, tdT.period]);
+  ok((tdT.sales.spark?.length ?? 0) >= 2, 'Today KPI spark still has a 7-day trend behind', tdT.sales.spark?.length);
+}
 ok(td.top.length > 0 && td.top.length <= 8 && td.top.every((x, i) => i === 0 || td.top[i - 1].revenue >= x.revenue) && td.top.every((x) => x.perWeek > 0 && x.warehouses.length), 'Today: top products by revenue with cases per week and warehouses', td.top.map((x) => [x.brand, x.revenue]));
 api.entities.setActive('e-btw');
 const tdB = (await api.dashboards.get(['director-today'])).results['director-today']!.data as TD;
@@ -91,6 +103,16 @@ const ul = dir.results['users-logins']!.data as { counts: { total: number } };
 ok(ul.counts.total >= 9, 'users and logins: the roster', ul.counts);
 const cb = dir.results['customer-balances']!.data as { customers: string[]; total: number };
 ok(cb.customers.length > 0 && cb.total > 0, 'customer balances: ageing per customer');
+const wtD = dir.results['warehouse-today']!.data as import('../src/dashboards').WarehouseToday;
+ok(wtD.sign && Array.isArray(wtD.arriving.rows) && wtD.stock && wtD.losses && (wtD.reexports?.open ?? 0) >= 0, 'warehouse today: sign, arriving, stock, losses');
+const otw = dir.results['order-this-week']!.data as { rows: { urgency: string; cases: number }[]; overdue: number; thisWeek: number };
+ok(Array.isArray(otw.rows) && otw.overdue >= 0 && otw.thisWeek >= 0, 'order this week: suggested rows with urgency counts', [otw.overdue, otw.thisWeek, otw.rows.length]);
+const sm = dir.results['stock-movements']!.data as { days: { in: number; out: number; closing: number }[]; in: number; opening: number };
+ok(sm.days.length > 0 && sm.in >= 0 && sm.opening + sm.in - (dir.results['stock-movements']!.data as { out: number }).out === sm.days.at(-1)!.closing, 'stock movements: daily in/out with a running close');
+const cc = dir.results['cash-vs-credit']!.data as { cash: number; credit: number; months: { share: number | null }[] };
+ok(cc.cash > 0 && cc.months.length === 6, 'cash vs credit: six months of cash against credit', cc);
+const dc = dir.results['data-completeness']!.data as { checks: { key: string; count: number; of: number }[]; gaps: number };
+ok(dc.checks.length >= 5 && dc.gaps >= 0, 'data completeness: checklist of missing records', dc.checks.map((x) => x.key));
 
 // filters
 const fBTW = await api.dashboards.get(['po-pipeline', 'sales-summary'], { entityId: 'e-btw' });
@@ -104,11 +126,12 @@ ok(dir.options.suppliers.length >= 3 && dir.options.warehouses.length >= 3, 'fil
 
 // Kabonge: his pairs only, values allowed
 await as('u-kabonge');
-const kab = await api.dashboards.get(['po-pipeline', 'ordered-loaded-delivered', 'open-orders', 'alerts']);
+const kab = await api.dashboards.get(['order-this-week', 'po-pipeline', 'ordered-loaded-delivered', 'open-orders', 'alerts']);
 const kp = (kab.results['po-pipeline']!.data as typeof pipe).stages.flatMap((s) => s.items as { pair: string }[]);
 ok(kp.length > 0 && kp.every((x) => ['BTW–KBL Nairobi', 'Nihna–UBL Kampala', 'Kivu–SBL Mwanza'].includes(x.pair) || !x.pair.includes('GBI')), 'Kabonge: orders of his pairs only (never Nihna–GBI)', [...new Set(kp.map((x) => x.pair))]);
 ok(!kp.some((x) => x.pair.includes('GBI')), 'Kabonge: no Nihna–GBI order counted');
-ok(JSON.stringify(kab.home) === JSON.stringify(HOME.kab), 'Kabonge: his home set');
+ok(JSON.stringify(kab.home) === JSON.stringify(HOME.kab) && kab.home[0] === 'order-this-week', 'Kabonge: his home set leads with order this week');
+ok((kab.results['order-this-week']!.data as typeof otw).overdue >= 0, 'Kabonge: order this week builds');
 await rejects(api.dashboards.get(['sales-summary']), /403/, 'Kabonge: no sales dashboard');
 await rejects(api.dashboards.get(['fee-payments']), /403/, 'Kabonge: no fee payments');
 
@@ -131,7 +154,7 @@ await rejects(api.dashboards.get(['po-pipeline']), /403/, 'Joel: no PO pipeline'
 
 // receivers: own warehouses, quantities only
 await as('u-yonas');
-const yo = await api.dashboards.get(['incoming', 'received-damaged-short', 'stock-on-hand', 'warehouse-expenses', 'stock-in-transit', 'delivery-losses']);
+const yo = await api.dashboards.get(['warehouse-today', 'incoming', 'received-damaged-short', 'stock-on-hand', 'stock-movements', 'warehouse-expenses', 'stock-in-transit', 'delivery-losses']);
 const yIn = yo.results['incoming']!.data as { rows: { warehouse: string }[] };
 ok(yIn.rows.every((r) => /Juba/.test(r.warehouse)), 'Yonas: incoming to Juba only', yIn.rows.map((r) => r.warehouse));
 const yR = yo.results['received-damaged-short']!.data as { rows: { warehouse: string }[] };
@@ -140,10 +163,14 @@ const yX = yo.results['warehouse-expenses']!.data as { byWarehouse: { warehouseI
 ok(yX.byWarehouse.every((w) => w.warehouseId === 'w-juba'), 'Yonas: Juba expenses only', yX.byWarehouse);
 const noMoney = { ...yo.results }; delete noMoney['warehouse-expenses']; delete noMoney['delivery-losses']; // Pareto 'value' = cases
 ok(!money.test(JSON.stringify(noMoney)) && yo.results['incoming']!.pricesHidden, 'Yonas: no purchase prices or values (his own expenses only)');
+const ywt = yo.results['warehouse-today']!.data as import('../src/dashboards').WarehouseToday;
+ok(yo.home[0] === 'warehouse-today' && yo.home.includes('stock-movements') && ywt.reexports === null && ywt.arriving.rows.every((r) => /Juba/.test(r.warehouse)) && ywt.sign.rows.every((r) => /Juba/.test(r.warehouse)), 'Yonas: warehouse today is home, Juba only, no re-exports');
+ok((yo.results['stock-movements']!.data as { log: { warehouse: string }[] }).log.every((r) => /Juba/.test(r.warehouse)), 'Yonas: stock movements are Juba only');
 await as('u-asie');
-const as1 = await api.dashboards.get(['incoming', 'stock-on-hand', 'reexports']);
+const as1 = await api.dashboards.get(['warehouse-today', 'incoming', 'stock-on-hand', 'reexports']);
 ok((as1.results['incoming']!.data as typeof yIn).rows.every((r) => !/Juba/.test(r.warehouse)), 'Asie: never Yonas\'s incoming deliveries');
-ok((as1.results['reexports']!.data as { rows: unknown[] }).rows.length > 0 && as1.home.includes('reexports'), 'Asie: re-export orders on her home');
+ok((as1.results['reexports']!.data as { rows: unknown[] }).rows.length > 0 && as1.home.includes('reexports') && as1.home[0] === 'warehouse-today', 'Asie: warehouse today first, re-export orders on her home');
+ok((as1.results['warehouse-today']!.data as import('../src/dashboards').WarehouseToday).reexports != null, 'Asie: warehouse today includes re-exports');
 await rejects(api.dashboards.get(['sales-summary']), /403/, 'Asie: no sales');
 await rejects(api.dashboards.get(['fleet-board']), /403/, 'Asie: no fleet board');
 

@@ -27,6 +27,7 @@
     "db:seed": "pnpm --filter @btw/server db:seed",
     "start": "node scripts/stack.mjs start",
     "dev:all": "node scripts/stack.mjs dev",
+    "work": "node scripts/work.mjs",
     "e2e": "node tests/e2e/run.mjs",
     "share": "node scripts/share.mjs",
     "bootstrap": "docker compose up -d --wait db mail && pnpm --filter @btw/server db:migrate && pnpm --filter @btw/server db:seed:if-empty",

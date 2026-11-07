@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Field app: three single-task experiences (driver, loading point, receiver) — no tabs, no back stack —
-  // and BTW Team, the office roles' app (tabs, drawer, home menu). Each is its own chunk.
+  // Field app: driver / loader / receiver share a 3-tab shell (Now · List · Me). Office roles get BTW Team
+  // (its own five tabs). Each is its own chunk so a phone only downloads the screens it needs.
   import { auth, configure, ready, type User } from '@btw/api';
   import { Toast, say } from '@btw/ui';
   import { APP_VERSION, fieldRole } from './lib';
@@ -8,9 +8,9 @@
   import Login from './screens/Login.svelte';
   // Each role's screen is its own chunk: a phone downloads only the screen its user needs (keeps the entry small).
   const screens = {
-    driver: () => import('./screens/Driver.svelte'),
-    loader: () => import('./screens/LoadingPoint.svelte'),
-    receiver: () => import('./screens/Receiver.svelte'),
+    driver: () => import('./shell/FieldShell.svelte'),
+    loader: () => import('./shell/FieldShell.svelte'),
+    receiver: () => import('./shell/FieldShell.svelte'),
     team: () => import('./team/Team.svelte'),
   } as const;
 
@@ -20,7 +20,7 @@
   let user = $state<User | null>(auth.me());
   const role = $derived(user ? fieldRole(user) ?? 'team' : null);
   try { const t = localStorage.getItem('btw-theme'); if (t) document.documentElement.setAttribute('data-theme', t); } catch { /* ignore */ }
-  function logout() { auth.logout(); user = null; }
+  function logout() { auth.logout(); user = null; try { history.replaceState(null, '', location.pathname); } catch { /* ignore */ } }
   // Session ended elsewhere (PIN reset, device signed out remotely, account deactivated): back to sign-in, say why.
   $effect(() => auth.onExpired(() => { if (user) { user = null; say('You were signed out. Sign in again with your PIN.'); } }));
   // "Add to home screen" on the first visit in a browser (lazy chunk; never in the native app or once installed).

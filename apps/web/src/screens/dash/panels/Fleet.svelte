@@ -28,11 +28,11 @@
 </script>
 
 {#if key === 'fleet-board'}
-  <DashboardPanel span={span ?? 'full'} title="Live fleet board" subtitle="every truck on a trip by status, grouped by route · faded = no recent update" {...fr} staleAfter={12 * 60} freshness="synced" rows={boardRows} filename="live-fleet" {drill}>
+  <DashboardPanel span={span ?? 'full'} title="Where is every truck?" subtitle="by status, grouped by route · faded = no recent update" decision="Act on delayed and faded (silent) trucks first." {...fr} staleAfter={12 * 60} freshness="synced" rows={boardRows} filename="live-fleet" {drill}>
     <KanbanBoard columns={d.columns} {cards} oncard={(c) => { const x = cards.find((y: any) => y.id === c.id); if (x?.shipmentId) go(`#/shipments/${x.shipmentId}`); }} />
   </DashboardPanel>
 {:else if key === 'delayed-trucks'}
-  <DashboardPanel span={span ?? 1} title="Delayed trucks" subtitle="by days late · who acts" {...fr} rows={() => [['Truck', 'Shipment', 'Route', 'Where', 'Days late', 'Reason', 'Owner', 'Severity'], ...(d.rows ?? []).map((x: any) => [x.truck, x.ref, x.route, x.where, x.daysLate, x.reason, x.owner ?? 'Not assigned', x.severity])]} filename="delayed-trucks" {drill} emptyText="No truck is late">
+  <DashboardPanel span={span ?? 1} title="Which trucks are late, and who acts?" subtitle="by days late" decision="Give every late truck an owner and a next step." {...fr} rows={() => [['Truck', 'Shipment', 'Route', 'Where', 'Days late', 'Reason', 'Owner', 'Severity'], ...(d.rows ?? []).map((x: any) => [x.truck, x.ref, x.route, x.where, x.daysLate, x.reason, x.owner ?? 'Not assigned', x.severity])]} filename="delayed-trucks" {drill} emptyText="No truck is late">
     <div class="table-wrap"><table class="table">
       <thead><tr><th>Truck</th><th>Days late</th><th class="hide-sm">Reason</th><th>Owner</th></tr></thead>
       <tbody>{#each d.rows ?? [] as x}
@@ -46,7 +46,7 @@
     </table></div>
   </DashboardPanel>
 {:else if key === 'truck-issues'}
-  <DashboardPanel span={span ?? 1} title="Truck issues" subtitle="open issues · repeats by truck and provider" {...fr} rows={() => [['Truck', 'Provider', 'Where', 'What happened', 'Reported', 'Days stopped'], ...(d.open ?? []).map((x: any) => [x.truck, x.provider, x.place, x.reason, x.at, x.daysStopped])]} filename="truck-issues" {drill}>
+  <DashboardPanel span={span ?? 1} title="What is open, and which trucks repeat?" subtitle="open issues · repeats by truck and provider" decision="Fix repeats on the same truck or provider." {...fr} rows={() => [['Truck', 'Provider', 'Where', 'What happened', 'Reported', 'Days stopped'], ...(d.open ?? []).map((x: any) => [x.truck, x.provider, x.place, x.reason, x.at, x.daysStopped])]} filename="truck-issues" {drill}>
     <div class="table-wrap"><table class="table">
       <thead><tr><th>Truck</th><th>What · where</th><th class="num">Days stopped</th></tr></thead>
       <tbody>{#each d.open ?? [] as x}<tr class="clickable" onclick={() => go(`#/shipments/${x.shipmentId}`)}><td><b>{x.truck}</b><div class="caption">{x.provider}</div></td><td class="small">{x.reason}<div class="caption">{x.place} · {dayTime(x.at)}</div></td><td class="num"><StatusBadge status={x.daysStopped >= 1 ? 'bad' : 'warn'} label="{x.daysStopped} d" /></td></tr>
@@ -59,7 +59,7 @@
     {/if}
   </DashboardPanel>
 {:else if key === 'driver-updates'}
-  <DashboardPanel span={span ?? 1} title="Driver status updates" subtitle="feed of the last 48 hours · last update per truck" {...fr} staleAfter={6 * 60} freshness="synced" rows={() => [['Time', 'Truck', 'Update', 'Source'], ...(d.feed ?? []).map((x: any) => [x.at, x.truck, x.text, x.source])]} filename="driver-updates" {drill}>
+  <DashboardPanel span={span ?? 1} title="Which trucks have gone quiet?" subtitle="feed of the last 48 hours · last update per truck" decision="Call every truck past the red quiet gap." {...fr} staleAfter={6 * 60} freshness="synced" rows={() => [['Time', 'Truck', 'Update', 'Source'], ...(d.feed ?? []).map((x: any) => [x.at, x.truck, x.text, x.source])]} filename="driver-updates" {drill}>
     {#if d.trucks?.length}
       <div class="badges" aria-label="Last update per truck on the road">
         {#each d.trucks as x}<a href="#/shipments/{x.shipmentId}" class="tb"><b>{x.truck}</b><StatusBadge status={x.status} label={x.hours == null ? 'No update yet' : `${x.hours} h ago`} />{#if !x.hasApp}<span class="caption">no app</span>{/if}</a>{/each}
@@ -71,7 +71,7 @@
     </ol>
   </DashboardPanel>
 {:else if key === 'border-stops' && hm}
-  <DashboardPanel span={span ?? 2} title="Border and stop analysis" subtitle="average days at each border by route · trips in each cell" {...fr} rows={() => [['Route', 'Stop', 'Average days', 'Trips'], ...(d.cells ?? []).map((x: any) => [x.route, x.stop, x.avgDays, x.trips])]} filename="border-stop-heatmap" {drill}>
+  <DashboardPanel span={span ?? 2} title="Where do trucks wait?" subtitle="average days at each border by route · trips in each cell" decision="Plan extra days on the slowest cells." {...fr} rows={() => [['Route', 'Stop', 'Average days', 'Trips'], ...(d.cells ?? []).map((x: any) => [x.route, x.stop, x.avgDays, x.trips])]} filename="border-stop-heatmap" {drill}>
     <Heatmap label="Average days at each stop by route" rows={hm.routes} cols={hm.stops} values={hm.values} text={hm.text} format={(n) => `${n.toFixed(1)} d`} />
     {#if d.slowest?.length}<p class="caption">Slowest (3+ trips): {d.slowest.map((x: any) => `${x.stop} on ${x.route} ${x.avgDays.toFixed(1)} d (${x.trips})`).join(' · ')}. Fewer than {d.minTrips} trips is not a stable pattern.</p>{/if}
   </DashboardPanel>

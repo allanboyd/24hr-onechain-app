@@ -13,3 +13,5 @@ export { default as EmptyState } from './EmptyState.svelte';
 export { default as NeedsActionBadge } from './NeedsActionBadge.svelte';
 export { default as InfoTip } from './InfoTip.svelte';
 export { queryFilters, readQuery, writeQuery, hashQuery, takeIntent, RESERVED_KEYS, type QueryFilters } from './query.svelte';
+export { default as DataTable } from './DataTable.svelte';
+export { sortRows, compareCells, ts, type Column, type SortState, type Cell } from './datatable';

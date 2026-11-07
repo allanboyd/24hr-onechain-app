@@ -4,7 +4,7 @@
   import Menu from '@lucide/svelte/icons/menu';
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   /** `onback`: inside BTW Team (Testfie's "Load at GBI Mombasa") the first button goes back instead of opening the menu. */
-  let { onmenu, onback, title = '' }: { onmenu: () => void; onback?: () => void; title?: string } = $props();
+  let { onmenu, onback, title = '' }: { onmenu?: () => void; onback?: () => void; title?: string } = $props();
   // D-A4: the pill always says when this phone last synced, and how many changes wait to be sent.
   let s = $state<SyncView>({ online: true, pending: 0, syncing: false, lastSynced: null });
   $effect(() => watchSync((v) => (s = v)));
@@ -14,7 +14,7 @@
 </script>
 <div class="top">
   {#if onback}<button class="fab" aria-label="Back to BTW Team" onclick={onback}><ArrowLeft size={24} /></button>
-  {:else}<button class="fab" aria-label="Menu" onclick={onmenu}><Menu size={24} /></button>{/if}
+  {:else if onmenu}<button class="fab" aria-label="Menu" onclick={onmenu}><Menu size={24} /></button>{/if}
   {#if title}<span class="title">{title}</span>{/if}
   <button class="pill" onclick={onmenu} aria-label="Sync status: {text}. {when}"><span class="dot tone-{tone}" aria-hidden="true"></span><span class="txt"><span class="l1">{text}</span><span class="l2">{when}</span></span></button>
 </div>

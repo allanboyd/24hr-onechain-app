@@ -9,6 +9,6 @@ const API = process.env.API_PROXY_TARGET ?? 'http://localhost:3101';
 export default defineConfig(({ mode }) => ({
   plugins: [svelte()],
   resolve: { alias: btwApiAlias(mode) }, // mock or http client, chosen at build time
-  server: { port: 5173, host: true, proxy: { '/v1': { target: API, changeOrigin: true } } },
+  server: { port: 5173, host: true, allowedHosts: ['.ngrok-free.dev', '.ngrok-free.app', '.ngrok.app', '.ngrok.dev'], proxy: { '/v1': { target: API, changeOrigin: true } } },
   build: { target: 'es2022', cssCodeSplit: true },
 }));

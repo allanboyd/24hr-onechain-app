@@ -34,6 +34,8 @@ const base = (): RP.ReportData => ({
 // ---- periods ---------------------------------------------------------------------------------------
 {
   const q = RP.resolvePeriod('last-quarter', NOW); ok(q.from.startsWith('2026-07-01') && q.to.startsWith('2026-10-01'), 'last quarter = Jul–Sep 2026');
+  ok(RP.resolvePeriod('today', NOW).from.startsWith('2026-10-10') && RP.resolvePeriod('today', NOW).to.startsWith('2026-10-11'), 'today = 10 Oct 2026');
+  ok(RP.resolvePeriod('last-7', NOW).from.startsWith('2026-10-04') && RP.resolvePeriod('last-7', NOW).to.startsWith('2026-10-11'), 'last-7 = 4–10 Oct 2026');
   ok(RP.resolvePeriod('next-30', NOW).from.startsWith('2026-10-11'), 'next-30 starts tomorrow');
   ok(RP.quarterOf(NOW) === '2026-Q4' && RP.quarterRange('2026-Q4').from === Date.UTC(2026, 9, 1), 'quarter helpers');
   ok(near(RP.quantile([1, 2, 3, 4, 5], 0.8), 4.2) && RP.quantile([], 0.5) === 0, 'quantile (linear) incl. empty');

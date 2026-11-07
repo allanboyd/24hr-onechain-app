@@ -140,6 +140,41 @@ Phone (`apps/field/src/team`): `Chips` and the glance chips use the same filled 
 is on, a line under them says "Showing: Delayed (3 of 83) · Show all (83) ✕", tapping the chosen chip again returns to
 All, and the chosen chip is scrolled into view.
 
+### DataTable (30 Oct 2026)
+`DataTable` (`components/page/DataTable.svelte`, columns typed by `Column<T>` from `page/datatable.ts`) is the one list
+table on work pages: Shipments, Purchase orders, Transport costs → Fees and Trips, Stock, Sales. It replaces the
+hand-written `<table>` + separate `<ul class="cards">` markup.
+
+```svelte
+<DataTable id="shipments" label="Shipments" noun="shipments" rows={list ? rows : null} {columns} rowKey={(s) => s.id}
+  onrowclick={(s) => router.go(`/shipments/${s.id}`)} initialSort={{ key: 'eta', dir: 'asc' }} filename="shipments" onclear={clearAll} />
+```
+
+| Prop | Meaning |
+|---|---|
+| `rows` | the filtered rows (`null` = loading → skeleton rows; or pass `loading`) |
+| `columns: Column<T>[]` | see below |
+| `rowKey`, `onrowclick?`, `selected?` (key or test → `.sel-row` look), `rowClass?` | rows are focusable when clickable: ↑ ↓ Home End move, Enter opens; clicks on links / buttons inside a row don't open it |
+| `initialSort?: {key, dir}`, `pageSize = 25` | "Showing 1–25 of 140 shipments", **Show 25 more**, ‹ Page 1 of 6 › (back to page 1 when the filter changes the count) |
+| `density = 'comfortable'`, `id?` | Comfortable / Compact switch; with `id`, density and hidden columns are remembered per browser (`btw.table.<id>`) |
+| `filename?` | **CSV** button: the filtered + sorted rows (all pages, visible columns) via `downloadCsv`, `<filename>-YYYY-MM-DD.csv` |
+| `empty?` snippet, or `emptyTitle` / `emptyHint` / `onclear` | default "No &lt;noun&gt; match these filters · Clear filters" |
+| `maxHeight?` | scroll inside the card with a sticky header (Fees: `70vh`) |
+| `cardsBelow = 640` | below this **table width** each row is a card; `card?` snippet for a custom card, else title / aside / "label: value" lines / actions from the columns |
+| `label`, `caption?`, `noun`, `tools = true`, `toolbar?`, `totalLabel` | aria-label, hidden caption, counts wording, the density/columns/CSV row |
+
+`Column<T>`: `key`, `label`, `align` (`'right'` = tabular figures, sorts biggest first), `width`, `sortValue(row)` (numbers,
+`ts(iso)` for dates — never the formatted text), `value(row)` (plain cell text, CSV and sort fallback), `csv(row) | false`,
+`cell` (snippet taking the row — links, `Badge` / `StatusBadge` chips, captions), `sticky` (first column stays while the
+table scrolls sideways), `hideBelow` (px of table width; the **Columns** menu can still show it), `hidden`, `hideable`,
+`title` (header tooltip), `total(rows)` (totals row over all filtered rows), `mobile` (`'title' | 'aside' | 'actions' | false`),
+`class`. Cell snippets are top-level snippets in the screen referenced from the `columns` `$derived` (snippets inside a
+component's children aren't visible to the script).
+
+Behaviour: headers are buttons with ▲/▼ and `aria-sort`; the table scrolls sideways inside its card with fade edges instead
+of widening the page; numbers right-aligned with tabular digits; hover tint, no zebra. Lazy: it lives in the page-kit chunk
+(≈ 11 KB gz JS incl. the kit), nothing in the entry.
+
 ### Filters in the address (`query.svelte.ts`)
 `queryFilters({ show: '', route: '', q: '' })` returns `{ values, set, toggle, clear, count }` backed by the hash query, so a
 filtered list can be bookmarked and Home cards can deep-link (`#/shipments?show=delayed`). It writes with

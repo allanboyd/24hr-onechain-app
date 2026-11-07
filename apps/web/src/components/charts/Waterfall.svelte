@@ -3,6 +3,7 @@
   // Floating bars (Plotly `base`), signed value labels, dashed connectors. Decreases/increases also carry a sign, never colour alone.
   import PlotlyChart, { type PlotPoint } from './PlotlyChart.svelte';
   import { baseLayout } from './theme.svelte';
+  import { statusFill } from './status';
   import { autoTick, compact } from './scale';
   import { wrapLabel } from './labels';
   export interface WaterfallStep {
@@ -32,7 +33,7 @@
 
   function spec(t: any, ctx: { narrow: boolean }) {
     const b = bars;
-    const fill = (k: string, d: number) => (k !== 'step' ? t.series[0] : d < 0 ? t.series[1] : t.series[2]);
+    const fill = (k: string, d: number) => (k !== 'step' ? t.series[0] : d < 0 ? statusFill(t, 'bad') : statusFill(t, 'good'));
     const text = b.map((x) => (x.kind === 'step' ? `${sign(x.delta)}${format(Math.abs(x.delta))}` : format(x.delta)));
     const data = [{
       type: 'bar', x: b.map((x) => x.label), y: b.map((x) => x.len || 0.0001), base: b.map((x) => x.base),
@@ -56,8 +57,8 @@
 <PlotlyChart {spec} {height} {label} {filename} zoom={false} onselect={onselect ? (p: PlotPoint) => onselect(String(p.x)) : undefined} />
 <ul class="legend wf-key" aria-hidden="true">
   <li><span class="viz-key rect" style:background="var(--viz-1)"></span>Total</li>
-  <li><span class="viz-key rect" style:background="var(--viz-2)"></span>− Decrease</li>
-  {#if bars.some((x) => x.kind === 'step' && x.delta > 0)}<li><span class="viz-key rect" style:background="var(--viz-3)"></span>+ Increase</li>{/if}
+  <li><span class="viz-key rect" style:background="var(--danger)"></span>− Decrease</li>
+  {#if bars.some((x) => x.kind === 'step' && x.delta > 0)}<li><span class="viz-key rect" style:background="var(--success)"></span>+ Increase</li>{/if}
 </ul>
 <style>
   .wf-key { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); font-size: var(--fs-caption); color: var(--text-muted); }

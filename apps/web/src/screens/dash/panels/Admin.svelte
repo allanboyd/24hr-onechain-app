@@ -21,7 +21,7 @@
 </script>
 
 {#if key === 'alerts'}
-  <DashboardPanel span={span ?? 'full'} title="Alerts centre" subtitle="severity × business impact · click a cell or a kind to filter the list · {shown.length} of {(d.items ?? []).length}" {...fr} rows={alertRows} filename="alerts" filterText={[cell ? `${cell.row} impact · ${cell.col} severity` : '', kind].filter(Boolean).join(' · ')} drill={{ label: 'Open notifications', href: '#/notifications' }}>
+  <DashboardPanel span={span ?? 'full'} title="Which alert do I handle first?" subtitle="severity × business impact · click a cell or a kind to filter the list · {shown.length} of {(d.items ?? []).length}" decision="Work High impact × High severity first." {...fr} rows={alertRows} filename="alerts" filterText={[cell ? `${cell.row} impact · ${cell.col} severity` : '', kind].filter(Boolean).join(' · ')} drill={{ label: 'Open notifications', href: '#/notifications' }}>
     {#snippet actions()}{#if cell || kind}<button class="btn btn-ghost btn-sm" onclick={() => { cell = null; kind = ''; }}>Clear filter</button>{/if}{/snippet}
     <div class="kinds">{#each d.kinds ?? [] as k}<button type="button" class="sel-chip" aria-pressed={kind === k.kind} onclick={() => (kind = kind === k.kind ? '' : k.kind)}><b>{k.n}</b> {k.kind}</button>{/each}</div>
     <div class="split">
@@ -29,8 +29,19 @@
       <ExceptionList items={shown} max={8} label="Open alerts" emptyText="No alerts match this filter" />
     </div>
   </DashboardPanel>
+{:else if key === 'data-completeness'}
+  <DashboardPanel span={span ?? 'full'} title="Which records are still missing?" subtitle="photos · signatures · agreed prices · expenses this month" decision="Close the red gaps today — photos, signatures, prices, expenses." {...fr} rows={() => [['Check', 'Missing', 'Of', 'Owner', 'Detail'], ...(d.checks ?? []).map((x: any) => [x.label, x.count, x.of, x.owner, x.detail])]} filename="data-completeness" {drill}>
+    <div class="tiles4">
+      <div><b>{d.score == null ? '—' : `${Math.round(d.score * 100)}%`}</b><span class="caption">Complete</span></div>
+      <div><b>{d.gaps ?? 0}</b><span class="caption">Gaps to close</span></div>
+    </div>
+    <ul class="audit">{#each d.checks ?? [] as x}<li>
+      <StatusBadge status={x.status} label={x.of ? `${x.count} of ${x.of}` : 'No data yet'} />
+      <span class="small"><a href={x.href}>{x.label}</a><span class="caption"> · {x.owner} · {x.detail}</span></span>
+    </li>{/each}</ul>
+  </DashboardPanel>
 {:else if key === 'users-logins'}
-  <DashboardPanel span={span ?? 1} title="Users and logins" subtitle="last sign-in · inactive flagged" {...fr} rows={() => [['Name', 'Roles', 'Active', 'Last sign-in', 'Inactive 30 days'], ...(d.rows ?? []).map((u: any) => [u.name, u.roles.join(' · '), u.active ? 'Yes' : 'No', u.lastLoginAt ?? 'Never', u.inactive ? 'Yes' : ''])]} filename="users-logins" {drill}>
+  <DashboardPanel span={span ?? 1} title="Who uses the system, and who is inactive?" subtitle="last sign-in · inactive flagged" decision="Deactivate or chase the inactive logins." {...fr} rows={() => [['Name', 'Roles', 'Active', 'Last sign-in', 'Inactive 30 days'], ...(d.rows ?? []).map((u: any) => [u.name, u.roles.join(' · '), u.active ? 'Yes' : 'No', u.lastLoginAt ?? 'Never', u.inactive ? 'Yes' : ''])]} filename="users-logins" {drill}>
     <div class="tiles4">{#each [['Users', d.counts?.total], ['Active', d.counts?.active], ['Inactive 30 days', d.counts?.inactive], ['Deactivated', d.counts?.deactivated]] as [l, n]}<div><b>{n ?? '—'}</b><span class="caption">{l}</span></div>{/each}</div>
     <div class="table-wrap"><table class="table">
       <thead><tr><th>Name</th><th class="hide-sm">Roles</th><th>Last sign-in</th></tr></thead>
@@ -39,7 +50,7 @@
     </table></div>
   </DashboardPanel>
 {:else if key === 'audit-log'}
-  <DashboardPanel span={span ?? 1} title="Audit log" subtitle="activity by day · latest changes" definition="Every change made in the system: who, when, what, with before / after values. Search it in the audit log." unit="actions" period="Recent" loading={!page && !auditErr} error={auditErr} rows={() => [['Time', 'User', 'Feature', 'Summary'], ...(page?.rows ?? []).map((x) => [x.at, x.userName ?? x.userId ?? '', x.feature, x.summary ?? x.path])]} filename="audit-latest" drill={{ label: 'Search the audit log', href: '#/audit' }} updatedAt={page?.rows[0]?.at ?? null} staleAfter={7 * 24 * 60}>
+  <DashboardPanel span={span ?? 1} title="Who did what, and when?" subtitle="activity by day · latest changes" decision="Open a change that looks wrong." definition="Every change made in the system: who, when, what, with before / after values. Search it in the audit log." unit="actions" period="Recent" loading={!page && !auditErr} error={auditErr} rows={() => [['Time', 'User', 'Feature', 'Summary'], ...(page?.rows ?? []).map((x) => [x.at, x.userName ?? x.userId ?? '', x.feature, x.summary ?? x.path])]} filename="audit-latest" drill={{ label: 'Search the audit log', href: '#/audit' }} updatedAt={page?.rows[0]?.at ?? null} staleAfter={7 * 24 * 60}>
     {#if page}
       <div class="spark"><TrendLine values={page.byDay.map((x) => x.n)} width={260} height={40} label="Actions per day" /><span class="caption">{page.total} actions · {page.byDay.length} days</span></div>
       <ul class="audit">{#each page.rows as x}<li><span class="caption">{dayTime(x.at)}</span><span class="small"><b>{x.userName ?? x.userId ?? 'system'}</b> · {x.summary ?? `${x.method} ${x.path}`}</span></li>{/each}</ul>

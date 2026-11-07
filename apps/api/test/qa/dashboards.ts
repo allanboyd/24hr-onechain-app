@@ -20,17 +20,17 @@ export async function dashboardsSuite(env: Env) {
     ok(Object.keys(r.body.results ?? {}).every((k) => homes[u].includes(k)), `${u}: builds only their own home dashboards`, Object.keys(r.body.results ?? {}));
   }
   ok(homes.daniel.join() === 'director-today', "Daniel: one curated home — Today (the other dashboards stay on the feature tabs)", homes.daniel);
-  ok(homes.kabonge.join() === 'po-pipeline,ordered-loaded-delivered,open-orders,plan-vs-actual,alerts', 'Kabonge: PO pipeline, ordered/loaded/delivered, open orders, plan vs actual, alerts', homes.kabonge);
+  ok(homes.kabonge.join() === 'order-this-week,po-pipeline,open-orders,plan-vs-actual,alerts', 'Kabonge: order this week, PO pipeline, open orders, plan vs actual, alerts', homes.kabonge);
   ok(homes.testfie.includes('fleet-board') && homes.testfie.includes('fee-payments') && homes.testfie.includes('loading-list') && !homes.testfie.includes('profit-margin'), 'Testfie: fleet, fees, Mombasa loading list — no profit', homes.testfie);
   ok(homes.joel.join() === 'loading-list,dispatched-today', "Joel: today's loading list and dispatched today", homes.joel);
-  ok(homes.asie.includes('reexports') && !homes.yonas.includes('reexports') && homes.yonas.includes('incoming'), 'Asie: + re-exports; Yonas: incoming, stock, expenses', [homes.asie, homes.yonas]);
+  ok(homes.asie.includes('reexports') && homes.asie[0] === 'warehouse-today' && !homes.yonas.includes('reexports') && homes.yonas[0] === 'warehouse-today', 'Asie: warehouse today + re-exports; Yonas: warehouse today, no re-exports', [homes.asie, homes.yonas]);
   expectStatus(await get('drv'), 403, 'a driver has no web dashboards');
   expectStatus(await c.req('GET', '/dashboards'), 401, 'signed out → 401');
 
   section('Dashboards · directors (every builder, filters, freshness)');
-  const ALL = 'exec-overview,combined-performance,profit-margin,landed-product,landed-truck,selling-price,fast-slow,po-pipeline,ordered-loaded-delivered,open-orders,loading-list,loading-status,dispatched-today,fleet-board,delayed-trucks,truck-issues,driver-updates,border-stops,agreed-vs-actual,fee-payments,unpaid-fees,truck-expenses,incoming,received-damaged-short,delivery-losses,stock-on-hand,stock-in-transit,warehouse-expenses,reexports,sales-summary,customer-balances,alerts,users-logins';
+  const ALL = 'exec-overview,combined-performance,profit-margin,landed-product,landed-truck,selling-price,fast-slow,po-pipeline,ordered-loaded-delivered,open-orders,loading-list,loading-status,dispatched-today,fleet-board,delayed-trucks,truck-issues,driver-updates,border-stops,agreed-vs-actual,fee-payments,unpaid-fees,truck-expenses,incoming,received-damaged-short,delivery-losses,stock-on-hand,stock-in-transit,warehouse-expenses,reexports,stock-movements,sales-summary,customer-balances,cash-vs-credit,alerts,users-logins,warehouse-today,order-this-week,data-completeness';
   let r = await get('daniel', `?keys=${ALL}`);
-  ok(r.status === 200 && Object.keys(r.body.results).length === ALL.split(',').length, 'Daniel: all 33 server-built dashboards in one call', r.status === 200 ? Object.keys(r.body.results).length : r.body);
+  ok(r.status === 200 && Object.keys(r.body.results).length === ALL.split(',').length, 'Daniel: all server-built dashboards in one call', r.status === 200 ? Object.keys(r.body.results).length : r.body);
   const D = r.body.results ?? {};
   for (const k of ALL.split(',')) { const x = D[k]; ok(x && x.definition && 'freshness' in x && typeof x.empty === 'boolean' && x.title, `${k}: definition, freshness, empty marker`, x && { empty: x.empty, freshness: x.freshness }); }
   const filled = ALL.split(',').filter((k) => D[k] && !D[k].empty);

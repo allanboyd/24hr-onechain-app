@@ -23,7 +23,7 @@
   }, () => JSON.stringify([serverKeys, filter]));
   // Row filling (2 columns): panels per key and full-width ones; a single panel that would sit alone takes the whole row.
   const TWO = ['stock-on-hand', 'profit-margin', 'sales-summary'];
-  const FULL = ['exec-overview', 'fleet-board', 'alerts', 'fee-payments', 'fast-slow', 'border-stops'];
+  const FULL = ['exec-overview', 'fleet-board', 'alerts', 'fee-payments', 'fast-slow', 'border-stops', 'warehouse-today', 'order-this-week', 'stock-movements', 'data-completeness'];
   const spans = $derived.by(() => {
     const out: Record<string, 'full' | undefined> = {};
     if (cols !== 2) return out;
@@ -50,7 +50,7 @@
       {@const def = dashDef(k)}
       {@const r = res?.results[k]}
       {#if def && (r || def.client)}
-        {@const P = C[k === 'fast-slow' ? 'business' : def.group]}
+        {@const P = C[k === 'fast-slow' ? 'business' : k === 'warehouse-today' ? 'warehouse' : k === 'order-this-week' ? 'purchasing' : def.group]}
         <P key={k} {r} link={def.link} span={spans[k]} />
       {/if}
     {/each}

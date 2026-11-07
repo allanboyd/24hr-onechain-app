@@ -5,9 +5,10 @@
   // Home · Fees & expenses.
   import * as MX from '@btw/api/metrics';
   import { Badge, fmtDate, fmtNum } from '@btw/ui';
-  import { FilterBar, EmptyState } from '../page';
+  import { FilterBar, EmptyState, DataTable, type Column } from '../page';
   import { StatusBadge } from '../dashboard';
-  import CompanyCell from '../CompanyCell.svelte';
+  import CompanyMark from '../CompanyMark.svelte';
+  import { company, GROUP } from '../../lib/company.svelte';
   import { companyLabel } from '../../lib/companies';
   import SearchX from '@lucide/svelte/icons/search-x';
   import { FOLLOW_UP_DAYS, STATUS_TONE, canPayTrip, hasPending, providerName, providerOfTruck, refOfTrip, routeName, tripFee, tripLoadedAt, tripStatus, truckReg, type CostAct, type CostFilters, type Trip } from './costs';
@@ -48,6 +49,20 @@
     for (const t of shown) { const pid = provOf(t) ?? ''; const cur = m.get(pid) ?? { agreed: 0, paid: 0, trips: 0 }; cur.agreed += t.transport; cur.paid += t.paid; cur.trips++; m.set(pid, cur); }
     return [...m.entries()].sort((a, b) => (b[1].agreed - b[1].paid) - (a[1].agreed - a[1].paid));
   });
+  const sum2 = (get: (t: Trip) => number) => (l: Trip[]) => fmtNum(l.reduce((a, t) => a + (get(t) || 0), 0), 2);
+  const columns = $derived<Column<Trip>[]>([
+    ...(company.active === GROUP ? [{ key: 'company', label: 'Company', value: (t: Trip) => companyLabel(t.shipment.entityId), cell: companyCell, hideBelow: 1000 }] : []),
+    { key: 'ref', label: 'Shipment', sticky: true, value: (t) => t.shipment.ref, cell: refCell },
+    { key: 'truck', label: 'Truck · Provider', value: (t) => `${truckReg(t.shipment.legs[0]?.truckId)} · ${providerName(provOf(t))}`, cell: truckCell },
+    { key: 'route', label: 'Route', value: (t) => routeName(t.shipment.legs[0]?.routeId), class: 'small', hideBelow: 1100 },
+    { key: 'agreed', label: 'Agreed (USD)', align: 'right', sortValue: (t) => (t.agreedRecorded === false ? null : t.transport), csv: (t) => (t.agreedRecorded === false ? '' : t.transport), cell: agreedCell, total: sum2((t) => t.transport) },
+    { key: 'paid', label: 'Paid', align: 'right', sortValue: (t) => t.paid, value: (t) => fmtNum(t.paid, 2), csv: (t) => t.paid, total: sum2((t) => t.paid) },
+    { key: 'balance', label: 'Balance', align: 'right', sortValue: (t) => t.balance, csv: (t) => t.balance, cell: balanceCell, total: sum2((t) => t.balance) },
+    { key: 'pay', label: 'Payment', value: (t) => tripStatus(t), cell: payCell },
+    { key: 'due', label: 'Follow-up', sortValue: (t) => (t.balance > 0 ? followUp(t) ?? null : null), csv: (t) => { const d = t.balance > 0 ? followUp(t) : undefined; return d ? new Date(d).toISOString().slice(0, 10) : ''; }, cell: dueCell, class: 'small' },
+    ...(full ? [{ key: 'perCase', label: 'Landing cost / case (USD)', align: 'right' as const, sortValue: (t: Trip) => t.perCase ?? null, value: (t: Trip) => fmtNum(t.perCase ?? 0, 2), csv: (t: Trip) => t.perCase ?? '', hideBelow: 1200 }] : []),
+    { key: 'act', label: '', sortable: false, csv: false, hideable: false, cell: actCell, class: 'nowrap' },
+  ]);
 </script>
 
 <FilterBar bind:search placeholder="Shipment, truck, provider or reference" {active} onclear={clearAll}>
@@ -63,44 +78,25 @@
   {:else}<EmptyState title="No trips yet" {compact} />{/if}
 {/snippet}
 
-<div class="card flush table-wrap wide">
-  <table class="table" aria-label="Trips">
-    <thead><tr><CompanyCell head /><th>Shipment</th><th>Truck · Provider</th><th>Route</th><th class="num">Agreed (USD)</th><th class="num">Paid</th><th class="num">Balance</th><th>Payment</th><th>Follow-up</th>{#if full}<th class="num">Landing cost / case (USD)</th>{/if}<th></th></tr></thead>
-    <tbody>
-      {#if !trips}<tr><td colspan="11"><div class="skeleton"></div></td></tr>{/if}
-      {#each shown as t (t.shipment.id)}
-        {@const leg = t.shipment.legs[0]}
-        {@const st = tripStatus(t)}
-        {@const due = t.balance > 0 ? followUp(t) : undefined}
-        <tr class="clickable" onclick={() => onopen(t.shipment.id)}>
-          <CompanyCell entityId={t.shipment.entityId} />
-          <td><button type="button" class="linkbtn mono nowrap" onclick={(e) => { e.stopPropagation(); onopen(t.shipment.id); }}>{t.shipment.ref}</button><div class="caption nowrap">Truck {t.shipment.truckNo} · {t.shipment.legs.length} leg{t.shipment.legs.length > 1 ? 's' : ''}</div></td>
-          <td>{truckReg(leg?.truckId)}<div class="caption">{providerName(provOf(t))}</div></td>
-          <td class="small">{routeName(leg?.routeId)}</td>
-          <td class="num">{#if t.agreedRecorded === false}<span class="nr">not recorded</span>{:else}{fmtNum(t.transport, 2)}{/if}</td>
-          <td class="num">{fmtNum(t.paid, 2)}</td>
-          <td class="num" class:accent-text={t.balance > 0}>{fmtNum(t.balance, 2)}</td>
-          <td><StatusBadge status={STATUS_TONE[st]} label={st} size={12} />{#if hasPending(t)} <Badge status="Pending approval" />{/if}</td>
-          <td class="small">{#if due}<span class:accent-text={due < Date.now()}>{due < Date.now() ? 'Overdue · ' : ''}{fmtDate(due)}</span>{:else}<span class="subtle">—</span>{/if}</td>
-          {#if full}<td class="num">{fmtNum(t.perCase, 2)}</td>{/if}
-          <td class="nowrap">{#if canPay && canPayTrip(refOfTrip(t))}<button class="btn btn-ghost btn-sm" onclick={(e) => { e.stopPropagation(); onact('pay', t.shipment.id); }}>Pay</button>{/if}</td>
-        </tr>
-      {:else}{#if trips}<tr><td colspan="11">{@render empty(true)}</td></tr>{/if}{/each}
-    </tbody>
-  </table>
-</div>
+<DataTable id="trips" label="Trips" noun="trips" rows={trips ? shown : null} {columns} rowKey={(t) => t.shipment.id} onrowclick={(t) => onopen(t.shipment.id)}
+  filename="trip-financials-list" empty={emptyTable} card={phoneCard} />
 
-<ul class="cards narrow" aria-label="Trips">
-  {#each shown as t (t.shipment.id)}
-    {@const st = tripStatus(t)}
-    <li><button type="button" class="card rowcard" onclick={() => onopen(t.shipment.id)}>
-      <span class="row between"><strong>{truckReg(t.shipment.legs[0]?.truckId)}</strong><StatusBadge status={STATUS_TONE[st]} label={st} size={12} /></span>
-      <span class="caption"><span class="mono">{t.shipment.ref}</span> · {companyLabel(t.shipment.entityId)} · {providerName(provOf(t))}</span>
-      <span class="row between small"><span class:nr={t.agreedRecorded === false}>{t.agreedRecorded === false ? 'Agreed not recorded' : `Agreed USD ${fmtNum(t.transport, 2)}`}</span><span>Balance USD {fmtNum(t.balance, 2)}</span></span>
-      {#if hasPending(t) || full}<span class="row between caption">{#if hasPending(t)}<span>Payment waiting for approval</span>{:else}<span></span>{/if}{#if full}<span>USD {fmtNum(t.perCase, 2)} / case</span>{/if}</span>{/if}
-    </button></li>
-  {:else}{#if trips}<li>{@render empty(false)}</li>{/if}{/each}
-</ul>
+{#snippet emptyTable()}{@render empty(true)}{/snippet}
+{#snippet companyCell(t: Trip)}<span class="cc"><CompanyMark entityId={t.shipment.entityId ?? null} size={18} />{companyLabel(t.shipment.entityId)}</span>{/snippet}
+{#snippet refCell(t: Trip)}<button type="button" class="linkbtn mono nowrap" onclick={(e) => { e.stopPropagation(); onopen(t.shipment.id); }}>{t.shipment.ref}</button><div class="caption nowrap">Truck {t.shipment.truckNo} · {t.shipment.legs.length} leg{t.shipment.legs.length > 1 ? 's' : ''}</div>{/snippet}
+{#snippet truckCell(t: Trip)}{truckReg(t.shipment.legs[0]?.truckId)}<div class="caption">{providerName(provOf(t))}</div>{/snippet}
+{#snippet agreedCell(t: Trip)}{#if t.agreedRecorded === false}<span class="nr">not recorded</span>{:else}{fmtNum(t.transport, 2)}{/if}{/snippet}
+{#snippet balanceCell(t: Trip)}<span class:accent-text={t.balance > 0}>{fmtNum(t.balance, 2)}</span>{/snippet}
+{#snippet payCell(t: Trip)}{@const st = tripStatus(t)}<StatusBadge status={STATUS_TONE[st]} label={st} size={12} />{#if hasPending(t)} <Badge status="Pending approval" />{/if}{/snippet}
+{#snippet dueCell(t: Trip)}{@const due = t.balance > 0 ? followUp(t) : undefined}{#if due}<span class:accent-text={due < Date.now()}>{due < Date.now() ? 'Overdue · ' : ''}{fmtDate(due)}</span>{:else}<span class="subtle">—</span>{/if}{/snippet}
+{#snippet actCell(t: Trip)}{#if canPay && canPayTrip(refOfTrip(t))}<button class="btn btn-ghost btn-sm" onclick={(e) => { e.stopPropagation(); onact('pay', t.shipment.id); }}>Pay</button>{/if}{/snippet}
+{#snippet phoneCard(t: Trip)}
+  {@const st = tripStatus(t)}
+  <span class="row between"><strong>{truckReg(t.shipment.legs[0]?.truckId)}</strong><StatusBadge status={STATUS_TONE[st]} label={st} size={12} /></span>
+  <span class="caption"><span class="mono">{t.shipment.ref}</span> · {companyLabel(t.shipment.entityId)} · {providerName(provOf(t))}</span>
+  <span class="row between small"><span class:nr={t.agreedRecorded === false}>{t.agreedRecorded === false ? 'Agreed not recorded' : `Agreed USD ${fmtNum(t.transport, 2)}`}</span><span>Balance USD {fmtNum(t.balance, 2)}</span></span>
+  {#if hasPending(t) || full}<span class="row between caption">{#if hasPending(t)}<span>Payment waiting for approval</span>{:else}<span></span>{/if}{#if full}<span>USD {fmtNum(t.perCase, 2)} / case</span>{/if}</span>{/if}
+{/snippet}
 
 {#if byProvider.length}
   <details class="card flush prov">
@@ -117,9 +113,7 @@
   .nr { color: var(--warning); font-weight: 600; }
   .linkbtn { border: 0; background: none; padding: 0; color: var(--link); font: inherit; cursor: pointer; }
   .linkbtn:hover { text-decoration: underline; }
-  .cards { list-style: none; margin: 0; padding: 0; display: none; flex-direction: column; gap: var(--space-2); }
-  .rowcard { display: flex; flex-direction: column; gap: var(--space-1); width: 100%; padding: var(--space-3) var(--space-4); text-align: left; font: inherit; color: inherit; cursor: pointer; }
+  .cc { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 13px; }
   .prov { margin-top: var(--space-4); max-width: 720px; }
   .prov summary { padding: var(--space-3) var(--space-4); cursor: pointer; }
-  @media (max-width: 760px) { .wide { display: none; } .cards { display: flex; } }
 </style>

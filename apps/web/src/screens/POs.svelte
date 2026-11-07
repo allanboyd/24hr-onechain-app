@@ -7,7 +7,7 @@
   import { loading, lookup, pos, ref, shipments, type Loading, type PoStage, type PurchaseOrder, type Shipment, type User } from '@btw/api';
   import { Badge, fmtDate, fmtMoney, fmtNum, router } from '@btw/ui';
   import SearchX from '@lucide/svelte/icons/search-x';
-  import { PageHeader, SummaryStrip, FilterBar, ActionInCompany, EmptyState, queryFilters, readQuery, type SummaryTile } from '../components/page';
+  import { PageHeader, SummaryStrip, FilterBar, ActionInCompany, EmptyState, DataTable, queryFilters, readQuery, ts, type Column, type SummaryTile } from '../components/page';
   import { labelTone, poApprovals, revTag, STAGES, stageLabel } from '../lib/orders';
   import { poStageTiles, infoOf } from '../lib/tiles';
   import { seesPrices } from '@btw/api/access';
@@ -60,6 +60,19 @@
   }
   const active = $derived((f.values.entity ? 1 : 0) + (f.values.supplier ? 1 : 0) + (stage ? 1 : 0));
   function clearAll() { f.clear(); search = ''; }
+  const supplierText = (po: PurchaseOrder) => `${lookup.supplier(po.supplierId)?.code}, ${lookup.supplier(po.supplierId)?.city}`;
+  const columns = $derived<Column<PurchaseOrder>[]>([
+    { key: 'ref', label: 'Reference', sticky: true, value: (po) => po.baseRef ?? po.ref, csv: (po) => po.ref, cell: refCell },
+    { key: 'title', label: 'Title', value: (po) => po.title, cell: titleCell },
+    { key: 'company', label: 'Company', value: (po) => lookup.entity(po.entityId)?.code, hideBelow: 900 },
+    { key: 'supplier', label: 'Supplier', value: supplierText, hideBelow: 760 },
+    { key: 'trucks', label: 'Trucks', align: 'right', value: (po) => po.trucks ?? null },
+    { key: 'cases', label: 'Cases', align: 'right', sortValue: (po) => po.cases ?? null, value: (po) => (po.cases !== undefined ? fmtNum(po.cases) : null), csv: (po) => po.cases ?? '' },
+    ...(money ? [{ key: 'amount', label: 'Amount', align: 'right' as const, sortValue: (po: PurchaseOrder) => po.amount ?? null, value: (po: PurchaseOrder) => (po.amount !== undefined ? fmtMoney(po.amount, po.currency) : null), csv: (po: PurchaseOrder) => (po.amount !== undefined ? `${po.currency} ${po.amount}` : '') }] : []),
+    { key: 'date', label: 'Created', sortValue: (po) => ts(po.date), csv: (po) => po.date?.slice(0, 10), cell: createdCell },
+    { key: 'status', label: 'Status', value: (po) => stageLabel(po.stage), cell: statusCell },
+    { key: 'progress', label: 'Progress', sortValue: (po) => (po.status === 'Issued' ? progress(po).loaded / Math.max(1, progress(po).trucks) : null), csv: (po) => { const pr = progress(po); return po.status === 'Issued' ? `${pr.loaded}/${pr.trucks} loaded` : ''; }, cell: progressCell, hideBelow: 1000 },
+  ]);
 </script>
 
 <PageHeader overline="Procurement" title="Purchase orders" description="Orders to suppliers, from creation to delivery." analysis="purchasing"
@@ -75,46 +88,28 @@
   {#snippet end()}{#if list}<span class="caption">{rows.length} of {live.length} orders</span>{/if}{/snippet}
 </FilterBar>
 
-<div class="card flush table-wrap desktop">
-  <table class="table">
-    <thead><tr><th>Reference</th><th>Title</th><th>Company</th><th>Supplier</th><th class="num">Trucks</th><th class="num">Cases</th>{#if money}<th class="num">Amount</th>{/if}<th>Created</th><th>Status</th><th>Progress</th></tr></thead>
-    <tbody>
-      {#if !list}<tr><td colspan="10"><div class="skeleton"></div></td></tr>{/if}
-      {#each rows as po (po.id)}
-        {@const pr = progress(po)}
-        <tr class="clickable" class:deleted={po.status === 'Deleted'} onclick={() => router.go(`/pos/${po.id}`)}>
-          <td class="mono"><a href="#/pos/{po.id}">{po.baseRef ?? po.ref}</a>{#if po.revision}{' '}<Badge tone="accent">{revTag(po.revision)}</Badge>
-            <div class="caption">{po.revisionKind === 'updated' ? 'updated by the office' : 'revised at loading'}</div>{/if}</td>
-          <td>{po.title || '—'}{#if po.status === 'Deleted' && po.deleteReason}<div class="caption">“{po.deleteReason}”</div>{/if}</td>
-          <td>{lookup.entity(po.entityId)?.code}</td>
-          <td>{lookup.supplier(po.supplierId)?.code}, {lookup.supplier(po.supplierId)?.city}</td>
-          <td class="num">{po.trucks ?? '—'}</td>
-          <td class="num">{po.cases !== undefined ? fmtNum(po.cases) : '—'}</td>
-          {#if money}<td class="num">{po.amount !== undefined ? fmtMoney(po.amount, po.currency) : '—'}</td>{/if}
-          <td class="small">{fmtDate(po.date)}<div class="caption">{lookup.user(po.approvedById)?.name ?? ''}</div></td>
-          <td><Badge tone={labelTone(po.stage ?? '')}>{stageLabel(po.stage)}</Badge></td>
-          <td>{#if po.status === 'Issued'}<span class="small">{pr.loaded}/{pr.trucks} loaded{#if pr.delivered} · {pr.delivered} delivered{/if}</span>{/if}</td>
-        </tr>
-      {:else}{#if list}<tr><td colspan="10">{#if stage || f.values.q || f.values.entity || f.values.supplier}<EmptyState title="No purchase orders match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState>{:else}<EmptyState title="No purchase orders yet" hint="Create one with the button above." compact />{/if}</td></tr>{/if}{/each}
-    </tbody>
-  </table>
-</div>
+<DataTable id="pos" label="Purchase orders" noun="orders" rows={list ? rows : null} {columns} rowKey={(po) => po.id} onrowclick={(po) => router.go(`/pos/${po.id}`)}
+  rowClass={(po) => (po.status === 'Deleted' ? 'deleted' : '')} initialSort={{ key: 'date', dir: 'desc' }} filename="purchase-orders" card={phoneCard}>
+  {#snippet empty()}
+    {#if stage || f.values.q || f.values.entity || f.values.supplier}<EmptyState title="No purchase orders match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState>{:else}<EmptyState title="No purchase orders yet" hint="Create one with the button above." compact />{/if}
+  {/snippet}
+</DataTable>
 
+{#snippet refCell(po: PurchaseOrder)}<span class="mono"><a href="#/pos/{po.id}">{po.baseRef ?? po.ref}</a>{#if po.revision}{' '}<Badge tone="accent">{revTag(po.revision)}</Badge>
+  <div class="caption">{po.revisionKind === 'updated' ? 'updated by the office' : 'revised at loading'}</div>{/if}</span>{/snippet}
+{#snippet titleCell(po: PurchaseOrder)}{po.title || '—'}{#if po.status === 'Deleted' && po.deleteReason}<div class="caption">“{po.deleteReason}”</div>{/if}{/snippet}
+{#snippet createdCell(po: PurchaseOrder)}<span class="small">{fmtDate(po.date)}<div class="caption">{lookup.user(po.approvedById)?.name ?? ''}</div></span>{/snippet}
+{#snippet statusCell(po: PurchaseOrder)}<Badge tone={labelTone(po.stage ?? '')}>{stageLabel(po.stage)}</Badge>{/snippet}
+{#snippet progressCell(po: PurchaseOrder)}{@const pr = progress(po)}{#if po.status === 'Issued'}<span class="small">{pr.loaded}/{pr.trucks} loaded{#if pr.delivered} · {pr.delivered} delivered{/if}</span>{/if}{/snippet}
 <!-- Phone: stacked cards -->
-<ul class="cards mobile">
-  {#each rows as po (po.id)}
-    <li><a class="card" href="#/pos/{po.id}">
-      <div class="row between"><span class="mono">{po.baseRef ?? po.ref}{#if po.revision}{' '}<Badge tone="accent">{revTag(po.revision)}</Badge>{/if}</span><Badge tone={labelTone(po.stage ?? '')}>{stageLabel(po.stage)}</Badge></div>
-      <div>{po.title || '—'} · <span class="muted">{lookup.supplier(po.supplierId)?.code} {lookup.supplier(po.supplierId)?.city}</span></div>
-      <div class="row between"><span class="small">{po.trucks} trucks · {fmtNum(po.cases ?? 0)} cases</span>{#if money && po.amount !== undefined}<strong class="num">{fmtMoney(po.amount, po.currency)}</strong>{/if}</div>
-    </a></li>
-  {:else}{#if list}<li><EmptyState title="No purchase orders match" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState></li>{/if}{/each}
-</ul>
+{#snippet phoneCard(po: PurchaseOrder)}
+  <div class="row between"><a class="mono" href="#/pos/{po.id}">{po.baseRef ?? po.ref}</a>{#if po.revision}<Badge tone="accent">{revTag(po.revision)}</Badge>{/if}<span class="grow"></span><Badge tone={labelTone(po.stage ?? '')}>{stageLabel(po.stage)}</Badge></div>
+  <div>{po.title || '—'} · <span class="muted">{lookup.supplier(po.supplierId)?.code} {lookup.supplier(po.supplierId)?.city}</span></div>
+  <div class="row between"><span class="small">{po.trucks} trucks · {fmtNum(po.cases ?? 0)} cases</span>{#if money && po.amount !== undefined}<strong class="num">{fmtMoney(po.amount, po.currency)}</strong>{/if}</div>
+{/snippet}
 
 <style>
-  tr.deleted td { color: var(--text-muted); }
-  tr.deleted .mono a { text-decoration: line-through; }
-  .cards { list-style: none; margin: 0; padding: 0; display: none; flex-direction: column; gap: var(--space-3); }
-  .cards a { display: flex; flex-direction: column; gap: var(--space-2); color: inherit; text-decoration: none; padding: var(--space-4); }
-  @media (max-width: 700px) { .desktop { display: none; } .cards { display: flex; } }
+  :global(tr.deleted td) { color: var(--text-muted); }
+  :global(tr.deleted .mono a) { text-decoration: line-through; }
+  .grow { flex: 1; }
 </style>

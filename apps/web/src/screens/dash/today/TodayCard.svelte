@@ -10,8 +10,8 @@
   import Info from '@lucide/svelte/icons/info';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import CircleDashed from '@lucide/svelte/icons/circle-dashed';
-  let { title, definition = '', caption = '', updatedAt, rows, filename, drill, empty = false, emptyText = 'No data yet', actions, children, flush = false }: {
-    title: string; definition?: string; caption?: string; updatedAt?: string | null;
+  let { title, definition = '', caption = '', decision = '', updatedAt, rows, filename, drill, empty = false, emptyText = 'No data yet', actions, children, flush = false }: {
+    title: string; definition?: string; caption?: string; decision?: string; updatedAt?: string | null;
     rows?: () => Rows; filename?: string; drill?: { label: string; href: string };
     empty?: boolean; emptyText?: string; actions?: Snippet; children: Snippet; /** body touches the card edges (tables) */ flush?: boolean;
   } = $props();
@@ -48,6 +48,7 @@
   {#if caption || updatedAt !== undefined}
     <p class="cap">{#if caption}<span>{caption}</span>{/if}{#if updatedAt !== undefined}<Freshness at={updatedAt} staleAfter={30 * 24 * 60} />{/if}</p>
   {/if}
+  {#if decision}<p class="decision"><b>Decision</b> {decision}</p>{/if}
   <div class="body" class:flush bind:this={body}>
     {#if empty}<div class="nodata" role="status"><CircleDashed size={20} aria-hidden="true" /><span>{emptyText}</span></div>
     {:else}{@render children()}{/if}
@@ -62,6 +63,8 @@
   h3 { font-size: 16px; line-height: 1.3; font-weight: 700; margin: 0; }
   .tools { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; }
   .cap { display: flex; flex-wrap: wrap; gap: 2px var(--space-3); margin: 2px 0 0; font-size: 12px; color: var(--text-muted); }
+  .decision { margin: 6px 0 0; font-size: 13px; color: var(--text); line-height: 1.4; }
+  .decision b { margin-right: 6px; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
   .body { margin-top: var(--space-4); min-width: 0; flex: 1; display: flex; flex-direction: column; }
   .body.flush { margin-left: calc(-1 * var(--space-6)); margin-right: calc(-1 * var(--space-6)); }
   .info { position: relative; display: inline-flex; }

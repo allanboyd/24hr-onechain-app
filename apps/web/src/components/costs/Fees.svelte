@@ -6,7 +6,7 @@
   import * as MX from '@btw/api/metrics';
   import type { TransportFeeRow } from '@btw/api';
   import { fmtDate, fmtNum } from '@btw/ui';
-  import { FilterBar, EmptyState } from '../page';
+  import { FilterBar, EmptyState, DataTable, ts, type Column } from '../page';
   import { StatusBadge } from '../dashboard';
   import { companyLabel } from '../../lib/companies';
   import SearchX from '@lucide/svelte/icons/search-x';
@@ -39,6 +39,19 @@
   const active = $derived((f.values.status ? 1 : 0) + (f.values.flag ? 1 : 0) + (f.values.provider ? 1 : 0) + (f.values.show && f.values.show !== 'all' ? 1 : 0));
   function clearAll() { f.clear(['show', 'q', 'status', 'flag', 'provider']); search = ''; }
   const agreedText = (r: TransportFeeRow) => (r.agreed ? `${r.agreed.currency} ${fmtNum(r.agreed.amount)}` : 'not recorded');
+  const sumBy = (get: (r: TransportFeeRow) => number | null) => (l: TransportFeeRow[]) => fmtNum(l.reduce((a, r) => a + (get(r) ?? 0), 0));
+  const columns = $derived<Column<TransportFeeRow>[]>([
+    { key: 'ref', label: 'Shipment', sticky: true, value: (r) => r.ref, cell: refCell },
+    { key: 'truck', label: 'Truck · provider', value: (r) => `${truckReg(r.truckId)} · ${providerName(r.providerId)}`, cell: truckCell, class: 'small' },
+    { key: 'loaded', label: 'Loaded', sortValue: (r) => ts(r.loadedAt), value: (r) => (r.loadedAt ? fmtDate(r.loadedAt) : null), csv: (r) => r.loadedAt?.slice(0, 10) ?? '', class: 'small nowrap', hideBelow: 900 },
+    { key: 'age', label: 'Age', align: 'right', sortValue: (r) => r.ageDays, csv: (r) => r.ageDays, cell: ageCell, title: `Days since loading (amber after ${amberDays}, red after ${redDays})` },
+    { key: 'agreed', label: 'Agreed', align: 'right', sortValue: (r) => r.agreedUsd, csv: agreedText, cell: agreedCell, class: 'nowrap', total: sumBy((r) => r.agreedUsd) },
+    { key: 'paid', label: 'Paid (USD)', align: 'right', sortValue: (r) => r.paidUsd, csv: (r) => r.paidUsd, cell: paidCell, total: sumBy((r) => r.paidUsd) },
+    { key: 'balance', label: 'Balance (USD)', align: 'right', sortValue: (r) => r.balanceUsd, value: (r) => (r.balanceUsd === null ? null : fmtNum(r.balanceUsd)), csv: (r) => r.balanceUsd ?? '', total: sumBy((r) => r.balanceUsd) },
+    { key: 'status', label: 'Status', value: (r) => r.status, cell: statusCell },
+    { key: 'refs', label: 'References', value: (r) => r.references.join(' · ') || null, class: 'small refs', hideBelow: 1300 },
+    { key: 'act', label: '', sortable: false, csv: false, hideable: false, cell: actCell },
+  ]);
 </script>
 
 <FilterBar bind:search placeholder="Shipment, truck, provider or reference" {active} onclear={clearAll}>
@@ -63,55 +76,32 @@
   {:else}<EmptyState title="No transport fees yet" hint="Trips appear here once they are loaded." {compact} />{/if}
 {/snippet}
 
-<div class="card flush table-wrap wide" style="max-height:70vh">
-  <table class="table" aria-label="Transport fee per trip">
-    <thead><tr><th>Shipment</th><th>Truck · provider</th><th>Loaded</th><th class="num">Age</th><th class="num">Agreed</th><th class="num">Paid (USD)</th><th class="num">Balance (USD)</th><th>Status</th><th>References</th><th></th></tr></thead>
-    <tbody>
-      {#if !rows}<tr><td colspan="10"><div class="skeleton"></div></td></tr>{/if}
-      {#each shown.slice(0, 300) as r (r.shipmentId)}
-        {@const fl = flagLabel(r.flag)}
-        <tr class="clickable" onclick={() => onopen(r.shipmentId)}>
-          <td><button type="button" class="linkbtn mono nowrap" onclick={(e) => { e.stopPropagation(); onopen(r.shipmentId); }}>{r.ref}</button><div class="caption">{companyLabel(r.entityId)}{r.reexport ? ' · re-export' : ''}</div></td>
-          <td class="small">{truckReg(r.truckId)}<div class="caption">{providerName(r.providerId)}</div></td>
-          <td class="small nowrap">{r.loadedAt ? fmtDate(r.loadedAt) : '—'}</td>
-          <td class="num"><StatusBadge status={fl.s} label={`${r.ageDays} d`} size={12} /></td>
-          <td class="num nowrap" class:nr={!r.agreed}>{agreedText(r)}{#if r.agreed && r.agreed.currency !== 'USD'}<div class="caption">USD {fmtNum(r.agreedUsd ?? 0)}</div>{/if}</td>
-          <td class="num">{fmtNum(r.paidUsd)}{#if r.pendingUsd}<div class="caption">+{fmtNum(r.pendingUsd)} waiting</div>{/if}</td>
-          <td class="num">{r.balanceUsd === null ? '—' : fmtNum(r.balanceUsd)}</td>
-          <td><StatusBadge status={STATUS_TONE[r.status]} label={r.status} size={12} /></td>
-          <td class="small refs">{r.references.join(' · ') || '—'}</td>
-          <td class="nowrap">{@render acts(r)}</td>
-        </tr>
-      {:else}{#if rows}<tr><td colspan="10">{@render empty(true)}</td></tr>{/if}{/each}
-    </tbody>
-  </table>
-</div>
+<DataTable id="fees" label="Transport fee per trip" noun="trips" rows={rows ? shown : null} {columns} rowKey={(r) => r.shipmentId} onrowclick={(r) => onopen(r.shipmentId)}
+  maxHeight="70vh" filename="transport-fees-list" empty={emptyTable} card={phoneCard} />
 
-<ul class="cards narrow" aria-label="Transport fee per trip">
-  {#each shown.slice(0, 300) as r (r.shipmentId)}
-    {@const fl = flagLabel(r.flag)}
-    <li class="card rowcard">
-      <button type="button" class="open" onclick={() => onopen(r.shipmentId)}>
-        <span class="row between"><strong>{truckReg(r.truckId)}</strong><StatusBadge status={STATUS_TONE[r.status]} label={r.status} size={12} /></span>
-        <span class="caption"><span class="mono">{r.ref}</span> · {companyLabel(r.entityId)} · {providerName(r.providerId)}</span>
-        <span class="row between small"><span class:nr={!r.agreed}>Agreed {agreedText(r)}</span><span>Balance {r.balanceUsd === null ? '—' : `USD ${fmtNum(r.balanceUsd)}`}</span></span>
-        <span class="row between"><StatusBadge status={fl.s} label={`${r.ageDays} d · ${fl.l}`} size={12} />{#if r.pendingUsd}<span class="caption">USD {fmtNum(r.pendingUsd)} waiting</span>{/if}</span>
-      </button>
-      <span class="row acts">{@render acts(r)}</span>
-    </li>
-  {:else}{#if rows}<li>{@render empty(false)}</li>{/if}{/each}
-</ul>
+{#snippet emptyTable()}{@render empty(true)}{/snippet}
+{#snippet refCell(r: TransportFeeRow)}<button type="button" class="linkbtn mono nowrap" onclick={(e) => { e.stopPropagation(); onopen(r.shipmentId); }}>{r.ref}</button><div class="caption">{companyLabel(r.entityId)}{r.reexport ? ' · re-export' : ''}</div>{/snippet}
+{#snippet truckCell(r: TransportFeeRow)}{truckReg(r.truckId)}<div class="caption">{providerName(r.providerId)}</div>{/snippet}
+{#snippet ageCell(r: TransportFeeRow)}<StatusBadge status={flagLabel(r.flag).s} label={`${r.ageDays} d`} size={12} />{/snippet}
+{#snippet agreedCell(r: TransportFeeRow)}<span class:nr={!r.agreed}>{agreedText(r)}</span>{#if r.agreed && r.agreed.currency !== 'USD'}<div class="caption">USD {fmtNum(r.agreedUsd ?? 0)}</div>{/if}{/snippet}
+{#snippet paidCell(r: TransportFeeRow)}{fmtNum(r.paidUsd)}{#if r.pendingUsd}<div class="caption">+{fmtNum(r.pendingUsd)} waiting</div>{/if}{/snippet}
+{#snippet statusCell(r: TransportFeeRow)}<StatusBadge status={STATUS_TONE[r.status]} label={r.status} size={12} />{/snippet}
+{#snippet actCell(r: TransportFeeRow)}<span class="nowrap">{@render acts(r)}</span>{/snippet}
+{#snippet phoneCard(r: TransportFeeRow)}
+  {@const fl = flagLabel(r.flag)}
+  <span class="row between"><strong>{truckReg(r.truckId)}</strong><StatusBadge status={STATUS_TONE[r.status]} label={r.status} size={12} /></span>
+  <span class="caption"><span class="mono">{r.ref}</span> · {companyLabel(r.entityId)} · {providerName(r.providerId)}</span>
+  <span class="row between small"><span class:nr={!r.agreed}>Agreed {agreedText(r)}</span><span>Balance {r.balanceUsd === null ? '—' : `USD ${fmtNum(r.balanceUsd)}`}</span></span>
+  <span class="row between"><StatusBadge status={fl.s} label={`${r.ageDays} d · ${fl.l}`} size={12} />{#if r.pendingUsd}<span class="caption">USD {fmtNum(r.pendingUsd)} waiting</span>{/if}</span>
+  <span class="row acts">{@render acts(r)}</span>
+{/snippet}
 
 <style>
   .nowrap { white-space: nowrap; }
-  .refs { max-width: 180px; min-width: 140px; }
   .nr { color: var(--warning); font-weight: 600; }
+  :global(td.refs) { max-width: 180px; min-width: 140px; }
   .linkbtn { border: 0; background: none; padding: 0; color: var(--link); font: inherit; cursor: pointer; }
   .linkbtn:hover { text-decoration: underline; }
-  .cards { list-style: none; margin: 0; padding: 0; display: none; flex-direction: column; gap: var(--space-2); }
-  .rowcard { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-4); }
-  .open { display: flex; flex-direction: column; gap: var(--space-1); width: 100%; border: 0; background: none; padding: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; }
   .acts { flex-wrap: wrap; gap: var(--space-2); }
   .acts:empty { display: none; }
-  @media (max-width: 760px) { .wide { display: none; } .cards { display: flex; } }
 </style>

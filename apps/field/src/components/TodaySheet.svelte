@@ -7,7 +7,7 @@
   import Sheet from './Sheet.svelte';
   import CompanyDot from './CompanyDot.svelte';
   import { cases } from '../lib';
-  let { lp, toLoad, onclose }: { lp: string; toLoad: GiverWork['toLoad']; onclose: () => void } = $props();
+  let { lp, toLoad, onclose, page = false }: { lp: string; toLoad: GiverWork['toLoad']; onclose?: () => void; page?: boolean } = $props();
 
   let done = $state<(Loading & { poRef?: string })[] | null>(null);
   const TZ = 'Africa/Nairobi';
@@ -20,7 +20,7 @@
   const supplier = $derived(lookup.supplier(lp));
 </script>
 
-<Sheet modal title="Today at {supplier?.code ?? ''} {supplier?.city ?? ''}" {onclose}>
+{#snippet body()}
   <section aria-labelledby="tl-h">
     <h3 class="h" id="tl-h">To load <span class="n">{pending.length}</span></h3>
     <ul class="list">
@@ -53,7 +53,15 @@
       {/if}
     </ul>
   </section>
-</Sheet>
+{/snippet}
+{#if page}
+  <div class="page">
+    <h1>Today at {supplier?.code ?? ''} {supplier?.city ?? ''}</h1>
+    {@render body()}
+  </div>
+{:else}
+  <Sheet modal title="Today at {supplier?.code ?? ''} {supplier?.city ?? ''}" {onclose}>{@render body()}</Sheet>
+{/if}
 
 <style>
   section { display: flex; flex-direction: column; gap: 6px; }
@@ -70,4 +78,6 @@
   .lines li { display: flex; justify-content: space-between; gap: 12px; font-size: 15px; }
   .lines b { font-variant-numeric: tabular-nums; }
   .none { padding: 14px 0; color: var(--text-muted); border: 0 !important; }
+  .page { padding: calc(env(safe-area-inset-top) + 20px) var(--space-5) calc(var(--field-nav, 68px) + 16px); max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-4); }
+  .page h1 { font-size: var(--fs-h1); margin: 0; }
 </style>

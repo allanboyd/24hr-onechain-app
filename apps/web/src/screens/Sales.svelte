@@ -4,16 +4,16 @@
   // No needs-action default: people come here to record and look up sales; overdue balances are one click (the strip) and
   // on the directors' Today view.
   import { destinationLabel } from '../lib/planning';
-  import CompanyCell from '../components/CompanyCell.svelte';
+  import CompanyMark from '../components/CompanyMark.svelte';
+  import { company, GROUP } from '../lib/company.svelte';
   import { scopeEntity } from '../lib/company.svelte';
   import { companyLabel } from '../lib/companies';
   import { watch } from '../lib/load.svelte';
   import ErrorState from '../components/ErrorState.svelte';
   import { amount, inventory, lookup, pricing, ref, reports, sales, type Sale, type SalesReport, type SellingPrice, type StockRow, type User } from '@btw/api';
   import { salesTiles, infoOf } from '../lib/tiles';
-  import { PageHeader, SummaryStrip, FilterBar, ActionInCompany, EmptyState, queryFilters, takeIntent, type SummaryTile } from '../components/page';
+  import { PageHeader, SummaryStrip, FilterBar, ActionInCompany, DataTable, queryFilters, takeIntent, ts, type Column, type SummaryTile } from '../components/page';
   import { TERMS_DAYS } from '@btw/api/metrics';
-  import SearchX from '@lucide/svelte/icons/search-x';
   import { sellingPriceAny } from '@btw/api/money';
   import { Badge, fmtDateTime, fmtMoney, fmtNum, say } from '@btw/ui';
   import Plus from '@lucide/svelte/icons/plus';
@@ -65,6 +65,22 @@
   const exportRows = () => [['Sale No.', 'Date', 'Warehouse', 'Customer', 'Type', 'SKU', 'Qty (cases)', 'Price (USD)', 'Amount (USD)', 'Paid (USD)', 'Status'],
     ...rows.flatMap((s) => s.lines.map((l) => [s.ref, s.at.slice(0, 10), lookup.warehouse(s.warehouseId)!.name, s.customer, s.kind, lookup.product(l.productId)!.sku, l.qty, l.price, amount(l.qty, l.price), s.paid, s.status]))];
 
+  const kindTone = (k: Sale['kind']) => (k === 'Credit' ? 'warning' : k === 'Batch' ? 'info' : 'neutral');
+  const qtyOf = (s: Sale) => s.lines.reduce((a, l) => a + l.qty, 0);
+  const columns = $derived<Column<Sale>[]>([
+    ...(company.active === GROUP ? [{ key: 'company', label: 'Company', value: (s: Sale) => companyLabel(s.entityId), cell: companyCell, hideBelow: 760, mobile: false as const }] : []),
+    { key: 'ref', label: 'Sale No.', sticky: true, value: (s) => s.ref, class: 'mono small nowrap' },
+    { key: 'at', label: 'Date', sortValue: (s) => ts(s.at), csv: (s) => s.at.slice(0, 16).replace('T', ' '), cell: dateCell, class: 'small nowrap' },
+    { key: 'wh', label: 'Warehouse', value: (s) => destinationLabel(s.warehouseId), class: 'small', hideBelow: 1000 },
+    { key: 'customer', label: 'Customer', value: (s) => s.customer },
+    { key: 'kind', label: 'Type', value: (s) => s.kind, cell: kindCell },
+    { key: 'lines', label: 'Brand · Package', sortable: false, csv: (s) => s.lines.map((l) => `${lookup.product(l.productId)?.brand} ${lookup.product(l.productId)?.pack}`).join('; '), cell: linesCell, class: 'small', hideBelow: 1100 },
+    { key: 'qty', label: 'Qty', align: 'right', sortValue: qtyOf, value: (s) => fmtNum(qtyOf(s)), csv: qtyOf, total: (l) => fmtNum(l.reduce((a, s) => a + qtyOf(s), 0)) },
+    { key: 'amount', label: 'Amount (USD)', align: 'right', sortValue: total, value: (s) => fmtNum(total(s), 2), csv: (s) => Math.round(total(s) * 100) / 100, total: (l) => fmtNum(l.reduce((a, s) => a + total(s), 0), 2) },
+    { key: 'paid', label: 'Paid', align: 'right', hideBelow: 1000, sortValue: (s) => s.paid, value: (s) => fmtNum(s.paid, 2), csv: (s) => s.paid, total: (l) => fmtNum(l.reduce((a, s) => a + s.paid, 0), 2) },
+    { key: 'status', label: 'Status', value: (s) => s.status, cell: statusCell, mobile: 'aside' },
+  ]);
+
   // New sale dialog
   let dialog = $state<HTMLDialogElement>();
   let wh = $state('');
@@ -113,30 +129,7 @@
       <label class="field"><span>Type</span><select class="select" value={f.values.kind} onchange={(e) => f.set('kind', e.currentTarget.value)}><option value="">All</option><option>Cash</option><option>Credit</option><option>Batch</option></select></label>
       {#snippet end()}{#if list}<span class="caption">{fmtNum(rows.length)} sales</span>{/if}{/snippet}
     </FilterBar>
-    <div class="card flush table-wrap">
-      <table class="table">
-        <thead><tr><CompanyCell head /><th>Sale No.</th><th>Date</th><th>Warehouse</th><th>Customer</th><th>Type</th><th>Brand · Package</th><th class="num">Qty</th><th class="num">Amount (USD)</th><th class="num">Paid</th><th>Status</th></tr></thead>
-        <tbody>
-          {#if !list}{#each Array(5) as _}<tr><td colspan="10"><div class="skeleton"></div></td></tr>{/each}{/if}
-          {#each rows.slice(0, 100) as s (s.id)}
-            <tr>
-              <CompanyCell entityId={s.entityId} />
-              <td class="mono small" style="white-space:nowrap">{s.ref}</td>
-              <td class="small" style="white-space:nowrap">{fmtDateTime(s.at)}</td>
-              <td class="small">{destinationLabel(s.warehouseId)}</td>
-              <td>{s.customer}</td>
-              <td><Badge tone={s.kind === 'Credit' ? 'warning' : s.kind === 'Batch' ? 'info' : 'neutral'}>{s.kind}</Badge></td>
-              <td class="small">{#each s.lines as l}<div style="white-space:nowrap">{lookup.product(l.productId)?.brand}</div><div class="caption">{lookup.product(l.productId)?.pack}</div>{/each}</td>
-              <td class="num">{fmtNum(s.lines.reduce((a, l) => a + l.qty, 0))}</td>
-              <td class="num">{fmtNum(total(s), 2)}</td>
-              <td class="num">{fmtNum(s.paid, 2)}</td>
-              <td><Badge status={s.status} /></td>
-            </tr>
-          {:else}{#if list}<tr><td colspan="11"><EmptyState title="No sales match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState></td></tr>{/if}{/each}
-        </tbody>
-      </table>
-    </div>
-    {#if rows.length > 100}<p class="caption" style="margin-top:var(--space-2)">Showing the latest 100 of {fmtNum(rows.length)}.</p>{/if}
+    <DataTable id="sales" label="Sales" noun="sales" rows={list ? rows : null} {columns} rowKey={(s) => s.id} initialSort={{ key: 'at', dir: 'desc' }} filename="sales-list" onclear={clearAll} />
   </div>
 
   <aside class="card flush">
@@ -146,6 +139,12 @@
     </ul>
   </aside>
 </div>
+
+{#snippet companyCell(s: Sale)}<span class="cc"><CompanyMark entityId={s.entityId ?? null} size={18} />{companyLabel(s.entityId)}</span>{/snippet}
+{#snippet dateCell(s: Sale)}{fmtDateTime(s.at)}{/snippet}
+{#snippet kindCell(s: Sale)}<Badge tone={kindTone(s.kind)}>{s.kind}</Badge>{/snippet}
+{#snippet linesCell(s: Sale)}{#each s.lines as l}<div style="white-space:nowrap">{lookup.product(l.productId)?.brand}</div><div class="caption">{lookup.product(l.productId)?.pack}</div>{/each}{/snippet}
+{#snippet statusCell(s: Sale)}<Badge status={s.status} />{/snippet}
 
 <dialog class="sheet" bind:this={dialog} style="width:min(720px,calc(100vw - 32px))">
   <form class="body stack" onsubmit={save}>
@@ -186,6 +185,7 @@
 <style>
   .layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: var(--space-4); align-items: start; }
   @media (max-width: 1100px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  .cc { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 13px; }
   .list { list-style: none; margin: 0; padding: 0; }
   .list li { display: flex; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-bottom: 1px solid var(--border); }
   .list li:last-child { border-bottom: 0; }

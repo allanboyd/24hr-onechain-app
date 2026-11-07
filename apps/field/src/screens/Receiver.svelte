@@ -19,7 +19,8 @@
   import Receipt from '@lucide/svelte/icons/receipt';
   import ClipboardCheck from '@lucide/svelte/icons/clipboard-check';
   import ArrowRightLeft from '@lucide/svelte/icons/arrow-right-left';
-  let { user, onlogout }: { user: User; onlogout: () => void } = $props();
+  import { focus } from '../shell/focus.svelte';
+  let { user, onlogout, shell = false }: { user: User; onlogout: () => void; shell?: boolean } = $props();
 
   type Item = LegView;
   let incomingAll = $state<LegView[] | null>(null);
@@ -61,11 +62,13 @@
   const toSend = $derived(toSendAll.filter((v) => !queuedSend.has(v.leg.id)));
   const arrivedNow = (l: Leg) => l.status === 'Arrived' || !!l.passes.at(-1)?.arrivedAt;
   const arrived = $derived(incoming.find((i) => arrivedNow(i.leg)) ?? null);
-  const focus = $derived<{ kind: 'receive' | 'send' | 'coming'; item: Item } | null>(
-    arrived ? { kind: 'receive', item: arrived } : toSend[0] ? { kind: 'send', item: toSend[0] } : incoming[0] ? { kind: 'coming', item: incoming[0] } : null);
-  const others = $derived(incoming.filter((i) => i !== focus?.item));
+  const picked = $derived(incoming.find((i) => i.leg.id === focus.legId) ?? toSend.find((i) => i.leg.id === focus.legId) ?? null);
+  const job = $derived<{ kind: 'receive' | 'send' | 'coming'; item: Item } | null>(
+    picked ? { kind: arrivedNow(picked.leg) ? 'receive' : toSend.includes(picked) ? 'send' : 'coming', item: picked }
+    : arrived ? { kind: 'receive', item: arrived } : toSend[0] ? { kind: 'send', item: toSend[0] } : incoming[0] ? { kind: 'coming', item: incoming[0] } : null);
+  const others = $derived(incoming.filter((i) => i !== job?.item));
   // Trucks waiting to be loaded here (send-on legs, Asie's re-exports) stay reachable while an arrival waits to be signed.
-  const toLoadMore = $derived(toSend.filter((i) => i !== focus?.item));
+  const toLoadMore = $derived(toSend.filter((i) => i !== job?.item));
   const myCps = $derived(user.warehouseIds.map((w) => lookup.warehouse(w)?.checkpointId).filter(Boolean) as string[]);
   const points = $derived<MapPoint[]>(myCps.map((id) => { const c = lookup.checkpoint(id)!; return { id, lat: c.lat, lng: c.lng, label: cpShort(id), state: 'place' as const }; }));
   const trucks = $derived<MapTruck[]>(incoming.map((v) => ({ id: v.leg.id, ...legPosition(v.leg), label: v.truck?.reg ?? '', late: v.eta.state === 'Late' })));
@@ -89,7 +92,7 @@
 </script>
 
 <MapView {points} {trucks} padBottom={sheetH} />
-<TopBar onmenu={() => (menu = true)} title={user.warehouseIds.map((w) => warehouseLabel(w)).join(' · ')} />
+<TopBar onmenu={shell ? undefined : () => (menu = true)} title={user.warehouseIds.map((w) => warehouseLabel(w)).join(' · ')} />
 
 <Sheet bind:el={sheetEl}>
   <nav class="tools" aria-label="Warehouse">
@@ -97,40 +100,40 @@
     {#if can('warehouse-stock')}<button onclick={() => (tool = 'stock')}><ClipboardCheck size={20} />Stock count</button>{/if}
     {#if user.roles.includes('reexport')}<button onclick={() => (tool = 'reexport')}><ArrowRightLeft size={20} />Re-export</button>{/if}
   </nav>
-  {#if incomingAll}
+  {#if incomingAll && !shell}
     {#await glance then m}<m.default {user} {incoming} rev={toolRev} onreceive={(v: Item) => (receiving = v)} ontool={(t: keyof typeof TOOLS) => (tool = t)} />{/await}
   {/if}
   {#if !incomingAll}
     <div class="skeleton" style="height:24px;width:60%"></div><div class="skeleton" style="height:64px"></div>
-  {:else if !focus}
+  {:else if !job}
     <p class="eyebrow">Nothing on the way</p>
     <p class="headline">No trucks coming</p>
     <p class="subline">When a truck is loaded for {user.warehouseIds.map((w) => warehouseLabel(w)).join(' or ')}, you'll see it here with its arrival time.</p>
   {:else}
-    {@const { shipment, leg } = focus.item}
-    {@const eta = focus.item.eta}
-    {@const t = focus.item.truck}
+    {@const { shipment, leg } = job.item}
+    {@const eta = job.item.eta}
+    {@const t = job.item.truck}
     <CompanyChip entityId={shipment.entityId} />
-    {#if focus.kind === 'receive'}
+    {#if job.kind === 'receive'}
       <p class="eyebrow">Arrived at {cpShort(leg.toId)}</p>
       <p class="headline">{t?.reg} is here</p>
-      <p class="subline">{cases(total(leg))} · {focus.item.driver?.name} · {shipment.ref}</p>
-      <button class="btn btn-accent btn-lg btn-block" onclick={() => (receiving = focus.item)}>Receive & sign</button>
-    {:else if focus.kind === 'send'}
-      <p class="eyebrow">New shipment from {cpShort(leg.fromId)} · {focus.item.route?.name}</p>
+      <p class="subline">{cases(total(leg))} · {job.item.driver?.name} · {shipment.ref}</p>
+      <button class="btn btn-accent btn-lg btn-block" onclick={() => (receiving = job.item)}>Receive & sign</button>
+    {:else if job.kind === 'send'}
+      <p class="eyebrow">New shipment from {cpShort(leg.fromId)} · {job.item.route?.name}</p>
       <p class="headline">{t?.reg} to {cpShort(leg.toId)}</p>
-      <p class="subline">{cases(total(leg))} from stock · {focus.item.driver?.name} · {shipment.ref}</p>
-      <button class="btn btn-accent btn-lg btn-block" onclick={() => (sending = focus.item)}>Load & hand over</button>
+      <p class="subline">{cases(total(leg))} from stock · {job.item.driver?.name} · {shipment.ref}</p>
+      <button class="btn btn-accent btn-lg btn-block" onclick={() => (sending = job.item)}>Load & hand over</button>
     {:else}
-      <p class="eyebrow">Next truck · {focus.item.route?.name}</p>
+      <p class="eyebrow">Next truck · {job.item.route?.name}</p>
       <div class="row">
         <p class="headline grow">{t?.reg}</p>
         <Badge status={eta.state}>{eta.state}{eta.state !== 'On time' ? ` ${hoursLabel(eta.hours)}` : ''}</Badge>
       </div>
       <p class="subline">Arrives {fmtDateTime(eta.eta)} · {cases(total(leg))}</p>
-      <button class="btn btn-secondary btn-lg btn-block" onclick={() => (receiving = focus.item)}>It's here — receive now</button>
+      <button class="btn btn-secondary btn-lg btn-block" onclick={() => (receiving = job.item)}>It's here — receive now</button>
     {/if}
-    {#if toLoadMore.length}
+    {#if toLoadMore.length && !shell}
       <p class="eyebrow list-head">Ready to load here</p>
       <ul class="others">
         {#each toLoadMore.slice(0, 2) as o (o.leg.id)}
@@ -138,7 +141,7 @@
         {/each}
       </ul>
     {/if}
-    {#if others.length}
+    {#if others.length && !shell}
       <ul class="others">
         {#each others.slice(0, 2) as o (o.leg.id)}
           {@const e = o.eta}

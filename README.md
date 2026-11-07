@@ -77,7 +77,11 @@ pnpm start             # everything on ONE address: http://localhost:3101
 pnpm start --reset     # same, with fresh demo data
 pnpm share             # same as start + a public ngrok link for demos (one-time: ngrok config add-authtoken <TOKEN>)
                        #   SHARE_DOMAIN=<your>.ngrok-free.app for a stable link · SHARE_AUTH=user:pass to password-protect it
-pnpm dev:all           # same stack with hot reload (web :5173, field :5174, API :3101) in one terminal
+pnpm work              # backend + both frontends (hot reload) for daily updates: web :5173, field :5174, API :3101
+                       #   -y / --ngrok  also prints a public ngrok URL for the office web app
+                       #   --mock        also starts in-browser mock copies on :5183 / :5184 to compare
+                       #   --stop        stop frontends + ngrok  ·  --stop --all  also stop the API
+pnpm dev:all           # same live stack (web :5173, field :5174, API :3101) in one terminal
 pnpm verify            # type-check, workflow + API tests, builds, size budget
 pnpm android:build     # debug APK (docs/android.md)
 ```
@@ -92,8 +96,8 @@ Demo sign-in — the client's roster (docs/12-roles-access.md). Web password `de
 | Joel, Eric | `joel`, `eric` | +254700000003, +254700000004 | Loaders, KBL Nairobi |
 | Moses | `moses` | +256700000005 | Loader, UBL Kampala |
 | SBL loader (to confirm) | `sbl-loader` | +255700000021 | Loader, SBL Tanzania (placeholder) |
-| Asie | `asie` | +250700000007 | Receiver + warehouse (Goma, Gisenyi), re-export planner |
-| Yonas | `yonas` | +211900000008 | Receiver + warehouse (Juba) |
+| Asie | `asie` | +250700000007 | Warehouse manager (Goma, Gisenyi), re-export planner |
+| Yonas | `yonas` | +211900000008 | Warehouse (Juba) |
 | Drivers | — | +254702750019 (Mawazi K), +254701811686 (Kanyike E), +256711000002 (Joseph Mugisha) | Driver app |
 Office team on a phone: open `/app/` and sign in with the user's phone + PIN `1234` (e.g. director `+254700000001`, Testfie `+254700000006`).
 

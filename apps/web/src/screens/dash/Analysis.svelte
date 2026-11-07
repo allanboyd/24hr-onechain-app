@@ -4,8 +4,9 @@
   // endpoints (same server gates as before); the Home filter bar's period, warehouse and product apply.
   import type { DashFilter, DashKey, ReportFilter, User } from '@btw/api';
   import { dashDef } from '@btw/api/dashboards';
+  import { untrack } from 'svelte';
   import '../../components/charts';
-  let { keys, filter, user }: { keys: DashKey[]; filter: DashFilter; user: User } = $props();
+  let { keys, filter, user, startOpen = false }: { keys: DashKey[]; filter: DashFilter; user: User; startOpen?: boolean } = $props();
   const DAY = 864e5;
   // Home's default period is the last 30 days
   const rf = $derived<ReportFilter>({
@@ -33,8 +34,17 @@
   let extra = $state<{ wh?: string; prod?: string }>({});
   const salesFilter = $derived<ReportFilter>({ ...rf, ...(extra.wh ? { warehouseId: extra.wh } : {}), ...(extra.prod ? { productId: extra.prod } : {}) });
   const onfilter = (k: 'wh' | 'prod', v: string) => (extra = { ...extra, [k]: extra[k] === v ? undefined : v });
+  // The question panels above tell the story; these full reports stay folded under one "More detail" (docs/19 D3)
+  // and only load when opened, so a tab reads top-down instead of scrolling through repeated charts.
+  // a tab with no question panels (e.g. a planner's Fleet tab) shows its reports straight away
+  let open = $state(untrack(() => startOpen)); // initial value only: the tab remounts this per tab
+  const shown = $derived(keys.filter((k) => dashDef(k) && LOAD[k]));
 </script>
 
+{#if shown.length}
+<details class="more" bind:open>
+  <summary><span class="lbl">More detail</span><span class="caption">{shown.length} full report{shown.length === 1 ? '' : 's'}: {shown.map((k) => dashDef(k)?.title).join(' · ')}</span></summary>
+{#if open}
 {#each keys as k (k)}
   {@const def = dashDef(k)}
   {@const load = LOAD[k]}
@@ -49,9 +59,18 @@
     </section>
   {/if}
 {/each}
+{/if}
+</details>
+{/if}
 
 <style>
-  .an { margin-top: var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+  .more { margin-top: var(--space-6); border-top: 1px solid var(--border); padding-top: var(--space-3); }
+  .more > summary { cursor: pointer; display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; list-style: none; padding: var(--space-2) 0; }
+  .more > summary::-webkit-details-marker { display: none; }
+  .more > summary .lbl { font-weight: 700; color: var(--link); }
+  .more > summary .lbl::after { content: ' ▾'; }
+  .more[open] > summary .lbl::after { content: ' ▴'; }
+  .an { margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--border); }
   .an header { margin-bottom: var(--space-3); }
   .an h2 { margin: 0; font-size: var(--fs-h3); line-height: var(--lh-h3); }
 </style>

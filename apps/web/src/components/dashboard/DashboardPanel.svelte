@@ -15,11 +15,12 @@
   import CircleDashed from '@lucide/svelte/icons/circle-dashed';
 
   let {
-    title, subtitle = '', definition = '', owner = '', unit = '', period = '', updatedAt, freshness = 'updated', staleAfter = 60,
+    title, subtitle = '', decision = '', definition = '', owner = '', unit = '', period = '', updatedAt, freshness = 'updated', staleAfter = 60,
     filters, filterText = '', drill, loading = false, error = null, onretry, empty, emptyText = 'No data yet', emptyHint = '',
     rows, filename, span = 1, exports = ['csv', 'xlsx', 'pdf'], skeleton = 240, children, actions,
   }: {
     title: string; subtitle?: string;
+    /** what to do with the figure — shown as "Decision: …" under the situation line */ decision?: string;
     /** what the metric means and how it is calculated (ⓘ popover; also printed on exports) */ definition?: string;
     /** accountable data owner */ owner?: string;
     /** unit / currency label, e.g. "KES" or "cases" */ unit?: string;
@@ -72,6 +73,7 @@
         {#if period}<span class="ic"><Calendar size={13} aria-hidden="true" />{period}</span>{/if}
         {#if updatedAt !== undefined}<Freshness at={updatedAt} kind={freshness} {staleAfter} />{/if}
       </div>
+      {#if decision}<p class="decision"><b>Decision</b> {decision}</p>{/if}
     </div>
     <div class="tools">
       {@render actions?.()}
@@ -114,6 +116,8 @@
   .trow { display: flex; align-items: center; gap: 4px; }
   .dash-panel h3 { font-size: var(--fs-h4); line-height: var(--lh-h4); }
   .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--space-3); margin-top: 2px; }
+  .decision { margin: 6px 0 0; font-size: 13px; color: var(--text); line-height: 1.4; }
+  .decision b { display: inline; margin-right: 6px; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
   .ic { display: inline-flex; align-items: center; gap: 4px; }
   .unit { font-weight: 600; color: var(--text-muted); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 6px; }
   .tools { display: flex; gap: var(--space-1); flex-wrap: nowrap; align-items: center; }

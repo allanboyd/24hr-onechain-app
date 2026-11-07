@@ -27,7 +27,7 @@
     {@const sm = k.status ? STATUS[k.status] : null}
     <div role="listitem" class="cell">
       <svelte:element this={k.href ? 'a' : k.onclick ? 'button' : 'div'} href={k.href} type={k.onclick && !k.href ? 'button' : undefined} role={k.href || k.onclick ? undefined : 'group'} onclick={k.onclick}
-        class="card kpi-tile" class:pick={!!(k.href || k.onclick)} class:flag-danger={k.status === 'bad'} class:flag-warning={k.status === 'warn'}>
+        class="card kpi-tile" class:pick={!!(k.href || k.onclick)} class:flag-danger={k.status === 'bad'} class:flag-warning={k.status === 'warn'} class:flag-success={k.status === 'good'}>
         <div class="overline">{k.label}</div>
         <div class="mid">
           {#if k.value == null}<div class="value none">No data yet</div>{:else}<div class="value">{f(k.value)}</div>{/if}

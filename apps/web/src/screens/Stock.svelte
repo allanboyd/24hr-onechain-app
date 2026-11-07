@@ -22,9 +22,9 @@
   import { inventoryTiles, infoOf } from '../lib/tiles';
   import ErrorState from '../components/ErrorState.svelte';
   import ExportMenu from '../components/ExportMenu.svelte';
-  import CompanyCell from '../components/CompanyCell.svelte';
+  import CompanyMark from '../components/CompanyMark.svelte';
   import CountDialog, { type CountLine } from '../components/stock/CountDialog.svelte';
-  import { PageHeader, SummaryStrip, FilterBar, ActionInCompany, WorkPage, DetailDrawer, EmptyState, queryFilters, readQuery, writeQuery, takeIntent, type SummaryTile } from '../components/page';
+  import { PageHeader, SummaryStrip, FilterBar, ActionInCompany, WorkPage, DetailDrawer, EmptyState, DataTable, queryFilters, readQuery, writeQuery, takeIntent, ts, type Column, type SummaryTile } from '../components/page';
   import SearchX from '@lucide/svelte/icons/search-x';
   import ClipboardCheck from '@lucide/svelte/icons/clipboard-check';
   let { user }: { params?: any; user: User } = $props();
@@ -159,6 +159,32 @@
       ...(whRows ? [x.w?.short ?? 0, x.w?.movedOut ?? 0] : []), x.adjustments, x.sold, x.closing, x.inTransit, cover(x) >= 999 ? '' : cover(x), levelOf(x), ...(whRows ? [x.w?.lastCountAt?.slice(0, 10) ?? ''] : []),
       ...(money ? [x.landedCostPerCase, Math.round(valueOf(x) * 100) / 100] : [])]; })];
   const active = $derived((f.values.show && f.values.show !== 'all' ? 1 : 0) + (f.values.wh ? 1 : 0) + (f.values.level ? 1 : 0) + (f.values.company ? 1 : 0));
+  // the list's columns (DataTable). Totals are over every filtered line, not just the page shown.
+  type C = Column<Line>;
+  const n = (get: (x: Line) => number, show: (v: number) => string = fmtNum): Pick<C, 'align' | 'sortValue' | 'value' | 'csv' | 'total'> =>
+    ({ align: 'right', sortValue: get, value: (x) => show(get(x)), csv: get, total: (l) => fmtNum(l.reduce((a, x) => a + get(x), 0)) });
+  const LEVEL_RANK: Record<Level, number> = { 'Out of stock': 0, Low: 1, Overstock: 2, OK: 3 };
+  const columns = $derived<C[]>([
+    { key: 'product', label: 'Brand · Package', sticky: true, value: (x) => name(x), cell: productCell },
+    { key: 'wh', label: 'Warehouse', value: (x) => destinationLabel(x.warehouseId), class: 'nowrap' },
+    ...(group ? [{ key: 'company', label: 'Company', value: (x: Line) => companyLabel(x.entityId), cell: companyCell, hideBelow: 1000 }] : []),
+    { key: 'opening', label: 'Opening', ...n((x) => x.opening), hideBelow: 1300 },
+    { key: 'received', label: 'Received', ...n((x) => x.received + x.transfersIn) },
+    { key: 'damaged', label: 'Damaged', ...n((x) => x.damaged, dash), cell: damagedCell, hideBelow: 900 },
+    ...(whRows ? [{ key: 'short', label: 'Short', ...n((x) => x.w?.short ?? 0, dash), hideBelow: 1300 }] : []),
+    { key: 'out', label: 'Sent on / out', ...n((x) => x.transfersOut + (x.w?.movedOut ?? 0), dash), hideBelow: 1000 },
+    { key: 'sold', label: 'Sold', ...n((x) => x.sold) },
+    { key: 'adj', label: 'Count ±', ...n((x) => (x.w ? x.w.adjusted : x.adjustments), signed), total: undefined, hideBelow: 1300 },
+    { key: 'onhand', label: 'On hand', ...n((x) => x.closing), cell: onHandCell },
+    { key: 'transit', label: 'In transit', ...n((x) => x.inTransit, dash), cell: transitCell },
+    { key: 'level', label: 'Level', sortValue: (x) => LEVEL_RANK[levelOf(x)] * 10000 + Math.min(9999, Math.max(0, cover(x))), csv: (x) => levelOf(x), cell: levelCell, class: 'nowrap', title: 'Cover = cases on hand ÷ cases sold per day over 30 days' },
+    ...(whRows ? [{ key: 'count', label: 'Last count', sortValue: (x: Line) => ts(x.w?.lastCountAt), value: (x: Line) => x.w?.lastCountAt?.slice(0, 10) ?? null, class: 'small nowrap', hideBelow: 1300 }] : []),
+    ...(money ? [
+      { key: 'landed', label: 'Landed / case (USD)', align: 'right' as const, sortValue: (x: Line) => x.landedCostPerCase, value: (x: Line) => fmtNum(x.landedCostPerCase, 2), csv: (x: Line) => x.landedCostPerCase, hideBelow: 1300 },
+      { key: 'value', label: 'Value (USD)', align: 'right' as const, sortValue: valueOf, value: (x: Line) => fmtNum(valueOf(x), 2), csv: (x: Line) => Math.round(valueOf(x) * 100) / 100, total: (l: Line[]) => fmtNum(l.reduce((a, x) => a + valueOf(x), 0), 2) },
+    ] : []),
+    ...(recordable.length ? [{ key: 'act', label: '', sortable: false, csv: false as const, hideable: false, cell: actCell, mobile: 'actions' as const }] : []),
+  ]);
 </script>
 
 <WorkPage>
@@ -186,60 +212,8 @@
 
   <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
 
-  <div class="card flush table-wrap wide-only">
-    <table class="table">
-      <thead><tr><CompanyCell head /><th>Warehouse</th><th>Brand · Package</th><th class="num">Opening</th><th class="num">Received</th><th class="num">Damaged</th>{#if whRows}<th class="num">Short</th>{/if}<th class="num">Sent on / out</th><th class="num">Sold</th><th class="num">Count ±</th>
-        <th class="num">On hand</th><th class="num">In transit</th><th>Level</th>{#if whRows}<th>Last count</th>{/if}{#if money}<th class="num">Landed / case (USD)</th><th class="num">Value (USD)</th>{/if}{#if recordable.length}<th><span class="sr">Action</span></th>{/if}</tr></thead>
-      <tbody>
-        {#if !lines && !w.error}{#each Array(4) as _}<tr><td colspan="18"><div class="skeleton"></div></td></tr>{/each}{/if}
-        {#each shown as x (x.key)}
-          {@const lv = levelOf(x)}
-          <tr class="clickable" onclick={() => show(x)} tabindex="0" onkeydown={(e) => e.key === 'Enter' && e.target === e.currentTarget && show(x)}>
-            <CompanyCell entityId={x.entityId} />
-            <td class="nowrap">{destinationLabel(x.warehouseId)}</td>
-            <td><span class="nowrap">{lookup.product(x.productId)?.brand}</span> <span class="muted small nowrap">{lookup.product(x.productId)?.pack}</span></td>
-            <td class="num">{fmtNum(x.opening)}</td>
-            <td class="num">{fmtNum(x.received + x.transfersIn)}</td>
-            <td class="num" class:accent-text={x.damaged > 0}>{dash(x.damaged)}</td>
-            {#if whRows}<td class="num">{dash(x.w?.short)}</td>{/if}
-            <td class="num">{dash(x.transfersOut + (x.w?.movedOut ?? 0))}</td>
-            <td class="num">{fmtNum(x.sold)}</td>
-            <td class="num">{signed(x.w ? x.w.adjusted : x.adjustments)}</td>
-            <td class="num"><strong>{fmtNum(x.closing)}</strong></td>
-            <td class="num muted">{dash(x.inTransit)}</td>
-            <td class="nowrap"><Badge tone={levelTone[lv]}>{lv}</Badge> <span class="caption">{cover(x) >= 999 ? '' : `${Math.max(0, cover(x))} d`}</span></td>
-            {#if whRows}<td class="small nowrap">{x.w?.lastCountAt ? x.w.lastCountAt.slice(0, 10) : '—'}</td>{/if}
-            {#if money}<td class="num">{fmtNum(x.landedCostPerCase, 2)}</td><td class="num">{fmtNum(valueOf(x), 2)}</td>{/if}
-            {#if recordable.length}<td>{#if canCount(x)}<button class="btn btn-secondary btn-sm nowrap" onclick={(e) => { e.stopPropagation(); count(x); }}>Count / adjust</button>{/if}</td>{/if}
-          </tr>
-        {:else}
-          {#if lines}<tr><td colspan="18">{@render empty(true)}</td></tr>{/if}
-        {/each}
-        {#if shown.length > 1}
-          <tr class="grand"><td colspan={group ? 3 : 2}>Total</td><td class="num">{fmtNum(sum('opening'))}</td><td class="num">{fmtNum(sum('received') + sum('transfersIn'))}</td><td class="num">{fmtNum(sum('damaged'))}</td>{#if whRows}<td class="num">{fmtNum(sumW('short'))}</td>{/if}
-            <td class="num">{fmtNum(sum('transfersOut') + sumW('movedOut'))}</td><td class="num">{fmtNum(sum('sold'))}</td><td></td><td class="num">{fmtNum(sum('closing'))}</td><td class="num">{fmtNum(sum('inTransit'))}</td><td></td>{#if whRows}<td></td>{/if}
-            {#if money}<td></td><td class="num">{fmtNum(shown.reduce((a, x) => a + valueOf(x), 0), 2)}</td>{/if}{#if recordable.length}<td></td>{/if}</tr>
-        {/if}
-      </tbody>
-    </table>
-  </div>
-
-  <ul class="cards narrow-only">
-    {#if !lines && !w.error}{#each Array(3) as _}<li class="card"><div class="skeleton" style="height:56px"></div></li>{/each}{/if}
-    {#each shown as x (x.key)}
-      {@const lv = levelOf(x)}
-      <li class="card rowcard">
-        <button type="button" class="rowbtn" onclick={() => show(x)}>
-          <span class="row between"><strong>{name(x)}</strong><Badge tone={levelTone[lv]}>{lv}</Badge></span>
-          <span class="caption">{destinationLabel(x.warehouseId)}{group ? ` · ${companyLabel(x.entityId)}` : ''}</span>
-          <span class="small figs"><span><b>{fmtNum(x.closing)}</b> on hand</span>{#if x.inTransit}<span>{fmtNum(x.inTransit)} in transit</span>{/if}<span>{fmtNum(x.sold)} sold</span>{#if x.damaged}<span class="accent-text">{fmtNum(x.damaged)} damaged</span>{/if}{#if money}<span>{fmtMoney(valueOf(x))}</span>{/if}</span>
-        </button>
-        {#if canCount(x)}<button class="btn btn-secondary btn-sm" onclick={() => count(x)}>Count / adjust</button>{/if}
-      </li>
-    {:else}
-      {#if lines}<li>{@render empty(false)}</li>{/if}
-    {/each}
-  </ul>
+  <DataTable id="stock" label="Stock lines" noun="stock lines" rows={lines} {columns} rowKey={(x) => x.key} onrowclick={show} selected={open && sel ? sel.key : null}
+    loading={!lines && !w.error} filename="stock-list" empty={emptyTable} card={phoneCard} />
 
   {#snippet drawer()}
     <DetailDrawer bind:open title={sel ? name(sel) : ''} subtitle={sel ? `${destinationLabel(sel.warehouseId)} · ${companyLabel(sel.entityId)}` : ''} width={560}>
@@ -292,6 +266,22 @@
   {/snippet}
 </WorkPage>
 
+{#snippet emptyTable()}{@render empty(true)}{/snippet}
+{#snippet companyCell(x: Line)}<span class="cc"><CompanyMark entityId={x.entityId} size={18} />{companyLabel(x.entityId)}</span>{/snippet}
+{#snippet productCell(x: Line)}<span class="nowrap">{lookup.product(x.productId)?.brand}</span> <span class="muted small nowrap">{lookup.product(x.productId)?.pack}</span>{/snippet}
+{#snippet damagedCell(x: Line)}<span class:accent-text={x.damaged > 0}>{dash(x.damaged)}</span>{/snippet}
+{#snippet onHandCell(x: Line)}<strong>{fmtNum(x.closing)}</strong>{/snippet}
+{#snippet transitCell(x: Line)}<span class="muted">{dash(x.inTransit)}</span>{/snippet}
+{#snippet levelCell(x: Line)}{@const lv = levelOf(x)}<Badge tone={levelTone[lv]}>{lv}</Badge> <span class="caption">{cover(x) >= 999 ? '' : `${Math.max(0, cover(x))} d`}</span>{/snippet}
+{#snippet actCell(x: Line)}{#if canCount(x)}<button class="btn btn-secondary btn-sm nowrap" onclick={(e) => { e.stopPropagation(); count(x); }}>Count / adjust</button>{/if}{/snippet}
+{#snippet phoneCard(x: Line)}
+  {@const lv = levelOf(x)}
+  <span class="row between"><strong>{name(x)}</strong><Badge tone={levelTone[lv]}>{lv}</Badge></span>
+  <span class="caption">{destinationLabel(x.warehouseId)}{group ? ` · ${companyLabel(x.entityId)}` : ''}</span>
+  <span class="small figs"><span><b>{fmtNum(x.closing)}</b> on hand</span>{#if x.inTransit}<span>{fmtNum(x.inTransit)} in transit</span>{/if}<span>{fmtNum(x.sold)} sold</span>{#if x.damaged}<span class="accent-text">{fmtNum(x.damaged)} damaged</span>{/if}{#if money}<span>{fmtMoney(valueOf(x))}</span>{/if}</span>
+{/snippet}
+
+
 {#snippet empty(compact: boolean)}
   {#if (lines ?? []).length}
     <EmptyState title="No stock matches these filters" icon={SearchX} {compact}><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState>
@@ -302,7 +292,6 @@
 
 <style>
   .nowrap, .mono { white-space: nowrap; }
-  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .facts { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-4); margin: 0 0 var(--space-4); }
   .facts dt { color: var(--text-muted); font-size: var(--fs-label); font-weight: 600; }
   .facts dd { margin: 0; font-variant-numeric: tabular-nums; }
@@ -313,12 +302,6 @@
   .block { display: block; }
   .neg { color: var(--danger); }
   .cap { text-transform: capitalize; }
-  .cards { list-style: none; margin: 0; padding: 0; flex-direction: column; gap: var(--space-2); }
-  .rowcard { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-4); }
-  .rowcard > .btn { align-self: flex-start; }
-  .rowbtn { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-1); width: 100%; padding: 0; border: 0; background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; }
   .figs { display: flex; flex-wrap: wrap; gap: 2px var(--space-3); }
-  .narrow-only { display: none; }
-  .card.table-wrap { overflow-x: auto; position: relative; }
-  @media (max-width: 760px) { .wide-only { display: none; } .narrow-only { display: flex; } }
+  .cc { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 13px; }
 </style>
