@@ -63,8 +63,8 @@
     lay.annotations = [{ xref: 'x', yref: 'paper', x: today, y: 1, yanchor: 'bottom', text: 'Today', showarrow: false, font: { color: t.text, size: 11 } }];
     return {
       data: [
-        { type: 'scatter', mode: 'lines', name: 'Planned (running)', x, y: ms.map((k) => k.cumPlanned), line: { color: t.series[1], width: 2, dash: 'dash' }, hovertemplate: '%{y:,} cases<extra>Planned</extra>' },
-        { type: 'scatter', mode: 'lines+markers', name: 'Ordered (running)', x: actualX, y: ms.filter((k) => k.month <= cutoff).map((k) => k.cumOrdered), line: { color: t.series[0], width: 2 }, marker: { size: 8, color: t.series[0], line: { color: t.surface, width: 2 } }, fill: 'tozeroy', fillcolor: alpha(t.series[0], 0.08), hovertemplate: '%{y:,} cases<extra>Ordered</extra>' },
+        { type: 'scatter', mode: 'lines', name: 'Planned (running)', x, y: ms.map((k) => k.cumPlanned), line: { color: t.planned, width: 2, dash: 'dash' }, hovertemplate: '%{y:,} cases<extra>Planned</extra>' },
+        { type: 'scatter', mode: 'lines+markers', name: 'PO issued (running)', x: actualX, y: ms.filter((k) => k.month <= cutoff).map((k) => k.cumOrdered), line: { color: t.series[0], width: 2 }, marker: { size: 8, color: t.series[0], line: { color: t.surface, width: 2 } }, fill: 'tozeroy', fillcolor: alpha(t.series[0], 0.08), hovertemplate: '%{y:,} cases<extra>PO issued</extra>' },
       ],
       layout: lay,
     };
@@ -130,7 +130,7 @@
     </ChartCard>
     {#if isGroup() && entities.length}
       <ChartCard title="By company" subtitle="planned vs ordered, cases" rows={() => [['Company', 'Planned', 'Ordered', 'Used %'], ...entities.map(([id, x]) => [companyLabel(id), x.planned, x.ordered, Math.round(x.usedPct)])]}>
-        <BarChart label="Planned and ordered cases by company" categories={entities.map(([id]) => companyLabel(id))} series={[{ name: 'Planned', values: entities.map(([, x]) => x.planned), slot: 1 }, { name: 'Ordered', values: entities.map(([, x]) => x.ordered), slot: 0 }]} />
+        <BarChart label="Planned and ordered cases by company" categories={entities.map(([id]) => companyLabel(id))} series={[{ name: 'Planned', values: entities.map(([, x]) => x.planned), ink: 'planned' }, { name: 'PO issued', values: entities.map(([, x]) => x.ordered), ink: 'navy' }]} labels={false} />
       </ChartCard>
     {/if}
   </div>

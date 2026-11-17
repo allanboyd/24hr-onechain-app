@@ -12,16 +12,28 @@
   import Money from './panels/Money.svelte';
   import Stock from './panels/Stock.svelte';
   import Admin from './panels/Admin.svelte';
-  let { keys: allKeys, filter, cols = 2, sections = false, onload }: { keys: DashKey[]; filter: DashFilter; cols?: 1 | 2 | 3; /** a heading when the feature group changes */ sections?: boolean; onload?: (r: DashResponse) => void } = $props();
+  let { keys: allKeys, filter, cols = 2, sections = false, room = false, onload }: { keys: DashKey[]; filter: DashFilter; cols?: 1 | 2 | 3; /** a heading when the feature group changes */ sections?: boolean; /** control-room page names on the section headings */ room?: boolean; onload?: (r: DashResponse) => void } = $props();
 const sectionOf = (k?: string) => (k === 'order-this-week' ? 'purchasing' : k === 'warehouse-today' ? 'warehouse' : (k ? dashDef(k)?.group : '') ?? '');
-const groupLabel = (g: string) => DASH_GROUPS.find((x) => x.key === g)?.label ?? 'Your desk';
+const ROOM: Record<string, string> = {
+  business: 'Overview and executive report',
+  purchasing: 'Plans, orders and supplier balances',
+  loading: 'Loading',
+  fleet: 'Fleet and delays',
+  fees: 'Expenses, bills and cash',
+  deliveries: 'Received, damaged and short',
+  warehouse: 'Stock run-out and warehouse performance',
+  sales: 'Sales and clients',
+  admin: 'Documents and alerts',
+};
+const groupLabel = (g: string) => (room && ROOM[g]) || DASH_GROUPS.find((x) => x.key === g)?.label || 'Your desk';
   // analysis sections (docs/17 Phase 2) render under the grid (Analysis.svelte), not as panels
   const keys = $derived(allKeys.filter((k) => !dashDef(k)?.analysis));
   let res = $state<DashResponse | null>(null);
   const serverKeys = $derived(keys.filter((k) => !dashDef(k)?.client));
   const w = watch(async () => {
-    const r = serverKeys.length ? await dashboards.get(serverKeys, filter) : null;
-    res = r; if (r) onload?.(r);
+    // An empty key list still returns the filter choices, so a tab of client-built reports keeps the filter bar.
+    const r = await dashboards.get(serverKeys, filter);
+    res = r; onload?.(r);
   }, () => JSON.stringify([serverKeys, filter]));
   // Row filling (2 columns): panels per key and full-width ones; a single panel that would sit alone takes the whole row.
   const TWO = ['stock-on-hand', 'profit-margin', 'sales-summary'];

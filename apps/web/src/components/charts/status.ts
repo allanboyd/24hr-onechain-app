@@ -40,7 +40,7 @@ export const statusMeta = (s: Status | string, label?: string): StatusMeta => {
 
 /** Plotly fill for a status from the resolved theme (CSS vars don't work inside Plotly). */
 export function statusFill(t: Theme, s: Status): string {
-  return s === 'good' ? t.success : s === 'warn' ? t.warning : s === 'bad' ? t.danger : t.other;
+  return s === 'good' ? t.vizGood : s === 'warn' ? t.vizWarn : s === 'bad' ? t.vizBad : t.other;
 }
 /** Plotly text colour for a status (amber text uses the darker warning ink, not the fill). */
 export function statusInk(t: Theme, s: Status): string {

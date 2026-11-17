@@ -2,16 +2,16 @@
   // Stacked columns (parts of a total, e.g. goods cost · expenses · profit per month) with a line on a second axis
   // (e.g. margin %). Added for the profit-and-margin dashboard (docs/15, C-P1-03). Click a column → onselect(category).
   import PlotlyChart, { type PlotPoint } from './PlotlyChart.svelte';
-  import { baseLayout, colorOf } from './theme.svelte';
+  import { baseLayout, mark, type Ink } from './theme.svelte';
   import { compact } from './scale';
   let { categories, parts, line, format = compact, formatLine = (n: number) => `${(n * 100).toFixed(1)}%`, height = 300, label, filename = 'columns-line', onselect }: {
-    categories: string[]; parts: { name: string; values: number[]; slot?: number }[];
+    categories: string[]; parts: { name: string; values: number[]; slot?: number; ink?: Ink }[];
     /** values on the right axis (null = no value, gap in the line) */ line?: { name: string; values: (number | null)[] };
     format?: (n: number) => string; formatLine?: (n: number) => string; height?: number; label: string; filename?: string; onselect?: (category: string) => void;
   } = $props();
   function spec(t: any) {
     const data: any[] = parts.map((p, i) => ({
-      type: 'bar', name: p.name, x: categories, y: p.values, marker: { color: colorOf(t, p.slot ?? i), line: { color: t.surface, width: 1 } },
+      type: 'bar', name: p.name, x: categories, y: p.values, marker: { color: mark(t, p.slot ?? i, p.ink), line: { color: t.surface, width: 1 } },
       text: p.values.map((v) => format(v)), hovertemplate: `<b>%{text}</b>  ${p.name} · %{x}<extra></extra>`, texttemplate: '', textposition: 'none',
     }));
     if (line) data.push({ type: 'scatter', mode: 'lines+markers', name: line.name, x: categories, y: line.values, yaxis: 'y2', connectgaps: false,

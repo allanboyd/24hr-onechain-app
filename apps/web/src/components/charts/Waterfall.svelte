@@ -3,7 +3,6 @@
   // Floating bars (Plotly `base`), signed value labels, dashed connectors. Decreases/increases also carry a sign, never colour alone.
   import PlotlyChart, { type PlotPoint } from './PlotlyChart.svelte';
   import { baseLayout } from './theme.svelte';
-  import { statusFill } from './status';
   import { autoTick, compact } from './scale';
   import { wrapLabel } from './labels';
   export interface WaterfallStep {
@@ -33,11 +32,12 @@
 
   function spec(t: any, ctx: { narrow: boolean }) {
     const b = bars;
-    const fill = (k: string, d: number) => (k !== 'step' ? t.series[0] : d < 0 ? statusFill(t, 'bad') : statusFill(t, 'good'));
+    // Report bridge: sales total in navy, every cost step in the cost ink, profit in green (red when negative).
+    const fill = (i: number, k: string, d: number, level: number) => (k === 'step' ? (d > 0 ? t.vizGood : t.cost) : i === b.length - 1 ? (level < 0 ? t.vizBad : t.vizGood) : t.series[0]);
     const text = b.map((x) => (x.kind === 'step' ? `${sign(x.delta)}${format(Math.abs(x.delta))}` : format(x.delta)));
     const data = [{
       type: 'bar', x: b.map((x) => x.label), y: b.map((x) => x.len || 0.0001), base: b.map((x) => x.base),
-      marker: { color: b.map((x) => fill(x.kind, x.delta)), line: { width: 0 } },
+      marker: { color: b.map((x, i) => fill(i, x.kind, x.delta, x.level)), line: { width: 0 } },
       text, texttemplate: '%{text}', textposition: 'outside', cliponaxis: false, constraintext: 'none', textfont: { color: t.text, size: ctx.narrow ? 10 : 11 },
       customdata: b.map((x) => [x.kind === 'step' ? (x.delta < 0 ? 'Decrease' : 'Increase') : x.kind === 'subtotal' ? 'Subtotal' : 'Total', format(x.level)]),
       hovertemplate: '<b>%{text}</b>  %{x}<br>%{customdata[0]} · running total %{customdata[1]}<extra></extra>', showlegend: false,
@@ -57,8 +57,8 @@
 <PlotlyChart {spec} {height} {label} {filename} zoom={false} onselect={onselect ? (p: PlotPoint) => onselect(String(p.x)) : undefined} />
 <ul class="legend wf-key" aria-hidden="true">
   <li><span class="viz-key rect" style:background="var(--viz-1)"></span>Total</li>
-  <li><span class="viz-key rect" style:background="var(--danger)"></span>− Decrease</li>
-  {#if bars.some((x) => x.kind === 'step' && x.delta > 0)}<li><span class="viz-key rect" style:background="var(--success)"></span>+ Increase</li>{/if}
+  <li><span class="viz-key rect" style:background="var(--viz-cost)"></span>− What it cost</li>
+  <li><span class="viz-key rect" style:background="var(--viz-good)"></span>Profit</li>
 </ul>
 <style>
   .wf-key { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); font-size: var(--fs-caption); color: var(--text-muted); }

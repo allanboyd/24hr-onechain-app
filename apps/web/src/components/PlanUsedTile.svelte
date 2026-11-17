@@ -3,6 +3,8 @@
   import { Badge, fmtNum } from '@btw/ui';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import { Meter, pct } from './charts';
+  import GroupedBars from './charts/GroupedBars.svelte';
+  import { monthLabel } from '../lib/planning';
   import { companyLabel } from '../lib/companies';
   import { flagTone, periodFor, periodLabel, plannedVsActual, type PlannedVsActual, type PvFlag } from '../lib/planning';
   let { group = false }: { group?: boolean } = $props();
@@ -13,6 +15,7 @@
   $effect(() => { plannedVsActual(q).then((x) => (d = x)).catch(() => (failed = true)); });
   const FLAGS: PvFlag[] = ['Behind plan', 'Over plan', 'Unplanned', 'On track'];
   const n = (f: PvFlag) => (d?.lines ?? []).filter((l) => l.flag === f).length;
+  const months = $derived((d?.months ?? []).slice(-6));
 </script>
 
 <section class="card pv">
@@ -23,6 +26,9 @@
   {:else}
     <Meter label="Ordered of planned" value={d.measures.ordered} max={Math.max(d.measures.planned, d.measures.ordered, 1)} target={d.measures.expectedToDate} format={(x) => fmtNum(x)} tone={d.measures.ordered < d.measures.expectedToDate * d.thresholds.behind ? 'warning' : d.measures.ordered > d.measures.planned * d.thresholds.over ? 'danger' : 'success'} note="{pct(d.measures.usedPct / 100)} of {fmtNum(d.measures.planned)} planned · right figure and tick = expected by today" />
     <div class="chips">{#each FLAGS as f}{#if n(f)}<a href="#/dashboards/purchasing"><Badge tone={flagTone(f)}>{n(f)} {f.toLowerCase()}</Badge></a>{/if}{/each}</div>
+    {#if months.length}
+      <GroupedBars label="Planned vs PO issued by month (cases)" categories={months.map((m) => monthLabel(m.month))} series={[{ name: 'Planned', values: months.map((m) => m.planned), ink: 'planned' }, { name: 'PO issued', values: months.map((m) => m.ordered), ink: 'navy' }]} format={(x) => fmtNum(x)} unit="cases" gaps={false} height={220} />
+    {/if}
     {#if group && d.byEntity}
       <ul class="cos">{#each Object.entries(d.byEntity) as [id, m] (id)}<li><span>{companyLabel(id)}</span><span class="num">{pct(m.usedPct / 100)} used</span><span class="caption num">{fmtNum(m.ordered)} / {fmtNum(m.planned)}</span></li>{/each}</ul>
     {/if}

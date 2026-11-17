@@ -24,7 +24,7 @@
 
 {#if key === 'agreed-vs-actual'}
   <DashboardPanel span={span ?? 1} title="Did trucks cost what was agreed?" subtitle="per truck · variance red when over" decision="Ask the provider about every trip over the agreed price." {...fr} rows={() => [['Shipment', 'Truck', 'Provider', `Agreed (${C})`, `Actual (${C})`, `Variance (${C})`], ...(d.rows ?? []).map((x: any) => [x.ref, x.truck, x.provider, x.agreed == null ? 'Not recorded' : cvRow(x.agreed), cvRow(x.actual), cvRow(x.variance)])]} filename="agreed-vs-actual" {drill}>
-    <GroupedBars label="Agreed and actual transport cost per truck" categories={recent.map((x: any) => `${x.truck} · ${x.ref.slice(-4)}`)} series={[{ name: 'Agreed', values: recent.map((x: any) => x.agreed) }, { name: 'Actual', values: recent.map((x: any) => x.actual) }]} format={money} unit={C} tolerance={0.05} />
+    <GroupedBars label="Agreed and actual transport cost per truck" categories={recent.map((x: any) => `${x.truck} · ${x.ref.slice(-4)}`)} series={[{ name: 'Agreed', values: recent.map((x: any) => x.agreed), ink: 'allowed' }, { name: 'Actual', values: recent.map((x: any) => x.actual), ink: 'navy' }]} format={money} unit={C} tolerance={0.05} />
     <div class="table-wrap"><table class="table">
       <thead><tr><th>Truck</th><th class="num">Agreed</th><th class="num">Actual</th><th class="num">Variance</th></tr></thead>
       <tbody>{#each [...(d.rows ?? [])].reverse() as x}<tr class="clickable" onclick={() => go(`#/shipments/${x.shipmentId}`)}><td><b>{x.truck}</b><div class="caption">{x.ref} · {x.provider}</div></td>
@@ -63,16 +63,16 @@
   </DashboardPanel>
 {:else if key === 'cash-vs-credit'}
   <DashboardPanel span={span ?? 1} title="How much cash did we take against credit given?" subtitle="last 6 months · cash share on the caption" decision="Chase credit when cash share falls; keep the cash customers supplied." {...fr} period="Last 6 months" rows={() => [['Month', `Cash (${C})`, `Credit (${C})`, 'Cash share'], ...(d.months ?? []).map((m: any) => [m.month, cvRow(m.cash), cvRow(m.credit), m.share == null ? '' : `${Math.round(m.share * 100)}%`])]} filename="cash-vs-credit" {drill}>
-    <BarChart label="Cash received against credit given by month" categories={(d.months ?? []).map((m: any) => monthLabel(m.month))} series={[{ name: 'Cash', values: (d.months ?? []).map((m: any) => m.cash), slot: 0 }, { name: 'Credit', values: (d.months ?? []).map((m: any) => m.credit), slot: 1 }]} format={money} onselect={() => go('#/sales')} />
+    <BarChart label="Cash received against credit given by month" categories={(d.months ?? []).map((m: any) => monthLabel(m.month))} series={[{ name: 'Cash', values: (d.months ?? []).map((m: any) => m.cash), ink: 'good' }, { name: 'Credit', values: (d.months ?? []).map((m: any) => m.credit), ink: 'warn' }]} format={money} labels={false} onselect={() => go('#/sales')} />
     <p class="caption">This period: cash {money(d.cash)} · credit {money(d.credit)}{d.share == null ? '' : ` · cash share ${Math.round(d.share * 100)}%`}{d.batch ? ` · batch ${money(d.batch)}` : ''}.</p>
   </DashboardPanel>
 {:else if key === 'sales-summary'}
   <DashboardPanel span={span ?? 1} title="How do cash, credit and batch sales move?" subtitle="last 6 months" decision="Watch credit share and the customers who buy most." {...fr} period="Last 6 months" rows={() => [['Month', `Cash (${C})`, `Credit (${C})`, `Batch (${C})`], ...(d.months ?? []).map((m: any) => [m.month, cvRow(m.Cash), cvRow(m.Credit), cvRow(m.Batch)])]} filename="sales-by-month" {drill}>
-    <BarChart label="Sales by month and kind" stacked categories={(d.months ?? []).map((m: any) => monthLabel(m.month))} series={['Cash', 'Credit', 'Batch'].map((k, i) => ({ name: k, values: (d.months ?? []).map((m: any) => m[k]), slot: i }))} format={money} onselect={() => go('#/sales')} />
+    <BarChart label="Sales by month and kind" stacked categories={(d.months ?? []).map((m: any) => monthLabel(m.month))} series={[{ name: 'Cash', values: (d.months ?? []).map((m: any) => m.Cash), ink: 'good' }, { name: 'Credit', values: (d.months ?? []).map((m: any) => m.Credit), ink: 'warn' }, { name: 'Batch', values: (d.months ?? []).map((m: any) => m.Batch), ink: 'teal' }]} format={money} onselect={() => go('#/sales')} />
   </DashboardPanel>
   <DashboardPanel span={span ?? 1} title="Top products and customers" subtitle="sales value in the period" decision="Keep the top products in stock; visit the customers who buy most." {...fr} rows={() => [['Kind', 'Name', `Sales (${C})`], ...(d.topProducts ?? []).map((x: any) => ['Product', x.label, cvRow(x.value)]), ...(d.topCustomers ?? []).map((x: any) => ['Customer', x.label, cvRow(x.value)])]} filename="top-products-customers" empty={!d.topProducts?.length}>
-    <BarChart label="Top products by sales value" horizontal categories={(d.topProducts ?? []).map((x: any) => x.label)} series={[{ name: 'Sales', values: (d.topProducts ?? []).map((x: any) => x.value), slot: 0 }]} format={money} />
-    <BarChart label="Top customers by sales value" horizontal categories={(d.topCustomers ?? []).map((x: any) => x.label)} series={[{ name: 'Sales', values: (d.topCustomers ?? []).map((x: any) => x.value), slot: 1 }]} format={money} />
+    <BarChart label="Top products by sales value" horizontal categories={(d.topProducts ?? []).map((x: any) => x.label)} series={[{ name: 'Sales', values: (d.topProducts ?? []).map((x: any) => x.value), ink: 'navy' }]} format={money} />
+    <BarChart label="Top customers by sales value" horizontal categories={(d.topCustomers ?? []).map((x: any) => x.label)} series={[{ name: 'Sales', values: (d.topCustomers ?? []).map((x: any) => x.value), ink: 'navy' }]} format={money} />
     <p class="caption">{n0(d.count)} sales · {money(d.total)} in the period.</p>
   </DashboardPanel>
 {:else if key === 'customer-balances'}

@@ -4,9 +4,11 @@
   import type { DashKey, DashResult } from '@btw/api';
   import { DashboardPanel, KpiScorecard, ExceptionList, Waterfall, StackedBarH, QuadrantScatter, StatusBadge, type Kpi } from '../../../components/dashboard';
   import { BarChart, Donut, Gauge, Meter } from '../../../components/charts';
+  import type { Ink } from '../../../components/charts/theme.svelte';
   import ColumnsLine from '../../../components/charts/ColumnsLine.svelte';
   import { compact } from '../../../components/charts/scale';
   import { frame, cv, money, money2, cvRow, n0, pctF, monthLabel, currency } from '../fmt.svelte';
+import { analysisMode } from '../analysis-mode.svelte';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
   let { key, r, link, span }: { key: DashKey; r: DashResult; link?: string; span?: 1 | 2 | 'full' } = $props();
   const d = $derived(r.data as any);
@@ -34,7 +36,8 @@
     const sales = wf.find((s: { label: string; kind?: string }) => s.kind === 'total' && (s.label === 'Sales' || s.label === 'Revenue'));
     const base = sales?.value || 0;
     if (!base) return [];
-    return wf.filter((s: { label: string; value: number }) => s !== sales && Math.abs(s.value) > 0).map((s: { label: string; value: number }) => ({ label: s.label, value: Math.round((Math.abs(s.value) / base) * 1000) / 10 }));
+    const inkOf: Record<string, Ink> = { 'Goods cost': 'navy', 'Truck cost': 'teal', 'Warehouse share': 'warn', 'Other costs': 'slate', Profit: 'good' };
+    return wf.filter((s: { label: string; value: number }) => s !== sales && Math.abs(s.value) > 0).map((s: { label: string; value: number }) => ({ label: s.label, value: Math.round((Math.abs(s.value) / base) * 1000) / 10, ink: inkOf[s.label] }));
   });
   const why = $derived.by(() => {
     if (key !== 'profit-margin') return '';
@@ -99,14 +102,17 @@
     {#if shareOf100.length}<Donut label="Where each $100 of sales went" data={shareOf100} format={(n) => `$${Math.round(n)}`} center="$100" height={220} />{/if}
     {#if d.estimated}<p class="caption">Part of the cost of units sold is estimated (products with no landed cost yet).</p>{/if}
   </DashboardPanel>
-  <DashboardPanel span={span ?? 1} title="Profit and margin by month" subtitle="goods cost · truck, warehouse and other · profit, with margin %" decision="Protect the months where margin is falling." {...fr} period="Last 6 months" rows={mRows} filename="profit-by-month" empty={!(d.months ?? []).some((m: any) => m.revenue)}>
-    <ColumnsLine label="Monthly cost, expenses and profit with margin" categories={(d.months ?? []).map((m: any) => monthLabel(m.month))}
-      parts={[{ name: 'Goods cost', values: d.months.map((m: any) => m.goods) }, { name: 'Truck, warehouse, other', values: d.months.map((m: any) => m.expenses), slot: 2 }, { name: 'Profit', values: d.months.map((m: any) => m.profit), slot: 1 }]}
-      line={{ name: 'Margin', values: d.months.map((m: any) => m.margin) }} format={money} />
+  <DashboardPanel span={span ?? 1} title="Sales and profit by month" subtitle="sales in navy, profit in green" decision="Protect the months where profit is falling." {...fr} period="Last 6 months" rows={mRows} filename="sales-and-profit-by-month" empty={!(d.months ?? []).some((m: any) => m.revenue)}>
+    <BarChart label="Sales and profit by month" categories={(d.months ?? []).map((m: any) => monthLabel(m.month))} series={[{ name: 'Sales', values: d.months.map((m: any) => m.revenue), ink: 'navy' }, { name: 'Profit', values: d.months.map((m: any) => Math.max(0, m.profit)), ink: 'good' }]} format={money} labels={false} />
+    {#if analysisMode.on}
+      <ColumnsLine label="Goods, truck and warehouse against profit" categories={(d.months ?? []).map((m: any) => monthLabel(m.month))}
+        parts={[{ name: 'Goods cost', values: d.months.map((m: any) => m.goods), ink: 'navy' }, { name: 'Truck, warehouse, other', values: d.months.map((m: any) => m.expenses), ink: 'teal' }, { name: 'Profit', values: d.months.map((m: any) => m.profit), ink: 'good' }]}
+        line={{ name: 'Margin', values: d.months.map((m: any) => m.margin) }} format={money} />
+    {/if}
   </DashboardPanel>
 {:else if key === 'landed-product'}
   <DashboardPanel span={span ?? 1} title="What makes up landed cost per case?" subtitle="goods + truck + warehouse, share of each" decision="Challenge the truck or warehouse share that is out of line." {...fr} unit="{currency.code} per case" rows={lpRows} filename="landed-cost-per-product" {drill}>
-    <StackedBarH label="Landed cost per case by product" categories={(d.rows ?? []).map((x: any) => x.label)} parts={[{ name: 'Goods', values: (d.rows ?? []).map((x: any) => x.goods) }, { name: 'Truck', values: (d.rows ?? []).map((x: any) => x.truck) }, { name: 'Warehouse', values: (d.rows ?? []).map((x: any) => x.warehouse) }]} format={money2} onselect={() => go('#/performance')} />
+    <StackedBarH label="Landed cost per case by product" categories={(d.rows ?? []).map((x: any) => x.label)} parts={[{ name: 'Goods', values: (d.rows ?? []).map((x: any) => x.goods), ink: 'navy' }, { name: 'Truck', values: (d.rows ?? []).map((x: any) => x.truck), ink: 'teal' }, { name: 'Warehouse', values: (d.rows ?? []).map((x: any) => x.warehouse), ink: 'warn' }]} format={money2} onselect={() => go('#/performance')} />
   </DashboardPanel>
 {:else if key === 'landed-truck'}
   <DashboardPanel span={span ?? 1} title="Which trucks cost more than average?" subtitle="all trip costs by category" decision="Open every trip flagged above average." {...fr} rows={ltRows} filename="landed-cost-per-truck" {drill}>

@@ -279,9 +279,9 @@
 
 <style>
   /* chart colours: navy sales line + orange profit in light, lighter blue + orange in dark */
-  :global(:root) { --t-sales: #2a5fa8; --t-profit: #e0601c; }
-  @media (prefers-color-scheme: dark) { :global(:root:not([data-theme='light'])) { --t-sales: #6aa5ee; --t-profit: #f08a4b; } }
-  :global(:root[data-theme='dark']) { --t-sales: #6aa5ee; --t-profit: #f08a4b; }
+  :global(:root) { --t-sales: #1f3a5f; --t-profit: #1b7f5c; }
+  @media (prefers-color-scheme: dark) { :global(:root:not([data-theme='light'])) { --t-sales: #9bb6d6; --t-profit: #3dbe8a; } }
+  :global(:root[data-theme='dark']) { --t-sales: #9bb6d6; --t-profit: #3dbe8a; }
 
   .fbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); margin: 0 0 var(--space-5); }
   .fbar label { display: flex; align-items: center; gap: var(--space-2); font-size: 13px; color: var(--text-muted); font-weight: 600; }

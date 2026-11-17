@@ -1,9 +1,9 @@
 <script lang="ts">
   // Columns / horizontal bars; grouped or stacked; ranked lists. Click a bar → onselect(category, series).
   import PlotlyChart, { type PlotPoint } from './PlotlyChart.svelte';
-  import { baseLayout, colorOf } from './theme.svelte';
+  import { baseLayout, mark, type Ink } from './theme.svelte';
   import { autoTick, compact } from './scale';
-  export interface BarSeries { name: string; values: number[]; slot?: number }
+  export interface BarSeries { name: string; values: number[]; slot?: number; ink?: Ink }
   let { categories, series, horizontal = false, stacked = false, format = compact, height, label, labels = true, filename = 'bars', onselect, tickformat }: {
     categories: string[]; series: BarSeries[]; horizontal?: boolean; stacked?: boolean; format?: (n: number) => string;
     height?: number; label: string; /** value at the bar tip (single series only) */ labels?: boolean; filename?: string;
@@ -19,7 +19,7 @@
     const data = series.map((s, i) => ({
       type: 'bar', name: s.name, orientation: horizontal ? 'h' : 'v',
       x: horizontal ? s.values : categories, y: horizontal ? categories : s.values,
-      marker: { color: colorOf(t, s.slot ?? i), line: { color: t.surface, width: stacked ? 1 : 0 } },
+      marker: { color: mark(t, s.slot ?? i, s.ink), line: { color: t.surface, width: stacked ? 1 : 0 } },
       text: s.values.map((v) => format(v)), texttemplate: tip ? '%{text}' : '', textposition: tip ? 'outside' : 'none', cliponaxis: false,
       textfont: { color: t.text, size: 11 }, hovertemplate: `<b>%{text}</b>  ${series.length > 1 ? s.name + ' · ' : ''}%{${horizontal ? 'y' : 'x'}}<extra></extra>`,
     }));

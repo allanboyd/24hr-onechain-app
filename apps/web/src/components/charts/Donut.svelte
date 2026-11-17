@@ -1,10 +1,10 @@
 <script lang="ts">
   // Part-to-whole (≤ 6 slices; extra folds into "Other"). Click a slice → onselect(label).
   import PlotlyChart, { type PlotPoint } from './PlotlyChart.svelte';
-  import { baseLayout, colorOf } from './theme.svelte';
+  import { baseLayout, mark, type Ink } from './theme.svelte';
   import { compact, foldOther } from './scale';
   let { data, format = compact, height = 260, label, center = '', filename = 'share', onselect }: {
-    data: { label: string; value: number }[]; format?: (n: number) => string; height?: number; label: string;
+    data: { label: string; value: number; ink?: Ink }[]; format?: (n: number) => string; height?: number; label: string;
     /** text in the hole, e.g. the total */ center?: string; filename?: string; onselect?: (label: string) => void;
   } = $props();
   const items = $derived(foldOther(data.filter((d) => d.value > 0), 6));
@@ -17,7 +17,7 @@
     return {
       data: [{
         type: 'pie', hole: 0.62, sort: false, direction: 'clockwise', labels: items.map((d) => d.label), values: items.map((d) => d.value),
-        marker: { colors: items.map((d, i) => (d.label === 'Other' ? t.other : colorOf(t, i))), line: { color: t.surface, width: 2 } },
+        marker: { colors: items.map((d, i) => (d.label === 'Other' ? t.other : mark(t, i, (d as { ink?: Ink }).ink))), line: { color: t.surface, width: 2 } },
         text: items.map((d) => `${format(d.value)} · ${total ? Math.round((d.value / total) * 100) : 0}%`), textinfo: 'none',
         hovertemplate: '<b>%{text}</b>  %{label}<extra></extra>',
       }],

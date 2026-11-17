@@ -3,26 +3,35 @@
    chart ships its "view data" table and selective direct labels (relief rule). Never cycle past 8 —
    fold extra categories into "Other". */
 :root {
-  /* Identity series only — never green / amber / red (those are status: on track / at risk / danger). */
-  --viz-1: #2a5fa8; --viz-2: #e0601c; --viz-3: #0b7f9a; --viz-4: #c4a35a;
-  --viz-5: #e87ba4; --viz-6: #5c6e8a; --viz-7: #4a3aa7; --viz-8: #8e5aa8;
-  --viz-other: #8593a8;
-  --viz-grid: #e2e7ef; --viz-axis: #a3b1c6;
+  /* Control room series (supply_chain_control_room_report.html): navy, teal, amber, slate, then the longer palette.
+     Status and the bridge use the report's own inks, not the logo orange. */
+  --viz-1: #1f3a5f; --viz-2: #2a7f8e; --viz-3: #b7791f; --viz-4: #4a5d78;
+  --viz-5: #6b8cae; --viz-6: #8a6d3b; --viz-7: #7a5c99; --viz-8: #3f7d4e;
+  --viz-other: #64748b;
+  --viz-good: #1b7f5c; --viz-warn: #b7791f; --viz-bad: #b42318;
+  --viz-cost: #d9625b; --viz-planned: #6b8cae; --viz-allowed: #c5d0de;
+  --viz-grid: #e3e8ef; --viz-axis: #c5d0de;
   /* sequential (magnitude): one hue, light → dark */
   --seq-1: #e8eff9; --seq-2: #cde2fb; --seq-3: #9ec5f4; --seq-4: #6da7ec; --seq-5: #3987e5; --seq-6: #256abf; --seq-7: #184f95;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #2eb8c4; --viz-4: #d4b36a;
-    --viz-5: #d55181; --viz-6: #8a9bb5; --viz-7: #9085e9; --viz-8: #b888d4;
-    --viz-other: #66768c; --viz-grid: #1b2e4a; --viz-axis: #33435a;
+    --viz-1: #9bb6d6; --viz-2: #4eb3c2; --viz-3: #e0a24a; --viz-4: #a8b6c8;
+    --viz-5: #b7cbe0; --viz-6: #d4b483; --viz-7: #c4a6de; --viz-8: #7dbe8e;
+    --viz-other: #8b97a8;
+    --viz-good: #3dbe8a; --viz-warn: #e0a24a; --viz-bad: #f07167;
+    --viz-cost: #e8928c; --viz-planned: #b7cbe0; --viz-allowed: #5c6f88;
+    --viz-grid: #1b2e4a; --viz-axis: #33435a;
     --seq-1: #15294a; --seq-2: #184f95; --seq-3: #1c5cab; --seq-4: #256abf; --seq-5: #2a78d6; --seq-6: #5598e7; --seq-7: #9ec5f4;
   }
 }
 :root[data-theme="dark"] {
-  --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #2eb8c4; --viz-4: #d4b36a;
-  --viz-5: #d55181; --viz-6: #8a9bb5; --viz-7: #9085e9; --viz-8: #b888d4;
-  --viz-other: #66768c; --viz-grid: #1b2e4a; --viz-axis: #33435a;
+  --viz-1: #9bb6d6; --viz-2: #4eb3c2; --viz-3: #e0a24a; --viz-4: #a8b6c8;
+  --viz-5: #b7cbe0; --viz-6: #d4b483; --viz-7: #c4a6de; --viz-8: #7dbe8e;
+  --viz-other: #8b97a8;
+  --viz-good: #3dbe8a; --viz-warn: #e0a24a; --viz-bad: #f07167;
+  --viz-cost: #e8928c; --viz-planned: #b7cbe0; --viz-allowed: #5c6f88;
+  --viz-grid: #1b2e4a; --viz-axis: #33435a;
   --seq-1: #15294a; --seq-2: #184f95; --seq-3: #1c5cab; --seq-4: #256abf; --seq-5: #2a78d6; --seq-6: #5598e7; --seq-7: #9ec5f4;
 }
 
