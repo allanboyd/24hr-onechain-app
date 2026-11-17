@@ -2,7 +2,7 @@
   // A set of dashboards (docs/15): one GET /v1/dashboards call for every key (scoped by the caller and the filters), then each
   // panel from its feature group. Browser-computed panels (plan vs actual, audit log) render without server data.
   import { dashboards, type DashFilter, type DashKey, type DashResponse } from '@btw/api';
-  import { dashDef } from '@btw/api/dashboards';
+  import { DASH_GROUPS, dashDef } from '@btw/api/dashboards';
   import { DashboardGrid } from '../../components/dashboard';
   import ErrorState from '../../components/ErrorState.svelte';
   import { watch } from '../../lib/load.svelte';
@@ -12,7 +12,9 @@
   import Money from './panels/Money.svelte';
   import Stock from './panels/Stock.svelte';
   import Admin from './panels/Admin.svelte';
-  let { keys: allKeys, filter, cols = 2, onload }: { keys: DashKey[]; filter: DashFilter; cols?: 1 | 2 | 3; onload?: (r: DashResponse) => void } = $props();
+  let { keys: allKeys, filter, cols = 2, sections = false, onload }: { keys: DashKey[]; filter: DashFilter; cols?: 1 | 2 | 3; /** a heading when the feature group changes */ sections?: boolean; onload?: (r: DashResponse) => void } = $props();
+const sectionOf = (k?: string) => (k === 'order-this-week' ? 'purchasing' : k === 'warehouse-today' ? 'warehouse' : (k ? dashDef(k)?.group : '') ?? '');
+const groupLabel = (g: string) => DASH_GROUPS.find((x) => x.key === g)?.label ?? 'Your desk';
   // analysis sections (docs/17 Phase 2) render under the grid (Analysis.svelte), not as panels
   const keys = $derived(allKeys.filter((k) => !dashDef(k)?.analysis));
   let res = $state<DashResponse | null>(null);
@@ -46,9 +48,12 @@
   <DashboardGrid {cols}>{#each keys.slice(0, 4) as _}<div class="card"><div class="skeleton" style="width:40%"></div><div class="skeleton" style="height:200px;margin-top:12px"></div></div>{/each}</DashboardGrid>
 {:else}
   <DashboardGrid {cols}>
-    {#each keys as k (k)}
+    {#each keys as k, i (k)}
       {@const def = dashDef(k)}
       {@const r = res?.results[k]}
+      {#if sections && def && sectionOf(keys[i - 1]) !== sectionOf(k)}
+        <h2 class="grp">{groupLabel(sectionOf(k))}</h2>
+      {/if}
       {#if def && (r || def.client)}
         {@const P = C[k === 'fast-slow' ? 'business' : k === 'warehouse-today' ? 'warehouse' : k === 'order-this-week' ? 'purchasing' : def.group]}
         <P key={k} {r} link={def.link} span={spans[k]} />
@@ -56,3 +61,7 @@
     {/each}
   </DashboardGrid>
 {/if}
+
+<style>
+  .grp { grid-column: 1 / -1; margin: var(--space-5) 0 0; font-size: var(--fs-h2); line-height: var(--lh-h2); }
+</style>

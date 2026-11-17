@@ -19,6 +19,7 @@
   let band = $state<CoverBand | null>(null);
   const inBand = (days: number | null, b: CoverBand | null) => { if (!b || days == null) return !b; const i = DEFAULT_BANDS.indexOf(b); const lo = i ? (DEFAULT_BANDS[i - 1].max ?? 0) + 1 : -Infinity; return days >= lo && (b.max == null || days <= b.max); };
   const coverItems = $derived(key === 'stock-on-hand' ? (d.items ?? []).filter((x: any) => inBand(x.cover, band)).slice(0, 15).map((x: any) => ({ label: x.label, days: x.cover, min: x.min, max: x.max })) : []);
+  const runningOut = $derived(key === 'stock-on-hand' ? [...(d.items ?? [])].filter((x: any) => x.cover != null && x.cover <= 14).sort((a: any, b: any) => a.cover - b.cover).slice(0, 6) : []);
   // transit timeline: by day of expected arrival
   const days = $derived(key === 'stock-in-transit' ? [...new Set((d.rows ?? []).map((x: any) => (x.eta ?? '').slice(0, 10)))].map((k) => ({ day: k as string, rows: d.rows.filter((x: any) => (x.eta ?? '').slice(0, 10) === k) })) : []);
   // categories by total (largest first) so the columns and the donut give each category the same colour
@@ -78,6 +79,10 @@
 {:else if key === 'stock-on-hand'}
   <DashboardPanel span={span ?? 1} title="Which stock needs a reorder or a count?" subtitle="products by days of stock · click a band to list them" decision="Reorder at-risk products; count the no-sales lines." {...fr} rows={() => { const c = bandCounts((d.items ?? []).map((x: any) => x.cover)); return [['Days of cover', 'Products'], ...DEFAULT_BANDS.map((b, i) => [b.label, c.counts[i]]), ['No sales (no cover figure)', c.missing]]; }} filename="stock-cover-bands" filterText={band ? `Band ${band.label}` : ''} {drill}>
     <StockCoverBands days={(d.items ?? []).map((x: any) => x.cover)} selected={band?.label ?? null} onselect={(b) => (band = b)} />
+    {#if runningOut.length}
+      <p class="caption">Running out — 14 days of cover or less. Trucks already on the road are on Stock in transit.</p>
+      <ul class="att">{#each runningOut as x}<li><b>{x.label}</b><span class="caption">{x.cover} days of cover · {n0(x.held)} cases held</span></li>{/each}</ul>
+    {/if}
   </DashboardPanel>
   <DashboardPanel span={span ?? 1} title="How does each product sit against the minimum?" subtitle={band ? `band ${band.label}` : 'lowest cover first'} decision="Count or write off the lines furthest below minimum." {...fr} rows={() => [['Product', 'Held (cases)', 'Moved out', 'Damaged', 'Short', 'Sold 30 days', 'Days of cover', 'Minimum', 'Slow above', 'State'], ...(d.items ?? []).map((x: any) => [x.label, x.held, x.movedOut, x.damaged, x.short, x.sold30, x.cover ?? 'No data yet', x.min, x.max, coverStatus({ label: x.label, days: x.cover, min: x.min, max: x.max }).label])]} filename="stock-on-hand" empty={!coverItems.length}>
     <StockCoverBars label="Days of stock cover against minimum by product" items={coverItems} onselect={() => go('#/stock?show=attention')} />

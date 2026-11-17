@@ -3,7 +3,7 @@
   // product and per truck, selling price & target margin (link + gauge), fast / slow products ★3.
   import type { DashKey, DashResult } from '@btw/api';
   import { DashboardPanel, KpiScorecard, ExceptionList, Waterfall, StackedBarH, QuadrantScatter, StatusBadge, type Kpi } from '../../../components/dashboard';
-  import { BarChart, Gauge, Meter } from '../../../components/charts';
+  import { BarChart, Donut, Gauge, Meter } from '../../../components/charts';
   import ColumnsLine from '../../../components/charts/ColumnsLine.svelte';
   import { compact } from '../../../components/charts/scale';
   import { frame, cv, money, money2, cvRow, n0, pctF, monthLabel, currency } from '../fmt.svelte';
@@ -29,6 +29,24 @@
   // ── profit ──
   const wf = $derived(key === 'profit-margin' ? (d.waterfall ?? []).map((s: any) => ({ label: s.label === 'Revenue' ? 'Sales' : s.label === 'Goods' ? 'Goods cost' : s.label === 'Truck' ? 'Truck cost' : s.label === 'Warehouse' ? 'Warehouse share' : s.label === 'Other' ? 'Other costs' : s.label, value: s.value, kind: s.kind })) : []);
   const wfRows = () => [['Step', `Change (${currency.code})`], ...wf.map((s: any) => [s.label, cvRow(s.value)])];
+  const shareOf100 = $derived.by(() => {
+    if (key !== 'profit-margin') return [] as { label: string; value: number }[];
+    const sales = wf.find((s: { label: string; kind?: string }) => s.kind === 'total' && (s.label === 'Sales' || s.label === 'Revenue'));
+    const base = sales?.value || 0;
+    if (!base) return [];
+    return wf.filter((s: { label: string; value: number }) => s !== sales && Math.abs(s.value) > 0).map((s: { label: string; value: number }) => ({ label: s.label, value: Math.round((Math.abs(s.value) / base) * 1000) / 10 }));
+  });
+  const why = $derived.by(() => {
+    if (key !== 'profit-margin') return '';
+    const ms = (d?.months ?? []).filter((m: { revenue: number }) => m.revenue);
+    const a = ms.at(-1) as { month: string; profit: number; revenue: number } | undefined;
+    const b = ms.at(-2) as { month: string; profit: number } | undefined;
+    if (!a || !b) return '';
+    const diff = a.profit - b.profit;
+    const recent = ms.slice(-3) as { revenue: number }[];
+    const avg = recent.reduce((s, m) => s + m.revenue, 0) / recent.length;
+    return `Profit in ${monthLabel(a.month)} is ${money(a.profit)}, ${diff >= 0 ? 'up' : 'down'} ${money(Math.abs(diff))} from ${monthLabel(b.month)}. If the last ${recent.length} months hold, sales next month are near ${money(avg)}.`;
+  });
   const mRows = () => [['Month', `Sales (${currency.code})`, `Goods cost (${currency.code})`, `Truck + warehouse + other (${currency.code})`, `Profit (${currency.code})`, 'Margin'], ...(d.months ?? []).map((m: any) => [m.month, cvRow(m.revenue), cvRow(m.goods), cvRow(m.expenses), cvRow(m.profit), m.margin == null ? '' : pctF(m.margin)])];
   // ── landed cost ──
   const lpRows = () => [['Product', 'Cases received', `Goods (${currency.code}/case)`, `Truck (${currency.code}/case)`, `Warehouse (${currency.code}/case)`, `Landed (${currency.code}/case)`], ...(d.rows ?? []).map((x: any) => [x.label, x.qty, cvRow(x.goods), cvRow(x.truck), cvRow(x.warehouse), cvRow(x.total)])];
@@ -77,6 +95,8 @@
 {:else if key === 'profit-margin'}
   <DashboardPanel span={span ?? 1} title="How do sales become profit?" subtitle="the cost steps from sales to profit" decision="Cut the cost step that eats the most margin." {...fr} rows={wfRows} filename="profit-bridge" {drill}>
     <Waterfall label="Profit bridge from sales to profit" steps={wf} format={money} onselect={() => go('#/performance')} />
+    {#if why}<p class="caption">{why}</p>{/if}
+    {#if shareOf100.length}<Donut label="Where each $100 of sales went" data={shareOf100} format={(n) => `$${Math.round(n)}`} center="$100" height={220} />{/if}
     {#if d.estimated}<p class="caption">Part of the cost of units sold is estimated (products with no landed cost yet).</p>{/if}
   </DashboardPanel>
   <DashboardPanel span={span ?? 1} title="Profit and margin by month" subtitle="goods cost · truck, warehouse and other · profit, with margin %" decision="Protect the months where margin is falling." {...fr} period="Last 6 months" rows={mRows} filename="profit-by-month" empty={!(d.months ?? []).some((m: any) => m.revenue)}>

@@ -22,7 +22,7 @@
   // Short tab names so every tab fits on one row (the group's full name stays in the page caption)
   const SHORT: Record<string, string> = { business: 'Business', fees: 'Fees & expenses', admin: 'Alerts & admin' };
   const tabs = $derived<Tab[]>([
-    { key: 'mine', label: 'My dashboards', blurb: home.includes('director-today') ? 'Today — what needs your decision and where the business stands. Each card opens the full tab.' : home.includes('warehouse-today') ? 'Today at the warehouse — what to sign, what arrives this week, what is running out.' : home.includes('order-this-week') ? 'What to order this week, then the pipeline and open orders.' : 'Your own set — only the companies, suppliers, routes and warehouses you work on.' },
+    { key: 'mine', label: 'My dashboards', blurb: home.includes('director-today') ? 'Today, then every report as a card. The same reports are on their tabs.' : home.includes('warehouse-today') ? 'Today at the warehouse — what to sign, what arrives this week, what is running out.' : home.includes('order-this-week') ? 'What to order this week, then the pipeline and open orders.' : 'Your own set — only the companies, suppliers, routes and warehouses you work on.' },
     ...DASH_GROUPS.filter((g) => mine.some((d) => d.group === g.key)).map((g) => ({ key: g.key as string, label: SHORT[g.key] ?? g.label, blurb: `${g.label} — ${g.blurb}` })),
     ...(director && groupView ? [{ key: 'companies', label: 'Companies', blurb: 'BTW, Nihna and Kivu compared on the same measures.' }] : []),
   ]);
@@ -30,6 +30,11 @@
   const active = $derived((tabs.find((t) => t.key === wanted) ?? tabs[0]).key);
   const keys = $derived(active === 'mine' ? home : mine.filter((d) => d.group === active).map((d) => d.key));
   const analysisKeys = $derived(keys.filter((k) => dashDef(k)?.analysis));
+  // Directors: Today stays first. Every other report they may open is a card under it, and again on its tab.
+  const SECTION = ['business', 'purchasing', 'loading', 'fleet', 'fees', 'deliveries', 'warehouse', 'sales', 'admin'];
+  const sectionOfKey = (k: string) => (k === 'order-this-week' ? 'purchasing' : k === 'warehouse-today' ? 'warehouse' : (dashDef(k)?.group ?? ''));
+  const deskKeys = $derived(mine.filter((d) => d.key !== 'director-today' && !d.analysis).map((d) => d.key).sort((a, b) => SECTION.indexOf(sectionOfKey(a)) - SECTION.indexOf(sectionOfKey(b))));
+  const deskAnalysis = $derived(mine.filter((d) => d.analysis).map((d) => d.key));
   const hrefOf = (k: string) => (k === 'mine' ? '#/' : `#/dashboards/${k}`);
   let filter = $state<DashFilter>(datesOf(DEFAULT_PERIOD));
   let options = $state<DashResponse['options'] | null>(null);
@@ -52,13 +57,19 @@
 {#if active === 'companies'}
   {#await import('../../components/group/GroupDashboard.svelte') then m}<m.default {user} embedded />{/await}
 {:else if active === 'mine' && home.includes('director-today')}
-  <!-- directors: one curated daily view (docs/15 §3); the feature tabs keep every other dashboard -->
   {#await import('./today/Today.svelte') then m}<m.default />{/await}
+  <h2 class="all-rep">All reports</h2>
+  <p class="caption">Every report you can open, as a card. Each one is also on its tab.</p>
+  <Filters bind:filter {options} money={director} />
+  {#key 'desk'}
+    <Board keys={deskKeys} {filter} sections onload={(r) => (options = r.options)} />
+    {#if deskAnalysis.length}{#await import('./Analysis.svelte') then An}<An.default keys={deskAnalysis} {filter} {user} startOpen />{/await}{/if}
+  {/key}
 {:else if !keys.length}
   <div class="card empty"><h2>No dashboards for your role yet</h2><p class="small">Use the menu to open your work.</p></div>
 {:else}
   <Filters bind:filter {options} money={director} />
   {#key active}<Board {keys} {filter} onload={(r) => (options = r.options)} />
-    {#if analysisKeys.length}{#await import('./Analysis.svelte') then An}<An.default keys={analysisKeys} {filter} {user} startOpen={analysisKeys.length === keys.length} />{/await}{/if}{/key}
+    {#if analysisKeys.length}{#await import('./Analysis.svelte') then An}<An.default keys={analysisKeys} {filter} {user} startOpen />{/await}{/if}{/key}
 {/if}
 
