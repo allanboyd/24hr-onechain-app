@@ -28,11 +28,11 @@
 </script>
 
 {#if key === 'fleet-board'}
-  <DashboardPanel span={span ?? 'full'} title="Where is every truck?" subtitle="by status, grouped by route · faded = no recent update" decision="Act on delayed and faded (silent) trucks first." {...fr} staleAfter={12 * 60} freshness="synced" rows={boardRows} filename="live-fleet" {drill}>
+  <DashboardPanel span={span ?? 'full'} subtitle="by status, grouped by route · faded = no recent update" decision="Act on delayed and faded (silent) trucks first." {...fr} title={r.title} staleAfter={12 * 60} freshness="synced" rows={boardRows} filename="live-fleet" {drill}>
     <KanbanBoard columns={d.columns} {cards} oncard={(c) => { const x = cards.find((y: any) => y.id === c.id); if (x?.shipmentId) go(`#/shipments/${x.shipmentId}`); }} />
   </DashboardPanel>
 {:else if key === 'delayed-trucks'}
-  <DashboardPanel span={span ?? 1} title="Which trucks are late, and who acts?" subtitle="by days late" decision="Give every late truck an owner and a next step." {...fr} rows={() => [['Truck', 'Shipment', 'Route', 'Where', 'Days late', 'Reason', 'Owner', 'Severity'], ...(d.rows ?? []).map((x: any) => [x.truck, x.ref, x.route, x.where, x.daysLate, x.reason, x.owner ?? 'Not assigned', x.severity])]} filename="delayed-trucks" {drill} emptyText="No truck is late">
+  <DashboardPanel span={span ?? 1} subtitle="by days late" decision="Give every late truck an owner and a next step." {...fr} title={r.title} rows={() => [['Truck', 'Shipment', 'Route', 'Where', 'Days late', 'Reason', 'Owner', 'Severity'], ...(d.rows ?? []).map((x: any) => [x.truck, x.ref, x.route, x.where, x.daysLate, x.reason, x.owner ?? 'Not assigned', x.severity])]} filename="delayed-trucks" {drill} emptyText="No truck is late">
     <div class="table-wrap"><table class="table">
       <thead><tr><th>Truck</th><th>Days late</th><th class="hide-sm">Reason</th><th>Owner</th></tr></thead>
       <tbody>{#each d.rows ?? [] as x}
@@ -46,7 +46,7 @@
     </table></div>
   </DashboardPanel>
 {:else if key === 'truck-issues'}
-  <DashboardPanel span={span ?? 1} title="What is open, and which trucks repeat?" subtitle="open issues · repeats by truck and provider" decision="Fix repeats on the same truck or provider." {...fr} rows={() => [['Truck', 'Provider', 'Where', 'What happened', 'Reported', 'Days stopped'], ...(d.open ?? []).map((x: any) => [x.truck, x.provider, x.place, x.reason, x.at, x.daysStopped])]} filename="truck-issues" {drill}>
+  <DashboardPanel span={span ?? 1} subtitle="open issues · repeats by truck and provider" decision="Fix repeats on the same truck or provider." {...fr} title={r.title} rows={() => [['Truck', 'Provider', 'Where', 'What happened', 'Reported', 'Days stopped'], ...(d.open ?? []).map((x: any) => [x.truck, x.provider, x.place, x.reason, x.at, x.daysStopped])]} filename="truck-issues" {drill}>
     <div class="table-wrap"><table class="table">
       <thead><tr><th>Truck</th><th>What · where</th><th class="num">Days stopped</th></tr></thead>
       <tbody>{#each d.open ?? [] as x}<tr class="clickable" onclick={() => go(`#/shipments/${x.shipmentId}`)}><td><b>{x.truck}</b><div class="caption">{x.provider}</div></td><td class="small">{x.reason}<div class="caption">{x.place} · {dayTime(x.at)}</div></td><td class="num"><StatusBadge status={x.daysStopped >= 1 ? 'bad' : 'warn'} label="{x.daysStopped} d" /></td></tr>
@@ -54,12 +54,20 @@
     </table></div>
     {#if d.byTruck?.length}
       <h4 class="overline">Issues in the period · {d.reported} reported{d.avgDaysToFix != null ? ` · fixed in ${d.avgDaysToFix} d on average` : ''}</h4>
-      <BarChart label="Issues by truck in the period" horizontal categories={d.byTruck.map((x: any) => x.label)} series={[{ name: 'Issues', values: d.byTruck.map((x: any) => x.value), slot: 3 }]} format={(n) => n0(n)} />
-      <BarChart label="Issues by transport provider in the period" horizontal categories={d.byProvider.map((x: any) => x.label)} series={[{ name: 'Issues', values: d.byProvider.map((x: any) => x.value), slot: 4 }]} format={(n) => n0(n)} />
+      <div class="split">
+        <div>
+          <p class="cap-line">By truck</p>
+          <BarChart label="Issues by truck in the period" horizontal categories={d.byTruck.slice(0, 8).map((x: any) => x.label)} series={[{ name: 'Issues', values: d.byTruck.slice(0, 8).map((x: any) => x.value), slot: 3 }]} format={(n) => n0(n)} />
+        </div>
+        <div>
+          <p class="cap-line">By provider</p>
+          <BarChart label="Issues by transport provider in the period" horizontal categories={d.byProvider.slice(0, 8).map((x: any) => x.label)} series={[{ name: 'Issues', values: d.byProvider.slice(0, 8).map((x: any) => x.value), slot: 4 }]} format={(n) => n0(n)} />
+        </div>
+      </div>
     {/if}
   </DashboardPanel>
 {:else if key === 'driver-updates'}
-  <DashboardPanel span={span ?? 1} title="Which trucks have gone quiet?" subtitle="feed of the last 48 hours · last update per truck" decision="Call every truck past the red quiet gap." {...fr} staleAfter={6 * 60} freshness="synced" rows={() => [['Time', 'Truck', 'Update', 'Source'], ...(d.feed ?? []).map((x: any) => [x.at, x.truck, x.text, x.source])]} filename="driver-updates" {drill}>
+  <DashboardPanel span={span ?? 1} subtitle="feed of the last 48 hours · last update per truck" decision="Call every truck past the red quiet gap." {...fr} title={r.title} staleAfter={6 * 60} freshness="synced" rows={() => (d.trucks ?? []).length ? [['Truck', 'Last update', 'App'], ...(d.trucks ?? []).map((x: any) => [x.truck, x.hours == null ? 'No update yet' : `${x.hours} h ago`, x.hasApp ? 'Yes' : 'No'])] : [['Time', 'Truck', 'Update', 'Source'], ...(d.feed ?? []).map((x: any) => [x.at, x.truck, x.text, x.source])]} filename="driver-updates" {drill}>
     {#if d.trucks?.length}
       <div class="badges" aria-label="Last update per truck on the road">
         {#each d.trucks as x}<a href="#/shipments/{x.shipmentId}" class="tb"><b>{x.truck}</b><StatusBadge status={x.status} label={x.hours == null ? 'No update yet' : `${x.hours} h ago`} />{#if !x.hasApp}<span class="caption">no app</span>{/if}</a>{/each}
@@ -71,7 +79,7 @@
     </ol>
   </DashboardPanel>
 {:else if key === 'border-stops' && hm}
-  <DashboardPanel span={span ?? 2} title="Where do trucks wait?" subtitle="average days at each border by route · trips in each cell" decision="Plan extra days on the slowest cells." {...fr} rows={() => [['Route', 'Stop', 'Average days', 'Trips'], ...(d.cells ?? []).map((x: any) => [x.route, x.stop, x.avgDays, x.trips])]} filename="border-stop-heatmap" {drill}>
+  <DashboardPanel span={span ?? 2} subtitle="average days at each border by route · trips in each cell" decision="Plan extra days on the slowest cells." {...fr} title={r.title} rows={() => [['Route', 'Stop', 'Average days', 'Trips'], ...(d.cells ?? []).map((x: any) => [x.route, x.stop, x.avgDays, x.trips])]} filename="border-stop-heatmap" {drill}>
     <Heatmap label="Average days at each stop by route" rows={hm.routes} cols={hm.stops} values={hm.values} text={hm.text} format={(n) => `${n.toFixed(1)} d`} />
     {#if d.slowest?.length}<p class="caption">Slowest (3+ trips): {d.slowest.map((x: any) => `${x.stop} on ${x.route} ${x.avgDays.toFixed(1)} d (${x.trips})`).join(' · ')}. Fewer than {d.minTrips} trips is not a stable pattern.</p>{/if}
   </DashboardPanel>
@@ -87,5 +95,8 @@
   .feed { list-style: none; margin: var(--space-3) 0 0; padding: 0; max-height: 360px; overflow-y: auto; }
   .feed li { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: var(--space-2); padding: 6px 0; border-top: 1px solid var(--border); font-size: var(--fs-body-sm); }
   .feed li.issue { color: var(--danger); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); align-items: start; }
+  .cap-line { margin: 0 0 var(--space-2); font-size: 12px; font-weight: 600; color: var(--text-muted); }
+  @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
   @media (max-width: 600px) { .hide-sm { display: none; } .feed li { grid-template-columns: 1fr; } }
 </style>

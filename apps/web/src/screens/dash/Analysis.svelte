@@ -1,19 +1,10 @@
 <script lang="ts">
-  // Analysis sections of a Home tab (docs/17 Phase 2): the reports of the retired Reports and Sales velocity pages and the
-  // charts of the removed page Overview tabs, each once, under the tab's dashboards. Browser-built from the report
-  // endpoints (same server gates as before); the Home filter bar's period, warehouse and product apply.
+  // Deeper sections of a Home tab: the reports that are not already a panel above them.
+  // Browser-built from the report endpoints; the Home filter's period, warehouse and product apply.
   import type { DashFilter, DashKey, ReportFilter, User } from '@btw/api';
   import { dashDef } from '@btw/api/dashboards';
   import '../../components/charts';
-  /** Control room page each full report belongs to. */
-  const ROOM: Partial<Record<DashKey, string>> = {
-    'orders-analysis': 'Plans and orders', 'plan-vs-actual-report': 'Plans and orders', 'purchase-planning': 'Plans and orders',
-    'loading-queues': 'Loading', 'shipment-analysis': 'Fleet and delays', 'logistics-report': 'Fleet and delays',
-    'trip-costs': 'Expenses', 'finance-report': 'Expenses and bills',
-    'stock-analysis': 'Stock run-out', 'inventory-report': 'Stock run-out', 'sales-velocity': 'Warehouse performance',
-    'sales-report': 'Sales and clients', 'quarterly-review': 'Sales and clients',
-  };
-  let { keys, filter, user, advanced = false, bare = false }: { keys: DashKey[]; filter: DashFilter; user: User; /** control-room depth: the full reports, open */ advanced?: boolean; /** this tab has no question cards, so the reports are the page */ bare?: boolean } = $props();
+  let { keys, filter, user }: { keys: DashKey[]; filter: DashFilter; user: User } = $props();
   const DAY = 864e5;
   // Home's default period is the last 30 days
   const rf = $derived<ReportFilter>({
@@ -41,10 +32,7 @@
   let extra = $state<{ wh?: string; prod?: string }>({});
   const salesFilter = $derived<ReportFilter>({ ...rf, ...(extra.wh ? { warehouseId: extra.wh } : {}), ...(extra.prod ? { productId: extra.prod } : {}) });
   const onfilter = (k: 'wh' | 'prod', v: string) => (extra = { ...extra, [k]: extra[k] === v ? undefined : v });
-  // Folded until Advanced analysis is on (docs/19 D3). A tab with only these reports shows them straight away.
-  let open = $state(false);
   const shown = $derived(keys.filter((k) => dashDef(k) && LOAD[k]));
-  const openReports = $derived(advanced || bare);
 </script>
 
 {#if shown.length}
@@ -54,7 +42,7 @@
   {@const load = LOAD[k]}
   {#if def && load}
     <section class="an" aria-labelledby="an-{k}">
-      <header><h2 id="an-{k}">{def.title}</h2><p class="caption">{ROOM[k] ? `Control room · ${ROOM[k]}. ` : ''}{def.question}{#if def.link} · <a href={def.link}>Open the list</a>{/if}</p></header>
+      <header><h2 id="an-{k}">{def.title}</h2><p class="caption">{def.question}{#if def.link} · <a href={def.link}>Open the list</a>{/if}</p></header>
       {#await load() then M}
         {#key JSON.stringify(k === 'sales-report' ? salesFilter : rf)}
           <M.default {user} filter={k === 'sales-report' ? salesFilter : rf} group="" {onfilter} />
@@ -64,26 +52,11 @@
   {/if}
 {/each}
 {/snippet}
-{#if openReports}
-  <h2 class="adv">Advanced analysis</h2>
   {@render reports()}
-{:else}
-<details class="more" bind:open>
-  <summary><span class="lbl">Advanced analysis</span><span class="caption">{shown.length} full report{shown.length === 1 ? '' : 's'}: {shown.map((k) => dashDef(k)?.title).join(' · ')}</span></summary>
-  {#if open}{@render reports()}{/if}
-</details>
-{/if}
 {/if}
 
 <style>
-  .more { margin-top: var(--space-6); border-top: 1px solid var(--border); padding-top: var(--space-3); }
-  .more > summary { cursor: pointer; display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; list-style: none; padding: var(--space-2) 0; }
-  .more > summary::-webkit-details-marker { display: none; }
-  .more > summary .lbl { font-weight: 700; color: var(--link); }
-  .more > summary .lbl::after { content: ' ▾'; }
-  .more[open] > summary .lbl::after { content: ' ▴'; }
   .an { margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--border); }
   .an header { margin-bottom: var(--space-3); }
   .an h2 { margin: 0; font-size: var(--fs-h3); line-height: var(--lh-h3); }
-  .adv { margin: var(--space-6) 0 0; font-size: var(--fs-h2); }
 </style>

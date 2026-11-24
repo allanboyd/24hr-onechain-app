@@ -78,7 +78,10 @@
     <div class="tools">
       {@render actions?.()}
       {#if rows && ready && !isEmpty}
-        <button class="btn btn-ghost btn-sm" aria-pressed={table} onclick={() => (table = !table)} title={table ? 'Show chart' : 'View data'}>{#if table}<ChartIcon size={16} /><span class="lbl">Chart</span>{:else}<Table size={16} /><span class="lbl">View data</span>{/if}</button>
+        <div class="view-toggle" role="group" aria-label="View mode">
+          <button type="button" class="ibtn" aria-pressed={!table} aria-label="Show chart" title="Show chart" onclick={() => (table = false)}><ChartIcon size={16} aria-hidden="true" /></button>
+          <button type="button" class="ibtn" aria-pressed={table} aria-label="Show table" title="Show table" onclick={() => (table = true)}><Table size={16} aria-hidden="true" /></button>
+        </div>
         {#if exports.length}<ExportMenu {name} {meta} rows={rows} root={() => body} formats={exports} />{/if}
       {/if}
     </div>
@@ -121,6 +124,8 @@
   .ic { display: inline-flex; align-items: center; gap: 4px; }
   .unit { font-weight: 600; color: var(--text-muted); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 6px; }
   .tools { display: flex; gap: var(--space-1); flex-wrap: nowrap; align-items: center; }
+  .view-toggle { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-sunken); }
+  .view-toggle .ibtn[aria-pressed='true'] { color: var(--text); background: var(--surface-raised); box-shadow: var(--elevation-1); }
   .info { position: relative; display: inline-flex; }
   .ibtn { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--radius-full); border: 0; background: none; color: var(--text-subtle); cursor: pointer; }
   .ibtn:hover, .ibtn[aria-expanded='true'] { color: var(--text); background: var(--surface-sunken); }
@@ -133,5 +138,5 @@
   footer :global(.btn) { gap: 4px; }
   .span-2 { grid-column: span 2; } .span-3 { grid-column: span 3; } .span-full { grid-column: 1 / -1; }
   @media (max-width: 900px) { .span-2, .span-3, .span-full { grid-column: auto; } }
-  @media (max-width: 600px) { .lbl { display: none; } .dash-panel { padding: var(--space-3) var(--space-4); } }
+  @media (max-width: 600px) { .dash-panel { padding: var(--space-3) var(--space-4); } }
 </style>

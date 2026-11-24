@@ -2,7 +2,7 @@
   import { destinationLabel } from '../../lib/planning';
   import { lookup, reports, type InventoryReport, type ReportFilter } from '@btw/api';
   import { Badge } from '@btw/ui';
-  import { BarChart, ChartCard, Donut, StatTile, compact, usd } from '../charts';
+  import { BarChart, ChartCard, StatTile, compact, usd } from '../charts';
   import { drill } from '../../lib/tab';
   import { watch } from '../../lib/load.svelte';
   import ErrorState from '../ErrorState.svelte';
@@ -31,14 +31,6 @@
     </ChartCard>
     <ChartCard title="Stock age" subtitle="how long the cases on hand have been in the warehouse (first in, first out)" filename="stock-ageing" rows={() => [['Age', 'Cases', 'Value (USD)'], ...r!.ageing.map((a) => [a.label, a.cases, a.value])]}>
       <BarChart label="Stock by age" categories={r.ageing.map((a) => a.label)} series={[{ name: 'Value', values: r.ageing.map((a) => a.value), slot: 3 }]} format={usd} />
-    </ChartCard>
-    <ChartCard title="Where stock stands" subtitle="count of brand × warehouse lines" filename="stock-risk" rows={() => [['Status', 'Lines'], ...Object.entries(r!.riskCounts).map(([k, v]) => [RISK[k].label, v])]}>
-      <Donut label="Stock lines by status" data={Object.entries(r.riskCounts).map(([k, v]) => ({ label: RISK[k].label, value: v }))} center="{r.rows.length} lines"
-        onselect={(l) => { const k = Object.keys(RISK).find((x) => RISK[x].label === l); drill('/stock', { level: k ? RISK[k].level : '' }); }} />
-    </ChartCard>
-    <ChartCard title="Days of cover" subtitle="cases on hand ÷ average daily sales (last 30 days)" filename="days-of-cover" rows={() => [['Brand', 'Warehouse', 'Cases', 'Per day', 'Days of cover'], ...r!.rows.map((x) => [`${x.brand} ${x.pack}`, wname(x.warehouseId), x.closing, x.perDay, x.coverDays ?? ''])]}>
-      <BarChart label="Days of cover by brand and warehouse" horizontal categories={r.rows.filter((x) => x.coverDays !== null).sort((a, b) => (a.coverDays ?? 0) - (b.coverDays ?? 0)).map((x) => `${x.brand} · ${wname(x.warehouseId)}`)}
-        series={[{ name: 'Days of cover', values: r.rows.filter((x) => x.coverDays !== null).sort((a, b) => (a.coverDays ?? 0) - (b.coverDays ?? 0)).map((x) => Math.min(x.coverDays ?? 0, 400)) }]} format={(n) => `${Math.round(n)} d`} />
     </ChartCard>
     <ChartCard span={2} title="Stock by brand and warehouse" filename="stock-lines" rows={() => [['Brand', 'Pack', 'Warehouse', 'Cases', 'In transit', 'Value (USD)', 'Per day', 'Days of cover', 'Oldest (days)', 'Status'], ...r!.rows.map((x) => [x.brand, x.pack, wname(x.warehouseId), x.closing, x.inTransit, x.value, x.perDay, x.coverDays ?? '', x.ageDays, RISK[x.risk].label])]}>
       <div class="table-wrap"><table class="table">

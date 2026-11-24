@@ -1,33 +1,55 @@
-// Cards that are the control-room pages (the specification and the HTML report).
-// Everything else on a feature tab waits for Advanced analysis.
+// One report per tab. My dashboards stays the morning desk.
+// A section that repeats a panel already on the tab is left off (docs/19, docs/20).
 import type { DashKey } from '@btw/api';
-
-/** Shown on the tab without the switch. One set per control-room page that already has a card. */
-export const ROOM = new Set<DashKey>([
-  // Overview and the executive report
-  'exec-overview', 'profit-margin',
-  // Plans and orders
-  'plan-vs-actual',
-  // Fleet and delays
-  'fleet-board', 'delayed-trucks', 'truck-issues',
-  // Expenses, bills and balances
-  'truck-expenses', 'fee-payments', 'unpaid-fees',
-  // Stock run-out, warehouse spend, opening and closing movement
-  'stock-on-hand', 'stock-in-transit', 'warehouse-expenses', 'stock-movements',
-  // Sales and clients
-  'sales-summary', 'customer-balances', 'cash-vs-credit',
-  // Documents, and the alert list the executive report points at
-  'data-completeness', 'alerts',
-]);
-
-/** The report has no page for these desks, so the working cards stay on the tab. */
-export const WORK = new Set<DashKey>([
-  'loading-list', 'loading-status', 'dispatched-today',
-  'incoming', 'received-damaged-short',
-]);
 
 /** Home-group cards that belong on a feature tab. */
 export const HOME_TAB: Partial<Record<DashKey, string>> = {
   'order-this-week': 'purchasing',
   'warehouse-today': 'warehouse',
 };
+
+/**
+ * Reading order. A person only sees the keys they may open.
+ * Anything they may see that is not listed here, and not hidden, still appears after these.
+ */
+export const REPORT: Partial<Record<string, DashKey[]>> = {
+  business: ['exec-overview', 'profit-margin', 'combined-performance', 'landed-product', 'selling-price', 'landed-truck'],
+  purchasing: ['order-this-week', 'po-pipeline', 'open-orders', 'ordered-loaded-delivered', 'plan-vs-actual'],
+  loading: ['loading-list', 'loading-status', 'dispatched-today', 'loading-queues'],
+  fleet: ['fleet-board', 'delayed-trucks', 'truck-issues', 'driver-updates', 'border-stops', 'logistics-report'],
+  fees: ['agreed-vs-actual', 'unpaid-fees', 'fee-payments', 'truck-expenses', 'trip-costs'],
+  deliveries: ['incoming', 'received-damaged-short', 'delivery-losses'],
+  warehouse: ['warehouse-today', 'stock-on-hand', 'fast-slow', 'stock-in-transit', 'warehouse-expenses', 'stock-movements', 'reexports', 'inventory-report', 'stock-analysis'],
+  sales: ['sales-summary', 'customer-balances', 'cash-vs-credit', 'quarterly-review'],
+  admin: ['alerts', 'data-completeness', 'users-logins', 'audit-log'],
+};
+
+/** Repeats a panel on the same tab. Not shown. */
+const DUPLICATE = new Set<DashKey>([
+  'orders-analysis', // pipeline, and ordered vs loaded vs delivered
+  'plan-vs-actual-report', // plan vs actual
+  'purchase-planning', // order this week
+  'shipment-analysis', // live board, delays, delivery losses
+  'finance-report', // landed cost on Business, trip costs on Fees
+  'sales-velocity', // fast and slow
+  'sales-report', // sales summary, balances, cash vs credit
+]);
+
+/** Directors get the valued stock report (FIFO age). Warehouse staff get stock positions. Never both. */
+export function hiddenReport(key: DashKey, roles: readonly string[]): boolean {
+  if (DUPLICATE.has(key)) return true;
+  const director = roles.includes('director') || roles.includes('admin');
+  if (key === 'stock-analysis' && director) return true;
+  if (key === 'inventory-report' && !director) return true;
+  return false;
+}
+
+export function reportKeys(group: string, keys: DashKey[], roles: readonly string[]): DashKey[] {
+  const pref = REPORT[group] ?? [];
+  const keep = keys.filter((k) => !hiddenReport(k, roles));
+  const rank = (k: DashKey) => {
+    const i = pref.indexOf(k);
+    return i < 0 ? pref.length + 1 : i;
+  };
+  return [...keep].sort((a, b) => rank(a) - rank(b) || keys.indexOf(a) - keys.indexOf(b));
+}

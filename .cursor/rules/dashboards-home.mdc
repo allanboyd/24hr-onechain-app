@@ -1,0 +1,50 @@
+---
+description: Home Today and dashboard language, chrome, filters, and chart/table rules
+globs: apps/web/src/screens/dash/**/*.{svelte,ts},apps/web/src/components/dashboard/**/*.{svelte,ts},docs/21-dashboard-redesign.md
+alwaysApply: false
+---
+
+# Dashboard Home and tabs
+
+## Composition (My dashboards · director Today)
+
+1. Toolbar: filter **icon** opens a **modal** (period, warehouse, currency). No full-width filter bar (and no second Filters toolbar row on feature tabs).
+2. KPI strip: one **Sales hero** + five side metrics (Profit, Cash to collect, Trucks on the road, Stock at risk, Margin). No colored left status borders; RAG via value/chip tone only.
+3. Row: **Decisions** (narrow) | **Sales and profit** | **Stock cover**.
+4. **Money owed** full width: ageing chart beside top balances (not one stretched bar alone).
+5. Off default Today: top products and sales distribution. Those sit on Sales.
+
+## Feature tabs
+
+- One report per tab. Order is `REPORT` in `room.ts`. Do not add an Advanced / normal switch.
+- Prefer **paired charts** (ageing | top list, bridge | donut, month | share) over one full-width stretched series.
+- Executive overview: KPIs + exceptions in one composition (side panel), not two disconnected full-width stacks.
+- A section that repeats a panel already on the tab stays in `hiddenReport`. Border heatmap, fast and slow, and landed cost are part of the report, not a second mode.
+
+Mockup reference: Cursor canvas `home-today-mockup.canvas.tsx`. Product narrative: `docs/21-dashboard-redesign.md`.
+
+## Language
+
+- **Title** = short noun phrase (≤ ~4 words). Use catalogue `r.title` on feature panels.
+- **No** What / Which / How / Where / Who question titles.
+- **Caption** = period / unit only.
+- **Decision** = one imperative sentence.
+- **Drill** = "Open …", not "View details".
+- **No em dashes (—)** in product copy. Prefer commas, periods, or hyphens. Empty cells: `-`.
+
+## Color
+
+- UI chrome: logo navy + orange accent (CTA only). Warning = yellow-amber, never logo orange as chart status.
+- Chart series (control-room): navy sales, teal, amber, green profit, cost salmon. Home sales/profit lines use those series inks.
+
+## Type
+
+- Display (Montserrat): page H1, section card titles.
+- Body (Inter): captions, tables, decision rows, KPI labels.
+- Tabular nums on money and counts.
+
+## Chart ↔ table
+
+- Icon pair on each chart card (chart | table). Graph default. Icons only with aria-label.
+- Prefer two compact charts side by side when a single series would stretch across a wide card.
+---

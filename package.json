@@ -29,6 +29,7 @@
     "dev:all": "node scripts/stack.mjs dev",
     "work": "node scripts/work.mjs",
     "e2e": "node tests/e2e/run.mjs",
+    "reports:walk": "node tests/reports/walk.mjs",
     "share": "node scripts/share.mjs",
     "bootstrap": "docker compose up -d --wait db mail && pnpm --filter @btw/server db:migrate && pnpm --filter @btw/server db:seed:if-empty",
     "docker:up": "docker compose up -d --build --wait",

@@ -30,7 +30,7 @@
 </script>
 
 {#if key === 'order-this-week'}
-  <DashboardPanel span={span ?? 'full'} title="What should we order this week?" subtitle="suggested trucks so stock does not run out" decision="Raise the overdue lines today; hold anything already on the road." {...fr} rows={() => [['Urgency', 'Warehouse', 'Product', 'Supplier', 'Cases', 'Trucks', 'Order by', 'Arrive by', 'Stock-out', ...(hidden ? [] : [`Est. value (${currency.code})`])], ...(d.rows ?? []).map((x: any) => [x.urgency, x.warehouse, x.product, x.supplier, x.cases, x.trucks, x.orderBy, x.arriveBy, x.stockOutDate ?? '', ...(hidden ? [] : [cvRow(x.estValue)])])]} filename="order-this-week" drill={{ label: 'Raise a purchase order', href: '#/pos/new' }} emptyText="No suggested order this week">
+  <DashboardPanel span={span ?? 'full'} subtitle="suggested trucks so stock does not run out" decision="Raise the overdue lines today; hold anything already on the road." {...fr} title={r?.title ?? ''} rows={() => [['Urgency', 'Warehouse', 'Product', 'Supplier', 'Cases', 'Trucks', 'Order by', 'Arrive by', 'Stock-out', ...(hidden ? [] : [`Est. value (${currency.code})`])], ...(d.rows ?? []).map((x: any) => [x.urgency, x.warehouse, x.product, x.supplier, x.cases, x.trucks, x.orderBy, x.arriveBy, x.stockOutDate ?? '', ...(hidden ? [] : [cvRow(x.estValue)])])]} filename="order-this-week" drill={{ label: 'Raise a purchase order', href: '#/pos/new' }} emptyText="No suggested order this week">
     <div class="tiles2">
       <div><b class:hot={d.overdue}>{n0(d.overdue)}</b><span class="caption">overdue</span></div>
       <div><b>{n0(d.thisWeek)}</b><span class="caption">this week</span></div>
@@ -52,7 +52,7 @@
     {#if d.byLane?.length}<p class="caption">By lane: {d.byLane.map((l: any) => `${l.lane} ${n0(l.trucks)} truck${l.trucks === 1 ? '' : 's'} · order from ${l.firstOrderBy}`).join(' · ')}.</p>{/if}
   </DashboardPanel>
 {:else if key === 'po-pipeline'}
-  <DashboardPanel span={span ?? 1} title="How many orders sit at each stage?" subtitle="click a stage for its orders" decision="Chase the stage with the most value stuck." {...fr} rows={stageRows} filename="po-pipeline" {drill} filterText={stage ? `Stage: ${stage}` : ''}>
+  <DashboardPanel span={span ?? 1} subtitle="click a stage for its orders" decision="Chase the stage with the most value stuck." {...fr} title={r?.title ?? ''} rows={stageRows} filename="po-pipeline" {drill} filterText={stage ? `Stage: ${stage}` : ''}>
     <StageBars label="Purchase orders by stage" {stages} formatValue={money} countLabel="orders" onselect={(s) => (stage = stage === s.label ? null : s.label)} />
     {#if stage}
       <div class="row between sel"><b class="small">{stage}: {items.length} order{items.length === 1 ? '' : 's'}</b><button class="btn btn-ghost btn-sm" onclick={() => (stage = null)}>Clear</button></div>
@@ -60,12 +60,12 @@
     {/if}
   </DashboardPanel>
 {:else if key === 'ordered-loaded-delivered'}
-  <DashboardPanel span={span ?? 1} title="Where do quantities go missing?" subtitle="per order, with the gap at each step" decision="Investigate the order with the largest gap." {...fr} rows={oldRows} filename="ordered-loaded-delivered" {drill}>
+  <DashboardPanel span={span ?? 1} subtitle="per order, with the gap at each step" decision="Investigate the order with the largest gap." {...fr} title={r?.title ?? ''} rows={oldRows} filename="ordered-loaded-delivered" {drill}>
     <GroupedBars label="Cases ordered, loaded and delivered per order" categories={cats} {series} unit="cases" format={(n) => n0(n)} onselect={(c) => { const x = d.rows.find((y: any) => y.ref === c); if (x) openRow(x); }} />
     <GapTable categories={cats} {series} itemLabel="Order" unit="cases" onselect={(c) => { const x = d.rows.find((y: any) => y.ref === c); if (x) openRow(x); }} />
   </DashboardPanel>
 {:else if key === 'open-orders'}
-  <DashboardPanel span={span ?? 1} title="Which orders wait to load, and for how long?" subtitle="issued, not fully loaded · oldest first" decision="Load or cancel the oldest orders first." {...fr} rows={() => [['Order', 'Pair', 'Days waiting', 'Trucks loaded', 'Cases'], ...(d.rows ?? []).map((x: any) => [x.ref, x.pair, x.days, `${x.trucksLoaded}/${x.trucks}`, x.cases])]} filename="open-orders" {drill}>
+  <DashboardPanel span={span ?? 1} subtitle="issued, not fully loaded · oldest first" decision="Load or cancel the oldest orders first." {...fr} title={r?.title ?? ''} rows={() => [['Order', 'Pair', 'Days waiting', 'Trucks loaded', 'Cases'], ...(d.rows ?? []).map((x: any) => [x.ref, x.pair, x.days, `${x.trucksLoaded}/${x.trucks}`, x.cases])]} filename="open-orders" {drill}>
     <div class="table-wrap"><table class="table">
       <thead><tr><th>Order</th><th class="hide-sm">Pair</th><th>Waiting</th><th class="num">Trucks</th></tr></thead>
       <tbody>{#each d.rows ?? [] as x}<tr class="clickable" onclick={() => openRow(x)}><td><b>{x.ref}</b></td><td class="small hide-sm">{x.pair}</td>
@@ -76,7 +76,7 @@
 {:else if key === 'plan-vs-actual'}
   <PlanUsedTile />
 {:else if key === 'loading-list'}
-  <DashboardPanel span={span ?? 1} title="What do I load today?" subtitle="ready · waiting for a truck · loaded today — quantities only" decision="Load the ready trucks; find a truck for the waiting ones." {...fr} rows={() => [['Order', 'Loading point', 'Truck', 'Driver', 'Ordered (cases)', 'Loaded (cases)', 'Status'], ...(d.rows ?? []).map((x: any) => [x.poRef, x.loadingPoint, x.truck, x.driver, x.ordered, x.loaded ?? '', x.status])]} filename="loading-list" drill={{ label: 'Open the queues', href: '#/trucks?tab=queues' }} empty={!(d.rows ?? []).length && !(d.queue ?? []).length} emptyText="Nothing to load today">
+  <DashboardPanel span={span ?? 1} subtitle="ready · waiting for a truck · loaded today, quantities only" decision="Load the ready trucks; find a truck for the waiting ones." {...fr} title={r?.title ?? ''} rows={() => [['Order', 'Loading point', 'Truck', 'Driver', 'Ordered (cases)', 'Loaded (cases)', 'Status'], ...(d.rows ?? []).map((x: any) => [x.poRef, x.loadingPoint, x.truck, x.driver, x.ordered, x.loaded ?? '', x.status])]} filename="loading-list" drill={{ label: 'Open the queues', href: '#/trucks?tab=queues' }} empty={!(d.rows ?? []).length && !(d.queue ?? []).length} emptyText="Nothing to load today">
     <ul class="cards">
       {#each d.rows ?? [] as x}
         <li class="lcard"><div class="row between"><b>{x.truck ?? 'No truck yet'}</b><StatusBadge status={chip(x.status)} label={x.status} /></div>
@@ -87,7 +87,7 @@
     {#if d.queue?.length}<p class="caption">Waiting in the queue: {d.queue.map((q: any) => `#${q.position} ${q.truck}`).join(' · ')}</p>{/if}
   </DashboardPanel>
 {:else if key === 'loading-status'}
-  <DashboardPanel span={span ?? 1} title="How far is each order loaded?" subtitle="loaded of ordered · documents and photos" decision="Chase missing documents and unfinished loads." {...fr} rows={() => [['Order', 'Pair', 'Ordered', 'Loaded', 'Trucks loaded', 'Documents', 'Photos', 'Stage'], ...(d.rows ?? []).map((x: any) => [x.ref, x.pair, x.ordered, x.loaded ?? '', `${x.trucksLoaded}/${x.trucks}`, x.docs, x.photos, x.stage])]} filename="loading-status" {drill}>
+  <DashboardPanel span={span ?? 1} subtitle="loaded of ordered · documents and photos" decision="Chase missing documents and unfinished loads." {...fr} title={r?.title ?? ''} rows={() => [['Order', 'Pair', 'Ordered', 'Loaded', 'Trucks loaded', 'Documents', 'Photos', 'Stage'], ...(d.rows ?? []).map((x: any) => [x.ref, x.pair, x.ordered, x.loaded ?? '', `${x.trucksLoaded}/${x.trucks}`, x.docs, x.photos, x.stage])]} filename="loading-status" {drill}>
     <ul class="prog">
       {#each d.rows ?? [] as x}
         <li><a href="#/pos/{x.id}" class="row between"><b>{x.ref}</b><span class="caption">{x.pair}</span></a>
@@ -98,7 +98,7 @@
     </ul>
   </DashboardPanel>
 {:else if key === 'dispatched-today'}
-  <DashboardPanel span={span ?? 1} title="Which trucks left in the last 24 hours?" subtitle="left the loading point today" decision="Call any truck that left without a next update." {...fr} rows={() => [['Shipment', 'Truck', 'From', 'To', 'Left at', 'Cases'], ...(d.rows ?? []).map((x: any) => [x.ref, x.truck, x.from, x.to, x.at, x.cases])]} filename="dispatched-today" drill={{ label: 'Open shipments', href: '#/shipments' }} emptyText="No truck left in the last 24 hours">
+  <DashboardPanel span={span ?? 1} subtitle="left the loading point today" decision="Call any truck that left without a next update." {...fr} title={r?.title ?? ''} rows={() => [['Shipment', 'Truck', 'From', 'To', 'Left at', 'Cases'], ...(d.rows ?? []).map((x: any) => [x.ref, x.truck, x.from, x.to, x.at, x.cases])]} filename="dispatched-today" drill={{ label: 'Open shipments', href: '#/shipments' }} emptyText="No truck left in the last 24 hours">
     <div class="tiles2"><div><b>{(d.rows ?? []).length}</b><span class="caption">trucks</span></div><div><b>{n0((d.rows ?? []).reduce((a: number, x: any) => a + x.cases, 0))}</b><span class="caption">cases</span></div></div>
     {#each groupsOf(d.rows ?? []) as g}
       <h4 class="overline">{g.from}</h4>
