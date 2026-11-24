@@ -156,43 +156,38 @@
         <span class="lbl">Sales</span>
         {#if sc != null && sc < 0}<span class="chip down">Down</span>{:else if sc != null}<span class="chip up">Up</span>{/if}
       </header>
-      <span class="cap-line">{periodShort} · {currency.code}</span>
       <span class="val">{#if d.sales.value == null}No data yet{:else}<small>{currency.code}</small> {amount(d.sales.value)}{/if}</span>
       <span class="chg">
-        {#if sc != null}<span class="chip {sc >= 0 ? 'up' : 'down'}">{#if sc >= 0}<ArrowUpRight size={13} />{:else}<ArrowDownRight size={13} />{/if}{Math.abs(sc * 100).toFixed(1)}% {sc >= 0 ? 'above' : 'below'} prior</span>{/if}
-        <span class="sub">{sc != null ? prevText : 'Nothing earlier to compare'}</span>
+        {#if sc != null}<span class="chip {sc >= 0 ? 'up' : 'down'}">{#if sc >= 0}<ArrowUpRight size={13} />{:else}<ArrowDownRight size={13} />{/if}{Math.abs(sc * 100).toFixed(1)}%</span>{/if}
+        <span class="sub">{sc != null ? prevText : periodShort}</span>
       </span>
-      <div class="spark-block">
-        <span class="cap-line">Daily trend · last 7 days</span>
-        <span class="spk {ragSales}"><SparkArea values={sparkSales.length ? sparkSales : d.sales.spark} /></span>
-      </div>
-      <span class="hint">Open Sales and profit if this drifts.</span>
+      <span class="spk {ragSales}"><SparkArea values={sparkSales.length ? sparkSales : d.sales.spark} height={32} /></span>
     </a>
 
     <a class="kpi side rag-{ragProfit}" href="#/performance">
       <span class="lbl">Profit</span>
       <span class="val sm">{#if d.profit.value == null}No data yet{:else}<small>{currency.code}</small> {amount(d.profit.value)}{/if}</span>
-      <span class="sub">{d.profit.estimated ? 'Landed cost. Part estimated.' : 'Landed cost based.'}{#if pc != null} {pc >= 0 ? '+' : ''}{(pc * 100).toFixed(1)}%{/if}</span>
+      <span class="sub">{d.profit.estimated ? 'Part estimated' : 'Landed cost'}{#if pc != null} · {pc >= 0 ? '+' : ''}{(pc * 100).toFixed(1)}%{/if}</span>
     </a>
     <a class="kpi side rag-{ragCash}" href="#/sales?show=owed">
       <span class="lbl">Cash to collect</span>
       <span class="val sm">{#if d.cash.value == null}No data yet{:else}<small>{currency.code}</small> {amount(d.cash.value)}{/if}</span>
-      <span class="sub">{#if d.cash.overdue}{currency.code} {amount(d.cash.overdue)} overdue. Chase top balances.{:else if d.cash.value != null}Nothing overdue.{:else}No open balances.{/if}</span>
+      <span class="sub">{#if d.cash.overdue}{currency.code} {amount(d.cash.overdue)} overdue{:else if d.cash.value != null}Nothing overdue{:else}No open balances{/if}</span>
     </a>
     <a class="kpi side rag-{ragTrucks}" href="#/dashboards/fleet">
       <span class="lbl">Trucks on the road</span>
       <span class="val sm">{d.trucks.value ?? 'No data yet'}{#if td != null}<small class="delta">{td >= 0 ? '+' : ''}{td}</small>{/if}</span>
-      <span class="sub">{#if d.trucks.delayed}{d.trucks.delayed} delayed. {:else}None delayed. {/if}{d.trucks.arrivingToday} arriving today.</span>
+      <span class="sub">{d.trucks.delayed ? `${d.trucks.delayed} delayed` : 'None delayed'} · {d.trucks.arrivingToday} today</span>
     </a>
     <a class="kpi side rag-{ragStock}" href="#/dashboards/warehouse">
       <span class="lbl">Stock at risk</span>
       <span class="val sm">{stockAtRiskPct == null ? 'No data yet' : `${stockAtRiskPct}%`}</span>
-      <span class="sub">≤7 days cover. Reorder those lines.</span>
+      <span class="sub">≤7 days cover</span>
     </a>
     <a class="kpi side wide rag-{ragMargin}" href="#/performance">
       <span class="lbl">Margin</span>
       <span class="val sm">{pctF(d.profit.margin)}</span>
-      <span class="sub">{#if d.profit.margin != null && d.profit.margin < d.targetMargin}Below {pctF(d.targetMargin)} target.{:else}At or above target.{/if}{#if mpp != null} {mpp >= 0 ? '+' : ''}{mpp.toFixed(1)} pp vs prior.{/if}</span>
+      <span class="sub">{d.profit.margin != null && d.profit.margin < d.targetMargin ? `Below ${pctF(d.targetMargin)}` : `Target ${pctF(d.targetMargin)}`}{#if mpp != null} · {mpp >= 0 ? '+' : ''}{mpp.toFixed(1)} pp{/if}</span>
     </a>
   </div>
 
@@ -322,10 +317,10 @@
   .busy { opacity: 0.6; transition: opacity 0.2s; }
   .kpis {
     display: grid;
-    grid-template-columns: 1.35fr 1fr 1fr;
-    grid-template-rows: auto auto auto;
-    gap: var(--space-4);
+    grid-template-columns: minmax(200px, 1.3fr) repeat(5, minmax(0, 1fr));
+    gap: var(--space-3);
     margin-bottom: var(--space-5);
+    align-items: stretch;
   }
   .kpis.sk { grid-template-rows: auto; }
   .kpi {
@@ -336,8 +331,7 @@
   }
   .kpi:hover { border-color: var(--border-strong); }
   .kpi:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-  .kpi.hero { grid-column: 1; grid-row: 1 / 4; min-height: 220px; }
-  .kpi.wide { grid-column: 2 / -1; }
+  .kpi.hero, .kpi.wide { grid-column: auto; grid-row: auto; min-height: 0; }
   .kpi header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .lbl { font-size: 13px; font-weight: 600; color: var(--text-muted); }
   .cap-line { font-size: 12px; color: var(--text-muted); }
@@ -350,12 +344,10 @@
   .chip { display: inline-flex; align-items: center; gap: 2px; padding: 1px 7px; border-radius: 999px; font-weight: 700; font-variant-numeric: tabular-nums; font-size: 12px; }
   .chip.up { background: var(--success-subtle); color: var(--success); }
   .chip.down { background: var(--danger-subtle); color: var(--danger); }
-  .spark-block { margin-top: auto; display: flex; flex-direction: column; gap: 4px; }
   .spk { color: var(--text-muted); }
   .spk.good { color: var(--success); }
   .spk.warn { color: var(--warning-solid); }
   .spk.bad { color: var(--danger); }
-  .hint { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
   .kpi.rag-good .val { color: var(--success); }
   .kpi.rag-warn .val { color: var(--warning); }
   .kpi.rag-bad .val { color: var(--danger); }
@@ -364,11 +356,11 @@
     display: grid;
     grid-template-columns: minmax(220px, 0.85fr) minmax(0, 1.35fr) minmax(240px, 1fr);
     gap: var(--space-5);
-    align-items: stretch;
+    align-items: start;
     margin-bottom: var(--space-5);
   }
   .slot { display: flex; flex-direction: column; min-width: 0; }
-  .slot > :global(.tc) { flex: 1; }
+  .slot > :global(.tc) { width: 100%; }
 
   .legend { display: flex; gap: 2px; }
   .lg { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 0; background: none; border-radius: var(--radius-md); font: inherit; font-size: 13px; color: var(--text); cursor: pointer; }
@@ -410,9 +402,8 @@
   .foot { margin-top: var(--space-3); }
 
   @media (max-width: 1100px) {
-    .kpis { grid-template-columns: 1fr 1fr; }
-    .kpi.hero { grid-column: 1 / -1; grid-row: auto; }
-    .kpi.wide { grid-column: 1 / -1; }
+    .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .kpi.hero { grid-column: 1 / -1; }
     .main { grid-template-columns: 1fr; }
     .owed-grid { grid-template-columns: 1fr; }
   }

@@ -60,8 +60,11 @@
 
 <style>
   .kinds { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); }
-  .split { display: grid; grid-template-columns: minmax(280px, 2fr) 3fr; gap: var(--space-4); align-items: start; }
-  @media (max-width: 900px) { .split { grid-template-columns: minmax(0, 1fr); } }
+  .split { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: stretch; }
+  .split > :global(*) { min-width: 0; }
+  .split > :global(*:first-child) { flex: 2 1 260px; }
+  .split > :global(*:last-child) { flex: 3 1 280px; }
+  @media (max-width: 900px) { .split { flex-direction: column; } }
   .tiles4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); margin-bottom: var(--space-3); }
   .tiles4 div { display: flex; flex-direction: column; }
   .tiles4 b { font: 700 22px/1.1 var(--ff-display); }

@@ -42,20 +42,14 @@
 {#if key === 'agreed-vs-actual'}
   <DashboardPanel span={span ?? 1} subtitle="per truck · variance red when over" decision="Ask the provider about every trip over the agreed price." {...fr} title={r.title} rows={() => [['Shipment', 'Truck', 'Provider', `Agreed (${C})`, `Actual (${C})`, `Variance (${C})`], ...(d.rows ?? []).map((x: any) => [x.ref, x.truck, x.provider, x.agreed == null ? 'Not recorded' : cvRow(x.agreed), cvRow(x.actual), cvRow(x.variance)])]} filename="agreed-vs-actual" {drill}>
     <GroupedBars label="Agreed and actual transport cost per truck" categories={recent.map((x: any) => `${x.truck} · ${x.ref.slice(-4)}`)} series={[{ name: 'Agreed', values: recent.map((x: any) => x.agreed), ink: 'allowed' }, { name: 'Actual', values: recent.map((x: any) => x.actual), ink: 'navy' }]} format={money} unit={C} tolerance={0.05} />
-    <div class="table-wrap"><table class="table">
-      <thead><tr><th>Truck</th><th class="num">Agreed</th><th class="num">Actual</th><th class="num">Variance</th></tr></thead>
-      <tbody>{#each [...(d.rows ?? [])].reverse() as x}<tr class="clickable" onclick={() => go(`#/shipments/${x.shipmentId}`)}><td><b>{x.truck}</b><div class="caption">{x.ref} · {x.provider}</div></td>
-        <td class="num">{x.agreed == null ? 'Not recorded' : money(x.agreed)}</td><td class="num">{money(x.actual)}</td>
-        <td class="num">{#if x.variance == null}-{:else if x.variance > 0}<StatusBadge status="bad" label="+{money(x.variance)}" />{:else}<StatusBadge status="good" label={money(x.variance)} />{/if}</td></tr>{/each}</tbody>
-    </table></div>
   </DashboardPanel>
 {:else if key === 'fee-payments'}
   <DashboardPanel span={span ?? 1} subtitle="against document references" decision="Pay or query the oldest unpaid balances first." {...fr} title={r.title} rows={() => [['Shipment', 'Truck', 'Provider', 'Loaded', 'Age (days)', `Agreed (${C})`, `Paid (${C})`, `Balance (${C})`, 'Status', 'Flag', 'References'], ...(d.rows ?? []).map((x: any) => [x.ref, x.truck, x.provider, x.loadedAt ?? '', x.ageDays, x.agreed == null ? 'Not recorded' : cvRow(x.agreed), cvRow(x.paid), cvRow(x.balance), x.status, x.flag, x.references.join(' ')])]} filename="transport-fee-payments" {drill} filterText={q ? `Search: ${q}` : ''}>
     {#snippet filters()}<label class="small">Reference <input class="input" style="height:32px" type="search" placeholder="Search reference, truck, provider" bind:value={q} /></label>{/snippet}
     <div class="chips">{#each Object.entries(d.counts ?? {}) as [s, n]}<StatusBadge status={feeTone(s)} label="{s}: {n}" />{/each}<span class="small">Open balance <b>{money(d.balance)}</b></span></div>
-    <div class="table-wrap"><table class="table">
+    <div class="table-wrap pay"><table class="table">
       <thead><tr><th>Trip</th><th>Status</th><th class="num">Paid of agreed</th><th class="hide-sm">References</th></tr></thead>
-      <tbody>{#each fees.slice(0, 20) as x}<tr class="clickable" onclick={() => go(`#/transport-costs?q=${encodeURIComponent(x.ref)}`)}>
+      <tbody>{#each fees.slice(0, 6) as x}<tr class="clickable" onclick={() => go(`#/transport-costs?q=${encodeURIComponent(x.ref)}`)}>
         <td><b>{x.truck}</b><div class="caption">{x.ref} · {x.provider} · {day(x.loadedAt)}</div></td>
         <td><StatusBadge status={feeTone(x.status)} label={x.status} />{#if x.flag === 'red' || x.flag === 'amber'} <StatusBadge status={ageTone(x.flag)} label="{x.ageDays} d" />{/if}</td>
         <td class="num">{#if x.agreed == null}<span class="caption">no agreed price</span>{:else}<div class="pbar"><span style:width="{Math.min(100, (x.paid / Math.max(1, x.agreed)) * 100)}%"></span></div><span class="small">{money(x.paid)} / {money(x.agreed)}</span>{/if}</td>
@@ -135,11 +129,13 @@
 
 <style>
   .chips { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); }
+  .pay { max-height: 320px; overflow: auto; }
   .pbar { height: 6px; background: var(--surface-sunken); border-radius: 3px; overflow: hidden; margin-bottom: 2px; min-width: 80px; }
   .pbar span { display: block; height: 100%; background: var(--success); }
   .legs { border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); margin-top: var(--space-2); display: flex; flex-direction: column; gap: 2px; }
-  .split { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); align-items: start; }
+  .split { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: stretch; }
+  .split > div { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; }
   .cap-line { margin: 0 0 var(--space-2); font-size: 12px; font-weight: 600; color: var(--text-muted); }
-  @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) { .split { flex-direction: column; } }
   @media (max-width: 600px) { .hide-sm { display: none; } }
 </style>

@@ -52,7 +52,7 @@
 .viz-key.dash { background: none !important; border-top: 2px dashed currentColor; height: 0; }
 @media (forced-colors: active) { .viz .mark { forced-color-adjust: none; } }
 /* page layout helpers for overview tabs */
-.charts-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); margin-top: var(--space-4); }
+.charts-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); margin-top: var(--space-4); align-items: start; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--space-3); }
 @media (max-width: 1100px) { .charts-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 480px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

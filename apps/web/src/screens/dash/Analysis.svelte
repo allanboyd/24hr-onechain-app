@@ -3,6 +3,7 @@
   // Browser-built from the report endpoints; the Home filter's period, warehouse and product apply.
   import type { DashFilter, DashKey, ReportFilter, User } from '@btw/api';
   import { dashDef } from '@btw/api/dashboards';
+  import InfoTip from '../../components/page/InfoTip.svelte';
   import '../../components/charts';
   let { keys, filter, user }: { keys: DashKey[]; filter: DashFilter; user: User } = $props();
   const DAY = 864e5;
@@ -42,7 +43,11 @@
   {@const load = LOAD[k]}
   {#if def && load}
     <section class="an" aria-labelledby="an-{k}">
-      <header><h2 id="an-{k}">{def.title}</h2><p class="caption">{def.question}{#if def.link} · <a href={def.link}>Open the list</a>{/if}</p></header>
+      <header>
+        <h2 id="an-{k}">{def.title}</h2>
+        <InfoTip text={def.question} label="About {def.title}" size={16} />
+        {#if def.link}<a class="open" href={def.link}>Open the list</a>{/if}
+      </header>
       {#await load() then M}
         {#key JSON.stringify(k === 'sales-report' ? salesFilter : rf)}
           <M.default {user} filter={k === 'sales-report' ? salesFilter : rf} group="" {onfilter} />
@@ -57,6 +62,7 @@
 
 <style>
   .an { margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--border); }
-  .an header { margin-bottom: var(--space-3); }
-  .an h2 { margin: 0; font-size: var(--fs-h3); line-height: var(--lh-h3); }
+  .an header { display: flex; align-items: center; gap: 2px; margin-bottom: var(--space-3); min-width: 0; }
+  .an h2 { margin: 0; min-width: 0; font-size: var(--fs-h3); line-height: var(--lh-h3); }
+  .open { margin-left: auto; flex: none; font-size: 13px; }
 </style>

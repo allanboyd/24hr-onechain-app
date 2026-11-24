@@ -36,7 +36,8 @@ const groupLabel = (g: string) => (room && ROOM[g]) || DASH_GROUPS.find((x) => x
     res = r; onload?.(r);
   }, () => JSON.stringify([serverKeys, filter]));
   // Row filling (2 columns): panels per key and full-width ones; a single panel that would sit alone takes the whole row.
-  const TWO = ['stock-on-hand', 'profit-margin', 'sales-summary', 'customer-balances', 'unpaid-fees'];
+  // Keys whose panel emits two grid cells (a fragment of two cards). One card with an inner pair is still one cell.
+  const TWO = ['profit-margin', 'sales-summary'];
   const FULL = ['exec-overview', 'fleet-board', 'alerts', 'fast-slow', 'border-stops', 'warehouse-today', 'order-this-week', 'stock-movements', 'data-completeness', 'po-pipeline'];
   const spans = $derived.by(() => {
     const out: Record<string, 'full' | undefined> = {};

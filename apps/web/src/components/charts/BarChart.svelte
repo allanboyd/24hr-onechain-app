@@ -33,7 +33,7 @@
     lay.hovermode = 'closest';
     const cat = { ...(horizontal ? lay.yaxis : lay.xaxis), type: 'category', showgrid: false, showline: !horizontal, fixedrange: true, automargin: true };
     const val: Record<string, any> = { ...(horizontal ? lay.xaxis : lay.yaxis), showgrid: true, gridcolor: t.grid, showline: false, tickformat: tickformat ?? autoTick(stacked ? categories.map((_, i) => series.reduce((a, x) => a + (x.values[i] ?? 0), 0)) : series.flatMap((x) => x.values)), rangemode: 'tozero', fixedrange: true };
-    if (tip && peak > 0) val.range = [0, peak * (horizontal ? (ctx.narrow ? 1.45 : 1.22) : 1.12)];
+    if (peak > 0) val.range = [0, peak * (tip ? (horizontal ? (ctx.narrow ? 1.45 : 1.22) : 1.12) : 1.06)];
     const maxLen = ctx.narrow ? 16 : 34;
     if (categories.some((c) => c.length > maxLen)) Object.assign(cat, { tickmode: 'array', tickvals: categories, ticktext: categories.map((c) => short(c, maxLen, ctx.narrow)) });
     if (horizontal) { lay.yaxis = { ...cat, autorange: 'reversed', ticks: '', ticklabelstandoff: 6 }; lay.xaxis = val; }

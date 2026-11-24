@@ -2,7 +2,7 @@
   // Directors · business (docs/15): executive overview ★1, combined performance (link), profit and margin ★2, landed cost per
   // product and per truck, selling price & target margin (link + gauge), fast / slow products ★3.
   import type { DashKey, DashResult } from '@btw/api';
-  import { DashboardPanel, KpiScorecard, ExceptionList, Waterfall, StackedBarH, QuadrantScatter, StatusBadge, type Kpi } from '../../../components/dashboard';
+  import { DashboardPanel, KpiScorecard, ExceptionList, Waterfall, StackedBarH, QuadrantScatter, type Kpi } from '../../../components/dashboard';
   import { BarChart, Donut, Gauge, Meter } from '../../../components/charts';
   import type { Ink } from '../../../components/charts/theme.svelte';
   import ColumnsLine from '../../../components/charts/ColumnsLine.svelte';
@@ -81,9 +81,8 @@
       <aside class="exec-side" aria-label="Exceptions">
         <div class="side-head">
           <h4>Exceptions</h4>
-          <p class="caption">By severity, then due time. Assign an owner on every open item.</p>
         </div>
-        <ExceptionList items={d.exceptions} max={6} moreHref="#/dashboards/admin" label="Delayed trucks and high-priority alerts" />
+        <ExceptionList items={d.exceptions} max={5} moreHref="#/dashboards/admin" label="Delayed trucks and high-priority alerts" />
         {#if !d.exceptions?.length}<p class="caption">Nothing urgent right now.</p>{/if}
         <a class="btn btn-ghost btn-sm golink" href="#/dashboards/admin">Open the alerts centre <ArrowRight size={14} /></a>
       </aside>
@@ -135,11 +134,6 @@
 {:else if key === 'landed-truck'}
   <DashboardPanel span={span ?? 1} subtitle="all trip costs by category" decision="Open every trip flagged above average." {...fr} title={r.title} rows={ltRows} filename="landed-cost-per-truck" {drill}>
     <BarChart label="Trip costs per truck by category" horizontal stacked categories={ltTop.map((x: any) => x.truck)} series={(d.kinds ?? []).map((k: string) => ({ name: k, values: ltTop.map((x: any) => x.byKind[k] ?? 0) }))} format={money} />
-    <div class="table-wrap"><table class="table">
-      <thead><tr><th>Truck</th><th class="hide-sm">Provider</th><th class="num">Trips</th><th class="num">Total</th><th class="num">Per case</th><th></th></tr></thead>
-      <tbody>{#each ltTop as x}<tr><td><b>{x.truck}</b></td><td class="hide-sm small">{x.provider}</td><td class="num">{x.trips}</td><td class="num">{money(x.total)}</td><td class="num">{money2(x.perCase)}</td>
-        <td>{#if x.aboveAverage}<StatusBadge status="warn" label="Above average" />{:else if x.notRecorded}<StatusBadge status="none" label="Price not recorded" />{/if}</td></tr>{/each}</tbody>
-    </table></div>
     <p class="caption">Average {money2(d.avgPerCase)} per case.</p>
   </DashboardPanel>
 {:else if key === 'selling-price'}
@@ -172,12 +166,15 @@
   .golink { margin-top: var(--space-3); }
   .gauge-row { display: flex; gap: var(--space-4); align-items: center; flex-wrap: wrap; }
   .plain { margin: var(--space-2) 0 0; padding-left: 18px; }
-  .exec { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: var(--space-5); align-items: start; }
-  .exec-side { border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-4); background: var(--surface-sunken); }
+  .exec { display: flex; flex-wrap: wrap; gap: var(--space-5); align-items: start; }
+  .exec-main { flex: 1.6 1 420px; min-width: 0; display: flex; flex-direction: column; }
+  @media (min-width: 720px) { .exec-main :global(.kpis) { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  .exec-side { flex: 1 1 300px; min-width: 0; max-height: 560px; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-4); background: var(--surface-sunken); }
+  .exec-side :global(.exc) { overflow: auto; min-height: 0; }
   .side-head h4 { margin: 0 0 4px; font-size: 15px; }
-  .split { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); align-items: start; }
+  .split { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: stretch; }
+  .split > div { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; }
   .cap-line { margin: 0 0 var(--space-2); font-size: 12px; font-weight: 600; color: var(--text-muted); }
   .cap-line.cost { margin-top: var(--space-4); }
-  @media (max-width: 1100px) { .exec, .split { grid-template-columns: 1fr; } }
-  @media (max-width: 600px) { .hide-sm { display: none; } }
+  @media (max-width: 1100px) { .exec, .split { flex-direction: column; } }
 </style>

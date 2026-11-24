@@ -36,23 +36,35 @@
       <a href="#/shipments?show=delivered"><span class="caption">Lost (30 d)</span><b class:hot={(d.losses?.damaged ?? 0) + (d.losses?.short ?? 0)}>{n0((d.losses?.damaged ?? 0) + (d.losses?.short ?? 0))}</b><span class="caption">{n0(d.losses?.damaged)} damaged · {n0(d.losses?.short)} short</span></a>
       {#if d.reexports}<a href="#/re-exports"><span class="caption">Re-exports</span><b class:hot={d.reexports.open}>{n0(d.reexports.open)}</b><span class="caption">{n0(d.reexports.noOwner)} without an owner</span></a>{/if}
     </div>
-    {#if d.sign?.rows?.length}
-      <h4 class="overline">Sign now</h4>
-      <ul class="att">{#each d.sign.rows as x}<li><a href="#/shipments/{x.shipmentId}">{x.truck}</a><span class="caption">{x.ref} · {x.warehouse} · {n0(x.cases)} cases</span><StatusBadge status="warn" label="Acknowledge" /></li>{/each}</ul>
-    {/if}
-    {#if d.arriving?.rows?.length}
-      <h4 class="overline">Arriving this week</h4>
-      <ul class="att">{#each d.arriving.rows as x}<li><a href="#/shipments/{x.shipmentId}">{x.truck}</a><span class="caption">{x.warehouse} · {day(x.eta)} · {n0(x.cases)} cases</span>{#if x.late}<StatusBadge status="bad" label="late" />{/if}</li>{/each}</ul>
-    {/if}
-    {#if d.stock?.items?.length}
-      <h4 class="overline">Stock that needs a count</h4>
-      <ul class="att">{#each d.stock.items as x}<li><a href="#/stock?show=attention">{x.label}</a><span class="caption">{n0(x.held)} cases · {x.cover == null ? 'no sales in 30 days' : `${x.cover} d cover`}</span><StatusBadge status={x.cover == null ? 'none' : x.cover <= 7 ? 'bad' : 'warn'} label={x.cover == null ? 'No sales' : x.cover <= 7 ? 'At risk' : 'Low'} /></li>{/each}</ul>
-    {/if}
+    <div class="pair">
+      {#if d.sign?.rows?.length}
+        <div>
+          <h4 class="overline">Sign now</h4>
+          <ul class="att">{#each d.sign.rows as x}<li><a href="#/shipments/{x.shipmentId}">{x.truck}</a><span class="caption">{x.ref} · {x.warehouse} · {n0(x.cases)} cases</span><StatusBadge status="warn" label="Acknowledge" /></li>{/each}</ul>
+        </div>
+      {/if}
+      {#if d.arriving?.rows?.length}
+        <div>
+          <h4 class="overline">Arriving this week</h4>
+          <ul class="att scroll">{#each d.arriving.rows as x}<li><a href="#/shipments/{x.shipmentId}">{x.truck}</a><span class="caption">{x.warehouse} · {day(x.eta)} · {n0(x.cases)} cases</span>{#if x.late}<StatusBadge status="bad" label="late" />{/if}</li>{/each}</ul>
+        </div>
+      {/if}
+    </div>
+    {#if d.stock?.items?.length || d.reexports?.rows?.length}<div class="pair">
+      {#if d.stock?.items?.length}
+        <div>
+          <h4 class="overline">Stock that needs a count</h4>
+          <ul class="att scroll">{#each d.stock.items as x}<li><a href="#/stock?show=attention">{x.label}</a><span class="caption">{n0(x.held)} cases · {x.cover == null ? 'no sales in 30 days' : `${x.cover} d cover`}</span><StatusBadge status={x.cover == null ? 'none' : x.cover <= 7 ? 'bad' : 'warn'} label={x.cover == null ? 'No sales' : x.cover <= 7 ? 'At risk' : 'Low'} /></li>{/each}</ul>
+        </div>
+      {/if}
+      {#if d.reexports?.rows?.length}
+        <div>
+          <h4 class="overline">Open re-exports</h4>
+          <ul class="att scroll">{#each d.reexports.rows as x}<li><a href="#/re-exports">{x.ref}</a><span class="caption">{n0(x.cases)} cases{x.owner ? ` · ${x.owner}` : ''}</span><StatusBadge status={x.owner ? 'warn' : 'none'} label={x.owner ? x.status : 'Owner not assigned'} /></li>{/each}</ul>
+        </div>
+      {/if}
+    </div>{/if}
     {#if d.losses?.topCause}<p class="caption">Top cause of losses (30 days): {d.losses.topCause}.</p>{/if}
-    {#if d.reexports?.rows?.length}
-      <h4 class="overline">Open re-exports</h4>
-      <ul class="att">{#each d.reexports.rows as x}<li><a href="#/re-exports">{x.ref}</a><span class="caption">{n0(x.cases)} cases{x.owner ? ` · ${x.owner}` : ''}</span><StatusBadge status={x.owner ? 'warn' : 'none'} label={x.owner ? x.status : 'Owner not assigned'} /></li>{/each}</ul>
-    {/if}
   </DashboardPanel>
 {:else if key === 'incoming'}
   <DashboardPanel span={span ?? 1} subtitle="arrived trucks first, then by expected arrival" decision="Sign arrived trucks before the next count." {...fr} title={r.title} rows={() => [['Shipment', 'Truck', 'From', 'To', 'Expected', 'Status', 'Cases'], ...(d.rows ?? []).map((x: any) => [x.ref, x.truck, x.from, x.warehouse, x.eta, x.toAcknowledge ? 'Arrived, acknowledge' : x.status, x.cases])]} filename="incoming-deliveries" {drill} emptyText="No truck heading to your warehouse">
@@ -140,6 +152,9 @@
   .att li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-3); padding: 6px 0; border-top: 1px solid var(--border); }
   .icons { display: inline-flex; gap: var(--space-3); align-items: center; margin-left: auto; }
   .icons span { display: inline-flex; align-items: center; gap: 3px; }
+  .pair { display: flex; flex-wrap: wrap; gap: var(--space-5); align-items: start; }
+  .pair > div { flex: 1 1 280px; min-width: 0; }
+  .att.scroll { max-height: 280px; overflow: auto; }
   .tw { display: flex; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-3); }
   .tw div, .tw a { display: flex; flex-direction: column; color: var(--text); text-decoration: none; min-width: 7rem; }
   .tw a:hover { color: var(--primary); }
@@ -151,8 +166,9 @@
   .dot { position: absolute; left: -21px; top: 4px; width: 12px; height: 12px; border-radius: 50%; background: var(--viz-1); border: 2px solid var(--surface); }
   .tr { color: var(--text); }
   .num { text-align: right; font-variant-numeric: tabular-nums; }
-  .split { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); align-items: start; }
+  .split { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: stretch; }
+  .split > div { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; }
   .cap-line { margin: 0 0 var(--space-2); font-size: 12px; font-weight: 600; color: var(--text-muted); }
-  @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) { .split { flex-direction: column; } }
   @media (max-width: 600px) { .hide-sm { display: none; } }
 </style>

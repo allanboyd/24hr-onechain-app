@@ -18,6 +18,7 @@ alwaysApply: false
 
 - One report per tab. Order is `REPORT` in `room.ts`. Do not add an Advanced / normal switch.
 - Prefer **paired charts** (ageing | top list, bridge | donut, month | share) over one full-width stretched series.
+- A card is only as tall as its content. Do not stretch a short card up to a longer neighbour. A long list scrolls inside the card. The chart face is the chart; the table is the icon toggle, not a second block under the chart.
 - Executive overview: KPIs + exceptions in one composition (side panel), not two disconnected full-width stacks.
 - A section that repeats a panel already on the tab stays in `hiddenReport`. Border heatmap, fast and slow, and landed cost are part of the report, not a second mode.
 
@@ -27,8 +28,9 @@ Mockup reference: Cursor canvas `home-today-mockup.canvas.tsx`. Product narrativ
 
 - **Title** = short noun phrase (≤ ~4 words). Use catalogue `r.title` on feature panels.
 - **No** What / Which / How / Where / Who question titles.
-- **Caption** = period / unit only.
-- **Decision** = one imperative sentence.
+- **Caption** = period / unit only, inside the info icon. Not a line under the title.
+- **Decision** = one imperative sentence, inside the exclamation icon. Not a line under the title.
+- Chart header is one flex row: title, info icon, recommendation icon, then chart | table and export.
 - **Drill** = "Open …", not "View details".
 - **No em dashes (—)** in product copy. Prefer commas, periods, or hyphens. Empty cells: `-`.
 
