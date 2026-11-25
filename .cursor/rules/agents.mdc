@@ -1,0 +1,16 @@
+---
+description: Shared rules for every agent - plan on the board first, own your files, worktree per row
+alwaysApply: true
+---
+
+Follow `AGENTS.md` at the repo root before any change. In short:
+
+1. No code until your row on `docs/work/BOARD.md` has a plan file in `docs/work/plans/<ID>.md` with `Approved: yes`.
+2. Work in your own worktree and branch (`git worktree add ../btw-gd-<ID> -b ui/<ID>-<slug> main`). Never commit to `main` except the board/plan claim.
+3. Edit only the files your row owns. For anything else, add a line under **Requests** on the board.
+4. Run your web preview on your row's port (AGENTS.md §2). Don't stop the shared stack on :3101 / :5173 / :5174.
+5. Tests: a test plan in the plan file; bugs start with a failing check; every fix gets a row in the plan's Fix log (AGENTS.md §5).
+6. Near the context/token limit, a rate limit, or any stop: hand over (AGENTS.md §6): commit `wip(<ID>): handover`, fill the plan's Handover section, set the row to `⏸ handed over`.
+7. Finish with `pnpm check:text && pnpm check && pnpm test && pnpm build && pnpm size`, screenshots in the plan file, row → `👀 review`, and a one-line report.
+
+UI cleanup research and issue IDs: `docs/22-ui-cleanup.md`.
