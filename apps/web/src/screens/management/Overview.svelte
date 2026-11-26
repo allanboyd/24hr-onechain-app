@@ -2,27 +2,24 @@
   // Management · Overview on live data (V3-10 step 1b). Same look and indicators as the directors' report
   // (docs/design-v3/reference/management-room-report.html), numbers from GET /v1/dashboards?keys=mgmt-overview, i.e. the
   // same builders as Live dashboards (packages/api/src/dashboards.ts mgmtOverview; parity checked in dashboards.test.ts).
-  import { dashboards, ref, type DashResult } from '@btw/api';
+  import { dashboards, type DashResult } from '@btw/api';
   import type { MgmtOverview } from '@btw/api/dashboards';
-  import { queryFilters } from '../../components/page';
+  import ReportFilters, { reportFilters, apiFilter } from './ReportFilters.svelte';
   import { Donut } from '../../components/charts';
   import Waterfall from '../../components/charts/Waterfall.svelte';
   import GroupedBars from '../../components/charts/GroupedBars.svelte';
   import SparkArea from '../../components/charts/SparkArea.svelte';
   import { compact } from '../../components/charts/scale';
-  import { PERIODS, datesOf } from '../dash/period';
+  import { PERIODS } from '../dash/period';
   import ErrorState from '../../components/ErrorState.svelte';
   import { watch } from '../../lib/load.svelte';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import { destinationLabel } from '../../lib/planning';
 
-  const f = queryFilters({ wh: '', p: '30' });
-  // the report's period choices: Day · Week · 30 days · Year to date
-  const CHOICES = [{ key: 'today', label: 'Day' }, { key: '7', label: 'Week' }, { key: '30', label: '30 days' }, { key: 'ytd', label: 'Year to date' }];
-  const warehouses = $derived(ref().warehouses);
+  const f = reportFilters();
   let res = $state<DashResult | null>(null);
   const w = watch(async () => {
-    const r = await dashboards.get(['mgmt-overview'], { ...datesOf(f.values.p), warehouseId: f.values.wh || undefined });
+    const r = await dashboards.get(['mgmt-overview'], apiFilter(f));
     res = r.results['mgmt-overview'] ?? null;
   }, () => [f.values.wh, f.values.p]);
   const d = $derived(res?.data as MgmtOverview | undefined);
@@ -40,15 +37,7 @@
 </script>
 
 <section class="ov" aria-labelledby="ov-h">
-  <div class="ctl card">
-    <div class="sel-seg" role="group" aria-label="Warehouse">
-      <button type="button" aria-pressed={!f.values.wh} onclick={() => f.set('wh', '')}>Combined</button>
-      {#each warehouses as x (x.id)}<button type="button" aria-pressed={f.values.wh === x.id} onclick={() => f.set('wh', x.id)}>{destinationLabel(x.id)}</button>{/each}
-    </div>
-    <div class="sel-seg" role="group" aria-label="Period">
-      {#each CHOICES as c (c.key)}<button type="button" aria-pressed={f.values.p === c.key} onclick={() => f.set('p', c.key)}>{c.label}</button>{/each}
-    </div>
-  </div>
+  <ReportFilters {f} />
 
   <header class="hd">
     <h1 id="ov-h">Overview</h1>
@@ -124,7 +113,6 @@
 
 <style>
   .ov { display: flex; flex-direction: column; gap: 14px; }
-  .ctl { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); align-items: center; padding: var(--space-3); position: sticky; top: 68px; z-index: 5; }
   .hd h1 { font-size: 24px; line-height: 30px; }
   .hd p { margin: 2px 0 0; }
   .kpis { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(176px, 1fr)); }
