@@ -2,6 +2,7 @@
   import { lookup, masterdata, onChange, ref, type User } from '@btw/api';
   import { MASTER_LIMITS } from '@btw/api/static-data';
   import Tabs from '../components/page/Tabs.svelte';
+  import { DataTable, type Column } from '../components/page';
   import Pencil from '@lucide/svelte/icons/pencil';
   import History from '@lucide/svelte/icons/history';
   import StaticDialog from '../components/StaticDialog.svelte';
@@ -33,6 +34,39 @@
   let sd = $state<StaticDialog>();
   const audit = $derived(can(user, 'audit'));
   let showInactive = $state(false);
+  // V3-8 batch 2: Suppliers, Companies and Receiving companies on the shared table (search, filters, CSV, phone cards)
+  type Sup = (typeof r.suppliers)[number]; type Ent = (typeof r.entities)[number]; type Rc = (typeof r.receivingCompanies)[number];
+  const statusOf = (x: { active?: boolean }) => (x.active === false ? 'Deactivated' : 'Active');
+  const acts = $derived(staticEdit || audit);
+  let sq = $state(''), sf = $state({}), eq = $state(''), ef = $state({}), rq = $state(''), rf = $state({});
+  const supCols = $derived<Column<Sup>[]>([
+    { key: 'code', label: 'Code', sticky: true, mobile: 'title', value: (x) => x.code, class: 'strong' },
+    { key: 'name', label: 'Export section', value: (x) => x.name },
+    { key: 'city', label: 'City', value: (x) => x.city, hideBelow: 900 },
+    { key: 'country', label: 'Country', value: (x) => x.country, filter: 'select' },
+    { key: 'email', label: 'Email', value: (x) => x.email, class: 'small', hideBelow: 1100 },
+    { key: 'lp', label: 'Loading point', value: (x) => lookup.checkpoint(x.checkpointId)?.name ?? '-', class: 'small', hideBelow: 1100 },
+    { key: 'goods', label: 'Goods', align: 'right', sortValue: (x) => r.products.filter((p) => p.supplierId === x.id).length, value: (x) => String(r.products.filter((p) => p.supplierId === x.id).length) },
+    { key: 'status', label: 'Status', value: statusOf, cell: statusCell, filter: 'select', mobile: 'aside' },
+    ...(acts ? [{ key: 'acts', label: '', sortable: false, csv: false as const, cell: supActs, mobile: 'actions' as const }] : []),
+  ]);
+  const entCols = $derived<Column<Ent>[]>([
+    { key: 'code', label: 'Code', sticky: true, mobile: 'title', value: (x) => x.code, class: 'strong' },
+    { key: 'short', label: 'Display name', value: (x) => x.shortName },
+    { key: 'name', label: 'Legal name', value: (x) => x.name },
+    { key: 'prefix', label: 'PO prefix', value: (x) => x.poPrefix, class: 'mono small', hideBelow: 900 },
+    { key: 'cur', label: 'Reporting', value: (x) => x.reportingCurrency, filter: 'select', hideBelow: 900 },
+    { key: 'address', label: 'Address', value: (x) => x.address.join(', '), class: 'small', hideBelow: 1100 },
+    { key: 'status', label: 'Status', value: statusOf, cell: statusCell, filter: 'select', mobile: 'aside' },
+    ...(acts ? [{ key: 'acts', label: '', sortable: false, csv: false as const, cell: entActs, mobile: 'actions' as const }] : []),
+  ]);
+  const rcCols = $derived<Column<Rc>[]>([
+    { key: 'name', label: 'Company', sticky: true, mobile: 'title', value: (x) => x.name, class: 'strong' },
+    { key: 'countries', label: 'Countries', value: (x) => x.countries.join(', ') },
+    { key: 'whs', label: 'Warehouses', value: (x) => r.warehouses.filter((w) => w.receivingCompanyId === x.id).map((w) => w.name).join(', ') || '-', class: 'small' },
+    { key: 'status', label: 'Status', value: statusOf, cell: statusCell, filter: 'select', mobile: 'aside' },
+    ...(acts ? [{ key: 'acts', label: '', sortable: false, csv: false as const, cell: rcActs, mobile: 'actions' as const }] : []),
+  ]);
   async function toggleActive(kind: 'entity' | 'supplier' | 'product' | 'receiving-company', id: string, active: boolean, label: string) {
     if (!active && !window.confirm(`Deactivate ${label}? It stays in history but is no longer offered on new orders.`)) return;
     try {
@@ -111,27 +145,15 @@
   </div>
 {:else if tab === 'Suppliers'}
   <p class="caption room">{r.suppliers.length} of {MASTER_LIMITS.suppliers} suppliers (room for {Math.max(0, MASTER_LIMITS.suppliers - r.suppliers.length)} more)</p>
-  <div class="card flush table-wrap"><table class="table">
-    <thead><tr><th>Code</th><th>Export section</th><th>City</th><th>Country</th><th>Email</th><th>Loading point</th><th class="num">Goods</th><th>Status</th>{#if staticEdit || audit}<th></th>{/if}</tr></thead>
-    <tbody>{#each r.suppliers as s}<tr class:off={s.active === false}><td><strong>{s.code}</strong></td><td>{s.name}</td><td>{s.city}</td><td>{s.country}</td><td class="small">{s.email}</td><td class="small">{lookup.checkpoint(s.checkpointId)?.name}</td><td class="num">{r.products.filter((p) => p.supplierId === s.id).length}</td>
-      <td>{#if s.active === false}<Badge tone="neutral">Deactivated</Badge>{:else}<Badge tone="success">Active</Badge>{/if}</td>
-      {#if staticEdit || audit}<td><div class="acts">{#if staticEdit}<button class="btn btn-ghost btn-sm" onclick={() => sd?.open('supplier', s)} aria-label="Edit {s.code}"><Pencil size={14} /></button><button class="btn btn-ghost btn-sm" onclick={() => toggleActive('supplier', s.id, s.active === false, s.code)}>{s.active === false ? 'Reactivate' : 'Deactivate'}</button>{/if}{#if audit}<a class="btn btn-ghost btn-sm" href="#/audit?q={s.id}" aria-label="History of {s.code}"><History size={14} /></a>{/if}</div></td>{/if}</tr>{/each}</tbody>
-  </table></div>
+  <DataTable id="md-suppliers" label="Suppliers" noun="suppliers" rows={r.suppliers} columns={supCols} rowKey={(x) => x.id} rowClass={(x) => (x.active === false ? 'off' : '')} initialSort={{ key: 'code', dir: 'asc' }} filename="suppliers"
+    searchable searchPlaceholder="Code, name, city, email…" bind:search={sq} bind:filters={sf} />
 {:else if tab === 'Companies'}
   <p class="caption room">{r.entities.length} of {MASTER_LIMITS.entities} companies (room for {Math.max(0, MASTER_LIMITS.entities - r.entities.length)} more)</p>
-  <div class="card flush table-wrap"><table class="table">
-    <thead><tr><th>Code</th><th>Display name</th><th>Legal name</th><th>PO prefix</th><th>Reporting</th><th>Address</th><th>Status</th>{#if staticEdit || audit}<th></th>{/if}</tr></thead>
-    <tbody>{#each r.entities as e}<tr class:off={e.active === false}><td><strong>{e.code}</strong></td><td>{e.shortName}</td><td>{e.name}</td><td class="mono small">{e.poPrefix}</td><td>{e.reportingCurrency}</td><td class="small">{e.address.join(', ')}</td>
-      <td>{#if e.active === false}<Badge tone="neutral">Deactivated</Badge>{:else}<Badge tone="success">Active</Badge>{/if}</td>
-      {#if staticEdit || audit}<td><div class="acts">{#if staticEdit}<button class="btn btn-ghost btn-sm" onclick={() => sd?.open('entity', e)} aria-label="Edit {e.code}"><Pencil size={14} /></button><button class="btn btn-ghost btn-sm" onclick={() => toggleActive('entity', e.id, e.active === false, e.shortName || e.code)}>{e.active === false ? 'Reactivate' : 'Deactivate'}</button>{/if}{#if audit}<a class="btn btn-ghost btn-sm" href="#/audit?q={e.id}" aria-label="History of {e.code}"><History size={14} /></a>{/if}</div></td>{/if}</tr>{/each}</tbody>
-  </table></div>
+  <DataTable id="md-companies" label="Companies" noun="companies" rows={r.entities} columns={entCols} rowKey={(x) => x.id} rowClass={(x) => (x.active === false ? 'off' : '')} initialSort={{ key: 'code', dir: 'asc' }} filename="companies"
+    searchable searchPlaceholder="Code, name, address…" bind:search={eq} bind:filters={ef} />
 {:else if tab === 'Receiving companies'}
-  <div class="card flush table-wrap"><table class="table">
-    <thead><tr><th>Company</th><th>Countries</th><th>Warehouses</th><th>Status</th>{#if staticEdit || audit}<th></th>{/if}</tr></thead>
-    <tbody>{#each r.receivingCompanies as c}<tr class:off={c.active === false}><td><strong>{c.name}</strong></td><td>{c.countries.join(', ')}</td><td class="small">{r.warehouses.filter((w) => w.receivingCompanyId === c.id).map((w) => w.name).join(', ')}</td>
-      <td>{#if c.active === false}<Badge tone="neutral">Deactivated</Badge>{:else}<Badge tone="success">Active</Badge>{/if}</td>
-      {#if staticEdit || audit}<td><div class="acts">{#if staticEdit}<button class="btn btn-ghost btn-sm" onclick={() => sd?.open('receiving-company', c)} aria-label="Edit {c.name}"><Pencil size={14} /></button><button class="btn btn-ghost btn-sm" onclick={() => toggleActive('receiving-company', c.id, c.active === false, c.name)}>{c.active === false ? 'Reactivate' : 'Deactivate'}</button>{/if}{#if audit}<a class="btn btn-ghost btn-sm" href="#/audit?q={c.id}" aria-label="History of {c.name}"><History size={14} /></a>{/if}</div></td>{/if}</tr>{/each}</tbody>
-  </table></div>
+  <DataTable id="md-receiving" label="Receiving companies" noun="companies" rows={r.receivingCompanies} columns={rcCols} rowKey={(x) => x.id} rowClass={(x) => (x.active === false ? 'off' : '')} initialSort={{ key: 'name', dir: 'asc' }} filename="receiving-companies"
+    searchable searchPlaceholder="Company, country, warehouse…" bind:search={rq} bind:filters={rf} />
 {:else if tab === 'Providers & trucks'}
   <ProvidersTab {user} />
 {:else if tab === 'Drivers'}
@@ -174,6 +196,11 @@
   </div>
 {/if}
 
+{#snippet statusCell(x: { active?: boolean })}{#if x.active === false}<Badge tone="neutral">Deactivated</Badge>{:else}<Badge tone="success">Active</Badge>{/if}{/snippet}
+{#snippet supActs(s: Sup)}<div class="acts">{#if staticEdit}<button class="btn btn-ghost btn-sm" onclick={() => sd?.open('supplier', s)} aria-label="Edit {s.code}"><Pencil size={14} /></button><button class="btn btn-ghost btn-sm" onclick={() => toggleActive('supplier', s.id, s.active === false, s.code)}>{s.active === false ? 'Reactivate' : 'Deactivate'}</button>{/if}{#if audit}<a class="btn btn-ghost btn-sm" href="#/audit?q={s.id}" aria-label="History of {s.code}"><History size={14} /></a>{/if}</div>{/snippet}
+{#snippet entActs(e: Ent)}<div class="acts">{#if staticEdit}<button class="btn btn-ghost btn-sm" onclick={() => sd?.open('entity', e)} aria-label="Edit {e.code}"><Pencil size={14} /></button><button class="btn btn-ghost btn-sm" onclick={() => toggleActive('entity', e.id, e.active === false, e.shortName || e.code)}>{e.active === false ? 'Reactivate' : 'Deactivate'}</button>{/if}{#if audit}<a class="btn btn-ghost btn-sm" href="#/audit?q={e.id}" aria-label="History of {e.code}"><History size={14} /></a>{/if}</div>{/snippet}
+{#snippet rcActs(c: Rc)}<div class="acts">{#if staticEdit}<button class="btn btn-ghost btn-sm" onclick={() => sd?.open('receiving-company', c)} aria-label="Edit {c.name}"><Pencil size={14} /></button><button class="btn btn-ghost btn-sm" onclick={() => toggleActive('receiving-company', c.id, c.active === false, c.name)}>{c.active === false ? 'Reactivate' : 'Deactivate'}</button>{/if}{#if audit}<a class="btn btn-ghost btn-sm" href="#/audit?q={c.id}" aria-label="History of {c.name}"><History size={14} /></a>{/if}</div>{/snippet}
+
 <style>
   .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: var(--space-4); align-items: start; }
   @media (max-width: 1100px) { .layout { grid-template-columns: minmax(0, 1fr); } }
@@ -185,7 +212,8 @@
   .list button:hover { background: var(--surface-sunken); }
   .list button.on { background: var(--sel-bg); border-left-color: var(--sel-line); }
   .list button.on strong { color: var(--sel-ink); font-weight: 800; }
-  tr.off { opacity: .55; }
+  /* rows drawn by DataTable get the class too (V3-8 batch 2) */
+  :global(tr.off) { opacity: .55; }
   .acts { display: flex; gap: 2px; justify-content: flex-end; }
   .room { margin: 0 0 var(--space-3); }
   .check { display: flex; align-items: center; gap: 6px; align-self: end; }

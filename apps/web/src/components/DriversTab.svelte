@@ -7,7 +7,7 @@
   import Plus from '@lucide/svelte/icons/plus';
   import Pencil from '@lucide/svelte/icons/pencil';
   import Power from '@lucide/svelte/icons/power';
-  import Search from '@lucide/svelte/icons/search';
+  import { DataTable, type Column } from './page';
   import { can } from '../lib/features';
   import { describe } from '../lib/errors';
   let { user }: { user: User } = $props();
@@ -16,9 +16,10 @@
   $effect(() => onChange(() => v++));
   const r = $derived.by(() => { void v; return ref(); });
   const canEdit = $derived(can(user, 'master-data.transport'));
-  let q = $state(''); let prov = $state(''); let showInactive = $state(false);
-  const rows = $derived(r.drivers.filter((d) => (showInactive || d.active !== false) && (!prov || d.providerId === prov)
-    && (!q.trim() || `${d.name} ${d.phone} ${d.localPhone ?? ''} ${d.licence}`.toLowerCase().includes(q.trim().toLowerCase()))));
+  let q = $state(''); let showInactive = $state(false);
+  // V3-8 batch 2: search and the Provider / Tracking filters sit in the table; deactivated drivers stay behind the checkbox
+  const rows = $derived(r.drivers.filter((d) => showInactive || d.active !== false));
+  let df = $state({});
   const trucksOf = (id: string) => r.trucks.filter((t) => t.defaultDriverId === id).map((t) => t.reg);
   const inactive = $derived(r.drivers.filter((d) => d.active === false).length);
 
@@ -31,7 +32,7 @@
   function open(d: Driver | null) {
     id = d?.id ?? null; errs = [];
     f = d ? { providerId: d.providerId, name: d.name, phone: d.phone, licence: d.licence, hasApp: d.hasApp, active: d.active !== false, appLogin: false }
-      : { providerId: prov || r.providers.find((p) => p.active !== false)?.id || '', name: '', phone: '', licence: '', hasApp: true, active: true, appLogin: true };
+      : { providerId: r.providers.find((p) => p.active !== false)?.id || '', name: '', phone: '', licence: '', hasApp: true, active: true, appLogin: true };
     dlg?.showModal();
   }
   const hasLogin = (phone: string) => r.users.some((u) => u.phone.replace(/\s/g, '') === phone.replace(/\s/g, '') && u.roles.includes('driver'));
@@ -47,6 +48,15 @@
       if (x.login?.pin) { created = x; pinDlg?.showModal(); } else say(id ? `${x.name} saved` : `${x.name} added${x.login ? ' — linked to the existing field-app login' : ''}`);
     } catch (err) { errs = [describe(err).message]; } finally { busy = false; }
   }
+  const columns = $derived<Column<Driver>[]>([
+    { key: 'name', label: 'Name', sticky: true, mobile: 'title', value: (d) => d.name, cell: nameCell },
+    { key: 'phone', label: 'Phone', value: (d) => d.localPhone ?? d.phone, cell: phoneCell, class: 'small' },
+    { key: 'licence', label: 'Licence', value: (d) => d.licence || '-', class: 'mono small', hideBelow: 900 },
+    { key: 'provider', label: 'Provider', value: (d) => lookup.provider(d.providerId)?.name ?? '-', filter: 'select' },
+    { key: 'trucks', label: 'Trucks', value: (d) => trucksOf(d.id).join(', ') || '-', class: 'small', hideBelow: 1000 },
+    { key: 'channel', label: 'Tracking channel', value: (d) => (d.hasApp ? 'Driver app' : 'SMS / office updates'), cell: channelCell, filter: 'select', mobile: 'aside' },
+    ...(canEdit ? [{ key: 'acts', label: '', sortable: false, csv: false as const, cell: actsCell, mobile: 'actions' as const }] : []),
+  ]);
   async function toggle(d: Driver) {
     const off = d.active !== false;
     if (off && !window.confirm(`Deactivate ${d.name}? They are no longer offered for trucks; trips are kept.`)) return;
@@ -55,22 +65,18 @@
 </script>
 
 <div class="toolbar">
-  <label class="t-search"><Search size={16} /><input class="input" type="search" bind:value={q} placeholder="Name, phone or licence" aria-label="Search drivers" /></label>
-  <select class="select" bind:value={prov} aria-label="Provider"><option value="">All providers</option>{#each r.providers as p}<option value={p.id}>{p.name}</option>{/each}</select>
   {#if inactive}<label class="small chk"><input type="checkbox" bind:checked={showInactive} />Show deactivated ({inactive})</label>{/if}
   <span class="grow"></span>
   {#if canEdit}<button class="btn btn-primary" onclick={() => open(null)}><Plus size={16} />Add driver</button>{/if}
 </div>
 
-<div class="card flush table-wrap"><table class="table">
-  <thead><tr><th>Name</th><th>Phone</th><th>Licence</th><th>Provider</th><th>Trucks</th><th>Tracking channel</th>{#if canEdit}<th><span class="sr-only">Actions</span></th>{/if}</tr></thead>
-  <tbody>{#each rows as d (d.id)}
-    <tr class:off={d.active === false}><td>{d.name}{#if d.active === false} <Badge tone="danger">off</Badge>{/if}</td><td class="small">{d.localPhone ?? d.phone}{#if d.phoneNote}<div class="caption tbc">{d.phoneNote}</div>{/if}</td><td class="mono small">{d.licence || '—'}</td><td>{lookup.provider(d.providerId)?.name}</td>
-      <td class="small">{trucksOf(d.id).join(', ') || '—'}</td>
-      <td>{#if d.hasApp}<Badge tone="success">Driver app</Badge>{#if !hasLogin(d.phone)}<div class="caption tbc">no login yet</div>{/if}{:else}<Badge tone="warning">SMS / office updates</Badge>{/if}</td>
-      {#if canEdit}<td><div class="acts"><button class="btn btn-ghost btn-sm" onclick={() => open(d)} aria-label="Edit {d.name}"><Pencil size={14} /></button><button class="btn btn-ghost btn-sm" onclick={() => toggle(d)} aria-label="{d.active === false ? 'Reactivate' : 'Deactivate'} {d.name}" title={d.active === false ? 'Reactivate' : 'Deactivate'}><Power size={14} /></button></div></td>{/if}</tr>
-  {:else}<tr><td colspan="7" class="empty">No driver matches.</td></tr>{/each}</tbody>
-</table></div>
+<DataTable id="md-drivers" label="Drivers" noun="drivers" {rows} {columns} rowKey={(d) => d.id} rowClass={(d) => (d.active === false ? 'off' : '')} initialSort={{ key: 'name', dir: 'asc' }} filename="drivers"
+  searchable searchPlaceholder="Name, phone, licence or truck…" bind:search={q} bind:filters={df} emptyTitle="No driver matches" />
+
+{#snippet nameCell(d: Driver)}{d.name}{#if d.active === false} <Badge tone="danger">off</Badge>{/if}{/snippet}
+{#snippet phoneCell(d: Driver)}{d.localPhone ?? d.phone}{#if d.phoneNote}<div class="caption tbc">{d.phoneNote}</div>{/if}{/snippet}
+{#snippet channelCell(d: Driver)}{#if d.hasApp}<Badge tone="success">Driver app</Badge>{#if !hasLogin(d.phone)}<div class="caption tbc">no login yet</div>{/if}{:else}<Badge tone="warning">SMS / office updates</Badge>{/if}{/snippet}
+{#snippet actsCell(d: Driver)}<div class="acts"><button class="btn btn-ghost btn-sm" onclick={() => open(d)} aria-label="Edit {d.name}"><Pencil size={14} /></button><button class="btn btn-ghost btn-sm" onclick={() => toggle(d)} aria-label="{d.active === false ? 'Reactivate' : 'Deactivate'} {d.name}" title={d.active === false ? 'Reactivate' : 'Deactivate'}><Power size={14} /></button></div>{/snippet}
 
 <dialog class="sheet" bind:this={dlg} aria-labelledby="dr-title">
   <form class="body stack" onsubmit={save}>
@@ -104,17 +110,13 @@
 <style>
   .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-4); }
   .toolbar .grow { flex: 1; }
-  .toolbar .select { width: auto; }
-  .t-search { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-muted); }
-  .t-search .input { width: min(280px, 60vw); }
   .chk { display: inline-flex; align-items: center; gap: var(--space-2); }
   .indent { margin-left: var(--space-5); }
   .acts { display: flex; gap: 2px; justify-content: flex-end; }
-  tr.off { opacity: 0.6; }
+  :global(tr.off) { opacity: 0.6; }
   .tbc { color: var(--warning); }
   .errs { margin: 0; padding: var(--space-2) var(--space-3) var(--space-2) var(--space-6); background: var(--danger-subtle); color: var(--danger); border-radius: var(--radius-md); font-weight: 600; }
   .pin { display: flex; gap: var(--space-6); padding: var(--space-3) var(--space-4); background: var(--surface-sunken); border-radius: var(--radius-md); }
   .pin div { display: flex; flex-direction: column; }
   .pin strong { font-size: 22px; }
-  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>

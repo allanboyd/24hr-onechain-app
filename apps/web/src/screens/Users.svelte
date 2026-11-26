@@ -1,5 +1,6 @@
 <script lang="ts">
   import SystemNav from '../components/SystemNav.svelte';
+  import { DataTable, type Column } from '../components/page';
   // Users & devices: the people on the field app (giver / driver / receiver) and office staff; scopes (UA-02, §17.7);
   // PIN reset and remote sign-out of lost phones (MA-08).
   import { ref, type User } from '@btw/api';
@@ -12,7 +13,6 @@
   import ErrorState from '../components/ErrorState.svelte';
   import UserPlus from '@lucide/svelte/icons/user-plus';
   import Smartphone from '@lucide/svelte/icons/smartphone';
-  import Search from '@lucide/svelte/icons/search';
   let { user }: { user: User } = $props();
 
   const r = ref();
@@ -25,11 +25,21 @@
   const isField = isFieldUser;
   const code = (id: string) => r.entities.find((e) => e.id === id)?.shortName ?? r.suppliers.find((s) => s.id === id)?.code ?? id;
   const pairKey = (e: string, s: string) => `${e}|${s}`;
-  const rows = $derived((list ?? []).filter((u) =>
-    (tab === 'all' ? u.active : tab === 'field' ? u.active && isField(u) : tab === 'office' ? u.active && !isField(u) : !u.active) &&
-    (!q || `${u.name} ${u.phone} ${u.roles.join(' ')}`.toLowerCase().includes(q.toLowerCase()))));
+  // V3-8 batch 2: the group tabs choose the rows; search and the Field sign-in filter sit in the table
+  const rows = $derived((list ?? []).filter((u) => (tab === 'all' ? u.active : tab === 'field' ? u.active && isField(u) : tab === 'office' ? u.active && !isField(u) : !u.active)));
   const count = (t: typeof tab) => (list ?? []).filter((u) => (t === 'all' ? u.active : t === 'field' ? u.active && isField(u) : t === 'office' ? u.active && !isField(u) : !u.active)).length;
   const roleLabel = (x: string) => [...FIELD_ROLES, ...OFFICE_ROLES].find((y) => y.role === x)?.label.replace(' (giver)', '') ?? x;
+  const signIn = (u: AdminUser) => (isFieldUser(u) ? (u.hasPin ? 'PIN set' : 'No PIN yet') : 'Web only');
+  let filters = $state({});
+  const columns: Column<AdminUser>[] = [
+    { key: 'name', label: 'Name', sticky: true, mobile: 'title', value: (u) => u.name, cell: nameCell },
+    { key: 'phone', label: 'Phone', value: (u) => u.phone, class: 'mono small nowrap' },
+    { key: 'roles', label: 'Roles', value: (u) => u.roles.map(roleLabel).join(', '), cell: rolesCell, sortable: false },
+    { key: 'scope', label: 'Scope', value: (u) => scopeText(u), class: 'small', hideBelow: 1100 },
+    { key: 'signin', label: 'Field sign-in', value: signIn, cell: signInCell, class: 'small', filter: 'select' },
+    { key: 'last', label: 'Last sign-in', sortValue: (u) => u.lastLoginAt ?? '', value: (u) => (u.lastLoginAt ? ago(u.lastLoginAt) : 'Never'), csv: (u) => u.lastLoginAt ?? '', cell: lastCell, class: 'small nowrap', hideBelow: 900 },
+    { key: 'status', label: 'Status', value: (u) => (u.active ? 'Active' : 'Deactivated'), cell: statusCell, mobile: 'aside' },
+  ];
   function scopeText(u: AdminUser) {
     const parts = [
       ...u.loadingPointIds.map((id) => r.suppliers.find((s) => s.id === id)?.code),
@@ -95,35 +105,21 @@
 </div>
 
 <Tabs label="User groups" tabs={(['all', 'field', 'office', 'inactive'] as const).map((k) => ({ key: k, label: GROUP_LABEL[k], n: count(k) }))} value={tab} onselect={(k) => (tab = k)} />
-<div class="filters">
-  <label class="field"><span>Search</span><span class="search"><Search size={16} /><input class="input" type="search" bind:value={q} placeholder="Name, phone or role" /></span></label>
-</div>
 
 {#if w.error && !w.loaded}
   {#if isNotAvailable(w.error)}<div class="card empty"><h3>User management isn’t on this server yet</h3><p class="small">The API doesn’t expose /users. Ask the API team to deploy it.</p></div>
   {:else}<ErrorState error={w.error} onretry={w.retry} />{/if}
 {:else}
   <ErrorState error={w.error} onretry={w.retry} compact />
-  <div class="card flush table-wrap">
-    <table class="table">
-      <thead><tr><th>Name</th><th>Phone</th><th>Roles</th><th>Scope</th><th>Field sign-in</th><th>Last sign-in</th><th>Status</th></tr></thead>
-      <tbody>
-        {#if !list}{#each Array(5) as _}<tr><td colspan="7"><div class="skeleton"></div></td></tr>{/each}{/if}
-        {#each rows as u (u.id)}
-          <tr class="clickable" onclick={() => open(u)}>
-            <td><strong>{u.name}</strong>{#if u.id === user.id}<span class="caption"> · you</span>{/if}</td>
-            <td class="mono small">{u.phone}</td>
-            <td><div class="row" style="gap:4px">{#each u.roles as role}<Badge tone={FIELDISH.includes(role) ? 'accent' : 'neutral'}>{roleLabel(role)}</Badge>{/each}</div></td>
-            <td class="small">{scopeText(u)}</td>
-            <td class="small">{#if isFieldUser(u)}{#if u.hasPin}<span class="row" style="gap:4px"><Smartphone size={14} />PIN set</span>{:else}<Badge tone="warning">No PIN yet</Badge>{/if}{:else}<span class="subtle">Web only</span>{/if}</td>
-            <td class="small">{#if u.lastLoginAt}<span title={new Date(u.lastLoginAt).toLocaleString('en-GB')}>{ago(u.lastLoginAt)}</span>{:else}<span class="subtle">Never</span>{/if}</td>
-            <td>{#if u.active}<Badge tone="success">Active</Badge>{:else}<Badge tone="neutral">Deactivated</Badge>{/if}</td>
-          </tr>
-        {:else}{#if list}<tr><td colspan="7" class="empty">No users match.</td></tr>{/if}{/each}
-      </tbody>
-    </table>
-  </div>
+  <DataTable id="users" label="Users" noun="users" rows={list ? rows : null} {columns} rowKey={(u) => u.id} onrowclick={open} initialSort={{ key: 'name', dir: 'asc' }} filename="users"
+    searchable searchPlaceholder="Name, phone, role or scope…" bind:search={q} bind:filters emptyTitle="No users match" />
 {/if}
+
+{#snippet nameCell(u: AdminUser)}<strong>{u.name}</strong>{#if u.id === user.id}<span class="caption"> · you</span>{/if}{/snippet}
+{#snippet rolesCell(u: AdminUser)}<div class="row" style="gap:4px">{#each u.roles as role}<Badge tone={FIELDISH.includes(role) ? 'accent' : 'neutral'}>{roleLabel(role)}</Badge>{/each}</div>{/snippet}
+{#snippet signInCell(u: AdminUser)}{#if isFieldUser(u)}{#if u.hasPin}<span class="row" style="gap:4px"><Smartphone size={14} />PIN set</span>{:else}<Badge tone="warning">No PIN yet</Badge>{/if}{:else}<span class="subtle">Web only</span>{/if}{/snippet}
+{#snippet lastCell(u: AdminUser)}{#if u.lastLoginAt}<span title={new Date(u.lastLoginAt).toLocaleString('en-GB')}>{ago(u.lastLoginAt)}</span>{:else}<span class="subtle">Never</span>{/if}{/snippet}
+{#snippet statusCell(u: AdminUser)}{#if u.active}<Badge tone="success">Active</Badge>{:else}<Badge tone="neutral">Deactivated</Badge>{/if}{/snippet}
 
 <dialog class="sheet wide" bind:this={dlg} aria-label={editing ? 'Edit user' : 'New user'}>
   <form class="body stack" onsubmit={save}>
@@ -187,9 +183,6 @@
 </dialog>
 
 <style>
-  .search { position: relative; display: flex; align-items: center; }
-  .search :global(svg) { position: absolute; left: 10px; color: var(--text-subtle); }
-  .search .input { padding-left: 32px; min-width: 260px; }
   :global(dialog.sheet.wide) { width: min(760px, calc(100vw - 32px)); }
   fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
   .chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
