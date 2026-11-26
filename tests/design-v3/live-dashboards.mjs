@@ -47,12 +47,12 @@ ok(chrome.tickCount >= 2 && chrome.tickHits === 0, `border heatmap column labels
 ok(await p.getByRole('group', { name: 'Warehouse' }).getByRole('button', { name: 'Combined' }).getAttribute('aria-pressed') === 'true', 'Fleet uses the report filter bar (warehouse chips)');
 ok(await p.getByRole('group', { name: 'Period' }).getByRole('button', { name: '30 days' }).getAttribute('aria-pressed') === 'true', 'period chips match the report, 30 days selected');
 const barShape = () => p.locator('.fbar').evaluate((bar) => {
-  const rows = bar.querySelectorAll(':scope > .fbar-row').length;
-  const tops = new Set([...bar.querySelectorAll('.picks label')].map((el) => Math.round(el.getBoundingClientRect().top)));
-  return { rows, lines: tops.size, h: Math.round(bar.getBoundingClientRect().height) };
+  const row = bar.querySelector(':scope > .fbar-row');
+  const bits = [...(row?.children ?? [])].map((el) => Math.round(el.getBoundingClientRect().top));
+  return { rows: bar.querySelectorAll(':scope > .fbar-row').length, lines: new Set(bits).size, h: Math.round(bar.getBoundingClientRect().height) };
 });
 const fleetBar = await barShape();
-ok(fleetBar.rows === 2 && fleetBar.lines === 1 && fleetBar.h < 180, `Fleet filter bar is two rows (${fleetBar.rows} rows, selects on ${fleetBar.lines} line, ${fleetBar.h}px)`);
+ok(fleetBar.rows === 1 && fleetBar.lines === 1 && fleetBar.h < 90, `Fleet filter bar is one row (${fleetBar.rows} rows, ${fleetBar.lines} line, ${fleetBar.h}px)`);
 await p.screenshot({ path: `${out}/fleet-fit.png` });
 const tabs = ['business', 'purchasing', 'loading', 'fees', 'deliveries', 'warehouse', 'sales', 'admin'];
 for (const tab of tabs) {
@@ -63,7 +63,7 @@ for (const tab of tabs) {
   const shape = await barShape();
   const panels = await p.locator('.dash-panel').count();
   const method = await p.locator('.dash-method').count();
-  ok(bar === 1 && shape.rows === 2 && shape.lines === 1 && shape.h < 180 && panels > 0 && method === 0, `${tab}: two-row filter bar (${shape.h}px), ${panels} cards, no method text`);
+  ok(bar === 1 && shape.rows === 1 && shape.lines === 1 && shape.h < 90 && panels > 0 && method === 0, `${tab}: one-row filter bar (${shape.h}px), ${panels} cards, no method text`);
   await p.screenshot({ path: `${out}/tab-${tab}.png` });
 }
 await p.setViewportSize({ width: 390, height: 844 });
