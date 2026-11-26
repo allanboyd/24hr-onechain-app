@@ -6,6 +6,7 @@
   import { watch } from '../../../lib/load.svelte';
   import ErrorState from '../../../components/ErrorState.svelte';
   import SmoothTrend from '../../../components/charts/SmoothTrend.svelte';
+  import { BarChart } from '../../../components/charts';
   import { compact } from '../../../components/charts/scale';
   import { currency, cv, cvRow } from '../fmt.svelte';
   import '../../../components/dashboard/report.css';
@@ -44,10 +45,6 @@
   const axisFmt = (n: number) => cmp1.format(n);
   const moneyTxt = (usd: number | null | undefined) => (usd == null ? 'No data yet' : `${currency.code} ${amount(usd)}`);
   const dayFmt = (iso: string, o: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' }) => new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString('en-GB', { ...o, timeZone: 'UTC' });
-  function change(v: number | null, p: number | null) {
-    if (v == null || p == null || !p) return null;
-    return (v - p) / Math.abs(p);
-  }
   let hideSales = $state(false), hideProfit = $state(false);
   const chart = $derived.by(() => {
     if (!d) return { labels: [] as string[], sales: [] as (number | null)[], profit: [] as (number | null)[] };
@@ -63,9 +60,12 @@
   const decRows = () => [['Decision', 'State', 'Count', `Value (${currency.code})`, 'Detail', 'Owner', 'Link'], ...(d?.decisions ?? []).map((x) => [x.label, STATE[x.severity], x.count ?? '-', cvRow(x.value), x.detail, x.owner, x.href])];
 
   const sold = $derived([...(d?.top ?? [])].sort((a, b) => b.cases - a.cases).slice(0, 5));
+  const soldName = (x: { brand: string; pack: string }) => {
+    const kind = /bottle/i.test(x.pack) ? 'bottles' : /can/i.test(x.pack) ? 'cans' : '';
+    return kind && !new RegExp(kind, 'i').test(x.brand) ? `${x.brand} ${kind}` : x.brand;
+  };
   const soldRows = () => [['Product', 'Cases', `Sales (${currency.code})`], ...sold.map((x) => [x.pack ? `${x.brand} ${x.pack}` : x.brand, x.cases, cvRow(x.revenue)])];
 
-  const sc = $derived(d ? change(d.sales.value, d.sales.prev) : null);
   const DAY = 864e5;
   const debtors = $derived.by(() => {
     const map = new Map<string, { customer: string; value: number; late: number }>();
@@ -118,7 +118,6 @@
   const plan = $derived((extra['mgmt-plans']?.data as { measures?: { planned?: number; ordered?: number } } | undefined)?.measures);
   const wh = $derived(extra['warehouse-today']?.data as { sign?: { count: number }; arriving?: { trucks: number }; losses?: { deliveries: number } } | undefined);
   const buyers = $derived((extra['mgmt-clients']?.data as { kpis?: { clients?: number } } | undefined)?.kpis);
-  const salesChip = $derived(sc == null ? null : { up: sc >= 0, text: `${Math.abs(sc * 100).toFixed(0)}%` });
 </script>
 
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
@@ -127,21 +126,6 @@
   <div class="facts sk">{#each Array(8) as _, i (i)}<div class="card skel"></div>{/each}</div>
 {:else if d}
   <div class="dash-kpis facts" class:busy={w.loading}>
-    <a class="card kpi" href="#/dashboards/sales">
-      <span class="lbl">Sales</span>
-      <b class="val">{moneyVal(d.sales.value)}</b>
-      <span class="sub">{#if salesChip}<span class="dash-chip" class:good={salesChip.up} class:bad={!salesChip.up}>{salesChip.up ? '▲' : '▼'} {salesChip.text}</span>{/if} {d.mtd ? 'vs same days last month' : 'Past period'}</span>
-    </a>
-    <a class="card kpi" href="#/sales?show=owed">
-      <span class="lbl">Cash to collect</span>
-      <b class="val">{moneyVal(d.cash.value)}</b>
-      <span class="sub">{d.cash.overdue ? `${moneyVal(d.cash.overdue)} overdue` : 'Nothing overdue'}</span>
-    </a>
-    <a class="card kpi" href="#/sales?show=owed">
-      <span class="lbl">Money owed</span>
-      <b class="val">{moneyVal(d.owed.total)}</b>
-      <span class="sub">{d.owed.total == null ? 'Open balances' : (d.owed.total - (d.owed.overdue ?? 0)) > 0.5 ? `${moneyVal(d.owed.total - (d.owed.overdue ?? 0))} within terms` : 'Nothing within terms'}</span>
-    </a>
     <a class="card kpi" href="#/pos">
       <span class="lbl">Purchase orders</span>
       <b class="val">{stages.length ? count(poCount) : '-'}</b>
@@ -162,6 +146,58 @@
       <b class="val">{d.trucks.value == null ? '-' : count(d.trucks.value)}</b>
       <span class="sub">{d.trucks.delayed ? `${d.trucks.delayed} delayed` : 'None delayed'} · {d.trucks.arrivingToday} today</span>
     </a>
+  </div>
+
+  <div class="graphs" class:busy={w.loading}>
+    <div>
+      <TodayCard title="Sales and profit" caption="{currency.code} · total {compact(chartTotal.sales)} sales, {compact(chartTotal.profit)} profit" updatedAt={res?.freshness ?? null} rows={chartRows} filename="sales-and-profit" empty={!chart.sales.some((v) => v != null)} viewToggle>
+        {#snippet actions()}
+          <div class="legend" role="group" aria-label="Show or hide a line">
+            <button class="lg" aria-pressed={!hideSales} onclick={() => (hideSales = !hideSales)}><i style="background:var(--t-sales)"></i>Sales</button>
+            <button class="lg" aria-pressed={!hideProfit} onclick={() => (hideProfit = !hideProfit)}><i style="background:var(--t-profit)"></i>Profit</button>
+          </div>
+        {/snippet}
+        <SmoothTrend label="Sales and profit" labels={chart.labels}
+          series={[{ name: 'Sales', values: chart.sales, color: 'var(--t-sales)', area: true, hidden: hideSales }, { name: 'Profit', values: chart.profit, color: 'var(--t-profit)', hidden: hideProfit }]}
+          format={axisFmt} xLabel={(s) => dayFmt(s)} tipLabel={(s) => dayFmt(s, { weekday: 'short', day: 'numeric', month: 'short' })} height={240} />
+      </TodayCard>
+    </div>
+    <div>
+      <TodayCard title="Money owed" caption="Largest balances" updatedAt={res?.freshness ?? null} rows={owedRows} filename="money-owed" empty={!debtors.length} drill={{ label: 'Open customer balances', href: '#/sales?show=owed' }} viewToggle>
+        {#snippet tableView()}
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Customer</th><th>Standing</th><th class="num">Balance</th></tr></thead>
+            <tbody>{#each debtors as x (x.customer)}<tr><td>{x.customer}</td><td>{lateLabel(x.late)}</td><td class="num">{moneyTxt(x.value)}</td></tr>{/each}</tbody>
+          </table></div>
+        {/snippet}
+        <BarChart horizontal label="Who owes the most" categories={debtors.map((x) => x.customer)} series={[{ name: `Balance (${currency.code})`, values: debtors.map((x) => cv(x.value)), ink: 'warn' }]} format={axisFmt} height={240} />
+      </TodayCard>
+    </div>
+    <div>
+      <TodayCard title="Most sold" caption="Top 5 products by cases" updatedAt={res?.freshness ?? null} rows={soldRows} filename="most-sold" empty={!sold.length} drill={{ label: 'Open sales', href: '#/sales' }} viewToggle>
+        {#snippet tableView()}
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Product</th><th class="num">Cases</th><th class="num">Sales</th></tr></thead>
+            <tbody>{#each sold as x (x.productId)}<tr><td>{x.brand}{x.pack ? ` ${x.pack}` : ''}</td><td class="num">{count(x.cases)}</td><td class="num">{moneyTxt(x.revenue)}</td></tr>{/each}</tbody>
+          </table></div>
+        {/snippet}
+        <BarChart horizontal label="Most sold" categories={sold.map(soldName)} series={[{ name: 'Cases', values: sold.map((x) => x.cases), ink: 'navy' }]} format={(n) => Math.round(n).toLocaleString('en-US')} height={240} />
+      </TodayCard>
+    </div>
+    <div>
+      <TodayCard title="Trucks" caption="Where they are now" updatedAt={res?.freshness ?? null} rows={truckRows} filename="trucks-now" empty={!onMap.length} emptyText="No trucks on the road" drill={{ label: 'Open shipments', href: '#/shipments' }} viewToggle>
+        {#snippet tableView()}
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Truck</th><th>Where</th><th>Status</th></tr></thead>
+            <tbody>{#each onMap as sh (sh.id)}<tr><td>{lookup.truck(legOf(sh)?.truckId ?? '')?.reg ?? '-'}</td><td>{placeOf(sh)}</td><td>{sh.status}</td></tr>{/each}</tbody>
+          </table></div>
+        {/snippet}
+        <TruckMap items={onMap} />
+      </TodayCard>
+    </div>
+  </div>
+
+  <div class="dash-kpis facts" class:busy={w.loading}>
     <a class="card kpi" href="#/shipments?show=delivered">
       <span class="lbl">Collected trips</span>
       <b class="val">{wh?.losses ? count(wh.losses.deliveries) : '-'}</b>
@@ -184,95 +220,27 @@
     </a>
   </div>
 
-  <!-- Decisions | Sales | Trucks -->
-  <div class="main" class:busy={w.loading}>
-    <div class="slot o-dec">
-      <TodayCard title="Decisions" tone="primary" caption="Six things to clear" updatedAt={res?.freshness ?? null} rows={decRows} filename="decisions-today" viewToggle>
-        {#snippet tableView()}
-          <div class="table-wrap"><table class="table">
-            <thead><tr><th>Decision</th><th class="num">Count</th><th>Owner</th></tr></thead>
-            <tbody>{#each d.decisions as x}<tr><td>{x.label}</td><td class="num">{x.count ?? '-'}</td><td>{x.owner}</td></tr>{/each}</tbody>
-          </table></div>
-        {/snippet}
-        <ul class="dec">
-          {#each d.decisions as x (x.key)}
-            {@const Icon = ICON[x.key]}
-            <li class="sev-{x.severity}"><a href={x.href}>
-              <span class="ic"><Icon size={16} aria-hidden="true" /></span>
-              <span class="tx"><b>{x.label}</b><span>{x.detail}</span></span>
-              <span class="st">{STATE[x.severity]}</span>
-              <span class="ct"><b>{x.count ?? '-'}</b></span>
-              <ChevronRight size={15} class="chev" aria-hidden="true" />
-            </a></li>
-          {/each}
-        </ul>
-      </TodayCard>
-    </div>
-
-    <div class="slot o-chart">
-      <TodayCard title="Sales and profit" caption="{currency.code} · total {compact(chartTotal.sales)} sales, {compact(chartTotal.profit)} profit" updatedAt={res?.freshness ?? null} rows={chartRows} filename="sales-and-profit" empty={!chart.sales.some((v) => v != null)} viewToggle>
-        {#snippet actions()}
-          <div class="legend" role="group" aria-label="Show or hide a line">
-            <button class="lg" aria-pressed={!hideSales} onclick={() => (hideSales = !hideSales)}><i style="background:var(--t-sales)"></i>Sales</button>
-            <button class="lg" aria-pressed={!hideProfit} onclick={() => (hideProfit = !hideProfit)}><i style="background:var(--t-profit)"></i>Profit</button>
-          </div>
-        {/snippet}
-        <SmoothTrend label="Sales and profit" labels={chart.labels}
-          series={[{ name: 'Sales', values: chart.sales, color: 'var(--t-sales)', area: true, hidden: hideSales }, { name: 'Profit', values: chart.profit, color: 'var(--t-profit)', hidden: hideProfit }]}
-          format={axisFmt} xLabel={(s) => dayFmt(s)} tipLabel={(s) => dayFmt(s, { weekday: 'short', day: 'numeric', month: 'short' })} height={260} />
-      </TodayCard>
-    </div>
-
-    <div class="slot o-stock">
-      <TodayCard title="Trucks" caption="Where they are now" updatedAt={res?.freshness ?? null} rows={truckRows} filename="trucks-now" empty={!onMap.length} emptyText="No trucks on the road" drill={{ label: 'Open shipments', href: '#/shipments' }} viewToggle>
-        {#snippet tableView()}
-          <div class="table-wrap"><table class="table">
-            <thead><tr><th>Truck</th><th>Where</th><th>Status</th></tr></thead>
-            <tbody>{#each onMap as sh (sh.id)}<tr><td>{lookup.truck(legOf(sh)?.truckId ?? '')?.reg ?? '-'}</td><td>{placeOf(sh)}</td><td>{sh.status}</td></tr>{/each}</tbody>
-          </table></div>
-        {/snippet}
-        <TruckMap items={onMap} />
-      </TodayCard>
-    </div>
-  </div>
-
-  <div class="pair" class:busy={w.loading}>
-    <div>
-      <TodayCard title="Money owed" caption="Late means past that client's credit days" updatedAt={res?.freshness ?? null} rows={owedRows} filename="money-owed" empty={!debtors.length} drill={{ label: 'Open customer balances', href: '#/sales?show=owed' }} viewToggle>
-        {#snippet tableView()}
-          <div class="table-wrap"><table class="table">
-            <thead><tr><th>Customer</th><th>Standing</th><th class="num">Balance</th></tr></thead>
-            <tbody>{#each debtors as x (x.customer)}<tr><td>{x.customer}</td><td>{lateLabel(x.late)}</td><td class="num">{moneyTxt(x.value)}</td></tr>{/each}</tbody>
-          </table></div>
-        {/snippet}
-        <ul class="rows">
-          {#each debtors as x (x.customer)}
-            <li>
-              <span class="nm"><b>{x.customer}</b><span class="late" class:on={x.late < 1} class:soon={x.late >= 1 && x.late <= 30} class:over={x.late > 30}>{lateLabel(x.late)}</span></span>
-              <span class="cases">{moneyTxt(x.value)}</span>
-            </li>
-          {/each}
-        </ul>
-      </TodayCard>
-    </div>
-    <div>
-      <TodayCard title="Most sold" caption="Top 5 products by cases" updatedAt={res?.freshness ?? null} rows={soldRows} filename="most-sold" empty={!sold.length} drill={{ label: 'Open sales', href: '#/sales' }} viewToggle>
-        {#snippet tableView()}
-          <div class="table-wrap"><table class="table">
-            <thead><tr><th>Product</th><th class="num">Cases</th><th class="num">Sales</th></tr></thead>
-            <tbody>{#each sold as x (x.productId)}<tr><td>{x.brand}{x.pack ? ` ${x.pack}` : ''}</td><td class="num">{count(x.cases)}</td><td class="num">{moneyTxt(x.revenue)}</td></tr>{/each}</tbody>
-          </table></div>
-        {/snippet}
-        <ul class="rows">
-          {#each sold as x (x.productId)}
-            <li>
-              <span class="nm"><b>{x.brand}</b>{#if x.pack}<span>{x.pack}</span>{/if}</span>
-              <span class="cases">{count(x.cases)} cases</span>
-            </li>
-          {/each}
-        </ul>
-      </TodayCard>
-    </div>
+  <div class="dec-wrap" class:busy={w.loading}>
+    <TodayCard title="Decisions" tone="primary" caption="Six things to clear" updatedAt={res?.freshness ?? null} rows={decRows} filename="decisions-today" viewToggle>
+      {#snippet tableView()}
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Decision</th><th class="num">Count</th><th>Owner</th></tr></thead>
+          <tbody>{#each d.decisions as x}<tr><td>{x.label}</td><td class="num">{x.count ?? '-'}</td><td>{x.owner}</td></tr>{/each}</tbody>
+        </table></div>
+      {/snippet}
+      <ul class="dec">
+        {#each d.decisions as x (x.key)}
+          {@const Icon = ICON[x.key]}
+          <li class="sev-{x.severity}"><a href={x.href}>
+            <span class="ic"><Icon size={16} aria-hidden="true" /></span>
+            <span class="tx"><b>{x.label}</b><span>{x.detail}</span></span>
+            <span class="st">{STATE[x.severity]}</span>
+            <span class="ct"><b>{x.count ?? '-'}</b></span>
+            <ChevronRight size={15} class="chev" aria-hidden="true" />
+          </a></li>
+        {/each}
+      </ul>
+    </TodayCard>
   </div>
 {/if}
 
@@ -282,19 +250,15 @@
   :global(:root[data-theme='dark']) { --t-sales: #9bb6d6; --t-profit: #3dbe8a; }
 
   .busy { opacity: 0.6; transition: opacity 0.2s; }
-  .facts { margin-bottom: var(--space-5); }
-  .sk { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(176px, 1fr)); }
+  .facts { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: var(--space-4); }
+  .sk { display: grid; gap: 14px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .skel { height: 118px; }
 
-  .main {
-    display: grid;
-    grid-template-columns: minmax(220px, 0.85fr) minmax(0, 1.35fr) minmax(240px, 1fr);
-    gap: var(--space-4);
-    align-items: stretch;
-    margin-bottom: var(--space-5);
-  }
-  .slot { display: flex; flex-direction: column; min-width: 0; min-height: 100%; }
-  .slot > :global(.tc) { flex: 1; width: 100%; }
+  .graphs { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); align-items: stretch; margin-bottom: var(--space-4); }
+  .graphs > div { display: flex; min-width: 0; }
+  .graphs > div > :global(.tc) { flex: 1; width: 100%; }
+  .dec-wrap { margin-bottom: var(--space-4); }
+  .dec { display: grid; grid-template-columns: 1fr 1fr; }
 
   .legend { display: flex; gap: 2px; }
   .lg { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 0; background: none; border-radius: var(--radius-md); font: inherit; font-size: 13px; color: var(--text); cursor: pointer; }
@@ -303,8 +267,11 @@
   .lg[aria-pressed='false'] i { opacity: 0.35; }
   .lg:hover { background: var(--surface-sunken); }
 
-  .dec { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-  .dec li + li { border-top: 1px solid color-mix(in srgb, var(--text-on-primary) 22%, transparent); }
+  .dec { list-style: none; margin: 0; padding: 0; }
+  .dec li { border-top: 1px solid color-mix(in srgb, var(--text-on-primary) 22%, transparent); }
+  .dec li:nth-child(-n + 2) { border-top: 0; }
+  .dec li:nth-child(odd) { padding-right: var(--space-4); }
+  .dec li:nth-child(even) { padding-left: var(--space-4); border-left: 1px solid color-mix(in srgb, var(--text-on-primary) 22%, transparent); }
   .dec a { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto auto 14px; align-items: center; gap: var(--space-2); padding: 8px 0; color: var(--text-on-primary); text-decoration: none; }
   .dec a:hover b { text-decoration: underline; }
   .dec .ic { display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-md); background: transparent; color: var(--text-on-primary); }
@@ -319,23 +286,12 @@
   .ct b { font-size: 16px; font-variant-numeric: tabular-nums; color: var(--text-on-primary); }
   .dec :global(.chev) { color: var(--text-on-primary); }
 
-  .rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-  .rows li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding: 8px 0; }
-  .rows li + li { border-top: 1px solid var(--border); }
-  .rows .nm { display: flex; flex-direction: column; min-width: 0; }
-  .rows .nm b { font-size: 13px; line-height: 1.3; }
-  .rows .nm span, .rows .cases { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rows .cases { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
-  .late { font-weight: 700; }
-  .late.on { color: var(--success); }
-  .late.soon { color: var(--warning); }
-  .late.over { color: var(--danger); }
-
-  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); align-items: stretch; margin-bottom: var(--space-4); }
-  .pair > div { display: flex; min-width: 0; }
-  .pair > div > :global(.tc) { flex: 1; width: 100%; }
-
   @media (max-width: 1100px) {
-    .main, .pair { grid-template-columns: 1fr; }
+    .facts, .sk, .dec { grid-template-columns: 1fr 1fr; }
+    .graphs { grid-template-columns: 1fr; }
+    .dec li:nth-child(odd) { padding-right: 0; }
+    .dec li:nth-child(even) { padding-left: 0; border-left: 0; }
+    .dec li:nth-child(-n + 2) { border-top: 1px solid color-mix(in srgb, var(--text-on-primary) 22%, transparent); }
+    .dec li:first-child { border-top: 0; }
   }
 </style>
