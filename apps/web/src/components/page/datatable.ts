@@ -112,7 +112,7 @@ export interface Processed<T> {
 /** Search, filter and sort rows with TanStack Table. Each column becomes three TanStack columns: `key` sorts by
  *  sortValue / value; `key__f` is what filters and pick-lists use (filterValue / value / sortValue); `key__s` is the text
  *  the search box matches (value / sortValue), so a search never matches a hidden id. */
-export function processRows<T>(o: { rows: T[]; columns: Column<T>[]; rowKey: (r: T) => string; sort: SortState | null; search?: string; filters?: Filters }): Processed<T> {
+export function processRows<T>(o: { rows: T[]; columns: Column<T>[]; rowKey: (r: T) => string; sort: SortState | null; search?: string; filters?: Filters; searchExtra?: (r: T) => string }): Processed<T> {
   const cols = o.columns.flatMap((c) => {
     const sortGet = c.sortValue ?? c.value;
     const kind = c.filter;
@@ -129,7 +129,9 @@ export function processRows<T>(o: { rows: T[]; columns: Column<T>[]; rowKey: (r:
       { id: c.key + S, accessorFn: (r: T) => { const v = (c.value ?? c.sortValue)?.(r); return isEmpty(v) ? undefined : String(v); } },
     ];
   });
+  if (o.searchExtra) cols.push({ id: '__extra' + S, accessorFn: (r: T) => o.searchExtra!(r) } as any);
   const searchable = new Set(o.columns.filter((c) => c.searchable !== false && (c.value ?? c.sortValue) && c.csv !== false).map((c) => c.key + S));
+  if (o.searchExtra) searchable.add('__extra' + S);
   const columnFilters = Object.entries(o.filters ?? {}).filter(([k, v]) => isActive(v) && o.columns.some((c) => c.key === k)).map(([k, v]) => ({ id: k + F, value: v }));
   const table = constructTable({
     features, columns: cols as any, data: o.rows, getRowId: (r: T) => o.rowKey(r),

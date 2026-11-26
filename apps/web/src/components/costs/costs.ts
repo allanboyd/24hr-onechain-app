@@ -67,6 +67,6 @@ export const canPayTrip = (r: TripRef) => !!r.agreed && r.status !== 'Paid';
 /** List filters of the page, kept in the hash query (shared by the tabs; `show` = the summary strip). Old Transport fees
  *  links used `q` (reference search); `status`, `flag`, `provider` are the Fees filters, `pay` the Trips payment filter,
  *  `kind`, `route`, `period` (YYYY-MM) the Expenses filters. */
-export const FILTER_KEYS = { show: '', q: '', status: '', flag: '', provider: '', pay: '', kind: '', route: '', period: '' };
+export const FILTER_KEYS = { show: '', q: '', status: '', flag: '', provider: '', pay: '', kind: '', route: '', period: '', bal: '', entity: '' }; // V3-8: bal = balance range, entity = company (table filters)
 export type FilterKey = keyof typeof FILTER_KEYS;
 export type CostFilters = QueryFilters<FilterKey>;

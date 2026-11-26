@@ -80,8 +80,50 @@ await p.goto(`${base}#/pos?stage=all`); await p.waitForTimeout(1200);
 ok(await p.getByLabel('Status').locator('option', { hasText: /deleted/i }).count() === 1, 'Status in the table toolbar still offers deleted orders');
 ok(await p.getByRole('combobox', { name: 'Status' }).count() === 1, 'one Status select in the toolbar');
 
+// ---- phase 2 batch 1: the other DataTable screens ----
+async function screen(path, word, filterLegend, chipLabel, param) {
+  await p.goto(`${base}#${path}`); await p.locator('.dt-table tbody tr, .dt-cards .dt-card').first().waitFor({ timeout: 15_000 }).catch(() => {}); await p.waitForTimeout(800);
+  const n0 = await rowsShown();
+  ok(await p.locator('.dt-search input').count() === 1, `${path}: search box in the table`);
+  if (word) {
+    await p.locator('.dt-search input').fill(word); await p.waitForTimeout(500);
+    const n1 = await rowsShown();
+    ok(n1 > 0 && n1 <= n0, `${path}: search "${word}" ${n0} → ${n1}`);
+    await p.getByRole('button', { name: 'Clear the search' }).click(); await p.waitForTimeout(300);
+  }
+  if (filterLegend) {
+    await p.getByRole('button', { name: /^Filters/ }).click(); await p.waitForTimeout(300);
+    const fs = p.getByRole('dialog', { name: /Filters for/ }).locator('fieldset', { hasText: filterLegend });
+    const o = fs.locator('.dt-opt').first(); const cnt = Number((await o.innerText()).split('\n').at(-1));
+    await o.locator('input').check(); await p.waitForTimeout(400);
+    await p.getByRole('dialog', { name: /Filters for/ }).getByRole('button', { name: 'Done' }).click();
+    ok(await rowsShown() === cnt, `${path}: ${filterLegend} filter → ${cnt} rows (its count)`);
+    ok(await p.locator('.dt-chip', { hasText: `${chipLabel}:` }).count() === 1 && hash().includes(`${param}=`), `${path}: chip "${chipLabel}" + ?${param}=`);
+    await p.locator('.dt-chips').getByRole('button', { name: 'Clear all' }).click(); await p.waitForTimeout(300);
+  }
+  ok(await p.locator('form.filterbar, .filter-bar').count() === 0, `${path}: no separate filter bar`);
+}
+await screen('/shipments?show=all', 'KBL', 'Status', 'Status', 'status');
+await screen('/sales', 'a', 'Warehouse', 'Warehouse', 'wh');
+await screen('/transport-costs', 'SSD', 'Provider', 'Provider', 'provider');
+await screen('/transport-costs?tab=trips', 'SSD', 'Route', 'Route', 'route');
+await screen('/stock?show=all', 'Gin', 'Level', 'Level', 'level');
+// BUG-3: Stock's table follows its filters (it used to list every line)
+await p.goto(`${base}#/stock?show=all`); await p.waitForTimeout(2000);
+const allLines = await rowsShown();
+await p.getByRole('button', { name: /^Filters/ }).click(); await p.waitForTimeout(300);
+const lvl = p.getByRole('dialog', { name: /Filters for/ }).locator('fieldset', { hasText: 'Level' }).locator('.dt-opt').first();
+const lvlCount = Number((await lvl.innerText()).split('\n').at(-1)); await lvl.locator('input').check(); await p.waitForTimeout(400);
+await p.getByRole('dialog', { name: /Filters for/ }).getByRole('button', { name: 'Done' }).click();
+const stripText = (await p.locator('.filter-note').first().textContent()) ?? '';
+ok(await rowsShown() === lvlCount && lvlCount < allLines && stripText.includes(`${lvlCount} of`), `BUG-3: Stock table = strip = ${lvlCount} of ${allLines} lines`);
+await p.locator('.dt-chips').getByRole('button', { name: 'Clear all' }).click(); await p.waitForTimeout(300);
+// the Shipments map uses the same filtered rows
+await p.goto(`${base}#/shipments?show=all&q=KBL&view=map`); await p.waitForTimeout(2500);
+ok(/Showing \d+ of/.test((await p.locator('.filter-note').first().textContent()) ?? ''), 'Shipments map: the strip counts the searched rows');
+
 // phone: cards + search still there
-await p.setViewportSize({ width: 390, height: 844 }); await p.reload(); await p.waitForTimeout(1500);
+await p.setViewportSize({ width: 390, height: 844 }); await p.goto(`${base}#/pos?stage=all`); await p.waitForTimeout(1800);
 ok(await p.locator('.dt-cards .dt-card').count() > 0 && await p.getByPlaceholder('Search reference, title, supplier…').isVisible(), 'phone: cards with the search box');
 await p.screenshot({ path: `${out}/tables-phone.png` });
 await b.close();

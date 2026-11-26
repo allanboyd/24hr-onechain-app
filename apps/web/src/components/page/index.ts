@@ -14,4 +14,5 @@ export { default as NeedsActionBadge } from './NeedsActionBadge.svelte';
 export { default as InfoTip } from './InfoTip.svelte';
 export { queryFilters, readQuery, writeQuery, hashQuery, takeIntent, RESERVED_KEYS, type QueryFilters } from './query.svelte';
 export { default as DataTable } from './DataTable.svelte';
+export { tableQuery } from './tablequery';
 export { sortRows, compareCells, ts, processRows, isActive, type Column, type SortState, type Cell, type Filters, type FilterValue, type FilterKind, type RangeValue } from './datatable';

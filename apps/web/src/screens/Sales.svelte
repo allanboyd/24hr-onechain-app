@@ -12,7 +12,7 @@
   import ErrorState from '../components/ErrorState.svelte';
   import { amount, inventory, lookup, pricing, ref, reports, sales, type Sale, type SalesReport, type SellingPrice, type StockRow, type User } from '@btw/api';
   import { salesTiles, infoOf } from '../lib/tiles';
-  import { PageHeader, SummaryStrip, FilterBar, ActionInCompany, DataTable, queryFilters, takeIntent, ts, type Column, type SummaryTile } from '../components/page';
+  import { PageHeader, SummaryStrip, ActionInCompany, DataTable, queryFilters, takeIntent, ts, tableQuery, processRows, type Column, type SummaryTile } from '../components/page';
   import { TERMS_DAYS } from '@btw/api/metrics';
   import { sellingPriceAny } from '@btw/api/money';
   import { Badge, fmtDateTime, fmtMoney, fmtNum, say } from '@btw/ui';
@@ -26,9 +26,10 @@
 
   let list = $state<Sale[] | null>(null);
   let stock = $state<StockRow[]>([]);
-  const f = queryFilters({ show: '', wh: '', status: '', kind: '', cust: '' });
-  let search = $state(f.values.cust);
-  $effect(() => { if (search !== f.values.cust) f.set('cust', search); });
+  const f = queryFilters({ show: '', wh: '', status: '', kind: '', cust: '', amount: '', entity: '' });
+  // V3-8: search (?cust=, kept for old links) + Warehouse / Type / Payment / Amount / Company filters in the table
+  const tq = tableQuery(f, { search: 'cust', filters: { wh: 'wh', kind: 'kind', status: 'status', amount: ['amount', 'range'], company: 'entity' } });
+  let shown = $state(0);
   // docs/14 B-05: new sale lines start from the directors' selling price (warehouse price, else company price)
   let prices = $state<SellingPrice[]>([]);
   // docs/18: the tiles come from the sales report over every sale (the list holds the latest ones only) — same figures as Home
@@ -43,12 +44,13 @@
   const w = watch(load);
   const open = (s: Sale) => s.status !== 'Paid' && total(s) - s.paid > 0.005;
   const SHOW: Record<string, (s: Sale) => boolean> = { month: (s) => Date.parse(s.at) >= monthStart, owed: open, overdue: (s) => open(s) && Date.now() - Date.parse(s.at) > TERMS_DAYS * DAY };
-  const rows = $derived((list ?? []).filter((s) => (!scoped || scoped.includes(s.warehouseId)) && (!f.values.show || SHOW[f.values.show]?.(s) !== false) && (!f.values.wh || s.warehouseId === f.values.wh) && (!f.values.status || s.status === f.values.status) && (!f.values.kind || s.kind === f.values.kind) && (!f.values.cust || s.customer.toLowerCase().includes(f.values.cust.toLowerCase()))));
+  // the strip (Show) stays here; the table applies search + filters on top. `tableRows` = what the table shows (balances, export)
+  const rows = $derived((list ?? []).filter((s) => (!scoped || scoped.includes(s.warehouseId)) && (!f.values.show || SHOW[f.values.show]?.(s) !== false)));
   const inScope = $derived((list ?? []).filter((s) => !scoped || scoped.includes(s.warehouseId)).length);
   const total = (s: Sale) => s.lines.reduce((a, l) => a + amount(l.qty, l.price), 0);
   const balances = $derived.by(() => {
     const m = new Map<string, number>();
-    for (const s of rows) { const b = total(s) - s.paid; if (b > 0.005) m.set(s.customer, (m.get(s.customer) ?? 0) + b); }
+    for (const s of tableRows) { const b = total(s) - s.paid; if (b > 0.005) m.set(s.customer, (m.get(s.customer) ?? 0) + b); }
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   });
 
@@ -60,26 +62,26 @@
     { key: 'owed', label: 'Owed by customers', value: fig?.owed ?? null, format: usd0, sub: balances.length ? `${balances.length} customers in this list` : undefined, info: infoOf('owed') },
     { key: 'overdue', label: 'Overdue', value: fig?.overdue ?? null, format: usd0, status: fig?.overdue ? 'warn' : undefined, statusLabel: fig?.overdue ? 'Chase' : undefined, sub: `over ${TERMS_DAYS} days`, info: infoOf('overdue') },
   ]);
-  const active = $derived(['show', 'wh', 'status', 'kind'].filter((k) => f.values[k as 'show']).length);
-  function clearAll() { f.clear(); search = ''; }
+  function clearAll() { f.clear(); }
   const exportRows = () => [['Sale No.', 'Date', 'Warehouse', 'Customer', 'Type', 'SKU', 'Qty (cases)', 'Price (USD)', 'Amount (USD)', 'Paid (USD)', 'Status'],
-    ...rows.flatMap((s) => s.lines.map((l) => [s.ref, s.at.slice(0, 10), lookup.warehouse(s.warehouseId)!.name, s.customer, s.kind, lookup.product(l.productId)!.sku, l.qty, l.price, amount(l.qty, l.price), s.paid, s.status]))];
+    ...tableRows.flatMap((s) => s.lines.map((l) => [s.ref, s.at.slice(0, 10), lookup.warehouse(s.warehouseId)!.name, s.customer, s.kind, lookup.product(l.productId)!.sku, l.qty, l.price, amount(l.qty, l.price), s.paid, s.status]))];
 
   const kindTone = (k: Sale['kind']) => (k === 'Credit' ? 'warning' : k === 'Batch' ? 'info' : 'neutral');
   const qtyOf = (s: Sale) => s.lines.reduce((a, l) => a + l.qty, 0);
   const columns = $derived<Column<Sale>[]>([
-    ...(company.active === GROUP ? [{ key: 'company', label: 'Company', value: (s: Sale) => companyLabel(s.entityId), cell: companyCell, hideBelow: 760, mobile: false as const }] : []),
+    ...(company.active === GROUP ? [{ key: 'company', label: 'Company', value: (s: Sale) => companyLabel(s.entityId), cell: companyCell, hideBelow: 760, mobile: false as const, filter: 'select' as const, filterValue: (s: Sale) => s.entityId, filterLabel: (id: string) => companyLabel(id) }] : []),
     { key: 'ref', label: 'Sale No.', sticky: true, value: (s) => s.ref, class: 'mono small nowrap' },
     { key: 'at', label: 'Date', sortValue: (s) => ts(s.at), csv: (s) => s.at.slice(0, 16).replace('T', ' '), cell: dateCell, class: 'small nowrap' },
-    { key: 'wh', label: 'Warehouse', value: (s) => destinationLabel(s.warehouseId), class: 'small', hideBelow: 1000 },
+    { key: 'wh', label: 'Warehouse', value: (s) => destinationLabel(s.warehouseId), class: 'small', hideBelow: 1000, filter: 'select', filterValue: (s) => s.warehouseId, filterLabel: (id) => destinationLabel(id) },
     { key: 'customer', label: 'Customer', value: (s) => s.customer },
-    { key: 'kind', label: 'Type', value: (s) => s.kind, cell: kindCell },
+    { key: 'kind', label: 'Type', value: (s) => s.kind, cell: kindCell, filter: 'select' },
     { key: 'lines', label: 'Brand · Package', sortable: false, csv: (s) => s.lines.map((l) => `${lookup.product(l.productId)?.brand} ${lookup.product(l.productId)?.pack}`).join('; '), cell: linesCell, class: 'small', hideBelow: 1100 },
     { key: 'qty', label: 'Qty', align: 'right', sortValue: qtyOf, value: (s) => fmtNum(qtyOf(s)), csv: qtyOf, total: (l) => fmtNum(l.reduce((a, s) => a + qtyOf(s), 0)) },
-    { key: 'amount', label: 'Amount (USD)', align: 'right', sortValue: total, value: (s) => fmtNum(total(s), 2), csv: (s) => Math.round(total(s) * 100) / 100, total: (l) => fmtNum(l.reduce((a, s) => a + total(s), 0), 2) },
+    { key: 'amount', label: 'Amount (USD)', align: 'right', filter: 'range', sortValue: total, value: (s) => fmtNum(total(s), 2), csv: (s) => Math.round(total(s) * 100) / 100, total: (l) => fmtNum(l.reduce((a, s) => a + total(s), 0), 2) },
     { key: 'paid', label: 'Paid', align: 'right', hideBelow: 1000, sortValue: (s) => s.paid, value: (s) => fmtNum(s.paid, 2), csv: (s) => s.paid, total: (l) => fmtNum(l.reduce((a, s) => a + s.paid, 0), 2) },
-    { key: 'status', label: 'Status', value: (s) => s.status, cell: statusCell, mobile: 'aside' },
+    { key: 'status', label: 'Payment', value: (s) => s.status, cell: statusCell, mobile: 'aside', filter: 'select' },
   ]);
+  const tableRows = $derived(processRows({ rows, columns, rowKey: (s) => s.id, sort: null, search: f.values.cust, filters: tq.filters.get() }).rows);
 
   // New sale dialog
   let dialog = $state<HTMLDialogElement>();
@@ -119,17 +121,13 @@
   {#snippet primary()}<ActionInCompany label="New sale" what="sale" feature="sales" intent="new-sale" onclick={openNew} />{/snippet}
 </PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
-<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Sales summary" noun="sales" total={list ? inScope : null} shown={list ? rows.length : null} />
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Sales summary" noun="sales" total={list ? inScope : null} shown={list ? shown : null} />
 
 <div class="layout">
   <div>
-    <FilterBar bind:search searchLabel="Customer" placeholder="Search customer" {active} onclear={clearAll}>
-      <label class="field"><span>Warehouse</span><select class="select" value={f.values.wh} onchange={(e) => f.set('wh', e.currentTarget.value)}><option value="">All</option>{#each warehouses as w}<option value={w.id}>{destinationLabel(w.id)}</option>{/each}</select></label>
-      <label class="field"><span>Payment</span><select class="select" value={f.values.status} onchange={(e) => f.set('status', e.currentTarget.value)}><option value="">All</option><option>Paid</option><option>Part-paid</option><option>Unpaid</option></select></label>
-      <label class="field"><span>Type</span><select class="select" value={f.values.kind} onchange={(e) => f.set('kind', e.currentTarget.value)}><option value="">All</option><option>Cash</option><option>Credit</option><option>Batch</option></select></label>
-      {#snippet end()}{#if list}<span class="caption">{fmtNum(rows.length)} sales</span>{/if}{/snippet}
-    </FilterBar>
-    <DataTable id="sales" label="Sales" noun="sales" rows={list ? rows : null} {columns} rowKey={(s) => s.id} initialSort={{ key: 'at', dir: 'desc' }} filename="sales-list" onclear={clearAll} />
+
+    <DataTable id="sales" label="Sales" noun="sales" rows={list ? rows : null} {columns} rowKey={(s) => s.id} initialSort={{ key: 'at', dir: 'desc' }} filename="sales-list" onclear={clearAll}
+      searchable searchPlaceholder="Customer, sale No., brand…" bind:search={tq.search.get, tq.search.set} bind:filters={tq.filters.get, tq.filters.set} bind:shown />
   </div>
 
   <aside class="card flush">

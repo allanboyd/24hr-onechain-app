@@ -24,7 +24,7 @@
   import ExportMenu from '../components/ExportMenu.svelte';
   import CompanyMark from '../components/CompanyMark.svelte';
   import CountDialog, { type CountLine } from '../components/stock/CountDialog.svelte';
-  import { PageHeader, SummaryStrip, FilterBar, ActionInCompany, WorkPage, DetailDrawer, EmptyState, DataTable, queryFilters, readQuery, writeQuery, takeIntent, ts, type Column, type SummaryTile } from '../components/page';
+  import { PageHeader, SummaryStrip, ActionInCompany, WorkPage, DetailDrawer, EmptyState, DataTable, queryFilters, readQuery, writeQuery, takeIntent, ts, tableQuery, processRows, type Column, type SummaryTile } from '../components/page';
   import SearchX from '@lucide/svelte/icons/search-x';
   import ClipboardCheck from '@lucide/svelte/icons/clipboard-check';
   let { user }: { params?: any; user: User } = $props();
@@ -52,9 +52,10 @@
   // Whether the address already says what to show (then the needs-action default below is skipped).
   const explicit = ['show', 'wh', 'level', 'q', 'company'].some((k) => readQuery(k));
   const f = queryFilters({ show: '', wh: '', level: '', q: '', company: '' });
-  let search = $state(f.values.q);
-  $effect(() => { if (search !== f.values.q) f.set('q', search); });
-  function clearAll() { f.clear(); search = ''; }
+  // V3-8: search + Level in the table; Warehouse and Company stay as choices because they also scope the strip's counts
+  const tq = tableQuery(f, { search: 'q', filters: { level: 'level' } });
+  const searchExtra = (x: Line) => lookup.product(x.productId)?.sku ?? '';
+  function clearAll() { f.clear(); }
 
   // ---- data ----
   type Line = StockRow & { key: string; w: WarehouseStockRow | null };
@@ -107,9 +108,9 @@
     { key: 'attention', label: 'Needs attention', value: fig.attention, status: fig.attention ? 'warn' : 'good', statusLabel: fig.attention ? 'Check' : 'All fine', sub: 'out, low or overstock', info: infoOf('needsAttention') },
   ]);
 
-  const shown = $derived(base
-    .filter((x) => (!f.values.show || (SHOW[f.values.show]?.(x) ?? true)) && (!f.values.level || levelOf(x) === f.values.level))
-    .filter((x) => { const q = f.values.q.trim().toLowerCase(); const p = lookup.product(x.productId); return !q || `${p?.brand} ${p?.pack} ${p?.sku}`.toLowerCase().includes(q); })
+  // the strip (Show) + the usual order stay here; the table adds search + Level. BUG-3: the table used to get every line.
+  const listed = $derived(base
+    .filter((x) => !f.values.show || (SHOW[f.values.show]?.(x) ?? true))
     .sort((a, b) => (f.values.show === 'value' ? valueOf(b) - valueOf(a) : 0) || destinationLabel(a.warehouseId).localeCompare(destinationLabel(b.warehouseId))
       || (lookup.product(a.productId)?.brand ?? '').localeCompare(lookup.product(b.productId)?.brand ?? '') || a.productId.localeCompare(b.productId) || a.entityId.localeCompare(b.entityId)));
   const sum = (k: keyof StockRow) => shown.reduce((a, x) => a + (x[k] as number), 0);
@@ -177,7 +178,7 @@
     { key: 'adj', label: 'Count ±', ...n((x) => (x.w ? x.w.adjusted : x.adjustments), signed), total: undefined, hideBelow: 1300 },
     { key: 'onhand', label: 'On hand', ...n((x) => x.closing), cell: onHandCell },
     { key: 'transit', label: 'In transit', ...n((x) => x.inTransit, dash), cell: transitCell },
-    { key: 'level', label: 'Level', sortValue: (x) => LEVEL_RANK[levelOf(x)] * 10000 + Math.min(9999, Math.max(0, cover(x))), csv: (x) => levelOf(x), cell: levelCell, class: 'nowrap', title: 'Cover = cases on hand ÷ cases sold per day over 30 days' },
+    { key: 'level', label: 'Level', filter: 'select', filterValue: (x) => levelOf(x), sortValue: (x) => LEVEL_RANK[levelOf(x)] * 10000 + Math.min(9999, Math.max(0, cover(x))), csv: (x) => levelOf(x), cell: levelCell, class: 'nowrap', title: 'Cover = cases on hand ÷ cases sold per day over 30 days' },
     ...(whRows ? [{ key: 'count', label: 'Last count', sortValue: (x: Line) => ts(x.w?.lastCountAt), value: (x: Line) => x.w?.lastCountAt?.slice(0, 10) ?? null, class: 'small nowrap', hideBelow: 1300 }] : []),
     ...(money ? [
       { key: 'landed', label: 'Landed / case (USD)', align: 'right' as const, sortValue: (x: Line) => x.landedCostPerCase, value: (x: Line) => fmtNum(x.landedCostPerCase, 2), csv: (x: Line) => x.landedCostPerCase, hideBelow: 1300 },
@@ -185,6 +186,8 @@
     ] : []),
     ...(recordable.length ? [{ key: 'act', label: '', sortable: false, csv: false as const, hideable: false, cell: actCell, mobile: 'actions' as const }] : []),
   ]);
+  // what the table shows (also the totals and the export): search + Level on top of the strip, in the usual order
+  const shown = $derived(processRows({ rows: listed, columns, rowKey: (x) => x.key, sort: null, search: f.values.q, filters: tq.filters.get(), searchExtra }).rows);
 </script>
 
 <WorkPage>
@@ -197,23 +200,21 @@
     </PageHeader>
   {/snippet}
   {#snippet strip()}<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Stock summary" allValue="all" noun="stock lines" total={lines ? lines.length : null} shown={lines ? shown.length : null} {auto} />{/snippet}
-  {#snippet filters()}
-    <FilterBar bind:search placeholder="Brand, package or SKU code" searchLabel="Search SKU" {active} onclear={clearAll}>
-      {#if warehouses.length > 1}
-        <label class="field"><span>Warehouse</span><select class="select" value={f.values.wh} onchange={(e) => f.set('wh', e.currentTarget.value)}><option value="">All{scoped ? ' (my warehouses)' : ''}</option>{#each warehouses as x (x.id)}<option value={x.id}>{destinationLabel(x.id)}</option>{/each}</select></label>
-      {/if}
-      <label class="field"><span>Stock level</span><select class="select" value={f.values.level} onchange={(e) => f.set('level', e.currentTarget.value)}><option value="">All</option>{#each LEVELS as l}<option>{l}</option>{/each}</select></label>
-      {#if group && companies.length > 1}
-        <label class="field"><span>Company</span><select class="select" value={f.values.company} onchange={(e) => f.set('company', e.currentTarget.value)}><option value="">All companies</option>{#each companies as id (id)}<option value={id}>{companyLabel(id)}</option>{/each}</select></label>
-      {/if}
-      {#snippet end()}{#if lines}<span class="caption">{shown.length} of {base.length} lines</span>{/if}{/snippet}
-    </FilterBar>
-  {/snippet}
 
   <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
 
-  <DataTable id="stock" label="Stock lines" noun="stock lines" rows={lines} {columns} rowKey={(x) => x.key} onrowclick={show} selected={open && sel ? sel.key : null}
-    loading={!lines && !w.error} filename="stock-list" empty={emptyTable} card={phoneCard} />
+  <DataTable id="stock" label="Stock lines" noun="stock lines" rows={lines ? listed : null} {columns} rowKey={(x) => x.key} onrowclick={show} selected={open && sel ? sel.key : null}
+    loading={!lines && !w.error} filename="stock-list" empty={emptyTable} card={phoneCard}
+    searchable searchPlaceholder="Brand, package or SKU code" {searchExtra} bind:search={tq.search.get, tq.search.set} bind:filters={tq.filters.get, tq.filters.set}>
+    {#snippet toolbar()}
+      {#if warehouses.length > 1}
+        <select class="select" aria-label="Warehouse" value={f.values.wh} onchange={(e) => f.set('wh', e.currentTarget.value)}><option value="">All warehouses{scoped ? ' (mine)' : ''}</option>{#each warehouses as x (x.id)}<option value={x.id}>{destinationLabel(x.id)}</option>{/each}</select>
+      {/if}
+      {#if group && companies.length > 1}
+        <select class="select" aria-label="Company" value={f.values.company} onchange={(e) => f.set('company', e.currentTarget.value)}><option value="">All companies</option>{#each companies as id (id)}<option value={id}>{companyLabel(id)}</option>{/each}</select>
+      {/if}
+    {/snippet}
+  </DataTable>
 
   {#snippet drawer()}
     <DetailDrawer bind:open title={sel ? name(sel) : ''} subtitle={sel ? `${destinationLabel(sel.warehouseId)} · ${companyLabel(sel.entityId)}` : ''} width={560}>

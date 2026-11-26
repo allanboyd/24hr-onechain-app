@@ -46,6 +46,7 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 ## Bugs found
 <!-- BUG-<n> · where · steps · screenshot · found by <agent> (gets its own row once triaged) -->
 - **BUG-1** · `packages/api/test/plans.test.ts` lines 110, 141, 142 fail on unchanged `design-v3` (and `main`): over-plan mark / Kivu plan link / over-plan PO issued. Likely date-driven (the demo plan period vs today, 26 Nov). Run: `npx tsx packages/api/test/plans.test.ts`. Found by claude (V3-0).
+- **BUG-3** · ✅ fixed in V3-8 batch 1: Stock's table listed every line whatever the filters (the strip said "6 of 20"). Found by claude.
 - **BUG-2** · `packages/api/test/metrics.test.ts`: "Group (Daniel) · needs attention: Inventory page 8 = stock report 9" fails on unchanged `design-v3`. The two pages count stock needing attention differently (probably also date-driven). Found by claude (V3-0).
 
 ## Requests
@@ -73,3 +74,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | claude | V3-1b merged into design-v3: sidebar logo + company select, no group titles, sliding switch, modern top bar, collapsible sidebar. `shell-polish.mjs` 19/19. |
 | 26 Nov 2026 | claude | V3-1c merged (Management menu spacing). Your choices: TanStack Table, pages of 25 + Show more (V3-8, started); Bits UI, native picker on phones (V3-9, approved). |
 | 26 Nov 2026 | claude | V3-8 phase 1 merged: DataTable on TanStack with search, Filters panel, chips; Purchase orders pilot. Engine test 25/25, tables.mjs all pass. Phase 2 (other screens) next. |
+| 26 Nov 2026 | claude | V3-8 batch 1 merged: Shipments, Sales, Stock, Transport costs (Fees, Trips) have search + filters in the table; BUG-3 found and fixed. tables.mjs all pass. Next: batch 2 (hand-written tables). |

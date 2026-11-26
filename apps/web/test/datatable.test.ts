@@ -1,6 +1,7 @@
 // V3-8 DataTable engine (components/page/datatable.ts processRows, on TanStack Table): sorting keeps the old rules,
 // search and filters narrow rows, pick-lists count values with the other filters applied. Run: npx tsx apps/web/test/datatable.test.ts
 import { processRows, sortRows, isActive, type Column } from '../src/components/page/datatable';
+import { tableQuery } from '../src/components/page/tablequery';
 
 let fails = 0; const ok = (c: unknown, m: string, x?: unknown) => { console.log(`${c ? 'ok  ' : 'FAIL'} ${m}${!c && x !== undefined ? ' ' + JSON.stringify(x) : ''}`); if (!c) fails++; };
 type R = { id: string; ref: string; sup: string; amt: number | null; title: string };
@@ -54,6 +55,21 @@ ok(g.facets('sup').length === 3, "a column's own filter doesn't hide its other c
 ok(JSON.stringify(run().range('amt')) === '[500,2000]', 'amount range 500 to 2000', run().range('amt'));
 
 ok(isActive(['a']) && !isActive([]) && isActive([1, null]) && !isActive([null, null]) && isActive('x') && !isActive('  ') && !isActive(undefined), 'isActive');
+
+// searchExtra: text that is not a column (e.g. a truck plate)
+const plates: Record<string, string> = { '1': 'KBX 123A', '3': 'UAB 999Z' };
+ok(ids(run({ search: 'uab', searchExtra: (r) => plates[r.id] ?? '' }).rows) === '3', 'searchExtra: search also matches text outside the columns');
+ok(ids(run({ search: 'uab' }).rows) === '', 'without searchExtra that text is not searched');
+
+// tableQuery: filters <-> address values (same names as before; ids by commas; ranges "from,to")
+const values: Record<string, string> = { q: 'oct', entity: 'e-btw', supplier: '', amount: '100,' };
+const fq = { values, set: (k: string, v: string) => { values[k] = v; } };
+const t = tableQuery(fq, { search: 'q', filters: { company: 'entity', supplier: 'supplier', amount: ['amount', 'range'] } });
+ok(t.search.get() === 'oct' && JSON.stringify(t.filters.get()) === JSON.stringify({ company: ['e-btw'], supplier: [], amount: [100, null] }), 'tableQuery reads the address');
+t.filters.set({ company: ['e-btw', 'e-nud'], supplier: undefined, amount: [null, 5000] }); t.search.set('');
+ok(values.entity === 'e-btw,e-nud' && values.supplier === '' && values.amount === ',5000' && values.q === '', 'tableQuery writes ids by commas, ranges "from,to", clears');
+t.filters.set({ company: [], amount: [null, null] });
+ok(values.entity === '' && values.amount === '', 'tableQuery: empty filters clear the address');
 
 // size: 2,000 rows search + filter + sort stays quick
 const many = Array.from({ length: 2000 }, (_, i) => ({ ...rows[i % 5], id: String(i), ref: `PO-${i}` }));
