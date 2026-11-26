@@ -50,10 +50,10 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: var(--space-4) 
 .card > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); }
 .card.flush > header { padding: var(--space-4) var(--space-5); margin: 0; border-bottom: 1px solid var(--border); }
 /* Status cards: a light wash of the state colour, and the icon in that colour. No left bar (it follows the corner). */
-.card.flag-danger { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); }
-.card.flag-warning { background: color-mix(in srgb, var(--warning-solid) 14%, var(--surface)); }
-.card.flag-success { background: color-mix(in srgb, var(--success) 10%, var(--surface)); }
-.card.flag-info { background: color-mix(in srgb, var(--info) 10%, var(--surface)); }
+.card.flag-danger { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); border-left-width: 1px; }
+.card.flag-warning { background: color-mix(in srgb, var(--warning-solid) 14%, var(--surface)); border-left-width: 1px; }
+.card.flag-success { background: color-mix(in srgb, var(--success) 10%, var(--surface)); border-left-width: 1px; }
+.card.flag-info { background: color-mix(in srgb, var(--info) 10%, var(--surface)); border-left-width: 1px; }
 .card.flag-danger svg { color: var(--danger); }
 .card.flag-warning svg { color: var(--warning); }
 .card.flag-success svg { color: var(--success); }
