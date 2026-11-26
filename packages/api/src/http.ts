@@ -5,7 +5,7 @@ import * as R from './rules';
 import * as RP from './reports';
 import type {
   AckLine, Acknowledgement, CheckpointPass, Device, DriverWork, Entity, Flag, FxRate, GiverWork, ID, JourneyStep, Leg, Loading, Notification, PeriodKind, PeriodPlan, Plan, PlanLine, PoDetail, PoInput, PoUpdateInput,
-  Client, ClientInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PvThresholds,
+  Client, ClientInput, ClientPayment, ClientPaymentInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PvThresholds,
   PurchaseOrder, ReceiverWork, Role, RouteStop, Sale, Shipment, StockRow, StoredFile, SyncResult, TripCost, TripPayment,
   Route, TruckIssue, User, UserAdmin, VelocityRow, WaitingEntry, Warehouse, WarehouseInput,
   DriverInput, Provider, ProviderInput, SavedDriver, Truck, TruckInput,
@@ -257,6 +257,10 @@ export const inventory = {
 export const sales = {
   list: (warehouseId?: ID) => get<Sale[]>(`/sales${warehouseId ? `?warehouseId=${warehouseId}` : ''}`),
   create: (input: Omit<Sale, 'id' | 'ref' | 'status' | 'entityId'> & { entityId?: ID }, override = false) => mutate(post<Sale>('/sales', { ...input, override }, key())),
+  /** V3-12 step 2: money received against a sale (updates its paid amount and status). */
+  recordPayment: (saleId: ID, input: ClientPaymentInput) => mutate(post<{ sale: Sale; payment: ClientPayment }>(`/sales/${saleId}/payments`, input, key())),
+  /** Payments of one sale, or all the caller may see (newest first). */
+  payments: (saleId?: ID) => get<ClientPayment[]>(saleId ? `/sales/${saleId}/payments` : '/client-payments'),
 };
 type Trip = { shipment: Shipment; costs: TripCost[]; payments: TripPayment[]; transport: number; paid: number; balance: number; goods: number; expenses: number; landing: number; cases: number; perCase: number; /** false = agreed transport price not recorded yet */ agreedRecorded: boolean };
 export const finance = {

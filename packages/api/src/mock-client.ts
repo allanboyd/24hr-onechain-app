@@ -8,7 +8,7 @@ import * as RP from './reports';
 import * as PO from './mock/po';
 import type {
   AckLine, AppConfig, AuditFilter, AuditPage, Checkpoint, EntityInput, PriceListItem, Product, ProductInput, ReceivingCompany, ReceivingCompanyInput, Supplier, SupplierInput, UserPair, LoadingAlternative, PeriodPlanLine, PurchaseOrder, CheckpointPass, Device, DriverWork, Entity, FeatureKey, FxRate, GiverWork, ID, Leg, LegView, PeriodKind, PeriodPlan, Plan, PlanLine,
-  Client, ClientInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PoDetail, PoInput, PoUpdateInput, PvThresholds, ReceiverWork, Role, RouteStop, Sale, Shipment, StoredFile, SyncResult, TripCost, TruckIssue, User, UserAdmin, Warehouse, WarehouseInput,
+  Client, ClientInput, ClientPayment, ClientPaymentInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PoDetail, PoInput, PoUpdateInput, PvThresholds, ReceiverWork, Role, RouteStop, Sale, Shipment, StoredFile, SyncResult, TripCost, TruckIssue, User, UserAdmin, Warehouse, WarehouseInput,
   Driver, DriverInput, Provider, ProviderInput, SavedDriver, Truck, TruckInput,
 } from './types';
 
@@ -490,6 +490,18 @@ function clientForSale(entityId: ID, input: { clientId?: ID; customer: string; w
   return c;
 }
 
+// ---- Client payments (V3-12 step 2) --------------------------------------------------------------------------------
+const fx = () => m.db.fxRates ?? seed.seedFxRates();
+function paymentRow(s: Sale, amt: number, at: string, method: ClientPayment['method'], reference?: string, byUserId?: ID): ClientPayment {
+  return { id: m.uid('cp'), entityId: s.entityId, saleId: s.id, saleRef: s.ref, clientId: s.clientId, customer: s.customer, warehouseId: s.warehouseId,
+    amount: Math.round(amt * 100) / 100, currency: s.currency, amountUsd: Math.round(R.toUsd(amt, s.currency, fx(), at) * 100) / 100, at, method, reference, byUserId };
+}
+/** The payments. The first time, one per sale with something paid, dated at the sale, method not recorded (= migration 0015). */
+export function paymentList(): ClientPayment[] {
+  if (!m.db.clientPayments) { clientList(); m.db.clientPayments = m.db.sales.filter((s) => s.paid > 0).map((s) => paymentRow(s, s.paid, s.at, null)); }
+  return m.db.clientPayments;
+}
+
 export const sales = {
   async list(warehouseId?: ID) { ensure(); if (!current || !R.hasFeature(current.roles, 'sales')) return wait([] as Sale[]); return wait(m.db.sales.filter((s) => inScope(s.entityId) && seesWh(s.warehouseId) && (!warehouseId || s.warehouseId === warehouseId)).slice(-200).reverse()); },
   async create(input: Omit<Sale, 'id' | 'ref' | 'status' | 'entityId'> & { entityId?: ID }, override = false) {
@@ -505,10 +517,33 @@ export const sales = {
     const total = input.lines.reduce((a, l) => a + m.amount(l.qty, l.price), 0);
     const cl = clientForSale(entityId, input);
     const sale: Sale = { ...input, customer: cl.name, clientId: cl.id, termsDays: cl.termsDays, entityId, id: m.uid('sale'), ref: `SAL-${String(m.db.sales.length + 1).padStart(5, '0')}`, status: input.paid >= total ? 'Paid' : input.paid > 0 ? 'Part-paid' : 'Unpaid' };
+    paymentList(); // payments exist before this sale's first one is added
     m.db.sales.push(sale);
+    if (sale.paid > 0) paymentList().push(paymentRow(sale, sale.paid, sale.at, input.payMethod ?? 'Cash', undefined, current?.id));
     for (const l of sale.lines) m.db.stockMoves.push({ entityId, warehouseId: sale.warehouseId, productId: l.productId, kind: 'sold', qty: l.qty, at: sale.at, ref: sale.ref });
     if (sale.counterpartyEntityId) for (const l of sale.lines) m.db.stockMoves.push({ entityId: sale.counterpartyEntityId, warehouseId: sale.warehouseId, productId: l.productId, kind: 'transferIn', qty: l.qty, at: sale.at, ref: sale.ref });
     return commit(sale);
+  },
+  /** V3-12 step 2: money received against a sale; its paid amount and status follow the payments. */
+  async recordPayment(saleId: ID, input: ClientPaymentInput): Promise<{ sale: Sale; payment: ClientPayment }> {
+    ensure();
+    const s = m.db.sales.find((x) => x.id === saleId && inScope(x.entityId) && seesWh(x.warehouseId));
+    if (!s) throw httpErr('Sale not found', 404);
+    if (!A.canSell(me(), s.warehouseId)) throw forbid('Payments are recorded by the people who sell');
+    const err = R.paymentError(R.saleBalance(s), input);
+    if (err) throw Object.assign(new Error(err), { status: 422 });
+    const at = input.at ?? new Date().toISOString();
+    if (Date.parse(at) < Date.parse(s.at) || Date.parse(at) > Date.now() + 60_000) throw Object.assign(new Error('The payment date must be between the sale and today'), { status: 422 });
+    paymentList();
+    const p = paymentRow(s, Number(input.amount), at, input.method, input.reference?.trim() || undefined, current?.id);
+    m.db.clientPayments!.push(p);
+    s.paid = Math.round((s.paid + p.amount) * 100) / 100; s.status = R.saleStatus(s.lines, s.paid);
+    log('POST', `/sales/${s.id}/payments`, { recordType: 'sale', recordId: s.id, entityId: s.entityId, summary: `${s.ref}: received ${s.currency} ${p.amount} (${p.method})${p.reference ? ` · ${p.reference}` : ''}`, after: p });
+    return commit({ sale: s, payment: p });
+  },
+  async payments(saleId?: ID): Promise<ClientPayment[]> {
+    ensure(); if (!current || !R.hasFeature(current.roles, 'sales')) return wait([]);
+    return wait(paymentList().filter((p) => inScope(p.entityId) && seesWh(p.warehouseId) && (!saleId || p.saleId === saleId)).sort((a, b) => (a.at < b.at ? 1 : -1)));
   },
 };
 
@@ -978,7 +1013,7 @@ export const pricing = { list: mo('listPrices'), set: mo('setPrice') };
 /** docs/15: P1 dashboards (lazy chunk mock/dash.ts, same builders as GET /v1/dashboards). */
 export const dashboards = {
   async get(keys: import('./dashboards').DashKey[], f: import('./dashboards').DashFilter = {}) {
-    return (await import('./mock/dash')).dashboards({ current, me, ensure, wait, httpErr, scopeIds, config: mockConfig, people: allUsers, fees: () => finance.fees(), users: () => users.list() }, keys, f);
+    return (await import('./mock/dash')).dashboards({ current, me, ensure, wait, httpErr, scopeIds, config: mockConfig, people: allUsers, fees: () => finance.fees(), users: () => users.list(), clientPayments: paymentList }, keys, f);
   },
 };
 

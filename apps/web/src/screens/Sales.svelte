@@ -10,7 +10,7 @@
   import { companyLabel } from '../lib/companies';
   import { watch } from '../lib/load.svelte';
   import ErrorState from '../components/ErrorState.svelte';
-  import { amount, clients, inventory, lookup, pricing, ref, reports, sales, type Client, type Sale, type SalesReport, type SellingPrice, type StockRow, type User } from '@btw/api';
+  import { amount, clients, inventory, type ClientPayment, type ClientPaymentMethod, lookup, pricing, ref, reports, sales, type Client, type Sale, type SalesReport, type SellingPrice, type StockRow, type User } from '@btw/api';
   import { salesTiles, infoOf } from '../lib/tiles';
   import { PageHeader, SummaryStrip, ActionInCompany, DataTable, Tabs, queryFilters, takeIntent, ts, tableQuery, processRows, type Column, type SummaryTile } from '../components/page';
   import { TERMS_DAYS, termsOf } from '@btw/api/metrics';
@@ -84,6 +84,7 @@
     { key: 'amount', label: 'Amount (USD)', align: 'right', filter: 'range', sortValue: total, value: (s) => fmtNum(total(s), 2), csv: (s) => Math.round(total(s) * 100) / 100, total: (l) => fmtNum(l.reduce((a, s) => a + total(s), 0), 2) },
     { key: 'paid', label: 'Paid', align: 'right', hideBelow: 1000, sortValue: (s) => s.paid, value: (s) => fmtNum(s.paid, 2), csv: (s) => s.paid, total: (l) => fmtNum(l.reduce((a, s) => a + s.paid, 0), 2) },
     { key: 'status', label: 'Payment', value: (s) => s.status, cell: statusCell, mobile: 'aside', filter: 'select' },
+    { key: 'pay', label: '', sortable: false, csv: false, cell: payCell, mobile: 'actions' },
   ]);
   const tableRows = $derived(processRows({ rows, columns, rowKey: (s) => s.id, sort: null, search: f.values.cust, filters: tq.filters.get() }).rows);
 
@@ -101,6 +102,7 @@
   let kind = $state<Sale['kind']>('Cash');
   let lines = $state<{ productId: string; qty: number; price: number }[]>([]);
   let paid = $state(0);
+  let payMethod = $state<ClientPaymentMethod>('Cash');
   let override = $state(false);
   let error = $state('');
   let busy = $state(false);
@@ -110,9 +112,36 @@
   const markup = 1.35; // fallback when no selling price is set yet: supplier price × 1.35
   const sellPrice = (pid: string) => sellingPriceAny(prices, stock.filter((x) => x.warehouseId === wh && x.productId === pid).map((x) => x.entityId), wh, pid) ?? Math.round(lookup.price(pid) * markup * 100) / 100;
   function addLine() { const p = inStock.find((x) => !lines.some((l) => l.productId === x.productId)) ?? inStock[0]; if (p) lines.push({ productId: p.productId, qty: 0, price: sellPrice(p.productId) }); }
-  function openNew() { wh = warehouses[0]?.id ?? ''; customer = 'Walk-in'; kind = 'Cash'; lines = []; paid = 0; override = false; error = ''; addLine(); dialog?.showModal(); }
+  function openNew() { wh = warehouses[0]?.id ?? ''; customer = 'Walk-in'; kind = 'Cash'; lines = []; paid = 0; payMethod = 'Cash'; override = false; error = ''; addLine(); dialog?.showModal(); }
   function changeWh() { lines = []; addLine(); }
   $effect(() => { if (kind === 'Cash') paid = saleTotal; });
+  // V3-12 step 2: Record payment on a sale that still owes money (paid amount and status follow; Cash counts it on its date)
+  const METHODS: ClientPaymentMethod[] = ['Cash', 'Mobile money', 'Bank'];
+  const balanceOf = (s: Sale) => Math.max(0, Math.round((total(s) - s.paid) * 100) / 100);
+  const canPay = (s: Sale) => open(s) && user.roles.some((r) => r === 'director' || r === 'accounts' || r === 'sales');
+  let payDialog = $state<HTMLDialogElement>();
+  let paying = $state<Sale | null>(null);
+  let payHist = $state<ClientPayment[]>([]);
+  let pf = $state({ amount: 0, method: 'Cash' as ClientPaymentMethod, reference: '', date: '' });
+  let payError = $state('');
+  const today = () => new Date().toISOString().slice(0, 10);
+  async function openPay(s: Sale) {
+    paying = s; payError = ''; payHist = [];
+    pf = { amount: balanceOf(s), method: 'Cash', reference: '', date: today() };
+    payDialog?.showModal();
+    payHist = await sales.payments(s.id).catch(() => []);
+  }
+  async function savePay(e: Event) {
+    e.preventDefault(); if (!paying) return; payError = ''; busy = true;
+    try {
+      // a date other than today is taken at noon UTC so it stays on that day in every time zone we work in
+      const at = pf.date && pf.date !== today() ? `${pf.date}T12:00:00.000Z` : undefined;
+      const r = await sales.recordPayment(paying.id, { amount: Number(pf.amount), method: pf.method, reference: pf.reference.trim() || undefined, at });
+      payDialog?.close(); say(r.sale.status === 'Paid' ? `${r.sale.ref} is paid` : `USD ${fmtNum(r.payment.amount, 2)} received · USD ${fmtNum(balanceOf(r.sale), 2)} still owed`);
+      w.retry();
+    } catch (err) { payError = (err as Error).message; }
+    busy = false;
+  }
   async function save(e: Event) {
     e.preventDefault(); error = '';
     const ls = lines.filter((l) => l.qty > 0);
@@ -120,7 +149,7 @@
     busy = true;
     try {
       if (customer.trim().length < 1) { error = 'Enter the client'; busy = false; return; }
-      const s = await sales.create({ entityId: scopeEntity() ?? '', at: new Date().toISOString(), warehouseId: wh, customer: picked?.name ?? customer.trim(), clientId: picked?.id, salespersonId: user.id, kind, lines: $state.snapshot(ls), currency: 'USD', paid }, override);
+      const s = await sales.create({ entityId: scopeEntity() ?? '', at: new Date().toISOString(), warehouseId: wh, customer: picked?.name ?? customer.trim(), clientId: picked?.id, salespersonId: user.id, kind, lines: $state.snapshot(ls), currency: 'USD', paid, payMethod }, override);
       dialog?.close(); say(`Sale ${s.ref} recorded for ${companyLabel(s.entityId)} — stock reduced`);
     } catch (err) { error = (err as Error).message; }
     busy = false;
@@ -160,6 +189,28 @@
 {#snippet kindCell(s: Sale)}<Badge tone={kindTone(s.kind)}>{s.kind}</Badge>{/snippet}
 {#snippet linesCell(s: Sale)}{#each s.lines as l}<div style="white-space:nowrap">{lookup.product(l.productId)?.brand}</div><div class="caption">{lookup.product(l.productId)?.pack}</div>{/each}{/snippet}
 {#snippet statusCell(s: Sale)}<Badge status={s.status} />{/snippet}
+{#snippet payCell(s: Sale)}{#if canPay(s)}<button class="btn btn-ghost btn-sm nowrap" onclick={(e) => { e.stopPropagation(); openPay(s); }} aria-label="Record payment for {s.ref}">Record payment</button>{/if}{/snippet}
+
+<dialog class="sheet" bind:this={payDialog} style="width:min(520px,calc(100vw - 32px))" aria-labelledby="pay-h">
+  {#if paying}
+  <form class="body stack" onsubmit={savePay}>
+    <h3 id="pay-h">Record payment</h3>
+    <p class="caption">{paying.customer} · {paying.ref} · total USD {fmtNum(total(paying), 2)} · still owes <strong>USD {fmtNum(balanceOf(paying), 2)}</strong></p>
+    <div class="form-grid">
+      <label class="field"><span>Amount received (USD)</span><input class="input num" type="number" min="0.01" step="0.01" max={balanceOf(paying)} bind:value={pf.amount} required /></label>
+      <label class="field"><span>How paid</span><select class="select" bind:value={pf.method}>{#each METHODS as m}<option>{m}</option>{/each}</select></label>
+      <label class="field"><span>Date</span><input class="input" type="date" bind:value={pf.date} min={paying.at.slice(0, 10)} max={today()} /></label>
+      <label class="field"><span>Reference</span><input class="input" bind:value={pf.reference} placeholder="Receipt, transaction or slip number" autocomplete="off" /></label>
+    </div>
+    {#if payHist.length}
+      <div class="table-wrap"><table class="table small"><thead><tr><th>Paid before</th><th>How</th><th class="num">USD</th></tr></thead>
+        <tbody>{#each payHist as x (x.id)}<tr><td>{fmtDateTime(x.at)}</td><td>{x.method ?? '-'}{#if x.reference} · {x.reference}{/if}</td><td class="num">{fmtNum(x.amount, 2)}</td></tr>{/each}</tbody></table></div>
+    {/if}
+    {#if payError}<div class="error" role="alert">{payError}</div>{/if}
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn btn-ghost" onclick={() => payDialog?.close()}>Cancel</button><button class="btn btn-primary" disabled={busy}>Record payment</button></div>
+  </form>
+  {/if}
+</dialog>
 
 <dialog class="sheet" bind:this={dialog} style="width:min(720px,calc(100vw - 32px))">
   <form class="body stack" onsubmit={save}>
@@ -189,7 +240,10 @@
     </table></div>
     <div class="row between">
       <button type="button" class="btn btn-ghost btn-sm" onclick={addLine} disabled={!inStock.length}><Plus size={16} />Add line</button>
-      <label class="field" style="width:180px"><span>Amount paid (USD)</span><input class="input num" type="number" step="0.01" bind:value={paid} /></label>
+      <div class="row">
+        {#if paid > 0}<label class="field" style="width:170px"><span>How paid</span><select class="select" bind:value={payMethod}>{#each METHODS as m}<option>{m}</option>{/each}</select></label>{/if}
+        <label class="field" style="width:180px"><span>Amount paid (USD)</span><input class="input num" type="number" step="0.01" bind:value={paid} /></label>
+      </div>
     </div>
     {#if user.roles.includes('director')}<label class="row small"><input type="checkbox" bind:checked={override} /> Override stock check (authorised, logged)</label>{/if}
     {#if error}<div class="error" role="alert">{error}</div>{/if}

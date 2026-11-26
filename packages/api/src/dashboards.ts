@@ -17,7 +17,7 @@ import * as MX from './metrics';
 import { METRICS, type MetricSource } from './metric-registry';
 import type {
   Acknowledgement, AppConfig, CostKind, FeatureKey, ID, Leg, Plan, PurchaseOrder, ReexportOrder, Role, SellingPrice, Shipment, TransportFeeRow,
-  UserAdmin, WaitingEntry, WarehouseExpense,
+  UserAdmin, WaitingEntry, WarehouseExpense, ClientPayment,
 } from './types';
 
 // ======================================================================================================
@@ -162,6 +162,7 @@ export const FILTER_KEYS: (keyof DashFilter)[] = ['entityId', 'supplierId', 'rou
 /** Company-wide data of the caller's companies (server: ReportsService.data for the company scope; mock: its database). */
 export interface DashSource extends ReportData {
   expenses?: WarehouseExpense[]; sellingPrices?: SellingPrice[]; reexports?: ReexportOrder[];
+  /** V3-12 step 2: money received from clients, by date (absent = not loaded: Cash falls back to the sales' paid amounts) */ clientPayments?: ClientPayment[];
   /** transport-fee rows the caller may see (null = not for this person) */ fees?: TransportFeeRow[] | null;
   /** user admin rows (directors) */ users?: UserAdmin[] | null;
   /** names and roles of the roster, for owners ("who acts") */ people?: { id: ID; name: string; roles: Role[]; warehouseIds?: ID[]; loadingPointIds?: ID[]; pairs?: { entityId: ID; supplierId: ID }[] }[];
@@ -239,6 +240,7 @@ export function scopeSource(src: DashSource, v: Viewer): DashSource & { pricesHi
     shipments, plans, pos, loadings, acks,
     costs: moneyTrips ? src.costs.filter((c) => shipIds.has(c.shipmentId)) : [], payments: moneyTrips ? src.payments.filter((p) => shipIds.has(p.shipmentId)) : [],
     sales: feats.has('sales') ? src.sales : [],
+    clientPayments: feats.has('sales') ? src.clientPayments : [],
     moves: src.moves.filter((m) => whOk(m.warehouseId)),
     stock: src.stock.filter((r) => whOk(r.warehouseId)).map((r) => (prices ? r : { ...r, landedCostPerCase: 0 })),
     priceList: prices ? src.priceList : [],
@@ -271,6 +273,7 @@ export function narrow<T extends DashSource>(src: T, f: DashFilter): T {
     sales: src.sales.filter((x) => (!w || x.warehouseId === w) && (!e || x.entityId === e) && (!p || x.lines.some((l) => l.productId === p))).map((x) => (p ? { ...x, lines: x.lines.filter((l) => l.productId === p) } : x)),
     moves: src.moves.filter(whp), stock: src.stock.filter(whp),
     expenses: (src.expenses ?? []).filter((x) => !w || x.warehouseId === w),
+    clientPayments: src.clientPayments?.filter((x) => (!w || x.warehouseId === w) && (!e || x.entityId === e)),
     reexports: (src.reexports ?? []).filter((x) => (!w || x.fromWarehouseId === w || x.toWarehouseId === w) && (!e || x.entityId === e)),
     fees: src.fees ? src.fees.filter((x) => ids.has(x.shipmentId)) : src.fees,
     waiting: (src.waiting ?? []).filter((x) => (!s || x.loadingPointId === s) && (!e || x.entityId === e)),
@@ -622,6 +625,8 @@ export interface MgmtClients {
   balances: { within: number; overdue: number; top: { customer: string; within: number; overdue: number }[] };
   /** V3-12: credit days in use on open sales (set per client on Sales → Clients), with what is owed under each. */
   termsMix: { days: number; clients: number; owed: number; overdue: number }[];
+  /** V3-12 step 2: money received in the period by how clients paid (null = payments without a recorded method). */
+  methods: { method: string | null; total: number; count: number }[] | null;
   records: { id: ID; ref: string; at: string; customer: string; warehouseId: ID; warehouse: string; kind: string; amount: number; paid: number; balance: number; status: string }[];
 }
 function mgmtClients(c: Ctx): Out {
@@ -638,9 +643,15 @@ function mgmtClients(c: Ctx): Out {
   for (const o of open) { const x = bc.get(o.s.customer) ?? { customer: o.s.customer, within: 0, overdue: 0 }; if (o.pastDue > 0) x.overdue += o.bal; else x.within += o.bal; bc.set(o.s.customer, x); }
   const owed = sales.length ? MX.owedByCustomers(sales, now) : null, overdue = sales.length ? MX.overdueByCustomers(sales, now) : null;
   const rd = <X extends { total: number; paid: number; balance: number }>(x: X): X => { x.total = r2(x.total); x.paid = r2(x.paid); x.balance = r2(x.balance); return x; };
+  const ids = new Set(sales.map((s) => s.id));
+  const cpIn = c.src.clientPayments?.filter((p) => ids.has(p.saleId) && t(p.at) >= c.from && t(p.at) < c.to);
+  const mm = new Map<string, { method: string | null; total: number; count: number }>();
+  for (const p of cpIn ?? []) { const k = p.method ?? ''; const x = mm.get(k) ?? { method: p.method, total: 0, count: 0 }; x.total += p.amountUsd; x.count++; mm.set(k, x); }
+  const methodsIn = cpIn ? [...mm.values()].map((x) => ({ ...x, total: r2(x.total) })).sort((a, b) => b.total - a.total) : null;
   const mix = new Map<number, { days: number; who: Set<string>; owed: number; overdue: number }>();
   for (const o of open) { const d = MX.termsOf(o.s); const x = mix.get(d) ?? { days: d, who: new Set<string>(), owed: 0, overdue: 0 }; x.who.add(o.s.customer); x.owed += o.bal; if (o.pastDue > 0) x.overdue += o.bal; mix.set(d, x); }
   const data: MgmtClients = {
+    methods: methodsIn,
     termsMix: [...mix.values()].sort((a, b) => a.days - b.days).map((x) => ({ days: x.days, clients: x.who.size, owed: r2(x.owed), overdue: r2(x.overdue) })),
     terms: TERMS_DAYS,
     kpis: { sales: inP.length || sales.length ? MX.salesValue(sales, { from: c.from, to: c.to }) : null, purchases: inP.length, clients: by.size, owed, overdue },
@@ -765,8 +776,13 @@ function mgmtCash(c: Ctx): Out {
   const payUsd = (p: (typeof c.src.payments)[number]) => (p as { amountUsd?: number }).amountUsd ?? p.amount;
   const paidOut = c.src.payments.filter((p) => p.status !== 'Pending approval');
   const expenses = c.src.expenses ?? [];
+  // V3-12 step 2: received = client payments dated in the period (USD at the payment date's rate), for the sales in view
+  // (so sales between our own companies stay out in the Group view). Without payment records: what was paid on the period's sales.
+  const saleIds = new Set(sales.map((s) => s.id));
+  const cps = c.src.clientPayments?.filter((p) => saleIds.has(p.saleId));
   const inOut = (a: number, b: number, wh?: ID) => {
-    const received = sum(sales.filter((s) => within(s.at, a, b) && (!wh || s.warehouseId === wh)), paidOf);
+    const received = cps ? sum(cps.filter((p) => within(p.at, a, b) && (!wh || p.warehouseId === wh)), (p) => p.amountUsd)
+      : sum(sales.filter((s) => within(s.at, a, b) && (!wh || s.warehouseId === wh)), paidOf);
     const transport = sum(paidOut.filter((p) => within(p.at, a, b) && (!wh || shipWh.get(p.shipmentId) === wh)), payUsd);
     const wexp = sum(expenses.filter((e) => within(Date.parse(`${e.date}T00:00:00Z`), a, b) && (!wh || e.warehouseId === wh)), (e) => e.amountUsd);
     return { received: r2(received), transport: r2(transport), wexp: r2(wexp) };
@@ -801,10 +817,10 @@ function mgmtCash(c: Ctx): Out {
     },
     clients: { before: owedBefore, period: toCollect, closing: owedNow },
     transport: { paid: cur.transport, owed: c.src.fees ? MX.transportOwed(c.src.fees) : null },
-    notRecorded: ['openingCash', 'transfers', 'paymentDates'],
+    notRecorded: cps ? ['openingCash', 'transfers'] : ['openingCash', 'transfers', 'paymentDates'],
   };
-  return out(data, { definition: `Received = what was paid on the sales of ${c.period.label} (sales record their paid total, not the payment date). Bills = transport payments approved or paid in the period + warehouse expenses dated in the period, in USD. Stock in cases. Opening cash and transfers to the company account are not recorded yet, so this is the net cash movement, not cash in hand.`,
-    currency: 'USD', unit: 'USD · cases', period: c.period, freshness: newest(sales.map((s) => s.at), paidOut.map((p) => p.at), expenses.map((e) => e.at)),
+  return out(data, { definition: `Received = ${cps ? `client payments dated in ${c.period.label} (sales made before payments were recorded count their paid amount on the sale date)` : `what was paid on the sales of ${c.period.label}`}. Bills = transport payments approved or paid in the period + warehouse expenses dated in the period, in USD. Stock in cases. Opening cash and transfers to the company account are not recorded yet, so this is the net cash movement, not cash in hand.`,
+    currency: 'USD', unit: 'USD · cases', period: c.period, freshness: newest(sales.map((s) => s.at), paidOut.map((p) => p.at), expenses.map((e) => e.at), (cps ?? []).map((p) => p.at)),
     empty: !sales.length && !paidOut.length && !expenses.length });
 }
 

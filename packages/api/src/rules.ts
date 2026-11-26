@@ -255,7 +255,7 @@ export function flagsFrom(rows: VelocityRow[], now = Date.now()): Flag[] {
 /** Sale payment status from amount paid vs total (SL-03). */
 export function saleStatus(lines: { qty: number; price: number }[], paid: number) {
   const total = lines.reduce((a, l) => a + amount(l.qty, l.price), 0);
-  return paid >= total ? 'Paid' as const : paid > 0 ? 'Part-paid' as const : 'Unpaid' as const;
+  return paid >= total - 0.005 ? 'Paid' as const : paid > 0 ? 'Part-paid' as const : 'Unpaid' as const; // a cent of rounding counts as paid
 }
 
 /** Checkpoint short code for SMS/USSD ("Malaba border (KE/UG)" → MALABA; warehouses use their town). */
@@ -643,6 +643,19 @@ export function revisePlan(prev: Plan, truckNo: number, loading: Pick<LoadingLin
   return { plan, altLines };
 }
 export const defaultPvThresholds: PvThresholds = { behind: 0.85, over: 1.05 };
+
+// ---- V3-12 step 2: client payments ---------------------------------------------------------------------------------------
+export const PAYMENT_METHODS = ['Cash', 'Mobile money', 'Bank'] as const;
+/** What is still owed on a sale (never below zero). */
+export const saleBalance = (s: { lines: { qty: number; price: number }[]; paid: number }) => Math.max(0, Math.round((s.lines.reduce((a, l) => a + amount(l.qty, l.price), 0) - s.paid) * 100) / 100);
+/** A payment against a sale: above zero, not more than the balance (a cent of rounding allowed), a known method. Returns the error or null. */
+export function paymentError(balance: number, input: { amount?: unknown; method?: unknown }): string | null {
+  const a = Number(input.amount);
+  if (!(a > 0)) return 'Enter the amount received';
+  if (a > balance + 0.005) return `That is more than the balance of USD ${balance.toFixed(2)}`;
+  if (!PAYMENT_METHODS.includes(input.method as (typeof PAYMENT_METHODS)[number])) return 'Pick how the client paid';
+  return null;
+}
 
 // ---- V3-12 step 1: clients ----------------------------------------------------------------------------------------------
 /** Same client whatever the spacing or capitals: "kimironko  wholesale" = "Kimironko Wholesale". */
