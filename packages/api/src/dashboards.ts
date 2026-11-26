@@ -54,7 +54,7 @@ export type DashKey =
   | 'orders-analysis' | 'plan-vs-actual-report' | 'purchase-planning' | 'loading-queues' | 'shipment-analysis' | 'logistics-report'
   | 'trip-costs' | 'finance-report' | 'stock-analysis' | 'inventory-report' | 'sales-velocity' | 'sales-report' | 'quarterly-review'
   // design v3 Management pages on live data (V3-10): same data, scoping and builders as the dashboards above
-  | 'mgmt-overview' | 'mgmt-plans' | 'mgmt-clients' | 'mgmt-perf' | 'mgmt-suppliers';
+  | 'mgmt-overview' | 'mgmt-plans' | 'mgmt-clients' | 'mgmt-perf' | 'mgmt-suppliers' | 'mgmt-cash';
 export interface DashDef {
   key: DashKey; id: string; title: string; group: DashGroup; who: Who[];
   /** the business question it answers */ question: string; /** the visual */ visual: string;
@@ -66,6 +66,7 @@ export interface DashDef {
 const d = (key: DashKey, id: string, title: string, group: DashGroup, who: Who[], question: string, visual: string, link?: string, client?: boolean): DashDef => ({ key, id, title, group, who, question, visual, link, client });
 const a = (key: DashKey, title: string, group: DashGroup, who: Who[], features: FeatureKey[], question: string, visual: string, link: string): DashDef => ({ key, id: 'F-2', title, group, who, question, visual, link, client: true, analysis: true, features });
 export const DASHBOARDS: DashDef[] = [
+  { key: 'mgmt-cash', id: 'M-06', title: 'Cash and closing', group: 'management', who: ['dir'], features: ['reports'], question: 'How did money move this period, and where do stock, client balances and transport bills stand?', visual: 'Statement, month by month, by warehouse, opening to closing', link: '#/management/cash' },
   { key: 'mgmt-suppliers', id: 'M-05', title: 'Supplier balances', group: 'management', who: ['dir'], features: ['reports'], question: 'How much of our money is with each supplier from short loads?', visual: 'KPIs, money with suppliers by month, by supplier, brands loaded short, short loads list, supplier statement', link: '#/management/suppliers' },
   { key: 'mgmt-perf', id: 'M-07', title: 'Warehouse performance', group: 'management', who: ['dir'], features: ['reports'], question: 'Which warehouse makes the most profit, and are we selling above the safe price?', visual: 'Warehouses side by side, headline numbers, profit waterfall, plan vs actual, margin and profit per case by month, price floor', link: '#/management/perf' },
   { key: 'mgmt-clients', id: 'M-04', title: 'Sales and clients', group: 'management', who: ['dir'], features: ['reports'], question: 'Who buys, how do they pay, and who owes us?', visual: 'KPIs, clients by frequency, how clients pay, balances within credit time vs overdue, sales records', link: '#/management/clients' },
@@ -734,6 +735,73 @@ function mgmtSuppliers(c: Ctx): Out {
     currency: 'USD', unit: 'USD · cases', period: c.period, freshness: newest(rows.map((r) => r.at)), empty: !rows.length });
 }
 
+// ---- design v3 Management · Cash and closing (V3-10 step 3d): money in and out from what we record ---------------------
+// Received = paid on the period's sales (sales carry their paid total, not dated payments). Bills = transport payments
+// (approved / paid, by payment date) + warehouse expenses (by date). Opening cash and transfers to the company account are
+// not recorded yet, so the page shows the net movement, not cash in hand.
+export interface MgmtCash {
+  kpis: { received: number; toCollect: number; transportPaid: number; warehouseBills: number; net: number };
+  statement: { label: string; value: number | null; kind: 'in' | 'out' | 'total' | 'missing' }[];
+  byMonth: { month: string; received: number; bills: number; net: number }[];
+  byWarehouse: { warehouseId: ID; label: string; received: number; bills: number; net: number }[];
+  stock: { opening: number; received: number; sold: number; other: number; closing: number };
+  clients: { before: number; period: number; closing: number };
+  transport: { paid: number; owed: number | null };
+  notRecorded: ('openingCash' | 'transfers' | 'paymentDates')[];
+}
+function mgmtCash(c: Ctx): Out {
+  const n = names(c.src); const now = c.now;
+  const whLabel = (id: ID) => { const w = c.src.warehouses.find((x) => x.id === id) as { country?: string; town?: string } | undefined; return w?.country && w?.town ? `${w.country} – ${w.town}` : n.warehouse(id); };
+  const sales = c.usd.sales; const val = (s: (typeof sales)[number]) => sum(s.lines, (l) => l.qty * l.price);
+  const paidOf = (s: (typeof sales)[number]) => Math.min(s.paid, val(s));
+  const within = (at: string | number, a: number, b: number) => { const x = typeof at === 'number' ? at : t(at); return x >= a && x < b; };
+  const shipWh = new Map(c.src.shipments.map((s) => [s.id, s.warehouseId]));
+  const payUsd = (p: (typeof c.src.payments)[number]) => (p as { amountUsd?: number }).amountUsd ?? p.amount;
+  const paidOut = c.src.payments.filter((p) => p.status !== 'Pending approval');
+  const expenses = c.src.expenses ?? [];
+  const inOut = (a: number, b: number, wh?: ID) => {
+    const received = sum(sales.filter((s) => within(s.at, a, b) && (!wh || s.warehouseId === wh)), paidOf);
+    const transport = sum(paidOut.filter((p) => within(p.at, a, b) && (!wh || shipWh.get(p.shipmentId) === wh)), payUsd);
+    const wexp = sum(expenses.filter((e) => within(Date.parse(`${e.date}T00:00:00Z`), a, b) && (!wh || e.warehouseId === wh)), (e) => e.amountUsd);
+    return { received: r2(received), transport: r2(transport), wexp: r2(wexp) };
+  };
+  const cur = inOut(c.from, c.to);
+  const toCollect = r2(sum(sales.filter((s) => within(s.at, c.from, c.to)), (s) => Math.max(0, val(s) - s.paid)));
+  const net = r2(cur.received - cur.transport - cur.wexp);
+  // stock (cases) at a moment: the same signs as rules.computeStock
+  const sign = (k: string) => (k === 'received' || k === 'transferIn' || k === 'adjustment' ? 1 : -1);
+  const stockAt = (x: number) => sum(c.src.moves.filter((m) => t(m.at) < x), (m) => sign(m.kind) * m.qty);
+  const end = Math.min(c.to, now + 1);
+  const inPMoves = c.src.moves.filter((m) => within(m.at, c.from, end));
+  const owedNow = sales.length ? MX.owedByCustomers(sales, now) : 0;
+  const owedBefore = r2(sum(sales.filter((s) => t(s.at) < c.from && s.status !== 'Paid'), (s) => Math.max(0, val(s) - s.paid)));
+  const whIds = [...new Set([...sales.map((s) => s.warehouseId), ...expenses.map((e) => e.warehouseId)])].filter((w) => !c.f.warehouseId || w === c.f.warehouseId);
+  const data: MgmtCash = {
+    kpis: { received: cur.received, toCollect, transportPaid: cur.transport, warehouseBills: cur.wexp, net },
+    statement: [
+      { label: 'Opening cash', value: null, kind: 'missing' },
+      { label: 'Cash received from sales', value: cur.received, kind: 'in' },
+      { label: 'Transport bills paid', value: -cur.transport, kind: 'out' },
+      { label: 'Warehouse expenses', value: -cur.wexp, kind: 'out' },
+      { label: 'Sent to the company account', value: null, kind: 'missing' },
+      { label: 'Net cash movement', value: net, kind: 'total' },
+    ],
+    byMonth: months(now, 12).map((m) => { const x = inOut(m.from, m.to); return { month: m.key, received: x.received, bills: r2(x.transport + x.wexp), net: r2(x.received - x.transport - x.wexp) }; }),
+    byWarehouse: whIds.map((w) => { const x = inOut(c.from, c.to, w); return { warehouseId: w, label: whLabel(w), received: x.received, bills: r2(x.transport + x.wexp), net: r2(x.received - x.transport - x.wexp) }; }).sort((a, b) => b.net - a.net),
+    stock: {
+      opening: stockAt(c.from), closing: stockAt(end),
+      received: sum(inPMoves.filter((m) => m.kind === 'received'), (m) => m.qty), sold: sum(inPMoves.filter((m) => m.kind === 'sold'), (m) => m.qty),
+      other: sum(inPMoves.filter((m) => m.kind !== 'received' && m.kind !== 'sold'), (m) => sign(m.kind) * m.qty),
+    },
+    clients: { before: owedBefore, period: toCollect, closing: owedNow },
+    transport: { paid: cur.transport, owed: c.src.fees ? MX.transportOwed(c.src.fees) : null },
+    notRecorded: ['openingCash', 'transfers', 'paymentDates'],
+  };
+  return out(data, { definition: `Received = what was paid on the sales of ${c.period.label} (sales record their paid total, not the payment date). Bills = transport payments approved or paid in the period + warehouse expenses dated in the period, in USD. Stock in cases. Opening cash and transfers to the company account are not recorded yet, so this is the net cash movement, not cash in hand.`,
+    currency: 'USD', unit: 'USD · cases', period: c.period, freshness: newest(sales.map((s) => s.at), paidOut.map((p) => p.at), expenses.map((e) => e.at)),
+    empty: !sales.length && !paidOut.length && !expenses.length });
+}
+
 function directorToday(c: Ctx): Out {
   const n = names(c.src); const now = c.now; const d0 = new Date(now);
   const dayStart = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate());
@@ -1055,6 +1123,7 @@ const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
   'mgmt-clients': mgmtClients,
   'mgmt-perf': mgmtPerf,
   'mgmt-suppliers': mgmtSuppliers,
+  'mgmt-cash': mgmtCash,
   'warehouse-today': warehouseToday,
   'order-this-week': orderThisWeek,
   'stock-movements': stockMovements,

@@ -61,13 +61,27 @@ ok(n(await p.locator('.mrep .kpi .val').first().textContent()) > 0 && await p.lo
 ok(await p.locator('.mrep .kpi', { hasText: 'Credit notes' }).getByText('Not recorded yet').count() === 1 && await p.locator('.mrep .ct', { hasText: 'Advance payments' }).locator('.chip', { hasText: 'Not recorded yet' }).count() === 1, 'Suppliers: credit notes / advances say "Not recorded yet"');
 ok(await p.locator('.mrep .dt-table').count() === 2 && await p.locator('.mrep .dt-table').first().locator('tbody tr[data-dt-row]').count() > 0, 'Suppliers: short loads and the statement as tables');
 await p.screenshot({ path: `${out}/mgmt-suppliers-live.png`, fullPage: true });
+// V3-10 step 3d: Cash and closing on live data
+await p.goto(`${base}#/management/cash`); await p.locator('.mrep .kpi .val').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(1000);
+ok(await p.locator('iframe[title^="Management report"]').count() === 0, 'Cash: our page, no report frame');
+ok(n(await p.locator('.mrep .kpi .val').first().textContent()) > 0 && await p.locator('.mrep .stmt tr.total').count() === 1, 'Cash: received from our sales; statement with a net total');
+ok(await p.locator('.mrep .stmt tr.missing .chip', { hasText: 'Not recorded yet' }).count() === 2, 'Cash: opening cash and transfers say "Not recorded yet"');
+ok(/→/.test((await p.locator('.mrep .oc').innerText())), 'Cash: stock opening → closing');
+await p.screenshot({ path: `${out}/mgmt-cash-live.png`, fullPage: true });
+// rule (26 Nov): on every Management page the title and its description come first, then the filter bar
+for (const pg of ['overview', 'plans', 'clients', 'perf', 'suppliers', 'cash']) {
+  await p.goto(`${base}#/management/${pg}`); await p.locator('main h1').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(600);
+  await p.evaluate(() => scrollTo(0, 0)); await p.waitForTimeout(200);
+  const h = await p.locator('main h1').first().boundingBox(), c = await p.locator('main .ctl').first().boundingBox();
+  ok(!!h && !!c && h.y < c.y, `${pg}: title above the filter bar`);
+}
 for (const [k, title] of Object.entries(PAGES)) {
-  if (['overview', 'plans', 'clients', 'perf', 'suppliers'].includes(k)) continue; // rebuilt in our code (V3-10), checked above
+  if (['overview', 'plans', 'clients', 'perf', 'suppliers', 'cash'].includes(k)) continue; // rebuilt in our code (V3-10), checked above
   await p.goto(`${base}#/management/${k}`); await p.waitForTimeout(2200);
   const f = p.frameLocator('iframe[title^="Management report"]');
   const h1 = (await f.locator('main h1').first().textContent().catch(() => ''))?.trim();
   ok(h1 === title, `#/management/${k} opens "${title}" (got "${h1}")`);
-  if (k === 'cash') {
+  if (k === 'exec') {
     const sideHidden = await f.locator('aside.side').evaluate((e) => getComputedStyle(e).display === 'none').catch(() => false);
     ok(sideHidden, `${k}: the report's own menu is hidden`);
     const w = await f.locator('main').evaluate((e) => e.getBoundingClientRect().width).catch(() => 0);
@@ -85,8 +99,8 @@ ok(!(await p.getByText('Not available for your role').count()), 'director: #/das
 // gating: a loader has no `reports`
 const q = await signIn('Yonas');
 ok(await q.getByRole('group', { name: 'Operations or management' }).count() === 0, 'warehouse user does not see the Management switch');
-await q.goto(`${base}#/management/cash`); await q.waitForTimeout(1500);
-ok(await q.getByText('Not available for your role').count() > 0, 'warehouse user gets "Not available" at #/management/cash');
+await q.goto(`${base}#/management/exec`); await q.waitForTimeout(1500);
+ok(await q.getByText('Not available for your role').count() > 0, 'warehouse user gets "Not available" at #/management/exec');
 await b.close();
 console.log(fails ? `${fails} check(s) failed` : 'all V3-2 checks passed');
 process.exit(fails ? 1 : 0);

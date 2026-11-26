@@ -36,8 +36,8 @@
 </script>
 
 <section class="mrep" aria-labelledby="cl-h">
-  <ReportFilters {f} />
   <header><h1 id="cl-h">Sales and clients</h1><p class="muted">{whName} · {res?.period?.label ?? ''}</p></header>
+  <ReportFilters {f} />
   <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
   {#if d}
     {@const k = d.kpis}

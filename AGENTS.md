@@ -37,6 +37,7 @@ cd ../btw-gd-<ID> && pnpm install
 - Icons: `@lucide/svelte/icons/<name>`, 18 px in nav and buttons, 16 px inline.
 - Product text: plain, short, sentence case. **No em dashes (—)**. Empty cells show `-`. No spec codes in UI text (`pnpm check:text`).
 - Dashboards: follow `.cursor/rules/dashboards-home.mdc`.
+- Management pages: follow `.cursor/rules/management-pages.mdc` (title and description first, then the filter bar).
 - Business rules live in `packages/api/src/rules.ts`, with a test.
 - Size budgets: web entry 130 KB, phone entry 90 KB (`pnpm size`).
 
