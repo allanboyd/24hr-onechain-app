@@ -9,7 +9,21 @@ await p.getByRole('button', { name: 'Sign in to the web as Daniel' }).first().cl
 const rows = () => p.locator('section.dt table tbody tr');
 
 // Board
-await p.goto(`${base}#/trucks`); await rows().first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(800);
+// V3-15: the Truck desk in the left-menu layout; the Board opens as lanes by state, with a map option
+await p.goto(`${base}#/trucks`); await p.locator('.lane').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(800);
+const menu = (await p.getByRole('navigation', { name: 'Truck desk' }).locator('a span:not(.n)').allTextContents()).map((x) => x.trim());
+ok(JSON.stringify(menu) === JSON.stringify(['Board', 'Queues', 'Providers & trucks', 'Costs']), `left menu: ${menu.join(', ')}`);
+const lanes = (await p.locator('.lane h3 span:first-child').allTextContents()).map((x) => x.trim());
+ok(JSON.stringify(lanes) === JSON.stringify(['Waiting & loading', 'On the road', 'Delayed', 'Arrived']), 'Board: four lanes by state');
+const laneSum = (await p.locator('.lane h3 .n').allTextContents()).reduce((a, x) => a + Number(x), 0);
+ok(laneSum > 0 && await p.locator('.tc').count() === laneSum, `each lane counts its cards (${laneSum})`);
+await p.locator('.tc').first().click(); await p.waitForTimeout(800);
+ok(await p.locator('[role=dialog], dialog[open], aside.drawer, .drawer').count() > 0, 'a truck card opens the truck');
+await p.keyboard.press('Escape'); await p.waitForTimeout(300);
+await p.getByRole('button', { name: 'With map' }).click(); await p.waitForTimeout(2500);
+ok(/layout=map/.test(p.url()) && await p.locator('.withmap .leaflet-container').count() === 1, 'With map: lanes and the live map on one screen');
+await p.screenshot({ path: `${out}/trucks-lanes-map.png` });
+await p.getByRole('button', { name: 'Table' }).click(); await rows().first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(800);
 const b0 = await rows().count();
 ok(b0 > 0 && await p.locator('section.dt input[type=search]').count() === 1, `Board: trucks in the shared table with search (${b0})`);
 const reg = (await rows().first().locator('td').first().locator('strong').textContent())?.trim() ?? '';
@@ -18,7 +32,7 @@ ok(await rows().count() === 1 && /q=/.test(p.url()), `Board: search finds ${reg}
 await rows().first().click(); await p.waitForTimeout(800);
 ok(await p.locator('[role=dialog], dialog[open], aside.drawer, .drawer').count() > 0, 'Board: a row opens the truck');
 await p.keyboard.press('Escape'); await p.waitForTimeout(300);
-await p.goto(`${base}#/trucks?state=Delayed`); await rows().first().waitFor({ timeout: 15_000 }); await p.waitForTimeout(600);
+await p.goto(`${base}#/trucks?state=Delayed&layout=table`); await p.reload(); await rows().first().waitFor({ timeout: 15_000 }); await p.waitForTimeout(600);
 const states = await rows().locator('td .badge, td [class*=badge]').allTextContents();
 ok(states.length > 0 && states.every((x) => /Delayed/i.test(x)), `Board: the State filter from the address (${states.length} delayed)`);
 await p.screenshot({ path: `${out}/trucks-board.png` });
