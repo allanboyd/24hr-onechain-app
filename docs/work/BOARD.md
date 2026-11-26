@@ -169,3 +169,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 Shipments: map is one third, live fleet board is two thirds. Truck list stays on Loading. Purchase orders chart no longer stacks a table, and the plan card is a noun. |
 | 26 Nov 2026 | claude | V3-15 step 2 merged: Shipments and the map on one page (Split / List / Map, cards with progress, journey panel); the Shipment map entry is gone. |
 | 26 Nov 2026 | claude | V3-15 step 3 merged: Alerts as an activity feed (by day, buttons) and exceptions as cards by severity; tables one click away. |
+| 26 Nov 2026 | claude | V3-15 step 4 merged: Stock with warehouse cards, cover bars and "what to do"; nothing scrolls sideways. |

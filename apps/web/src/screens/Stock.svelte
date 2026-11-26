@@ -93,6 +93,31 @@
   const levelOf = (x: StockRow): Level => { const p = pace(x); const k = MX.stockRisk(x.closing, p.perDay, p.daysSinceSale); return k === 'out' ? 'Out of stock' : k === 'stock-out risk' || k === 'low' ? 'Low' : k === 'ok' ? 'OK' : 'Overstock'; };
   const levelTone = { 'Out of stock': 'danger', Low: 'danger', Overstock: 'warning', OK: 'success' } as const;
   const valueOf = (x: StockRow) => Math.max(0, x.closing) * (x.landedCostPerCase ?? 0);
+  // V3-15: the cover bar (days of stock against the stock-out and overstock thresholds) and a plain "what to do"
+  const th = analytics.thresholds;
+  const coverPct = (x: StockRow) => { const c = cover(x); return c >= 999 ? (x.closing > 0 ? 100 : 0) : Math.min(100, Math.max(0, (c / Math.max(1, th.overstockDays)) * 100)); };
+  function todo(x: Line): { text: string; tone: 'bad' | 'warn' | 'ok' } {
+    const lv = levelOf(x);
+    // the same product overstocked in another warehouse of the same company: move it rather than order more
+    const spare = (lines ?? []).find((y) => y.productId === x.productId && y.entityId === x.entityId && y.warehouseId !== x.warehouseId && levelOf(y) === 'Overstock');
+    if (lv === 'Out of stock' || lv === 'Low') return { text: spare ? `Move from ${destinationLabel(spare.warehouseId)}` : x.inTransit > 0 ? 'Arriving: follow the truck' : 'Order more', tone: 'bad' };
+    if (lv === 'Overstock') return { text: 'Stop ordering; sell or move it', tone: 'warn' };
+    return { text: '-', tone: 'ok' };
+  }
+  // warehouse cards on top: what each warehouse holds and how many lines need attention; picking one filters the page
+  const whCards = $derived.by(() => {
+    const byWh = new Map<string, { id: string; value: number; cases: number; transit: number; out: number; low: number; over: number }>();
+    for (const x of (lines ?? []).filter((x) => !f.values.company || x.entityId === f.values.company)) {
+      const c = byWh.get(x.warehouseId) ?? { id: x.warehouseId, value: 0, cases: 0, transit: 0, out: 0, low: 0, over: 0 };
+      c.value += valueOf(x); c.cases += Math.max(0, x.closing); c.transit += x.inTransit;
+      const lv = levelOf(x); if (lv === 'Out of stock') c.out++; else if (lv === 'Low') c.low++; else if (lv === 'Overstock') c.over++;
+      byWh.set(x.warehouseId, c);
+    }
+    return [...byWh.values()].sort((a, b) => b.value - a.value || b.cases - a.cases);
+  });
+  // group by warehouse (default) or by product (one product's warehouses side by side)
+  let byProduct = $state(readQuery('by') === 'product');
+  function setBy(v: '' | 'product') { byProduct = v === 'product'; writeQuery({ by: v || null }); }
 
   // Lines in the chosen warehouse / company: the strip counts these (with no filter: the same rows as Home).
   const base = $derived((lines ?? []).filter((x) => (!f.values.wh || x.warehouseId === f.values.wh) && (!f.values.company || x.entityId === f.values.company)));
@@ -169,16 +194,17 @@
     { key: 'product', label: 'Brand · Package', sticky: true, value: (x) => name(x), cell: productCell },
     { key: 'wh', label: 'Warehouse', value: (x) => destinationLabel(x.warehouseId), class: 'nowrap' },
     ...(group ? [{ key: 'company', label: 'Company', value: (x: Line) => companyLabel(x.entityId), cell: companyCell, hideBelow: 1000 }] : []),
-    { key: 'opening', label: 'Opening', ...n((x) => x.opening), hideBelow: 1300 },
-    { key: 'received', label: 'Received', ...n((x) => x.received + x.transfersIn) },
-    { key: 'damaged', label: 'Damaged', ...n((x) => x.damaged, dash), cell: damagedCell, hideBelow: 900 },
-    ...(whRows ? [{ key: 'short', label: 'Short', ...n((x) => x.w?.short ?? 0, dash), hideBelow: 1300 }] : []),
-    { key: 'out', label: 'Sent on / out', ...n((x) => x.transfersOut + (x.w?.movedOut ?? 0), dash), hideBelow: 1000 },
-    { key: 'sold', label: 'Sold', ...n((x) => x.sold) },
-    { key: 'adj', label: 'Count ±', ...n((x) => (x.w ? x.w.adjusted : x.adjustments), signed), total: undefined, hideBelow: 1300 },
-    { key: 'onhand', label: 'On hand', ...n((x) => x.closing), cell: onHandCell },
+    { key: 'opening', label: 'Opening', ...n((x) => x.opening), hideBelow: 1300, hidden: true },
+    { key: 'received', label: 'Received', ...n((x) => x.received + x.transfersIn), hidden: true },
+    { key: 'damaged', label: 'Damaged', ...n((x) => x.damaged, dash), cell: damagedCell, hideBelow: 900, hidden: true },
+    ...(whRows ? [{ key: 'short', label: 'Short', ...n((x) => x.w?.short ?? 0, dash), hideBelow: 1300, hidden: true }] : []),
+    { key: 'out', label: 'Sent on / out', ...n((x) => x.transfersOut + (x.w?.movedOut ?? 0), dash), hideBelow: 1000, hidden: true },
+    { key: 'sold', label: 'Sold', ...n((x) => x.sold), hidden: true },
+    { key: 'adj', label: 'Count ±', ...n((x) => (x.w ? x.w.adjusted : x.adjustments), signed), total: undefined, hideBelow: 1300, hidden: true },
+    { key: 'onhand', label: 'On hand · cover', ...n((x) => x.closing), cell: onHandCell },
     { key: 'transit', label: 'In transit', ...n((x) => x.inTransit, dash), cell: transitCell },
     { key: 'level', label: 'Level', filter: 'select', filterValue: (x) => levelOf(x), sortValue: (x) => LEVEL_RANK[levelOf(x)] * 10000 + Math.min(9999, Math.max(0, cover(x))), csv: (x) => levelOf(x), cell: levelCell, class: 'nowrap', title: 'Cover = cases on hand ÷ cases sold per day over 30 days' },
+    { key: 'todo', label: 'What to do', value: (x) => todo(x).text, cell: todoCell, class: 'small', filter: 'select' },
     ...(whRows ? [{ key: 'count', label: 'Last count', sortValue: (x: Line) => ts(x.w?.lastCountAt), value: (x: Line) => x.w?.lastCountAt?.slice(0, 10) ?? null, class: 'small nowrap', hideBelow: 1300 }] : []),
     ...(money ? [
       { key: 'landed', label: 'Landed / case (USD)', align: 'right' as const, sortValue: (x: Line) => x.landedCostPerCase, value: (x: Line) => fmtNum(x.landedCostPerCase, 2), csv: (x: Line) => x.landedCostPerCase, hideBelow: 1300 },
@@ -203,8 +229,22 @@
 
   <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
 
+  {#if whCards.length > 1}
+    <div class="whs" role="group" aria-label="Warehouses">
+      {#each whCards as c (c.id)}
+        <button type="button" class="whc" class:on={f.values.wh === c.id} aria-pressed={f.values.wh === c.id} onclick={() => f.set('wh', f.values.wh === c.id ? '' : c.id)}>
+          <span class="nm">{destinationLabel(c.id)}</span>
+          <span class="big">{money ? `USD ${fmtNum(Math.round(c.value))}` : `${fmtNum(c.cases)} cases`}</span>
+          <span class="caption">{money ? `${fmtNum(c.cases)} cases on hand · ` : ''}{fmtNum(c.transit)} in transit</span>
+          <span class="flags">{#if c.out}<span class="fl bad">{c.out} out</span>{/if}{#if c.low}<span class="fl bad">{c.low} low</span>{/if}{#if c.over}<span class="fl warn">{c.over} overstock</span>{/if}{#if !c.out && !c.low && !c.over}<span class="fl ok">All fine</span>{/if}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
+
+  {#key byProduct}
   <DataTable id="stock" label="Stock lines" noun="stock lines" rows={lines ? listed : null} {columns} rowKey={(x) => x.key} onrowclick={show} selected={open && sel ? sel.key : null}
-    loading={!lines && !w.error} filename="stock-list" empty={emptyTable} card={phoneCard}
+    loading={!lines && !w.error} filename="stock-list" initialSort={byProduct ? { key: 'product', dir: 'asc' } : undefined} empty={emptyTable} card={phoneCard}
     searchable searchPlaceholder="Brand, package or SKU code" {searchExtra} bind:search={tq.search.get, tq.search.set} bind:filters={tq.filters.get, tq.filters.set}>
     {#snippet toolbar()}
       {#if warehouses.length > 1}
@@ -213,8 +253,10 @@
       {#if group && companies.length > 1}
         <select class="select" aria-label="Company" value={f.values.company} onchange={(e) => f.set('company', e.currentTarget.value)}><option value="">All companies</option>{#each companies as id (id)}<option value={id}>{companyLabel(id)}</option>{/each}</select>
       {/if}
+      <div class="by" role="group" aria-label="Group by"><button class:on={!byProduct} onclick={() => setBy('')}>By warehouse</button><button class:on={byProduct} onclick={() => setBy('product')}>By product</button></div>
     {/snippet}
   </DataTable>
+  {/key}
 
   {#snippet drawer()}
     <DetailDrawer bind:open title={sel ? name(sel) : ''} subtitle={sel ? `${destinationLabel(sel.warehouseId)} · ${companyLabel(sel.entityId)}` : ''} width={560}>
@@ -271,9 +313,10 @@
 {#snippet companyCell(x: Line)}<span class="cc"><CompanyMark entityId={x.entityId} size={18} />{companyLabel(x.entityId)}</span>{/snippet}
 {#snippet productCell(x: Line)}<span class="nowrap">{lookup.product(x.productId)?.brand}</span> <span class="muted small nowrap">{lookup.product(x.productId)?.pack}</span>{/snippet}
 {#snippet damagedCell(x: Line)}<span class:accent-text={x.damaged > 0}>{dash(x.damaged)}</span>{/snippet}
-{#snippet onHandCell(x: Line)}<strong>{fmtNum(x.closing)}</strong>{/snippet}
+{#snippet onHandCell(x: Line)}{@const lv = levelOf(x)}<div class="oh"><strong>{fmtNum(x.closing)}</strong><span class="cbar {levelTone[lv]}" title="{cover(x) >= 999 ? 'no recent sales' : `${Math.max(0, cover(x))} days of cover`}"><i style:width="{coverPct(x)}%"></i></span><span class="caption">{cover(x) >= 999 ? (x.closing > 0 ? 'no sales' : '') : `${Math.max(0, cover(x))} d`}</span></div>{/snippet}
+{#snippet todoCell(x: Line)}{@const t = todo(x)}<span class="todo {t.tone}">{t.text}</span>{/snippet}
 {#snippet transitCell(x: Line)}<span class="muted">{dash(x.inTransit)}</span>{/snippet}
-{#snippet levelCell(x: Line)}{@const lv = levelOf(x)}<Badge tone={levelTone[lv]}>{lv}</Badge> <span class="caption">{cover(x) >= 999 ? '' : `${Math.max(0, cover(x))} d`}</span>{/snippet}
+{#snippet levelCell(x: Line)}{@const lv = levelOf(x)}<Badge tone={levelTone[lv]}>{lv}</Badge>{/snippet}
 {#snippet actCell(x: Line)}{#if canCount(x)}<button class="btn btn-secondary btn-sm nowrap" onclick={(e) => { e.stopPropagation(); count(x); }}>Count / adjust</button>{/if}{/snippet}
 {#snippet phoneCard(x: Line)}
   {@const lv = levelOf(x)}
@@ -305,4 +348,20 @@
   .cap { text-transform: capitalize; }
   .figs { display: flex; flex-wrap: wrap; gap: 2px var(--space-3); }
   .cc { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 13px; }
+  .whs { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: var(--space-4); }
+  .whc { all: unset; box-sizing: border-box; display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+  .whc:hover { border-color: var(--border-strong, var(--border)); } .whc.on { border-color: var(--primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 25%, transparent); }
+  .whc:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+  .whc .nm { font-size: 13px; color: var(--text-muted); } .whc .big { font: 800 20px/1.25 var(--ff-display); font-variant-numeric: tabular-nums; }
+  .flags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .fl { font-size: 11.5px; font-weight: 600; padding: 1px 7px; border-radius: 99px; }
+  .fl.bad { background: var(--danger-subtle); color: var(--danger); } .fl.warn { background: var(--warning-subtle, var(--surface-sunken)); color: var(--warning); } .fl.ok { background: var(--success-subtle); color: var(--success); }
+  .oh { display: grid; grid-template-columns: auto 70px auto; align-items: center; gap: 8px; justify-content: end; }
+  .cbar { height: 6px; border-radius: 3px; background: var(--surface-sunken); overflow: hidden; }
+  .cbar i { display: block; height: 100%; border-radius: 3px; background: var(--success); }
+  .cbar.danger i { background: var(--danger); } .cbar.warning i { background: var(--warning-solid, var(--warning)); }
+  .todo.bad { color: var(--danger); font-weight: 600; } .todo.warn { color: var(--warning); font-weight: 600; }
+  .by { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--surface-sunken); }
+  .by button { border: 0; background: none; padding: 5px 10px; border-radius: 8px; font: inherit; font-size: 13px; color: var(--text-muted); cursor: pointer; }
+  .by button.on { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
 </style>
