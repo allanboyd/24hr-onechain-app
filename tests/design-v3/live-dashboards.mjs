@@ -46,6 +46,13 @@ ok(chrome.narrow.length === 3 && chrome.narrow.every((c) => c.oneLine && c.ellip
 ok(chrome.tickCount >= 2 && chrome.tickHits === 0, `border heatmap column labels do not overlap (${chrome.tickHits} overlaps across ${chrome.tickCount} labels)`);
 ok(await p.getByRole('group', { name: 'Warehouse' }).getByRole('button', { name: 'Combined' }).getAttribute('aria-pressed') === 'true', 'Fleet uses the report filter bar (warehouse chips)');
 ok(await p.getByRole('group', { name: 'Period' }).getByRole('button', { name: '30 days' }).getAttribute('aria-pressed') === 'true', 'period chips match the report, 30 days selected');
+const barShape = () => p.locator('.fbar').evaluate((bar) => {
+  const rows = bar.querySelectorAll(':scope > .fbar-row').length;
+  const tops = new Set([...bar.querySelectorAll('.picks label')].map((el) => Math.round(el.getBoundingClientRect().top)));
+  return { rows, lines: tops.size, h: Math.round(bar.getBoundingClientRect().height) };
+});
+const fleetBar = await barShape();
+ok(fleetBar.rows === 2 && fleetBar.lines === 1 && fleetBar.h < 180, `Fleet filter bar is two rows (${fleetBar.rows} rows, selects on ${fleetBar.lines} line, ${fleetBar.h}px)`);
 await p.screenshot({ path: `${out}/fleet-fit.png` });
 const tabs = ['business', 'purchasing', 'loading', 'fees', 'deliveries', 'warehouse', 'sales', 'admin'];
 for (const tab of tabs) {
@@ -53,9 +60,10 @@ for (const tab of tabs) {
   await p.locator('.dash-panel').first().waitFor({ timeout: 20_000 });
   await p.waitForTimeout(800);
   const bar = await p.locator('.fbar').count();
+  const shape = await barShape();
   const panels = await p.locator('.dash-panel').count();
   const method = await p.locator('.dash-method').count();
-  ok(bar === 1 && panels > 0 && method > 0, `${tab}: report filter bar, ${panels} cards, method text on ${method}`);
+  ok(bar === 1 && shape.rows === 2 && shape.lines === 1 && shape.h < 180 && panels > 0 && method > 0, `${tab}: two-row filter bar (${shape.h}px), ${panels} cards, method text on ${method}`);
   await p.screenshot({ path: `${out}/tab-${tab}.png` });
 }
 await p.setViewportSize({ width: 390, height: 844 });

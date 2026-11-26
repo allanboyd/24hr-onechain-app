@@ -90,34 +90,48 @@
   </div>
 {:else}
   <div class="fbar card" role="group" aria-label="Dashboard filters">
-    <div class="sel-seg" role="group" aria-label="Warehouse">
-      <button type="button" aria-pressed={!filter.warehouseId} onclick={() => set('warehouseId', '')}>Combined</button>
-      {#each sorted('warehouses') as id (id)}<button type="button" aria-pressed={filter.warehouseId === id} onclick={() => set('warehouseId', id)}>{name.warehouses(id)}</button>{/each}
+    <div class="fbar-row">
+      <div class="sel-seg" role="group" aria-label="Warehouse">
+        <button type="button" aria-pressed={!filter.warehouseId} onclick={() => set('warehouseId', '')}>Combined</button>
+        {#each sorted('warehouses') as id (id)}<button type="button" aria-pressed={filter.warehouseId === id} onclick={() => set('warehouseId', id)}>{name.warehouses(id)}</button>{/each}
+      </div>
+      <div class="sel-seg" role="group" aria-label="Period">
+        {#each BAR as c (c.key)}<button type="button" aria-pressed={preset === c.key} onclick={() => setPreset(c.key)}>{c.label}</button>{/each}
+      </div>
     </div>
-    <div class="sel-seg" role="group" aria-label="Period">
-      {#each BAR as c (c.key)}<button type="button" aria-pressed={preset === c.key} onclick={() => setPreset(c.key)}>{c.label}</button>{/each}
+    <div class="fbar-row picks">
+      {#each extra as f (f.k)}
+        {#if (options?.[f.o]?.length ?? 0) > 1 || filter[f.k]}
+          <label>{f.label}
+            <select class="select" value={filter[f.k] ?? ''} onchange={(e) => set(f.k, e.currentTarget.value)}><option value="">{f.all}</option>{#each sorted(f.o) as id}<option value={id}>{name[f.o](id)}</option>{/each}</select>
+          </label>
+        {/if}
+      {/each}
+      {#if money}<label>Currency <select class="select" value={currency.code} onchange={(e) => setCurrency(e.currentTarget.value)}>{#each CODES as c}<option>{c}</option>{/each}</select></label>{/if}
+      {#if any}<button class="btn btn-ghost btn-sm" type="button" onclick={reset}>Clear</button>{/if}
     </div>
-    {#each extra as f (f.k)}
-      {#if (options?.[f.o]?.length ?? 0) > 1 || filter[f.k]}
-        <label>{f.label}
-          <select class="select" value={filter[f.k] ?? ''} onchange={(e) => set(f.k, e.currentTarget.value)}><option value="">{f.all}</option>{#each sorted(f.o) as id}<option value={id}>{name[f.o](id)}</option>{/each}</select>
-        </label>
-      {/if}
-    {/each}
-    {#if money}<label>Currency <select class="select" value={currency.code} onchange={(e) => setCurrency(e.currentTarget.value)}>{#each CODES as c}<option>{c}</option>{/each}</select></label>{/if}
-    {#if any}<button class="btn btn-ghost btn-sm" type="button" onclick={reset}>Clear</button>{/if}
   </div>
 {/if}
 
 <style>
   .fbar {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2) var(--space-3);
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
     padding: var(--space-3) var(--space-4);
     margin-top: var(--space-3);
   }
+  .fbar-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+  }
+  .picks { align-items: flex-end; flex-wrap: nowrap; }
+  .fbar label { flex: 1 1 0; min-width: 0; max-width: 240px; }
+  .fbar .select { width: 100%; min-width: 0; max-width: none; }
+  .fbar .btn { align-self: flex-end; flex: none; }
   .embed {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -146,15 +160,14 @@
     margin-top: var(--space-1);
   }
   .fbar .sel-seg { flex-wrap: wrap; max-width: 100%; }
-  @media (max-width: 600px) {
+  @media (max-width: 720px) {
     .select {
       min-width: 0;
       width: 100%;
       max-width: none;
     }
-    .fbar label {
-      flex: 1 1 45%;
-    }
+    .picks { flex-wrap: wrap; }
+    .fbar label { flex: 1 1 45%; max-width: none; }
     .embed {
       grid-template-columns: 1fr;
     }
