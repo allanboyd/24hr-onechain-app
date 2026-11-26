@@ -148,25 +148,10 @@
       <b class="val">{stages.length ? count(poCount) : '-'}</b>
       <span class="sub">{onRoad ? `${count(onRoad)} on the road` : 'Open orders'}</span>
     </a>
-    <a class="card kpi" href="#/period-plans">
-      <span class="lbl">Plans</span>
-      <b class="val">{plan ? count(plan.planned) : '-'}</b>
-      <span class="sub">{plan ? `${count(plan.ordered)} cases ordered` : 'Cases planned'}</span>
-    </a>
     <a class="card kpi" href="#/shipments">
       <span class="lbl">Shipments</span>
       <b class="val">{trips ? count(moving.length) : '-'}</b>
       <span class="sub">{wh?.sign?.count ? `${count(wh.sign.count)} waiting to be signed` : 'Still moving'}</span>
-    </a>
-    <a class="card kpi" href="#/dashboards/fleet">
-      <span class="lbl">Trucks on the road</span>
-      <b class="val">{d.trucks.value == null ? '-' : count(d.trucks.value)}</b>
-      <span class="sub">{d.trucks.delayed ? `${d.trucks.delayed} delayed` : 'None delayed'} · {d.trucks.arrivingToday} today</span>
-    </a>
-    <a class="card kpi" href="#/dashboards/warehouse">
-      <span class="lbl">Warehouse stock</span>
-      <b class="val">{d.stock ? count(d.stock.cases) : '-'}</b>
-      <span class="sub">{d.stock?.value == null ? 'Cases on hand' : `${moneyVal(d.stock.value)} on hand`}</span>
     </a>
     <a class="card kpi" href="#/pos">
       <span class="lbl">Suppliers</span>
@@ -177,6 +162,23 @@
       <span class="lbl">Customers</span>
       <b class="val">{buyers ? count(buyers.clients) : '-'}</b>
       <span class="sub">With a sale in this period</span>
+    </a>
+  </div>
+  <div class="dash-kpis facts trio">
+    <a class="card kpi" href="#/period-plans">
+      <span class="lbl">Plans</span>
+      <b class="val">{plan ? count(plan.planned) : '-'}</b>
+      <span class="sub">{plan ? `${count(plan.ordered)} cases ordered` : 'Cases planned'}</span>
+    </a>
+    <a class="card kpi" href="#/dashboards/warehouse">
+      <span class="lbl">Warehouse stock</span>
+      <b class="val">{d.stock ? count(d.stock.cases) : '-'}</b>
+      <span class="sub">{d.stock?.value == null ? 'Cases on hand' : `${moneyVal(d.stock.value)} on hand`}</span>
+    </a>
+    <a class="card kpi" href="#/dashboards/fleet">
+      <span class="lbl">Trucks on the road</span>
+      <b class="val">{d.trucks.value == null ? '-' : count(d.trucks.value)}</b>
+      <span class="sub">{d.trucks.delayed ? `${d.trucks.delayed} delayed` : 'None delayed'} · {d.trucks.arrivingToday} today</span>
     </a>
   </div>
   <div class="map-slot">
@@ -207,14 +209,25 @@
       </TodayCard>
     </div>
     <div>
-      <TodayCard title="Most sold" caption="Top 5 products by cases" updatedAt={res?.freshness ?? null} rows={soldRows} filename="most-sold" empty={!sold.length} drill={{ label: 'Open sales', href: '#/sales' }} viewToggle>
+      <TodayCard title="Decisions" tone="primary" caption="Six things to clear" updatedAt={res?.freshness ?? null} rows={decRows} filename="decisions-today" viewToggle>
         {#snippet tableView()}
           <div class="table-wrap"><table class="table">
-            <thead><tr><th>Product</th><th class="num">Cases</th><th class="num">Sales</th></tr></thead>
-            <tbody>{#each sold as x (x.productId)}<tr><td>{x.brand}{x.pack ? ` ${x.pack}` : ''}</td><td class="num">{count(x.cases)}</td><td class="num">{moneyTxt(x.revenue)}</td></tr>{/each}</tbody>
+            <thead><tr><th>Decision</th><th class="num">Count</th><th>Owner</th></tr></thead>
+            <tbody>{#each d.decisions as x}<tr><td>{x.label}</td><td class="num">{x.count ?? '-'}</td><td>{x.owner}</td></tr>{/each}</tbody>
           </table></div>
         {/snippet}
-        <BarChart horizontal label="Most sold" categories={sold.map(soldName)} series={[{ name: 'Cases', values: sold.map((x) => x.cases), ink: 'navy' }]} format={(n) => Math.round(n).toLocaleString('en-US')} height={220} />
+        <ul class="dec">
+          {#each d.decisions as x (x.key)}
+            {@const Icon = ICON[x.key]}
+            <li class="sev-{x.severity}"><a href={x.href}>
+              <span class="ic"><Icon size={16} aria-hidden="true" /></span>
+              <span class="tx"><b>{x.label}</b><span>{x.detail}</span></span>
+              <span class="st">{STATE[x.severity]}</span>
+              <span class="ct"><b>{x.count ?? '-'}</b></span>
+              <ChevronRight size={15} class="chev" aria-hidden="true" />
+            </a></li>
+          {/each}
+        </ul>
       </TodayCard>
     </div>
     <div>
@@ -240,25 +253,14 @@
       {/snippet}
       <Donut label="Money owed" data={owedPie} format={axisFmt} height={260} center={axisFmt(owedTotal)} />
     </TodayCard>
-    <TodayCard title="Decisions" tone="primary" caption="Six things to clear" updatedAt={res?.freshness ?? null} rows={decRows} filename="decisions-today" viewToggle>
+    <TodayCard title="Most sold" caption="Top 5 products by cases" updatedAt={res?.freshness ?? null} rows={soldRows} filename="most-sold" empty={!sold.length} drill={{ label: 'Open sales', href: '#/sales' }} viewToggle>
       {#snippet tableView()}
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Decision</th><th class="num">Count</th><th>Owner</th></tr></thead>
-          <tbody>{#each d.decisions as x}<tr><td>{x.label}</td><td class="num">{x.count ?? '-'}</td><td>{x.owner}</td></tr>{/each}</tbody>
+          <thead><tr><th>Product</th><th class="num">Cases</th><th class="num">Sales</th></tr></thead>
+          <tbody>{#each sold as x (x.productId)}<tr><td>{x.brand}{x.pack ? ` ${x.pack}` : ''}</td><td class="num">{count(x.cases)}</td><td class="num">{moneyTxt(x.revenue)}</td></tr>{/each}</tbody>
         </table></div>
       {/snippet}
-      <ul class="dec">
-        {#each d.decisions as x (x.key)}
-          {@const Icon = ICON[x.key]}
-          <li class="sev-{x.severity}"><a href={x.href}>
-            <span class="ic"><Icon size={16} aria-hidden="true" /></span>
-            <span class="tx"><b>{x.label}</b><span>{x.detail}</span></span>
-            <span class="st">{STATE[x.severity]}</span>
-            <span class="ct"><b>{x.count ?? '-'}</b></span>
-            <ChevronRight size={15} class="chev" aria-hidden="true" />
-          </a></li>
-        {/each}
-      </ul>
+      <BarChart horizontal label="Most sold" categories={sold.map(soldName)} series={[{ name: 'Cases', values: sold.map((x) => x.cases), ink: 'navy' }]} format={(n) => Math.round(n).toLocaleString('en-US')} height={260} />
     </TodayCard>
   </div>
 {/if}
@@ -274,6 +276,7 @@
   .map-slot { display: flex; min-width: 0; }
   .map-slot > :global(.tc) { flex: 1; width: 100%; }
   .facts { grid-template-columns: repeat(4, minmax(0, 1fr)); align-content: start; }
+  .facts.trio { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .sk { display: grid; gap: 14px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: var(--space-4); }
   .skel { height: 118px; }
 
