@@ -11,7 +11,7 @@ How to use it: [`AGENTS.md`](../../AGENTS.md). Each agent edits **only its own r
 |---|---|---|---|---|---|---|---|
 | V3-0 | Look + tokens: centred content, cards, chips, buttons, tables, page header (folds in UI-0, UI-4 T-/P- issues) ([plan](plans/V3-0.md)) | 👀 review (merged into design-v3) | claude | `v3/V3-0-look` | none | `docs/design-system/tokens.json`, `packages/tokens/**`, `packages/ui/src/**`, `apps/web/src/components/page/**` | 5230 |
 | V3-1 | Shell: Operations / Management switch, process-ordered menus, Performance + Selling prices commented out (folds in UI-1) ([plan](plans/V3-1.md)) | 👀 review (merged into design-v3) | claude | `v3/V3-1-shell` | V3-0 | `apps/web/src/App.svelte`, `apps/web/src/routes.ts`, `components/CompanySwitcher.svelte`, `components/CompanyMark.svelte`, `apps/web/src/lib/side.svelte.ts` (new) | 5231 |
-| V3-1b | Shell polish: sidebar logo + company select, no group titles, animated switch, modern top bar, collapsible sidebar ([plan](plans/V3-1b.md)) | 🔄 in progress | claude | `v3/V3-1b-shell-polish` | V3-1 | same as V3-1 | 5231 |
+| V3-1b | Shell polish: sidebar logo + company select, no group titles, animated switch, modern top bar, collapsible sidebar ([plan](plans/V3-1b.md)) | 👀 review (merged into design-v3) | claude | `v3/V3-1b-shell-polish` | V3-1 | same as V3-1 | 5231 |
 | V3-2 | Management room: the report as is, driven by our sidebar, sample-data banner ([plan](plans/V3-2.md)) | 👀 review (merged into design-v3) | claude | `v3/V3-2-management` | none (menu entries via V3-1) | `apps/web/public/management/**`, `apps/web/src/screens/management/**` | 5232 |
 | V3-3 | Operations · Today: KPIs, pipeline with owners, act on these first, who handles what | ⬜ open | | `v3/V3-3-today` | V3-0, V3-1 | `apps/web/src/screens/ops/**` | 5233 |
 | V3-4 | Operations pages look: POs, Truck desk, Shipments, transfers, Stock, expenses, Sales, Period plans, Admin pages, Alerts "What I receive" (folds in UI-3 forms) | ⬜ open | | `v3/V3-4-ops-pages` | V3-0 | `apps/web/src/screens/*.svelte` (not Login), `apps/web/src/components/**` except `page/**`, `dashboard/**`, `charts/**` | 5234 |
@@ -52,6 +52,7 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 - V3-0 → V3-1: took one rule in `App.svelte` (centred `.content`, sidebar side tokens). V3-1 keeps it. ✅ done
 - V3-2 → V3-1: added `/management` routes + a temporary Management nav group in `routes.ts` (+ `navOnly` on nav items). V3-1 moves it under the switch and can keep one report frame across Management pages. ✅ done in V3-1
 - V3-2 → shared: `packages/api/test/redirects.test.ts` sidebar count now checks Operations (16) and Management (8) separately (doc 23).
+- V3-1b → V3-7: updated `tools/mockups/flows/a-procurement.mjs` ("Open the menu") and `h-companies.mjs` (company listbox in the sidebar); please run them.
 - V3-5 → shared: `qrcode-generator` added to `apps/field/package.json` (lockfile changes). `apps/web/src/main.ts` claimed for the PWA banner mount.
 
 ## Log
@@ -67,3 +68,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | claude | V3-1 approved and started. |
 | 26 Nov 2026 | claude | V3-1 merged into design-v3: switch, process-ordered menus, Performance / Selling prices / Transport costs off the menu (access kept), smaller brand without subtitles (your request). Next free: V3-3 (Today), V3-4 (pages look), V3-6 (phone look). |
 | 26 Nov 2026 | claude | Your sidebar / top bar list → V3-1b (started). Tables → V3-8 and selects → V3-9 planned; each needs a library choice. |
+| 26 Nov 2026 | claude | V3-1b merged into design-v3: sidebar logo + company select, no group titles, sliding switch, modern top bar, collapsible sidebar. `shell-polish.mjs` 19/19. |
