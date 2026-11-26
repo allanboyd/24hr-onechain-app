@@ -51,7 +51,7 @@ export function buildHistory(d: HistoryTarget, now = Date.now()) {
   const cp = (id: string) => seed.checkpoints.find((c) => c.id === id)!;
   const product = (id: string) => seed.products.find((p) => p.id === id)!;
   const listPrice = (pid: string) => seed.priceList.find((x) => x.productId === pid)?.price ?? 10;
-  const capacity = (t: string) => d.trucks.find((x) => x.id === t)?.capacityCases ?? 2200;
+  const capacity = (t: string) => d.trucks.find((x) => x.id === t)?.capacityCases ?? R.TRUCK_CASES;
   const chainHours = (chain: string[]) => chain.reduce((a, id) => { const s = stops(id); const last = s.at(-1)!; return a + last.plannedHours + s.reduce((b, x) => b + x.plannedDwellHours, 0) * 0.3; }, 0) + (chain.length - 1) * 24;
 
   // Daily sales per warehouse × SKU (index 0 = start day)

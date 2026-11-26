@@ -7,6 +7,8 @@
   import { loading, lookup, pos, ref, shipments, type Loading, type PoStage, type PurchaseOrder, type Shipment, type User } from '@btw/api';
   import { Badge, fmtDate, fmtMoney, fmtNum, router } from '@btw/ui';
   import SearchX from '@lucide/svelte/icons/search-x';
+  import ArrowUp from '@lucide/svelte/icons/arrow-up';
+  import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import { PageHeader, SummaryStrip, ActionInCompany, EmptyState, DataTable, queryFilters, readQuery, ts, type Column, type SummaryTile, tableQuery } from '../components/page';
   import { labelTone, poApprovals, revTag, STAGES, stageLabel } from '../lib/orders';
   import { poStageTiles, infoOf } from '../lib/tiles';
@@ -31,11 +33,11 @@
   const fig = $derived(poStageTiles(list ?? []));
   const atStage = (p: PurchaseOrder, s: string) => p.stage === s && !p.supersededById;
   const tiles = $derived<SummaryTile[]>([
-    ...(approvals ? [{ key: 'Awaiting approval', label: 'Awaiting approval', value: list ? fig.awaiting : null, status: fig.awaiting ? 'warn' : undefined, statusLabel: fig.awaiting ? 'Needs a director' : undefined, info: infoOf('poAwaiting') }] : []),
-    { key: 'Created', label: 'Not sent', value: list ? fig.notSent : null, sub: 'to the supplier', info: infoOf('poNotSent') },
-    ...(approvals ? [] : [{ key: 'Sent', label: 'Sent, waiting to load', value: list ? fig.sent : null, info: infoOf('poSent') }]),
-    { key: 'Loading', label: 'Loading', value: list ? fig.loading : null, info: infoOf('poLoading') },
-    { key: 'On the road', label: 'On the road', value: list ? fig.onRoad : null, sub: 'orders', info: infoOf('poOnRoad') },
+    ...(approvals ? [{ key: 'Awaiting approval', label: 'Awaiting approval', value: list ? fig.awaiting : null, status: fig.awaiting ? 'warn' : 'good', statusLabel: fig.awaiting ? 'Needs a director' : 'None waiting', icon: ArrowRight, info: infoOf('poAwaiting') }] : []),
+    { key: 'Created', label: 'Not sent', value: list ? fig.notSent : null, status: fig.notSent ? 'warn' : 'good', statusLabel: 'To the supplier', icon: ArrowRight, info: infoOf('poNotSent') },
+    ...(approvals ? [] : [{ key: 'Sent', label: 'Sent, waiting to load', value: list ? fig.sent : null, status: 'good', statusLabel: 'Waiting to load', icon: ArrowUp, info: infoOf('poSent') }]),
+    { key: 'Loading', label: 'Loading', value: list ? fig.loading : null, status: 'good', statusLabel: 'At the point', icon: ArrowUp, info: infoOf('poLoading') },
+    { key: 'On the road', label: 'On the road', value: list ? fig.onRoad : null, status: 'good', statusLabel: 'In transit', icon: ArrowRight, info: infoOf('poOnRoad') },
   ]);
   // open on what needs this person (only when nothing is chosen in the address)
   let defaulted = false;

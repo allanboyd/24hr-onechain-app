@@ -8,7 +8,7 @@
 //   landing cost per case = (goods value + every trip cost) ÷ cases loaded, averaged over delivered trucks
 //   (landed cost v2 — goods + truck + warehouse-expense share ÷ good cases received — and the combined performance
 //   report, docs/14 B-06/B-07, live in ./performance.ts and use the same scoping via scopeReportData)
-import { DAY, H, ORDER_COUNTS, coveringPlans, defaultPvThresholds, etaOf, fxFor, monthsIn, overdue, type StockMove } from './rules';
+import { DAY, H, ORDER_COUNTS, TRUCK_CASES, coveringPlans, defaultPvThresholds, etaOf, fxFor, monthsIn, overdue, type StockMove } from './rules';
 import type {
   Acknowledgement, Checkpoint, Driver, Entity, FxRate, ID, Plan, PriceListItem, Product, Provider, PurchaseOrder, Route, Sale, Shipment,
   StockRow, Supplier, Truck, TripCost, TripPayment, Warehouse, Loading, PeriodPlan, PeriodPlanLine, PvThresholds,
@@ -423,7 +423,7 @@ export function logisticsReport(dt: ReportData, f: ReportFilter = {}): Logistics
   for (const { l } of legsIn) {
     const tr = trucks.get(l.truckId) ?? { trips: 0, road: 0, load: [] }; tr.trips++;
     tr.road += (t(l.passes.at(-1)?.arrivedAt) - (t(l.departedAt) || t(l.passes[0].departedAt))) / DAY;
-    const cap = dt.trucks.find((x) => x.id === l.truckId)?.capacityCases ?? 2200; tr.load.push(sum(l.lines, (y) => y.loadedQty) / cap);
+    const cap = dt.trucks.find((x) => x.id === l.truckId)?.capacityCases ?? TRUCK_CASES; tr.load.push(sum(l.lines, (y) => y.loadedQty) / cap);
     trucks.set(l.truckId, tr);
   }
   const stopsOf = (id: ID) => dt.routes.find((r) => r.id === id)?.stops ?? [];
@@ -549,7 +549,7 @@ export function laneFor(dt: ReportData, wh: ID, pid: ID): Lane | null {
   }).filter((x) => x > 0);
   const planned = routeIds.reduce((a, id) => { const r = dt.routes.find((x) => x.id === id); return a + (r ? r.stops.at(-1)!.plannedHours / 24 : 0); }, 0) + (routeIds.length - 1);
   const transitDays = transits.length ? median(transits) : planned;
-  const capacity = Math.round(median(dt.trucks.map((x) => x.capacityCases)) || 2200);
+  const capacity = Math.round(median(dt.trucks.map((x) => x.capacityCases)) || TRUCK_CASES);
   const name = routeIds.map((id) => dt.routes.find((r) => r.id === id)?.name ?? id).join(' + ');
   return { routeIds, supplierId, name, transitDays: r1(transitDays), leadDays: Math.ceil(transitDays + 4), capacity };
 }
@@ -737,7 +737,7 @@ export function periodPlan(dt: ReportData, f: ReportFilter = {}): PeriodForecast
     let endCover = 0; for (let i = 0; i < 14; i++) endCover += fc.perDay(to + i * DAY);
     const requiredCases = Math.max(0, Math.round(demand + endCover - startStock - arriving));
     const gapCases = Math.max(0, requiredCases - alreadyPlanned);
-    const cap = lane?.capacity ?? 2200;
+    const cap = lane?.capacity ?? TRUCK_CASES;
     const gapTrucks = gapCases > cap * 0.15 ? Math.ceil(gapCases / cap) : 0;
     const orderBy = !gapTrucks || !lane ? null : out !== null ? Math.max(today, out - (lane.leadDays + 3) * DAY) : Math.max(today, to - lane.leadDays * DAY - 14 * DAY);
     const sup = dt.suppliers.find((s) => s.id === lane?.supplierId);

@@ -4,7 +4,7 @@
   // Access as the API: queues — truck planners anywhere, planners on their pairs' points, loaders at their own points;
   // loadings are recorded by the loaders of that point (and the truck follow-up officer at GBI); directors view.
   import { loading, lookup, pos, queue as q, ref, shipments, type Loading, type PurchaseOrder, type Shipment, type User, type WaitingEntry } from '@btw/api';
-  import { QUEUE_REMOVE_REASONS, seesLoadingPoint } from '@btw/api/rules';
+  import { QUEUE_REMOVE_REASONS, seesLoadingPoint, TRUCK_CASES } from '@btw/api/rules';
   import { canEditQueue, canRecordLoading } from '@btw/api/access';
   import { trucksToLoad } from '@btw/api/metrics';
   import { waitLabel } from '@btw/api/trucks';
@@ -72,13 +72,13 @@
   let addDlg = $state<HTMLDialogElement>();
   let addMode = $state<'known' | 'market'>('known');
   let addTruck = $state(''); let addDriver = $state('');
-  let mk = $state({ company: '', reg: '', trailer: '', capacityCases: 2000, driverName: '', driverPhone: '' });
+  let mk = $state({ company: '', reg: '', trailer: '', capacityCases: TRUCK_CASES, driverName: '', driverPhone: '' });
   let addErr = $state('');
   const queuedIds = $derived(new Set(queue.map((x) => x.truckId)));
   export function openAdd() {
     const free = r.trucks.find((t) => !queuedIds.has(t.id)) ?? r.trucks[0];
     addMode = 'known'; addTruck = free.id; addDriver = free.defaultDriverId ?? r.drivers[0].id;
-    mk = { company: '', reg: '', trailer: '', capacityCases: 2000, driverName: '', driverPhone: '' };
+    mk = { company: '', reg: '', trailer: '', capacityCases: TRUCK_CASES, driverName: '', driverPhone: '' };
     addErr = '';
     addDlg?.showModal();
   }

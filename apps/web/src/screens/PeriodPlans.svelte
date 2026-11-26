@@ -6,6 +6,9 @@
   import { lookup, type User } from '@btw/api';
   import { Badge, fmtNum, router } from '@btw/ui';
   import SearchX from '@lucide/svelte/icons/search-x';
+  import ArrowUp from '@lucide/svelte/icons/arrow-up';
+  import ArrowDown from '@lucide/svelte/icons/arrow-down';
+  import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import ErrorState from '../components/ErrorState.svelte';
   import PlanCreateDialog from '../components/PlanCreateDialog.svelte';
   import { watch } from '../lib/load.svelte';
@@ -22,6 +25,7 @@
   const showReplaced = $derived(f.values.status === 'Replaced' || f.values.status === 'all');
   let pv = $state<PlannedVsActual | null>(null);
   const today = new Date().toISOString().slice(0, 10);
+  const soon = (() => { const d = new Date(); d.setUTCDate(d.getUTCDate() + 30); return d.toISOString().slice(0, 10); })();
   const w = watch(async () => {
     [list, pv] = await Promise.all([periodPlans.list({ all: showReplaced }), plannedVsActual(periodFor('quarter', today)).catch(() => null)]);
   }, () => showReplaced);
@@ -29,14 +33,20 @@
   // docs/18: strip figures from the registry (plans in force / upcoming; this quarter's plan used vs expected by today)
   const fig = $derived(planTiles(list ?? [], pv?.measures ?? null));
   const pctS = (n: number) => `${Math.round(n * 100)} %`;
+  const endingN = $derived(list ? list.filter((p) => p.status === 'Active' && p.to >= today && p.to <= soon).length : null);
+  const usedState = $derived(fig.used === null || fig.expected === null || !pv ? undefined : fig.used < fig.expected * pv.thresholds.behind ? 'warn' : fig.used > pv.thresholds.over ? 'bad' : 'good');
   const tiles = $derived<SummaryTile[]>([
-    { key: 'inforce', label: 'In force today', value: list ? fig.inForce : null, info: infoOf('plansInForce') },
-    { key: 'upcoming', label: 'Upcoming', value: list ? fig.upcoming : null, sub: 'plans starting later', info: infoOf('plansUpcoming') },
-    { key: 'used', label: 'Plan used this quarter', value: fig.used, format: pctS, filter: false, sub: fig.expected !== null ? `${pctS(fig.expected)} expected by today` : undefined,
-      status: fig.used === null || fig.expected === null || !pv ? undefined : fig.used < fig.expected * pv.thresholds.behind ? 'warn' : fig.used > pv.thresholds.over ? 'bad' : 'good',
-      statusLabel: fig.used === null || fig.expected === null || !pv ? undefined : fig.used < fig.expected * pv.thresholds.behind ? 'Behind' : fig.used > pv.thresholds.over ? 'Over plan' : 'On track', info: infoOf('planUsed') },
+    { key: 'inforce', label: 'In force today', value: list ? fig.inForce : null, status: fig.inForce ? 'good' : 'none', statusLabel: fig.inForce ? 'Running' : 'None now', icon: ArrowUp, info: infoOf('plansInForce') },
+    { key: 'upcoming', label: 'Upcoming', value: list ? fig.upcoming : null, status: fig.upcoming ? 'good' : 'none', statusLabel: 'Starts later', icon: ArrowRight, info: infoOf('plansUpcoming') },
+    { key: 'ending', label: 'Ending soon', value: endingN, status: endingN ? 'warn' : 'good', statusLabel: 'Within 30 days', icon: ArrowDown },
+    { key: 'used', label: 'Plan used this quarter', value: fig.used, format: pctS, filter: false, status: usedState, icon: usedState === 'warn' ? ArrowDown : ArrowUp,
+      statusLabel: usedState === 'warn' ? 'Behind' : usedState === 'bad' ? 'Over plan' : usedState === 'good' ? 'On track' : undefined, info: infoOf('planUsed') },
   ]);
-  const SHOW: Record<string, (p: PeriodPlan) => boolean> = { inforce: (p) => p.status === 'Active' && p.from <= today && p.to >= today, upcoming: (p) => p.status === 'Active' && p.from > today };
+  const SHOW: Record<string, (p: PeriodPlan) => boolean> = {
+    inforce: (p) => p.status === 'Active' && p.from <= today && p.to >= today,
+    upcoming: (p) => p.status === 'Active' && p.from > today,
+    ending: (p) => p.status === 'Active' && p.to >= today && p.to <= soon,
+  };
   const rows = $derived((list ?? []).filter((p) => (!f.values.show || SHOW[f.values.show]?.(p) !== false) && (!f.values.status || f.values.status === 'all' || p.status === f.values.status)));
   const canCreate = $derived(canEditPeriodPlans(user));
   const filtered = $derived(!!(f.values.show || f.values.status || f.values.q || f.values.entity || f.values.kind));

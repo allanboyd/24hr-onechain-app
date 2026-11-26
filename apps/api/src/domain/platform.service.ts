@@ -4,7 +4,7 @@ import { and, arrayOverlaps, asc, desc, eq, gte, ilike, inArray, isNull, lte, or
 import { db, schema as t } from '../db/client';
 import { randomInt } from 'node:crypto';
 import type { AuditFilter, AuditPage, DocumentRef, DriverInput, EntityInput, ProductInput, ProviderInput, ReceivingCompanyInput, Role, RouteStop, SupplierInput, TruckInput, UserPair, WarehouseInput } from '@btw/api/types';
-import { canEditTransport, checkpointCodes, countryCode, hasFeature, normPhone as toE164, normReg, validateDriver, validateProvider, validateRoute, validateTruck, validateWarehouse } from '@btw/api/rules';
+import { canEditTransport, checkpointCodes, countryCode, hasFeature, normPhone as toE164, normReg, TRUCK_CASES, validateDriver, validateProvider, validateRoute, validateTruck, validateWarehouse } from '@btw/api/rules';
 import { validateEntity, validateProduct, validateReceivingCompany, validateSupplier } from '@btw/api/static-data';
 import { auditNote } from '../common/audit-context';
 import { invalidateEntities } from '../auth/entity-scope';
@@ -217,7 +217,7 @@ export class PlatformService {
     if (!input || typeof input !== 'object') fail('Send the truck details', 400, 'bad-request');
     const [providers, trucks, drivers] = await Promise.all([db.select({ id: t.providers.id }).from(t.providers), db.select().from(t.trucks), db.select({ id: t.drivers.id, providerId: t.drivers.providerId }).from(t.drivers)]);
     const cur = id ? trucks.find((x) => x.id === id) ?? notFound('Truck') : null;
-    const v = { providerId: cur?.providerId, reg: cur?.reg, trailer: cur?.trailer ?? '', capacityCases: cur?.capacityCases ?? (id ? undefined : 2000), defaultDriverId: cur?.defaultDriverId ?? null, active: cur?.active ?? true, note: cur?.note ?? null, documents: cur?.documents ?? [], ...input } as Partial<TruckInput>;
+    const v = { providerId: cur?.providerId, reg: cur?.reg, trailer: cur?.trailer ?? '', capacityCases: cur?.capacityCases ?? (id ? undefined : TRUCK_CASES), defaultDriverId: cur?.defaultDriverId ?? null, active: cur?.active ?? true, note: cur?.note ?? null, documents: cur?.documents ?? [], ...input } as Partial<TruckInput>;
     const errs = validateTruck(v, { providers, trucks, drivers }, id);
     if (errs.length) fail(errs.join('; '), errs.some((e) => /already registered/.test(e)) ? 409 : 422, errs.some((e) => /already registered/.test(e)) ? 'duplicate' : undefined);
     if (v.note !== undefined && v.note !== null && typeof v.note !== 'string') fail('note must be text', 400, 'bad-request');

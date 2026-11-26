@@ -6,7 +6,7 @@ import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db, schema as t, type Tx } from '../db/client';
 import * as M from '@btw/api/money';
 import { performanceReport, type PerfFilter } from '@btw/api/performance';
-import { hasFeature, normReg, type StockMove } from '@btw/api/rules';
+import { hasFeature, normReg, TRUCK_CASES, type StockMove } from '@btw/api/rules';
 import { seesShipment } from '@btw/api/access';
 import type { ExpenseFilter, FeatureKey, ReexportInput, ReexportLoadInput, ReexportOrder, SellingPrice, SellingPriceInput, StockAdjustInput, StockAdjustment, WarehouseExpense, WarehouseExpenseInput } from '@btw/api/types';
 import { auditNote } from '../common/audit-context';
@@ -229,7 +229,7 @@ export class MoneyService {
         if (!provider) { provider = { id: uid('pr'), name: company, regular: false, phone: '', kind: 'market', contactName: '', email: '', notes: '', active: true }; await tx.insert(t.providers).values(provider); }
         const driver = { id: uid('d'), name: input.market.driverName.trim(), phone: typeof input.market.driverPhone === 'string' ? input.market.driverPhone.trim() : '', licence: '', providerId: provider.id, hasApp: false };
         await tx.insert(t.drivers).values(driver);
-        const cap = Number.isInteger(input.market.capacityCases) && input.market.capacityCases! > 0 ? input.market.capacityCases! : 2000;
+        const cap = Number.isInteger(input.market.capacityCases) && input.market.capacityCases! > 0 ? input.market.capacityCases! : TRUCK_CASES;
         const truck = { id: uid('t'), providerId: provider.id, reg, trailer: typeof input.market.trailer === 'string' ? input.market.trailer.trim().toUpperCase() : '', capacityCases: cap, defaultDriverId: driver.id };
         await tx.insert(t.trucks).values(truck);
         truckId = truck.id; driverId = driver.id;

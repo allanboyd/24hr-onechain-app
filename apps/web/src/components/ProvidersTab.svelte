@@ -2,7 +2,7 @@
   // Transport onboarding (docs/10): providers — transport companies, saccos, individual owners, market trucks — and
   // their trucks. Truck planners, fleet, planners, directors and admins add / edit / deactivate; everyone else reads.
   import { lookup, masterdata, onChange, ref, type Provider, type ProviderInput, type Truck, type TruckInput, type User } from '@btw/api';
-  import { PROVIDER_KINDS, validateProvider, validateTruck } from '@btw/api/rules';
+  import { PROVIDER_KINDS, TRUCK_CASES, validateProvider, validateTruck } from '@btw/api/rules';
   import { Badge, fmtNum, say } from '@btw/ui';
   import Plus from '@lucide/svelte/icons/plus';
   import Pencil from '@lucide/svelte/icons/pencil';
@@ -55,12 +55,12 @@
   // ---- truck form ----
   let tDlg = $state<HTMLDialogElement>();
   let tId = $state<string | null>(null);
-  let tf = $state<TruckInput>({ providerId: '', reg: '', trailer: '', capacityCases: 2000, defaultDriverId: null, active: true, note: null, documents: [] });
+  let tf = $state<TruckInput>({ providerId: '', reg: '', trailer: '', capacityCases: TRUCK_CASES, defaultDriverId: null, active: true, note: null, documents: [] });
   let tErr = $state<string[]>([]);
   function openTruck(t: Truck | null, providerId?: string) {
     tId = t?.id ?? null; tErr = [];
     tf = t ? { providerId: t.providerId, reg: t.reg, trailer: t.trailer, capacityCases: t.capacityCases, defaultDriverId: t.defaultDriverId ?? null, active: t.active !== false, note: t.note ?? null, documents: [...(t.documents ?? [])] }
-      : { providerId: providerId ?? r.providers.find((p) => p.active !== false)?.id ?? '', reg: '', trailer: '', capacityCases: 2000, defaultDriverId: null, active: true, note: null, documents: [] };
+      : { providerId: providerId ?? r.providers.find((p) => p.active !== false)?.id ?? '', reg: '', trailer: '', capacityCases: TRUCK_CASES, defaultDriverId: null, active: true, note: null, documents: [] };
     tDlg?.showModal();
   }
   const providerDrivers = $derived(r.drivers.filter((d) => d.providerId === tf.providerId && d.active !== false));
