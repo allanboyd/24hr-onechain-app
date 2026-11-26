@@ -3,6 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- V3-16: light by default, before the first paint (same rule as lib/theme.svelte.ts) -->
+    <script>try{var t=localStorage.getItem('btw-theme-2');if(t===null)t=localStorage.getItem('btw-theme')==='dark'?'dark':'light';if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){document.documentElement.setAttribute('data-theme','light')}</script>
     <meta name="theme-color" content="#13243A" />
     <link rel="icon" href="/logo.jpeg" />
     <!-- installable on a PC or phone (docs/23 §6) -->
