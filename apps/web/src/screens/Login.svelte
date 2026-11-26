@@ -11,6 +11,7 @@
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import Smartphone from '@lucide/svelte/icons/smartphone';
   import Copy from '@lucide/svelte/icons/copy';
+  import Truck from '@lucide/svelte/icons/truck';
   import { allCompanies, companyLabel } from '../lib/companies';
   import { canGroup } from '../lib/company.svelte';
   import CompanyMark from '../components/CompanyMark.svelte';
@@ -65,23 +66,17 @@
 </script>
 
 <div class="wrap">
-  <aside class="brand" aria-hidden="true">
-    <div class="bmarks">{#each companies as c (c.id)}{#if c.logo}<span class="bt"><img src={c.logo} alt="" /></span>{/if}{/each}</div>
-    <h2 class="bh">Every truck, order and case, from the supplier to the sale.</h2>
-    <ul class="bl"><li>Plans and purchase orders</li><li>Trucks and shipments, live</li><li>Stock, sales and money, by warehouse</li></ul>
-  </aside>
   <main class="col">
     <div class="logos" aria-label="Group companies">
       {#each companies as c (c.id)}{#if c.logo}<img src={c.logo} alt={c.name} />{:else}<strong>{c.name}</strong>{/if}{/each}
     </div>
-    <div class="ribbon"></div>
-    <div>
-      <h1>Sign in</h1>
-      <p class="muted">BTW Global, Nihna Unique and Kivu: supply chain, logistics, inventory and sales.</p>
+    <div class="hello">
+      <h1>Welcome back</h1>
+      <p class="muted">Sign in to BTW: supply chain, logistics, stock and sales for BTW Global, Nihna Unique and Kivu.</p>
     </div>
     {#if session.notice}<p class="notice small" role="status">{session.notice}</p>{/if}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
-    <form class="stack card-form" onsubmit={submit} novalidate>
+    <form class="stack form" onsubmit={submit} novalidate>
       <label class="field"><span>Username or phone</span>
         <input class="input big" id="login-user" autocomplete="username" bind:value={username} placeholder="+254 7xx xxx xxx" aria-invalid={!!error} /></label>
       <label class="field"><span>Password</span>
@@ -134,32 +129,87 @@
     {/if}
     <p class="caption center">Two-factor sign-in for directors and admins comes with the production release.</p>
   </main>
+
+  <!-- V3-16: the brand side. Deep blue panel with a notched corner; the truck card below carries the orange. -->
+  <aside class="side" aria-label="About BTW">
+    <div class="hero">
+      <span class="notch" aria-hidden="true"><span class="live"><i></i>Live tracking</span></span>
+      <svg class="routes" viewBox="0 0 600 520" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M-20 430 C 120 380, 170 250, 300 260 S 470 150, 640 90" />
+        <path d="M-20 500 C 160 470, 260 360, 380 380 S 540 300, 640 260" />
+        <path class="on" d="M-20 430 C 120 380, 170 250, 300 260" />
+        <circle class="stop" cx="300" cy="260" r="7" /><circle class="stop" cx="470" cy="180" r="5" /><circle class="stop dim" cx="380" cy="380" r="5" />
+      </svg>
+      <h2 class="bh">Every truck, order and case, from the supplier to the sale.</h2>
+      <ul class="bl"><li>Plans and purchase orders</li><li>Trucks and shipments, live</li><li>Stock, sales and money, by warehouse</li></ul>
+    </div>
+    <div class="trk">
+      <span class="tic"><Truck size={22} aria-hidden="true" /></span>
+      <div class="tx">
+        <strong>Follow every truck on the road</strong>
+        <span class="caption">Check-ins, border crossings, delays and arrivals in one place.</span>
+        <div class="lane" aria-hidden="true"><span class="fill"></span><i class="d d1"></i><i class="d d2"></i><i class="d d3"></i></div>
+        <div class="lbls" aria-hidden="true"><span>Loading point</span><span>Border</span><span>Warehouse</span></div>
+      </div>
+    </div>
+  </aside>
 </div>
 
 <style>
-  .wrap { min-height: 100vh; display: grid; justify-items: center; align-items: start; padding: var(--space-8) var(--space-4); background: var(--bg); }
-  .brand { display: none; }
-  @media (min-width: 1000px) {
-    .wrap { grid-template-columns: minmax(380px, 46%) 1fr; padding: 0; align-items: stretch; justify-items: stretch; }
-    .wrap .col { justify-self: center; }
-    .wrap .logos { display: none; }
-    .brand { display: flex; flex-direction: column; justify-content: center; gap: var(--space-6); padding: 64px 56px; background: linear-gradient(160deg, var(--primary) 0%, color-mix(in srgb, var(--primary) 70%, #000) 100%); color: #fff; position: sticky; top: 0; height: 100vh; box-sizing: border-box; }
-    .col { padding: 64px var(--space-4); }
-  }
-  .bmarks { display: flex; gap: 12px; } .bt { display: grid; place-items: center; width: 120px; height: 64px; border-radius: 14px; background: #fff; padding: 8px; box-sizing: border-box; } .bt img { max-width: 100%; max-height: 100%; object-fit: contain; }
-  .bh { font: 800 34px/1.2 var(--ff-display); margin: 0; color: #fff; max-width: 16ch; }
-  .bl { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; font-size: 16px; opacity: .9; }
-  .bl li::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 10px; }
-  .card-form { padding: var(--space-5); border-radius: var(--radius-lg); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--elevation-1); }
+  /* V3-16: white page; form on the left, the brand panel (deep blue, notched) on the right, orange only on the truck card */
+  .wrap { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; align-content: start; gap: var(--space-6); padding: var(--space-6) var(--space-4) var(--space-8); background: var(--surface); }
+  .col { width: min(440px, 100%); display: flex; flex-direction: column; gap: var(--space-5); }
+  .hello h1 { font: 800 34px/1.15 var(--ff-display); margin: 0 0 6px; letter-spacing: -.01em; }
+  .hello p { margin: 0; }
+  .form .input.big { border-radius: 14px; background: var(--surface-sunken); border-color: transparent; }
+  .form .input.big:focus { background: var(--surface); border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent); }
+  .form .btn { border-radius: 14px; height: 52px; font-size: 16px; }
+  .side { width: min(440px, 100%); display: flex; flex-direction: column; }
+  .hero { position: relative; overflow: hidden; border-radius: 28px; padding: 28px 24px 96px; color: #fff;
+    background: radial-gradient(120% 90% at 100% 100%, color-mix(in srgb, var(--primary) 55%, #2f6fd6) 0%, transparent 55%), linear-gradient(155deg, color-mix(in srgb, var(--primary) 82%, #000) 0%, var(--primary) 55%, color-mix(in srgb, var(--primary) 70%, #1d4f9a) 100%); }
+  .notch { position: absolute; top: 0; right: 0; z-index: 2; display: grid; place-items: center; width: 150px; height: 52px; background: var(--surface); border-bottom-left-radius: 22px; }
+  .notch::before, .notch::after { content: ''; position: absolute; width: 22px; height: 22px; background: radial-gradient(circle at 0 100%, transparent 21.5px, var(--surface) 22px); }
+  .notch::before { top: 0; left: -22px; } .notch::after { bottom: -22px; right: 0; }
+  .live { display: inline-flex; align-items: center; gap: 7px; font: 700 12.5px/1 var(--ff-body); color: var(--text); padding: 8px 12px; border-radius: 99px; background: var(--surface-sunken); }
+  .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 6%, transparent); } }
+  @media (prefers-reduced-motion: reduce) { .live i { animation: none; } }
+  .routes { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 52%; z-index: 0; }
+  .routes path { fill: none; stroke: rgb(255 255 255 / .16); stroke-width: 2; stroke-dasharray: 2 9; stroke-linecap: round; }
+  .routes path.on { stroke: rgb(255 255 255 / .55); stroke-dasharray: none; stroke-width: 2.5; }
+  .routes .stop { fill: var(--accent); stroke: rgb(255 255 255 / .9); stroke-width: 2; } .routes .stop.dim { fill: rgb(255 255 255 / .5); }
+  .bh, .bl { position: relative; z-index: 1; }
+  .bh { margin-top: 44px !important; }
   .pw { position: relative; display: block; } .pw .input { padding-right: 48px; }
+  .bh { font: 800 26px/1.2 var(--ff-display); margin: 0 0 18px; color: #fff; max-width: 18ch; letter-spacing: -.01em; }
+  .bl { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; font-size: 15px; color: rgb(255 255 255 / .86); }
+  .bl li { display: flex; align-items: center; gap: 10px; }
+  .bl li::before { content: ''; width: 18px; height: 2px; border-radius: 2px; background: rgb(255 255 255 / .55); flex: none; }
+  .trk { position: relative; z-index: 2; display: flex; gap: 14px; align-items: flex-start; margin: -72px 14px 0; padding: 18px; border-radius: 22px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 18px 40px -18px rgb(6 41 83 / .35); }
+  .tic { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; flex: none; background: color-mix(in srgb, var(--accent) 14%, var(--surface)); color: var(--accent-text, var(--accent)); }
+  .trk .tx { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+  .trk strong { font: 700 15.5px/1.3 var(--ff-display); }
+  .lane { position: relative; height: 6px; margin: 14px 4px 6px; border-radius: 99px; background: var(--surface-sunken); }
+  .lane .fill { position: absolute; left: 0; top: 0; bottom: 0; width: 56%; border-radius: 99px; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, var(--surface)), var(--accent)); }
+  .lane .d { position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--surface); border: 2px solid var(--border-strong, var(--border)); }
+  .lane .d1 { left: 0; border-color: var(--accent); background: var(--accent); } .lane .d2 { left: 50%; border-color: var(--accent); } .lane .d3 { left: 100%; }
+  .lbls { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-muted); }
+  @media (min-width: 1000px) {
+    .wrap { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); align-items: stretch; align-content: stretch; gap: 0; padding: 20px; }
+    .col { align-self: center; padding: 48px 32px; }
+    .logos { width: 300px; }
+    .side { width: auto; position: sticky; top: 20px; height: calc(100vh - 40px); }
+    .hero { flex: 1; padding: 44px 44px 150px; border-radius: 32px; }
+    .bh { font-size: 38px; margin-bottom: 26px; }
+    .bh { margin-top: 96px !important; }
+    .bl { font-size: 16px; }
+    .trk { margin: -118px 44px 0 44px; max-width: 460px; padding: 22px; border-radius: 26px; }
+  }
   .eye { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border: 0; border-radius: 50%; background: transparent; color: var(--text-muted); display: grid; place-items: center; cursor: pointer; }
   .eye:hover { background: var(--surface-sunken); color: var(--text); }
-  .col { width: min(460px, 100%); display: flex; flex-direction: column; gap: var(--space-5); }
-  .logos { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); align-items: center; padding: var(--space-3); background: var(--logo-tile); border-radius: var(--radius-lg); }
-  .logos img { width: 100%; height: 48px; object-fit: contain; }
+  .logos { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); align-items: center; }
+  .logos img { width: 100%; height: 40px; object-fit: contain; }
   .ghead { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-3) 0 var(--space-1); }
-  .ribbon { margin-top: calc(-1 * var(--space-2)); }
-  h1 { font-size: 32px; line-height: 38px; }
   h2 { font-size: 16px; line-height: 22px; }
   .head { margin-bottom: var(--space-2); }
   .notice { background: var(--info-subtle); color: var(--info); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); margin: 0; }
