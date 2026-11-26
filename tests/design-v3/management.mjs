@@ -67,7 +67,7 @@ await p.screenshot({ path: `${out}/mgmt-suppliers-live.png`, fullPage: true });
 // V3-10 step 3d: Cash and closing on live data
 await p.goto(`${base}#/management/cash`); await p.locator('.mrep .kpi .val').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(1000);
 ok(await p.locator('iframe[title^="Management report"]').count() === 0, 'Cash: our page, no report frame');
-ok(n(await p.locator('.mrep .kpi .val').first().textContent()) > 0 && await p.locator('.mrep .stmt tr.total').count() === 1, 'Cash: received from our sales; statement with a net total');
+ok(n(await p.locator('.mrep .kpi .val').first().textContent()) > 0 && await p.locator('.mrep .stmt tr.total').last().locator('td').first().textContent().then((t) => /^(Net cash movement|Cash in hand at the end)$/.test(t?.trim() ?? '')), 'Cash: received from our sales; the statement ends at the net movement or cash in hand');
 // V3-12 step 4: cash at start and cash sent are recorded on Warehouse expenses → Cash; nothing says "Not recorded yet"
 ok(await p.locator('.mrep').getByText('Not recorded yet').count() === 0 && await p.locator('.mrep .kpi', { has: p.locator('.lbl', { hasText: /^Cash in hand$/ }) }).count() === 1, 'Cash: cash in hand shown; nothing "Not recorded yet"');
 ok(/→/.test((await p.locator('.mrep .oc').innerText())), 'Cash: stock opening → closing');
