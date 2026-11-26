@@ -9,4 +9,3 @@
 .dash-chip { display: inline-flex; flex: none; align-items: center; padding: 2px 9px; border-radius: 99px; font-size: 12px; font-weight: 600; white-space: nowrap; background: var(--surface-sunken); color: var(--text-muted); }
 .dash-chip.good { background: var(--success-subtle); color: var(--success); }
 .dash-chip.bad { background: var(--danger-subtle); color: var(--danger); }
-.dash-method { margin: var(--space-2) 0 0; font-size: 12.5px; line-height: 1.4; color: var(--text-muted); }

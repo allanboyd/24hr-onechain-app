@@ -63,7 +63,7 @@ for (const tab of tabs) {
   const shape = await barShape();
   const panels = await p.locator('.dash-panel').count();
   const method = await p.locator('.dash-method').count();
-  ok(bar === 1 && shape.rows === 2 && shape.lines === 1 && shape.h < 180 && panels > 0 && method > 0, `${tab}: two-row filter bar (${shape.h}px), ${panels} cards, method text on ${method}`);
+  ok(bar === 1 && shape.rows === 2 && shape.lines === 1 && shape.h < 180 && panels > 0 && method === 0, `${tab}: two-row filter bar (${shape.h}px), ${panels} cards, no method text`);
   await p.screenshot({ path: `${out}/tab-${tab}.png` });
 }
 await p.setViewportSize({ width: 390, height: 844 });
