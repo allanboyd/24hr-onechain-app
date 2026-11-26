@@ -43,19 +43,21 @@
   const active = $derived((f.values.show ? 1 : 0) + (f.values.status ? 1 : 0));
   let creating = $state(false);
   let view = $state<'plans' | 'actual'>('plans');
+  let reportPlan = $state<PeriodPlan | null>(null);
   function clearAll() { f.clear(); search = ''; }
+  function openReport(e: MouseEvent, p: PeriodPlan) { e.stopPropagation(); reportPlan = p; view = 'actual'; }
 </script>
 
-<PageHeader overline="Procurement" title={view === 'actual' ? 'Plan vs actual' : 'Period plans'} description={view === 'actual' ? 'What the plan said, against the orders placed in that period.' : 'What each company plans to buy over a month, quarter, half year or year.'}>
+<PageHeader overline="Procurement" title={view === 'actual' ? 'Plan vs actual' : 'Period plans'} description={view === 'actual' ? (reportPlan ? `${reportPlan.ref} · what this plan said, against the orders placed in its period.` : 'What the plan said, against the orders placed in that period.') : 'What each company plans to buy over a month, quarter, half year or year.'}>
   {#snippet secondary()}
-    {#if view === 'actual'}<button class="btn btn-secondary" type="button" onclick={() => (view = 'plans')}>Period plans</button>
-    {:else}<button class="btn btn-secondary" type="button" onclick={() => (view = 'actual')}>Plan vs actual</button>{/if}
+    {#if view === 'actual'}<button class="btn btn-secondary" type="button" onclick={() => { view = 'plans'; reportPlan = null; }}>Period plans</button>
+    {:else}<button class="btn btn-secondary" type="button" onclick={() => { reportPlan = null; view = 'actual'; }}>Plan vs actual</button>{/if}
   {/snippet}
   {#snippet primary()}{#if canCreate && view === 'plans'}<button class="btn btn-primary" type="button" onclick={() => (creating = true)}>New period plan</button>{/if}{/snippet}
 </PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
 {#if view === 'actual'}
-  {#await import('../components/reports/PlannedVsActualTab.svelte') then M}<M.default {user} />{/await}
+  {#await import('../components/reports/PlannedVsActualTab.svelte') then M}<M.default {user} focus={reportPlan ? { id: reportPlan.id, ref: reportPlan.ref, title: reportPlan.title, from: reportPlan.from, to: reportPlan.to, entityId: reportPlan.entityId } : undefined} />{/await}
 {:else}
 <SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Period plans summary" noun="plans" total={list ? list.length : null} shown={list ? rows.length : null} />
 <FilterBar bind:search placeholder="Reference or title" {active} onclear={clearAll}>
@@ -64,13 +66,13 @@
 </FilterBar>
   <div class="card flush table-wrap">
     <table class="table">
-      <thead><tr><th>Reference</th><th>Title</th><CompanyCell head /><th>Period</th><th>Kind</th><th class="num">Lines</th><th class="num">Cases</th><th class="num">Value (USD)</th><th>Status</th></tr></thead>
+      <thead><tr><th>Reference</th><th>Title</th><CompanyCell head /><th>Period</th><th>Kind</th><th class="num">Lines</th><th class="num">Cases</th><th class="num">Value (USD)</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>
-        {#if !list}{#each Array(3) as _}<tr><td colspan="9"><div class="skeleton"></div></td></tr>{/each}{/if}
+        {#if !list}{#each Array(3) as _, i (i)}<tr><td colspan="10"><div class="skeleton"></div></td></tr>{/each}{/if}
         {#each rows as p (p.id)}
           <tr class="clickable" onclick={() => router.go(`/period-plans/${p.id}`)}>
             <td class="mono"><a href="#/period-plans/{p.id}">{p.ref}</a></td>
-            <td>{p.title || '—'}</td>
+            <td>{p.title || '-'}</td>
             <CompanyCell entityId={p.entityId} />
             <td>{periodLabel(p)}</td>
             <td class="small">{KIND_LABEL[p.periodKind]}</td>
@@ -78,8 +80,9 @@
             <td class="num">{fmtNum(planTotals(p).cases)}</td>
             <td class="num">{fmtNum(planTotals(p).value, 2)}</td>
             <td><Badge tone={p.status === 'Active' ? 'success' : 'neutral'}>{p.status}</Badge>{#if p.version > 1}<span class="caption"> v{p.version}</span>{/if}</td>
+            <td><button type="button" class="btn btn-secondary btn-sm" onclick={(e) => openReport(e, p)}>Report</button></td>
           </tr>
-        {:else}{#if list}<tr><td colspan="9">{#if active || f.values.q}<EmptyState title="No period plans match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState>{:else}<EmptyState title="No period plans yet" hint={canCreate ? 'Create one to compare purchase orders with it.' : undefined} compact />{/if}</td></tr>{/if}{/each}
+        {:else}{#if list}<tr><td colspan="10">{#if active || f.values.q}<EmptyState title="No period plans match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState>{:else}<EmptyState title="No period plans yet" hint={canCreate ? 'Create one to compare purchase orders with it.' : undefined} compact />{/if}</td></tr>{/if}{/each}
       </tbody>
     </table>
   </div>

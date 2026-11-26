@@ -1035,7 +1035,7 @@ export function groupReport(raw: ReportData, f: ReportFilter = {}): GroupReport 
 
 // ---- Planned vs actual (§8.14 PV-01..PV-07, §10.1) -------------------------------------------------------
 export type PvFlag = 'Behind plan' | 'On track' | 'Over plan' | 'Unplanned';
-export interface PvFilter extends ReportFilter { supplierId?: ID }
+export interface PvFilter extends ReportFilter { supplierId?: ID; planId?: ID }
 /** usedPct is a PERCENTAGE (ordered ÷ planned × 100, e.g. 68.75), here and in byBrand[].usedPct. */
 export interface PvMeasures { planned: number; ordered: number; variance: number; usedPct: number; expectedToDate: number; remaining: number }
 export interface PvLine {
@@ -1102,7 +1102,7 @@ export function plannedVsActual(raw: ReportData, f: PvFilter = {}): PlannedVsAct
   }
   const months = monthsIn(from, to);
   const keep = (l: { supplierId: ID; productId: ID }) => (!f.supplierId || l.supplierId === f.supplierId) && (!f.productId || l.productId === f.productId);
-  const plans = approved.filter((p) => p.from <= to && from <= p.to);
+  const plans = approved.filter((p) => (f.planId ? p.id === f.planId : p.from <= to && from <= p.to));
   const rows: PvLine[] = []; const lineIndex = new Map<string, PvLine>();
   const monthPlanned: Record<string, number> = Object.fromEntries(months.map((m) => [m, 0]));
   for (const pp of plans) for (const l of pp.lines) {
