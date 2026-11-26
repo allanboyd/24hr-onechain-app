@@ -8,8 +8,10 @@ import ShieldCheck from '@lucide/svelte/icons/shield-check';
 import UsersIcon from '@lucide/svelte/icons/users';
 import ScrollText from '@lucide/svelte/icons/scroll-text';
 import PlugZap from '@lucide/svelte/icons/plug-zap';
+import Coins from '@lucide/svelte/icons/coins';
+import Gauge from '@lucide/svelte/icons/gauge';
 
-export type SectionKey = 'alerts' | 'notifications' | 'approvals' | 'users' | 'audit' | 'integrations';
+export type SectionKey = 'alerts' | 'notifications' | 'approvals' | 'rates' | 'thresholds' | 'users' | 'audit' | 'integrations';
 export interface Section {
   key: SectionKey; label: string; group: 'Alerts' | 'Rules' | 'People & system'; icon: any;
   /** who opens it: a feature, or a rule on the person; none = every signed-in person */
@@ -21,6 +23,8 @@ export const SECTIONS: Section[] = [
   { key: 'alerts', label: 'Alerts', group: 'Alerts', icon: Bell, load: () => import('./Alerts.svelte') },
   { key: 'notifications', label: 'My notifications', group: 'Alerts', icon: BellRing, load: () => import('./MyNotifications.svelte') },
   { key: 'approvals', label: 'Approvals', group: 'Rules', icon: ShieldCheck, allow: dirOrAdmin, load: () => import('./Approvals.svelte') },
+  { key: 'rates', label: 'Exchange rates', group: 'Rules', icon: Coins, allow: (u) => u.roles.includes('director'), load: () => import('./Rates.svelte') },
+  { key: 'thresholds', label: 'Thresholds', group: 'Rules', icon: Gauge, allow: (u) => u.roles.includes('director') || u.roles.includes('planner'), load: () => import('./Thresholds.svelte') },
   { key: 'users', label: 'Users & access', group: 'People & system', icon: UsersIcon, feature: 'users', load: () => import('../Users.svelte') },
   { key: 'audit', label: 'Audit log', group: 'People & system', icon: ScrollText, feature: 'audit', load: () => import('../Audit.svelte') },
   { key: 'integrations', label: 'Integrations', group: 'People & system', icon: PlugZap, feature: 'integrations', load: () => import('../Integrations.svelte') },

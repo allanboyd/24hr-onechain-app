@@ -51,7 +51,7 @@ ok(!/view=map/.test(p.url()) && await p.locator('aside nav a.active', { hasText:
 await p.locator('aside nav a', { hasText: 'Settings & alerts' }).click(); await p.waitForTimeout(2500);
 ok(p.url().endsWith('#/system/alerts') && (await p.locator('main h1').first().textContent())?.trim() === 'Alerts' && await p.locator('aside nav a.active', { hasText: 'Settings & alerts' }).count() === 1, 'Settings & alerts opens Alerts and stays current');
 const sys = p.getByRole('navigation', { name: 'Settings & alerts' });
-ok(JSON.stringify((await sys.locator('a').allTextContents()).map((x) => x.trim())) === JSON.stringify(['Alerts', 'My notifications', 'Approvals', 'Users & access', 'Audit log', 'Integrations']), 'its sections for a director, in groups');
+ok(JSON.stringify((await sys.locator('a').allTextContents()).map((x) => x.trim())) === JSON.stringify(['Alerts', 'My notifications', 'Approvals', 'Exchange rates', 'Thresholds', 'Users & access', 'Audit log', 'Integrations']), 'its sections for a director, in groups');
 await sys.getByRole('link', { name: 'Audit log' }).click(); await p.waitForTimeout(2000);
 ok(p.url().endsWith('#/system/audit') && (await p.locator('main h1').first().textContent())?.trim() === 'Audit log' && await sys.locator('a[aria-current=page]').textContent().then((t) => t?.trim() === 'Audit log'), 'Audit log: own address, highlighted in the left menu');
 await p.evaluate(() => { window.__kept = 7; });
