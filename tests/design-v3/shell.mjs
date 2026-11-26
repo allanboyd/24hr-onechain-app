@@ -49,7 +49,7 @@ ok(!/BTW · NUD · Kivu/.test(brand), 'brand: no subtitle line');
 const markH = await p.locator('aside .brand .marks > *').first().evaluate((e) => e.getBoundingClientRect().height).catch(() => 0);
 ok(markH > 0 && markH <= 24, `brand: company marks 24 px (${markH})`);
 await p.setViewportSize({ width: 390, height: 844 }); await p.goto(`${base}#/`); await p.waitForTimeout(1500);
-await p.getByRole('button', { name: 'Menu' }).click(); await p.waitForTimeout(500);
+await p.getByRole('button', { name: 'Open the menu' }).click(); await p.waitForTimeout(500);
 ok(await seg(p).isVisible(), 'phone width: switch inside the menu drawer');
 await p.screenshot({ path: `${out}/shell-phone.png` });
 

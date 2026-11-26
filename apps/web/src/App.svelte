@@ -17,8 +17,12 @@
   import Bell from '@lucide/svelte/icons/bell';
   import Moon from '@lucide/svelte/icons/moon';
   import Sun from '@lucide/svelte/icons/sun';
-  import Menu from '@lucide/svelte/icons/menu';
   import LogOut from '@lucide/svelte/icons/log-out';
+  import PanelLeftClose from '@lucide/svelte/icons/panel-left-close';
+  import PanelLeftOpen from '@lucide/svelte/icons/panel-left-open';
+  import Workflow from '@lucide/svelte/icons/workflow';
+  import ChartPie from '@lucide/svelte/icons/chart-pie';
+  import { sidebar, toggleSidebar } from './lib/sidebar.svelte';
 
   const user = $derived(session.user);
   let unread = $state(0);
@@ -72,6 +76,22 @@
   const showSwitch = $derived(canSeeManagement(user));
   const visibleNav = $derived(navFor(user, side));
   const bellCount = $derived(unread > 99 ? '99+' : String(unread));
+  // Top bar (V3-1b SB-5): the page title = the menu entry you are on, else the route title
+  const pageTitle = $derived(visibleNav.flatMap((g) => g.items).find((i) => active(i.href) && i.href !== '#/')?.label ?? matched?.route.title ?? '');
+  const initials = $derived(user ? user.name.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase() : '');
+  let scrolled = $state(false);
+  $effect(() => { const on = () => (scrolled = scrollY > 4); on(); addEventListener('scroll', on, { passive: true }); return () => removeEventListener('scroll', on); });
+  // Open / close the sidebar at will (SB-6): a rail on a desktop, the drawer on a phone; Ctrl/⌘ + B
+  const mq = matchMedia('(max-width: 900px)');
+  let isPhone = $state(mq.matches);
+  $effect(() => { const on = () => (isPhone = mq.matches); mq.addEventListener('change', on); return () => mq.removeEventListener('change', on); });
+  function toggleNav() { if (isPhone) navOpen = !navOpen; else toggleSidebar(); }
+  const toggleLabel = $derived(isPhone ? (navOpen ? 'Close the menu' : 'Open the menu') : sidebar.collapsed ? 'Open the sidebar' : 'Close the sidebar');
+  $effect(() => {
+    const key = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b' && !e.altKey) { e.preventDefault(); toggleNav(); } };
+    addEventListener('keydown', key); return () => removeEventListener('keydown', key);
+  });
+  const rail = $derived(sidebar.collapsed && !isPhone);
   const active = (href: string) => (href === '#/' ? router.path === '/' : ('#' + router.path).startsWith(href));
   $effect(() => { document.title = `${matched?.route.title ?? 'BTW'} · ${co ? co.shortName : user ? 'Group' : 'BTW'} · Supply Chain`; navOpen = false; router.path; });
   // Remount the screen when the company or the route changes, so its data reloads for the new scope.
@@ -104,45 +124,57 @@
     </div>
   </div>
 {:else}
-  <div class="shell" class:nav-open={navOpen}>
-    <div class="side-col"><aside class="side">
-      <div class="brand" style:--co-accent={co?.colors.accent}>
+  <div class="shell" class:nav-open={navOpen} class:rail>
+    <div class="side-col"><aside class="side" id="side">
+      <!-- SB-1: the company logo at the top; Group = the three marks -->
+      <!-- in the rail the company button below is the logo, so the header is not repeated -->
+      {#if !rail}<div class="brand">
         {#if co}
-          {#if co.logoOnDark}<img class="bare" src={co.logoOnDark} alt={co.name} />
-          {:else if co.logo}<img src={co.logo} alt={co.name} />
+          {#if co.logo}<span class="tile"><img src={co.logo} alt={co.name} /></span>
+          {:else if co.logoOnDark}<img class="bare" src={co.logoOnDark} alt={co.name} />
           {:else}<div class="wordmark"><strong>{co.shortName}</strong></div>{/if}
         {:else}
           <div class="groupmark"><div class="marks">{#each allCompanies() as c (c.id)}<CompanyMark entityId={c.id} size={24} />{/each}</div><strong>Group</strong></div>
         {/if}
-      </div>
+      </div>{:else}<div class="rail-top"></div>{/if}
+      <!-- SB-3: the company select under the logo -->
+      <CompanySwitcher {user} compact={rail} />
       {#if showSwitch}
-        <div class="seg" role="group" aria-label="Operations or management">
-          <a href="#{homeOf(user)}" class:on={side === 'operations'} aria-current={side === 'operations' ? 'true' : undefined}>Operations</a>
-          <a href="#/management/overview" class:on={side === 'management'} aria-current={side === 'management' ? 'true' : undefined}>Management</a>
+        <!-- SB-4: the thumb slides between the two sides -->
+        <div class="seg" class:mgmt={side === 'management'} role="group" aria-label="Operations or management">
+          <span class="thumb" aria-hidden="true"></span>
+          <a href="#{homeOf(user)}" class:on={side === 'operations'} aria-current={side === 'operations' ? 'true' : undefined} title={rail ? 'Operations' : undefined}>{#if rail}<Workflow size={16} aria-hidden="true" />{/if}<span class="lbl">Operations</span></a>
+          <a href="#/management/overview" class:on={side === 'management'} aria-current={side === 'management' ? 'true' : undefined} title={rail ? 'Management' : undefined}>{#if rail}<ChartPie size={16} aria-hidden="true" />{/if}<span class="lbl">Management</span></a>
         </div>
       {/if}
+      <!-- SB-2: no group titles; the groups keep their order and stay named for screen readers -->
       <nav aria-label={side === 'management' ? 'Management' : 'Operations'}>
         {#each visibleNav as g}
-          <div class="group overline">{g.label}</div>
-          {#each g.items as it}
-            {@const Icon = it.icon}
-            <a href={it.href} class:active={active(it.href)}><Icon size={18} />{it.label}</a>
-          {/each}
+          <div class="grp" role="group" aria-label={g.label}>
+            {#each g.items as it}
+              {@const Icon = it.icon}
+              <a href={it.href} class:active={active(it.href)} title={rail ? it.label : undefined} aria-label={rail ? it.label : undefined}><Icon size={18} /><span class="lbl">{it.label}</span></a>
+            {/each}
+          </div>
         {/each}
       </nav>
-      <div class="side-foot caption">{API_MODE === 'mock' ? 'Demo data (in this browser)' : 'Live data'}</div>
+      {#if !rail}<div class="side-foot caption">{API_MODE === 'mock' ? 'Demo data (in this browser)' : 'Live data'}</div>{/if}
     </aside></div>
     {#if navOpen}<button class="scrim" aria-label="Close menu" onclick={() => (navOpen = false)}></button>{/if}
     <div class="main">
-      <div class="ribbon"></div>
-      <header class="top">
-        <button class="btn btn-ghost btn-sm burger" onclick={() => (navOpen = !navOpen)} aria-label="Menu"><Menu size={20} /></button>
-        <CompanySwitcher {user} />
-        <div class="grow scope small muted">{#if scope}Scope: <strong>{scope}</strong>{/if}</div>
-        <button class="btn btn-ghost btn-sm" onclick={toggleTheme} aria-label="Toggle theme">{#if theme === 'dark'}<Sun size={18} />{:else}<Moon size={18} />{/if}</button>
-        <a class="btn btn-ghost btn-sm bell" href="#/notifications" aria-label="Notifications"><Bell size={18} />{#if unread}<span class="dotcount">{bellCount}</span>{/if}</a>
-        <div class="who"><div class="small" style="font-weight:600">{user.name}</div><div class="caption">{roleText(user.roles)}</div></div>
-        <button class="btn btn-ghost btn-sm" onclick={logout} aria-label="Sign out"><LogOut size={18} /></button>
+      <!-- SB-5: modern top bar: toggle + page title on the left; theme, alerts, account on the right -->
+      <header class="top" class:scrolled>
+        <button class="ibtn" onclick={toggleNav} aria-controls="side" aria-expanded={isPhone ? navOpen : !sidebar.collapsed}
+          aria-label={toggleLabel} title="{toggleLabel} (Ctrl+B)">
+          {#if isPhone ? !navOpen : sidebar.collapsed}<PanelLeftOpen size={20} />{:else}<PanelLeftClose size={20} />{/if}
+        </button>
+        <div class="ttl"><span class="crumb">{side === 'management' ? 'Management' : 'Operations'}</span><strong class="pt">{pageTitle}</strong></div>
+        <div class="grow"></div>
+        {#if scope}<span class="scope small" title="Your data scope">Scope: <strong>{scope}</strong></span>{/if}
+        <button class="ibtn" onclick={toggleTheme} aria-label="Toggle theme">{#if theme === 'dark'}<Sun size={18} />{:else}<Moon size={18} />{/if}</button>
+        <a class="ibtn bell" href="#/notifications" aria-label="Alerts{unread ? `, ${unread} unread` : ''}"><Bell size={18} />{#if unread}<span class="dotcount">{bellCount}</span>{/if}</a>
+        <div class="acct"><span class="av" aria-hidden="true">{initials}</span><span class="who"><span class="nm">{user.name}</span><span class="rl">{roleText(user.roles)}</span></span></div>
+        <button class="ibtn" onclick={logout} aria-label="Sign out" title="Sign out"><LogOut size={18} /></button>
       </header>
       <main class="content">
         {#if redirect}
@@ -175,47 +207,69 @@
 <style>
   .fieldonly { min-height: 100vh; display: grid; place-items: center; padding: var(--space-4); background: var(--bg); }
   .fieldonly .card { max-width: 440px; }
-  .shell { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; }
+  .shell { --side-w: 248px; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); min-height: 100vh; transition: grid-template-columns var(--motion-base) var(--motion-easing); }
+  .shell.rail { --side-w: 72px; }
   .side-col { background: var(--nav); }
-  .side { background: var(--nav); color: var(--nav-text); display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
-  .brand { padding: var(--space-4) var(--space-4) var(--space-3); }
-  .brand img { display: block; width: 100%; max-width: 120px; background: var(--logo-tile); border-radius: var(--radius-sm); padding: 4px 8px; }
-  .brand img.bare { background: none; padding: 0; border-radius: 0; }
-  .brand { border-bottom: 3px solid var(--co-accent, transparent); }
-  .wordmark, .groupmark { display: flex; flex-direction: column; gap: 2px; color: var(--nav-text); }
+  .side { background: var(--nav); color: var(--nav-text); display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+  /* SB-1 brand: one fixed-height header, logo on a white tile so every company logo reads */
+  .brand { height: 68px; flex: none; display: flex; align-items: center; padding: 0 var(--space-4); }
+  .brand .tile { display: flex; align-items: center; height: 44px; max-width: 100%; padding: 6px 12px; background: var(--logo-tile); border-radius: 12px; }
+  .brand .tile img { display: block; height: 100%; max-width: 184px; object-fit: contain; }
+  .brand img.bare { display: block; height: 40px; max-width: 100%; object-fit: contain; }
   .wordmark strong, .groupmark strong { font: 800 16px/1.1 var(--ff-display); color: var(--nav-strong); }
-  .groupmark { flex-direction: row; align-items: center; gap: var(--space-2); }
+  .groupmark { display: flex; align-items: center; gap: var(--space-2); }
   .groupmark .marks { display: flex; gap: 4px; }
-  /* Operations | Management switch (values from docs/design-v3/reference) */
-  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0 var(--space-3) var(--space-2); padding: 4px; border: 1px solid var(--nav-line); border-radius: 14px; background: var(--nav-raised); }
-  .seg a { display: grid; place-items: center; padding: 8px 6px; border-radius: 11px; color: var(--nav-text); font-weight: 600; font-size: 13.5px; text-decoration: none; }
+  .rail-top { height: var(--space-4); flex: none; }
+  /* SB-4 switch: a thumb slides under the labels */
+  .seg { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0 var(--space-3) var(--space-3); padding: 4px; border: 1px solid var(--nav-line); border-radius: 14px; background: var(--nav-raised); }
+  .seg .thumb { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 6px); border-radius: 11px; background: var(--nav-strong); box-shadow: var(--elevation-2); transition: transform 220ms cubic-bezier(.2, .8, .2, 1); }
+  .seg.mgmt .thumb { transform: translateX(calc(100% + 4px)); }
+  .seg a { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 6px; border-radius: 11px; color: var(--nav-text); font-weight: 600; font-size: 13px; text-decoration: none; transition: color 220ms ease; }
   .seg a:hover { color: var(--nav-strong); }
-  .seg a.on { background: var(--nav-strong); color: var(--nav); box-shadow: var(--elevation-2); }
-  .boot { min-height: 100vh; display: grid; place-items: center; }
-  nav { display: flex; flex-direction: column; padding: 0 var(--space-2) var(--space-4); }
-  .group { color: var(--nav-text-muted); padding: var(--space-3) var(--space-3) var(--space-1); }
-  nav a { display: flex; align-items: center; gap: var(--space-3); color: var(--nav-text); padding: 8px var(--space-3); margin: 1px 0; border-radius: var(--radius-md); border-left: 3px solid transparent; font-weight: 500; text-decoration: none; }
-  nav a:hover { background: var(--nav-hover); color: var(--nav-strong); }
-  nav a.active { background: var(--nav-active-bg); color: var(--nav-strong); font-weight: 600; border-left-color: var(--nav-indicator); }
+  .seg a.on { color: var(--nav); }
+  .rail .seg { grid-template-columns: 1fr; margin-inline: auto; width: 48px; }
+  .rail .seg .thumb { width: auto; right: 4px; height: calc(50% - 6px); bottom: auto; }
+  .rail .seg.mgmt .thumb { transform: translateY(calc(100% + 4px)); }
+  .rail .seg a { padding: 9px 0; }
+  /* SB-2 nav: no titles, a little space between the process groups */
+  nav { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-1) var(--space-2) var(--space-4); }
+  .grp { display: flex; flex-direction: column; gap: 2px; }
+  nav a { position: relative; display: flex; align-items: center; gap: var(--space-3); color: var(--nav-text); padding: 9px var(--space-3); border-radius: 10px; font-weight: 500; text-decoration: none; white-space: nowrap; transition: background var(--motion-fast) var(--motion-easing), color var(--motion-fast) var(--motion-easing); }
+  nav a:hover { background: var(--nav-hover); color: var(--nav-strong); text-decoration: none; }
+  nav a.active { background: var(--nav-active-bg); color: var(--nav-strong); font-weight: 600; box-shadow: inset 3px 0 0 var(--nav-indicator); }
+  nav a :global(svg) { flex: none; }
+  .rail nav a { justify-content: center; padding: 10px 0; }
+  .rail .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .side-foot { margin-top: auto; padding: var(--space-4); color: var(--nav-text-muted); }
   .main { min-width: 0; display: flex; flex-direction: column; }
-  .top { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
-  .who { text-align: right; line-height: 1.2; padding: 0 var(--space-2); }
-  .bell { position: relative; }
-  .dotcount { position: absolute; top: 2px; right: 2px; background: var(--accent); color: var(--text-on-accent); border-radius: 9px; font-size: 10px; min-width: 16px; height: 16px; display: grid; place-items: center; padding: 0 4px; }
+  /* SB-5 top bar */
+  .top { display: flex; align-items: center; gap: var(--space-2); height: 60px; padding: 0 var(--space-6); position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--surface) 82%, transparent); backdrop-filter: saturate(1.4) blur(12px); -webkit-backdrop-filter: saturate(1.4) blur(12px); border-bottom: 1px solid var(--border); transition: box-shadow var(--motion-base) var(--motion-easing); }
+  .top.scrolled { box-shadow: var(--elevation-2); }
+  .ibtn { position: relative; display: inline-grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: 10px; background: transparent; color: var(--text-muted); cursor: pointer; text-decoration: none; transition: background var(--motion-fast) var(--motion-easing), color var(--motion-fast) var(--motion-easing); }
+  .ibtn:hover { background: var(--surface-sunken); color: var(--text); text-decoration: none; }
+  .ttl { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; margin-left: var(--space-1); }
+  .crumb { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-subtle); }
+  .pt { font: 700 17px/1.25 var(--ff-display); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .scope { color: var(--text-muted); max-width: 32ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bell .dotcount { position: absolute; top: 3px; right: 1px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: grid; place-items: center; background: var(--danger-solid); color: var(--text-on-danger); font: 700 10.5px/1 var(--ff-body); box-shadow: 0 0 0 2px var(--surface); }
+  .acct { display: flex; align-items: center; gap: var(--space-2); padding: 4px 10px 4px 4px; margin-left: var(--space-1); border: 1px solid var(--border); border-radius: 999px; background: var(--surface); }
+  .av { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--primary-subtle); color: var(--link); font: 700 12px/1 var(--ff-body); }
+  .who { display: flex; flex-direction: column; line-height: 1.15; }
+  .nm { font-size: 13px; font-weight: 600; }
+  .rl { font-size: 11px; color: var(--text-muted); }
   /* v3: content centred with equal margins (docs/23 §5) */
   .content { padding: var(--space-6); max-width: 1320px; width: 100%; margin-inline: auto; }
-  .burger, .scrim { display: none; }
+  .scrim { display: none; }
   .scrim { position: fixed; inset: 0; z-index: 40; background: rgb(4 21 43 / .5); border: 0; }
   @media (max-width: 900px) {
     .shell { grid-template-columns: minmax(0, 1fr); }
     .side { position: fixed; inset: 0 auto 0 0; width: 260px; z-index: 50; transform: translateX(-100%); transition: transform var(--motion-base) var(--motion-easing); }
     .nav-open .side { transform: none; box-shadow: var(--elevation-3); }
     .side-col { display: contents; }
-    .burger { display: inline-flex; }
     .scrim { display: block; }
-    .who, .scope { display: none; }
-    .top { padding: var(--space-2) var(--space-4); }
+    .who, .scope, .crumb { display: none; }
+    .acct { padding: 3px; }
+    .top { padding: 0 var(--space-3); gap: 2px; }
     .content { padding: var(--space-4); }
   }
 </style>

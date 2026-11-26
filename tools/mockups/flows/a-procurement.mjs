@@ -19,7 +19,7 @@ await finish(s);
 s = await open({ app: 'web', user: 'u-daniel', outDir: out, width: 390, height: 844 });
 await s.go('/', 900);
 await shot(s, 'A04-web-dashboard-mobile', 'Dashboard on a phone browser', 'Responsive web at 390 px: KPI cards stack, route column hides, flags wrap to two lines (§12 Browsers: desktop, tablet, phone).');
-await s.page.click('button[aria-label="Menu"]'); await sleep(400);
+await s.page.click('button[aria-label="Open the menu"]'); await sleep(400);
 await shot(s, 'A05-web-nav-drawer-mobile', 'Navigation drawer (phone)', 'Sidebar becomes a drawer with a scrim on small screens; menu items are filtered by role (UA-01).', { fullPage: false });
 await finish(s);
 
