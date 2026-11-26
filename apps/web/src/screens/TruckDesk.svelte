@@ -6,7 +6,14 @@
   //   Costs — transport owed by provider and truck; agreed price and trip expenses          'truck-expenses' or 'finance'
   // Charts live on Home · Fleet. Loaders (only 'loading') see the Queues tab alone, without a tab bar.
   import { finance, loading, ref, shipments, type Shipment, type User, type WaitingEntry } from '@btw/api';
-  import Tabs from '../components/page/Tabs.svelte';
+  import StateBoard from '../components/trucks/StateBoard.svelte';
+  import LayoutGrid from '@lucide/svelte/icons/layout-grid';
+  import ListOrdered from '@lucide/svelte/icons/list-ordered';
+  import Building2 from '@lucide/svelte/icons/building-2';
+  import Wallet from '@lucide/svelte/icons/wallet';
+  import Columns3 from '@lucide/svelte/icons/columns-3';
+  import MapIcon from '@lucide/svelte/icons/map';
+  import Table2 from '@lucide/svelte/icons/table-2';
   import { deskKpis, sortDesk, truckDesk, type TruckRow } from '@btw/api/trucks';
   import { canEditQueue } from '@btw/api/access';
   import { PageHeader, ActionInCompany, hashQuery, readQuery, writeQuery, takeIntent } from '../components/page';
@@ -63,6 +70,13 @@
   const rows = $derived(sortDesk(truckDesk({ trucks: ref().trucks, providers: ref().providers, drivers: ref().drivers, waiting, shipments: ships, checkpoints: r.checkpoints, suppliers: r.suppliers, stopsOf, now }))
     .filter((x) => x.truck.active !== false || x.state !== 'Idle'));
   const k = $derived(deskKpis(rows, trips));
+  // V3-15: the left menu of the Truck desk (the Settings & alerts layout), each part with its count
+  const ICON = { board: LayoutGrid, queues: ListOrdered, providers: Building2, costs: Wallet } as const;
+  const countOf = (t: Tab) => (!w.loaded ? '' : t === 'board' ? String(rows.filter((x) => x.state !== 'Idle').length) : t === 'queues' ? String(k.inQueue) : t === 'providers' ? String(ref().trucks.filter((x) => x.active !== false).length) : k.owed ? `$${Math.round(k.owed / 1000)}k` : '');
+  const alertOf = (t: Tab) => (t === 'board' ? k.delayed > 0 : t === 'queues' ? k.longWaits > 0 : false);
+  // Board layout: lanes (default), lanes with the map, or the table; kept in the address (?layout=)
+  let layout = $state<'' | 'map' | 'table'>((readQuery('layout') as '' | 'map' | 'table') || '');
+  function setLayout(v: '' | 'map' | 'table') { layout = v; writeQuery({ layout: v || null }); }
 
   // ---- drawer + money dialogs ----
   let drawerOpen = $state(false);
@@ -92,6 +106,16 @@
   const info = $derived(`Board: where every truck is now, from check-ins, GPS and the loading queues. Queues: the waiting list at each loading point and the PO truck lines to load. Costs: what each provider and truck is owed; payments are recorded and approved by the directors in Transport costs.${user.roles.includes('truck_planner') && user.loadingPointIds.length ? ` Your loading points: ${user.loadingPointIds.map(lpName).join(', ')}.` : ''}`);
 </script>
 
+<div class="desk" class:solo={TABS.length < 2}>
+{#if TABS.length > 1}
+  <nav class="side" aria-label="Truck desk">
+    {#each TABS as t (t.key)}{@const I = ICON[t.key]}
+      <a href="#/trucks{t.key === TABS[0].key ? '' : `?tab=${t.key}`}" class:on={tab === t.key} aria-current={tab === t.key ? 'page' : undefined} onclick={(e) => { e.preventDefault(); setTab(t.key as Tab); }}>
+        <I size={16} aria-hidden="true" /><span>{t.label}</span>{#if countOf(t.key as Tab)}<span class="n" class:alert={alertOf(t.key as Tab)}>{countOf(t.key as Tab)}</span>{/if}</a>
+    {/each}
+  </nav>
+{/if}
+<div class="content">
 <PageHeader overline="Logistics" title="Truck desk" description="Every truck by where it is now, the loading queues and what transport costs." {info} analysis={seesTrucks ? 'fleet' : undefined}>
   {#snippet secondary()}
     {#if tab === 'costs' && canMoney}<ActionInCompany label="Record agreed price" what="agreed price" variant="secondary" icon={false} feature="truck-expenses" href={inGroup ? intentHref('agreed-price', { tab: 'costs' }) : undefined} onclick={() => money?.openAgreed()} />{/if}
@@ -102,14 +126,18 @@
   {/snippet}
 </PageHeader>
 
-{#if TABS.length > 1}
-  <Tabs label="Truck desk" tabs={TABS.map((t) => ({ ...t, n: t.key === 'board' && w.loaded ? rows.length : null }))} value={tab} onselect={(k) => setTab(k as Tab)} />
-{/if}
 
 {#if tab !== 'queues'}<ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />{/if}
 
 {#if tab === 'board'}
-  <Board {user} {rows} {ships} {k} loaded={w.loaded} onopen={openTruck} />
+  <div class="lay" role="group" aria-label="Board layout">
+    <button class:on={layout === ''} aria-pressed={layout === ''} onclick={() => setLayout('')}><Columns3 size={15} aria-hidden="true" />Lanes</button>
+    <button class:on={layout === 'map'} aria-pressed={layout === 'map'} onclick={() => setLayout('map')}><MapIcon size={15} aria-hidden="true" />With map</button>
+    <button class:on={layout === 'table'} aria-pressed={layout === 'table'} onclick={() => setLayout('table')}><Table2 size={15} aria-hidden="true" />Table</button>
+  </div>
+  {#if layout === 'table'}<Board {user} {rows} {ships} {k} loaded={w.loaded} onopen={openTruck} />
+  {:else if w.loaded}<StateBoard {rows} {ships} withMap={layout === 'map'} onopen={openTruck} />
+  {:else}<div class="card"><div class="skeleton" style="height:240px"></div></div>{/if}
 {:else if tab === 'queues'}
   <Queues bind:this={queues} {user} bind:lp={qlp} />
 {:else if tab === 'providers'}
@@ -127,6 +155,25 @@
   {/snippet}
 </TruckDrawer>
 {#if canMoney}<MoneyDialogs bind:this={money} {trips} />{/if}
+</div>
+</div>
 
 <style>
+  .desk { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: var(--space-5); align-items: start; }
+  .desk.solo { grid-template-columns: minmax(0, 1fr); }
+  .content { min-width: 0; }
+  .side { position: sticky; top: var(--space-4); display: flex; flex-direction: column; gap: 2px; padding: var(--space-3); border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+  .side a { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 9px; color: var(--text-muted); text-decoration: none; font-size: 14px; font-weight: 500; }
+  .side a:hover { background: var(--surface-sunken); color: var(--text); text-decoration: none; }
+  .side a.on { background: var(--primary-subtle); color: var(--primary); font-weight: 600; }
+  .side .n { margin-left: auto; font-size: 12px; padding: 1px 8px; border-radius: 99px; background: var(--surface-sunken); color: var(--text-muted); font-weight: 600; }
+  .side .n.alert { background: var(--danger-subtle); color: var(--danger); }
+  .lay { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--surface-sunken); margin-bottom: var(--space-3); }
+  .lay button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 6px 12px; border-radius: 8px; font: inherit; font-size: 13.5px; color: var(--text-muted); cursor: pointer; }
+  .lay button.on { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
+  @media (max-width: 960px) {
+    .desk { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+    .side { position: static; flex-direction: row; overflow-x: auto; padding: 6px; gap: 6px; scrollbar-width: none; }
+    .side a { flex: none; white-space: nowrap; border: 1px solid var(--border); border-radius: 99px; padding: 6px 12px; }
+  }
 </style>
