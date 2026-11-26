@@ -113,12 +113,17 @@ export const nav: NavGroup[] = [
 ];
 /** Management (docs/23 §3): the directors' report pages (as is) and the live dashboards. Only for `reports`. */
 export const managementNav: NavGroup[] = [
-  { label: 'Management', items: [
+  // grouped like Operations so the menu has the same rhythm (V3-1c): summary · trading · money and warehouses
+  { label: 'Summary', items: [
     { href: '#/management/overview', label: 'Overview', icon: Gauge, feature: 'reports' },
     { href: '#/management/exec', label: 'Executive report', icon: Presentation, feature: 'reports' },
+  ] },
+  { label: 'Trading', items: [
     { href: '#/management/plans', label: 'Plans and orders', icon: ClipboardList, feature: 'reports' },
     { href: '#/management/clients', label: 'Sales and clients', icon: Handshake, feature: 'reports' },
     { href: '#/management/suppliers', label: 'Supplier balances', icon: Landmark, feature: 'reports' },
+  ] },
+  { label: 'Money and warehouses', items: [
     { href: '#/management/cash', label: 'Cash and closing', icon: Banknote, feature: 'reports' },
     { href: '#/management/perf', label: 'Warehouse performance', icon: Warehouse, feature: 'reports' },
   ] },
