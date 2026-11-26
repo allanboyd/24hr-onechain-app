@@ -141,3 +141,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 Overview: map under the stats, money owed is a pie at the bottom, purchase order and shipment status are charts. Trucks are colour coded. |
 | 26 Nov 2026 | cursor | V3-11 Overview: Plans, warehouse stock and trucks fill one row. Decisions sits beside sales. |
 | 26 Nov 2026 | cursor | V3-11 Overview: purchase orders are coloured columns, shipments are a coloured ring. |
+| 26 Nov 2026 | cursor | V3-11 Overview: the map fills its column, sales and profit is a box plot, and orange surfaces use white, blue and yellow. |
