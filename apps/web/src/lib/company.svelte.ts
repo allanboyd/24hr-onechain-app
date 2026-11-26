@@ -47,7 +47,8 @@ export function initCompany(u: User) {
 export function setCompany(u: User, id: string) {
   if (id === company.active) return;
   try { localStorage.setItem(key(u), id); } catch { /* ignore */ }
-  const [path, qs = ''] = router.path.split('?');
+  const raw = location.hash.replace(/^#/, '') || router.path || '/';
+  const [path, qs = ''] = raw.split('?');
   const q = new URLSearchParams(qs); q.set('co', id === GROUP ? GROUP : companyBrand(id).code);
   // A detail page (plan, PO, shipment) belongs to the previous company: leave it for its list FIRST, then switch,
   // so the old page never refetches its record under the new company (which would be a "not found").

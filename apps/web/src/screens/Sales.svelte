@@ -12,7 +12,7 @@
   import ErrorState from '../components/ErrorState.svelte';
   import { amount, clients, inventory, lookup, pricing, ref, reports, sales, type Client, type Sale, type SalesReport, type SellingPrice, type StockRow, type User } from '@btw/api';
   import { salesTiles, infoOf } from '../lib/tiles';
-  import { PageHeader, SummaryStrip, ActionInCompany, DataTable, Tabs, queryFilters, takeIntent, ts, tableQuery, processRows, type Column, type SummaryTile } from '../components/page';
+  import { PageHeader, SummaryStrip, ActionInCompany, DataTable, Tabs, queryFilters, takeIntent, intentGate, ts, tableQuery, processRows, type Column, type SummaryTile } from '../components/page';
   import { TERMS_DAYS, termsOf } from '@btw/api/metrics';
   import ClientsTab from '../components/ClientsTab.svelte';
   import { sellingPriceAny } from '@btw/api/money';
@@ -40,10 +40,12 @@
   let rep = $state<SalesReport | null>(null);
   const DAY = 864e5;
   const monthStart = (() => { const d = new Date(); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1); })();
+  const stillHere = intentGate();
   async function load() {
     // this month to now: the same period as the Today view's Sales card
     [list, stock, prices, clientList, rep] = await Promise.all([sales.list(), inventory.stock(), pricing.list().catch(() => [] as SellingPrice[]), clients.list().catch(() => [] as Client[]), reports.sales({ from: new Date(monthStart).toISOString(), to: new Date(Date.now() + DAY).toISOString() }).catch(() => null)]);
-    if (takeIntent('new-sale')) { view.set('view', ''); openNew(); }
+    // The screen that is leaving also reloads when the company changes. Only the one still on screen may take the intent.
+    if (stillHere() && takeIntent('new-sale')) { view.set('view', ''); openNew(); }
   }
   const w = watch(load);
   const open = (s: Sale) => s.status !== 'Paid' && total(s) - s.paid > 0.005;
