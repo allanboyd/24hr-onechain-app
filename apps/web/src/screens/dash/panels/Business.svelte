@@ -9,6 +9,7 @@
   import { compact } from '../../../components/charts/scale';
   import { frame, cv, money, money2, cvRow, n0, pctF, monthLabel, currency } from '../fmt.svelte';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
+  import StatRow from '../StatRow.svelte';
   let { key, r, link, span }: { key: DashKey; r: DashResult; link?: string; span?: 1 | 2 | 'full' } = $props();
   const d = $derived(r.data as any);
   const fr = $derived(frame(r));
@@ -61,15 +62,7 @@
 </script>
 
 {#if key === 'exec-overview'}
-  <div class="dash-kpis biz-stats" role="list" aria-label="Sales, expenses, profit and margin">
-    {#each stats as s (s.label)}
-      <a class="card kpi" role="listitem" href="#/performance">
-        <span class="lbl">{s.label}</span>
-        {#if s.value == null}<b class="val none">-</b>{:else}<b class="val">{s.value}</b>{/if}
-        <span class="sub">{s.sub}</span>
-      </a>
-    {/each}
-  </div>
+  <StatRow label="Sales, expenses, profit and margin" items={stats.map((s) => ({ ...s, value: s.value ?? '-', href: '#/performance' }))} />
 {:else if key === 'combined-performance'}
   <DashboardPanel span={span ?? 1} subtitle="totals · open the report to switch level" decision="Open the full report to change product, warehouse or company." {...fr} title={r.title} rows={() => (d ? [['Measure', 'Value'], ['Sales', cvRow(d.revenue)], ['Profit', cvRow(d.profit)], ['Margin', pctF(d.margin)], ['Cases received', d.qtyReceived], ['Landed cost', cvRow(d.landedCost)]] : [['Measure', 'Value']])} filename="combined-performance" drill={{ label: 'Open combined performance', href: '#/performance' }}>
     {#if d}
@@ -131,9 +124,6 @@
   .fill.sales { width: 100%; background: var(--viz-1); }
   .fill.costs { background: var(--viz-2); }
   .fill.profit { background: var(--viz-3); }
-  .biz-stats { grid-column: 1 / -1; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); margin: 0; }
-  @media (max-width: 1100px) { .biz-stats { grid-template-columns: 1fr 1fr; } }
-  @media (max-width: 720px) { .biz-stats { grid-template-columns: 1fr; } }
   .prices { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
   .prices li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--border); }
   .prices li:first-child { border-top: 0; }

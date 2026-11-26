@@ -6,6 +6,7 @@
   import { BarChart, Heatmap } from '../../../components/charts';
   import { frame, day, dayTime, n0 } from '../fmt.svelte';
   import { ago } from '../../../components/dashboard';
+  import StatRow from '../StatRow.svelte';
   let { key, r, link, span }: { key: DashKey; r: DashResult; link?: string; span?: 1 | 2 | 'full' } = $props();
   const d = $derived(r.data as any);
   const fr = $derived(frame(r));
@@ -28,6 +29,12 @@
 </script>
 
 {#if key === 'fleet-board'}
+  <StatRow label="Trucks now" items={[
+    { label: 'On the board', value: n0((d.cards ?? []).length), sub: 'Live trucks', href: '#/trucks' },
+    { label: 'Delayed', value: n0((d.cards ?? []).filter((c: any) => c.statusLabel === 'Delayed').length), sub: 'Needs an owner', href: '#/trucks' },
+    { label: 'To acknowledge', value: n0((d.cards ?? []).filter((c: any) => c.statusLabel === 'To acknowledge').length), sub: 'Arrived', href: '#/shipments' },
+    { label: 'Quiet', value: n0((d.cards ?? []).filter((c: any) => c.stale).length), sub: 'No recent update', href: '#/trucks' },
+  ]} />
   <DashboardPanel span={span ?? 'full'} subtitle="by status, grouped by route · faded = no recent update" decision="Act on delayed and faded (silent) trucks first." {...fr} title={r.title} staleAfter={12 * 60} freshness="synced" rows={boardRows} filename="live-fleet" {drill}>
     <KanbanBoard columns={d.columns} {cards} oncard={(c) => { const x = cards.find((y: any) => y.id === c.id); if (x?.shipmentId) go(`#/shipments/${x.shipmentId}`); }} />
   </DashboardPanel>
@@ -52,20 +59,15 @@
       <tbody>{#each d.open ?? [] as x}<tr class="clickable" onclick={() => go(`#/shipments/${x.shipmentId}`)}><td><b>{x.truck}</b><div class="caption">{x.provider}</div></td><td class="small">{x.reason}<div class="caption">{x.place} · {dayTime(x.at)}</div></td><td class="num"><StatusBadge status={x.daysStopped >= 1 ? 'bad' : 'warn'} label="{x.daysStopped} d" /></td></tr>
       {:else}<tr><td colspan="3" class="caption">No open issue.</td></tr>{/each}</tbody>
     </table></div>
-    {#if d.byTruck?.length}
-      <h4 class="overline">Issues in the period · {d.reported} reported{d.avgDaysToFix != null ? ` · fixed in ${d.avgDaysToFix} d on average` : ''}</h4>
-      <div class="split">
-        <div>
-          <p class="cap-line">By truck</p>
-          <BarChart label="Issues by truck in the period" horizontal categories={d.byTruck.slice(0, 8).map((x: any) => x.label)} series={[{ name: 'Issues', values: d.byTruck.slice(0, 8).map((x: any) => x.value), slot: 3 }]} format={(n) => n0(n)} />
-        </div>
-        <div>
-          <p class="cap-line">By provider</p>
-          <BarChart label="Issues by transport provider in the period" horizontal categories={d.byProvider.slice(0, 8).map((x: any) => x.label)} series={[{ name: 'Issues', values: d.byProvider.slice(0, 8).map((x: any) => x.value), slot: 4 }]} format={(n) => n0(n)} />
-        </div>
-      </div>
-    {/if}
   </DashboardPanel>
+  {#if d.byTruck?.length}
+    <DashboardPanel span={1} subtitle="{d.reported} reported{d.avgDaysToFix != null ? ` · fixed in ${d.avgDaysToFix} d on average` : ''}" decision="Fix the truck that stops most often." {...fr} title="Issues by truck" rows={() => [['Truck', 'Issues'], ...d.byTruck.map((x: any) => [x.label, x.value])]} filename="issues-by-truck">
+      <BarChart label="Issues by truck in the period" horizontal categories={d.byTruck.slice(0, 8).map((x: any) => x.label)} series={[{ name: 'Issues', values: d.byTruck.slice(0, 8).map((x: any) => x.value), slot: 3 }]} format={(n) => n0(n)} height={220} />
+    </DashboardPanel>
+    <DashboardPanel span={1} subtitle="same period" decision="Challenge the provider with the most stops." {...fr} title="Issues by provider" rows={() => [['Provider', 'Issues'], ...(d.byProvider ?? []).map((x: any) => [x.label, x.value])]} filename="issues-by-provider">
+      <BarChart label="Issues by transport provider in the period" horizontal categories={(d.byProvider ?? []).slice(0, 8).map((x: any) => x.label)} series={[{ name: 'Issues', values: (d.byProvider ?? []).slice(0, 8).map((x: any) => x.value), slot: 4 }]} format={(n) => n0(n)} height={220} />
+    </DashboardPanel>
+  {/if}
 {:else if key === 'driver-updates'}
   <DashboardPanel span={span ?? 1} subtitle="feed of the last 48 hours · last update per truck" decision="Call every truck past the red quiet gap." {...fr} title={r.title} staleAfter={6 * 60} freshness="synced" rows={() => (d.trucks ?? []).length ? [['Truck', 'Last update', 'App'], ...(d.trucks ?? []).map((x: any) => [x.truck, x.hours == null ? 'No update yet' : `${x.hours} h ago`, x.hasApp ? 'Yes' : 'No'])] : [['Time', 'Truck', 'Update', 'Source'], ...(d.feed ?? []).map((x: any) => [x.at, x.truck, x.text, x.source])]} filename="driver-updates" {drill}>
     {#if d.trucks?.length}
