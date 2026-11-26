@@ -22,6 +22,8 @@
   import PanelLeftOpen from '@lucide/svelte/icons/panel-left-open';
   import Workflow from '@lucide/svelte/icons/workflow';
   import ChartPie from '@lucide/svelte/icons/chart-pie';
+  import ChevronRight from '@lucide/svelte/icons/chevron-right';
+  import LayoutDashboard from '@lucide/svelte/icons/layout-dashboard';
   import { sidebar, toggleSidebar } from './lib/sidebar.svelte';
 
   const user = $derived(session.user);
@@ -78,6 +80,20 @@
   const bellCount = $derived(unread > 99 ? '99+' : String(unread));
   // Top bar (V3-1b SB-5): the page title = the menu entry you are on, else the route title
   const pageTitle = $derived(visibleNav.flatMap((g) => g.items).find((i) => active(i.href) && i.href !== '#/')?.label ?? matched?.route.title ?? '');
+  const crumbs = $derived.by(() => {
+    const path = router.path.split('?')[0];
+    const items = visibleNav.flatMap((g) => g.items);
+    const home = items.find((i) => i.href === '#/') ?? { href: '#/', label: 'Home', icon: LayoutDashboard };
+    const here = '#' + path;
+    const list: { href: string; label: string; icon: typeof LayoutDashboard }[] = [];
+    if (path !== '/') list.push({ href: home.href, label: home.label, icon: home.icon });
+    if (side === 'management') list.push({ href: '#/management/overview', label: 'Management', icon: ChartPie });
+    const hit = items.filter((i) => i.href !== '#/' && (here === i.href || here.startsWith(i.href + '/'))).sort((a, b) => b.href.length - a.href.length)[0];
+    if (hit) list.push({ href: hit.href, label: hit.label, icon: hit.icon });
+    if (hit && here !== hit.href && matched?.route.title && matched.route.title !== hit.label) list.push({ href: here, label: matched.route.title, icon: hit.icon });
+    else if (!hit && path !== '/' && matched?.route.title) list.push({ href: here, label: matched.route.title, icon: home.icon });
+    return list;
+  });
   const initials = $derived(user ? user.name.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase() : '');
   let scrolled = $state(false);
   $effect(() => { const on = () => (scrolled = scrollY > 4); on(); addEventListener('scroll', on, { passive: true }); return () => removeEventListener('scroll', on); });
@@ -162,20 +178,39 @@
     </aside></div>
     {#if navOpen}<button class="scrim" aria-label="Close menu" onclick={() => (navOpen = false)}></button>{/if}
     <div class="main">
-      <!-- SB-5: modern top bar: toggle + page title on the left; theme, alerts, account on the right -->
-      <header class="top" class:scrolled>
-        <button class="ibtn menu" onclick={toggleNav} aria-controls="side" aria-expanded={isPhone ? navOpen : !sidebar.collapsed}
+      <div class="frame">
+      <!-- SB-5: a card for the top bar. The sidebar control sits on its left edge. The trail under the title scrolls. -->
+      <div class="bar">
+        <button class="edge" onclick={toggleNav} aria-controls="side" aria-expanded={isPhone ? navOpen : !sidebar.collapsed}
           aria-label={toggleLabel} title="{toggleLabel} (Ctrl+B)">
-          {#if isPhone ? !navOpen : sidebar.collapsed}<PanelLeftOpen size={20} />{:else}<PanelLeftClose size={20} />{/if}
+          {#if isPhone ? !navOpen : sidebar.collapsed}<PanelLeftOpen size={16} />{:else}<PanelLeftClose size={16} />{/if}
         </button>
-        <div class="ttl"><span class="crumb">{side === 'management' ? 'Management' : 'Operations'}</span><strong class="pt">{pageTitle}</strong></div>
+        <header class="top" class:scrolled>
+        <div class="ttl">
+          <strong class="pt">{pageTitle}</strong>
+          {#if crumbs.length > 1}
+            <nav class="trail" aria-label="Breadcrumb">
+              <ol>
+                {#each crumbs as c, i (c.href + c.label)}
+                  {@const Icon = c.icon}
+                  <li>
+                    {#if i > 0}<ChevronRight size={14} aria-hidden="true" />{/if}
+                    {#if i < crumbs.length - 1}<a href={c.href}><Icon size={14} aria-hidden="true" />{c.label}</a>
+                    {:else}<span aria-current="page"><Icon size={14} aria-hidden="true" />{c.label}</span>{/if}
+                  </li>
+                {/each}
+              </ol>
+            </nav>
+          {/if}
+        </div>
         <div class="grow"></div>
         {#if scope}<span class="scope small" title="Your data scope">Scope: <strong>{scope}</strong></span>{/if}
         <button class="ibtn" onclick={toggleTheme} aria-label="Toggle theme">{#if theme === 'dark'}<Sun size={18} />{:else}<Moon size={18} />{/if}</button>
         <a class="ibtn bell" href="#/notifications" aria-label="Alerts{unread ? `, ${unread} unread` : ''}"><Bell size={18} />{#if unread}<span class="dotcount">{bellCount}</span>{/if}</a>
         <div class="acct"><span class="av" aria-hidden="true">{initials}</span><span class="who"><span class="nm">{user.name}</span><span class="rl">{roleText(user.roles)}</span></span></div>
         <button class="ibtn" onclick={logout} aria-label="Sign out" title="Sign out"><LogOut size={18} /></button>
-      </header>
+        </header>
+      </div>
       <main class="content">
         {#if redirect}
           <div class="stack" aria-busy="true"><div class="skeleton" style="height:36px;width:35%"></div></div>
@@ -199,6 +234,7 @@
           <div class="empty"><h2>Page not found</h2><p><a href="#/">Back to dashboard</a></p></div>
         {/if}
       </main>
+      </div>
     </div>
   </div>
 {/if}
@@ -243,16 +279,23 @@
   .rail .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .side-foot { margin-top: auto; padding: var(--space-4); color: var(--nav-text-muted); }
   .main { min-width: 0; display: flex; flex-direction: column; }
-  /* SB-5 top bar: a solid bar on the page grey, with the menu control as a blue circle */
-  .top { display: flex; align-items: center; gap: var(--space-3); height: 64px; padding: 0 var(--space-6); position: sticky; top: 0; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: var(--elevation-1); }
+  .frame { max-width: 1320px; width: 100%; margin-inline: auto; padding: var(--space-4) var(--space-4) 0; min-width: 0; }
+  /* SB-5 top bar: the same white card as the page, with the sidebar control on its left edge */
+  .bar { position: sticky; top: var(--space-3); z-index: 10; }
+  .edge { position: absolute; left: -14px; top: 50%; z-index: 2; transform: translateY(-50%); display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: var(--surface); color: var(--text); box-shadow: var(--elevation-1); cursor: pointer; }
+  .edge:hover { background: var(--surface-sunken); color: var(--text); }
+  .top { display: flex; align-items: center; gap: var(--space-3); min-height: 64px; padding: 10px var(--space-5) 10px 28px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--elevation-1); }
   .top.scrolled { box-shadow: var(--elevation-2); }
   .ibtn { position: relative; display: inline-grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: 10px; background: transparent; color: var(--text-muted); cursor: pointer; text-decoration: none; transition: background var(--motion-fast) var(--motion-easing), color var(--motion-fast) var(--motion-easing); }
   .ibtn:hover { background: var(--surface-sunken); color: var(--text); text-decoration: none; }
-  .ibtn.menu { width: 36px; height: 36px; border-radius: 50%; background: var(--nav); color: var(--nav-strong); }
-  .ibtn.menu:hover { background: var(--nav-hover); color: var(--nav-strong); }
-  .ttl { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; margin-left: var(--space-1); }
-  .crumb { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-subtle); }
+  .ttl { display: flex; flex-direction: column; gap: 2px; line-height: 1.2; min-width: 0; flex: 1; }
   .pt { font: 700 17px/1.25 var(--ff-display); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .trail { min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+  .trail ol { display: flex; align-items: center; gap: 2px; margin: 0; padding: 0; list-style: none; width: max-content; }
+  .trail li { display: inline-flex; align-items: center; gap: 2px; color: var(--text-subtle); }
+  .trail a, .trail span { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-muted); white-space: nowrap; text-decoration: none; }
+  .trail a:hover { color: var(--link); }
+  .trail [aria-current='page'] { color: var(--text); }
   .scope { color: var(--text-muted); max-width: 32ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bell .dotcount { position: absolute; top: 3px; right: 1px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: grid; place-items: center; background: var(--danger-solid); color: var(--text-on-danger); font: 700 10.5px/1 var(--ff-body); box-shadow: 0 0 0 2px var(--surface); }
   .acct { display: flex; align-items: center; gap: var(--space-2); padding: 4px 10px 4px 4px; margin-left: var(--space-1); border: 1px solid var(--border); border-radius: 999px; background: var(--surface); }
@@ -261,7 +304,7 @@
   .nm { font-size: 13px; font-weight: 600; }
   .rl { font-size: 11px; color: var(--text-muted); }
   /* v3: content centred with equal margins (docs/23 §5) */
-  .content { padding: var(--space-6); max-width: 1320px; width: 100%; margin-inline: auto; }
+  .content { padding: var(--space-5) 0 var(--space-6); min-width: 0; }
   .scrim { display: none; }
   .scrim { position: fixed; inset: 0; z-index: 40; background: rgb(4 21 43 / .5); border: 0; }
   @media (max-width: 900px) {
@@ -270,9 +313,11 @@
     .nav-open .side { transform: none; box-shadow: var(--elevation-3); }
     .side-col { display: contents; }
     .scrim { display: block; }
-    .who, .scope, .crumb { display: none; }
+    .who, .scope { display: none; }
     .acct { padding: 3px; }
-    .top { padding: 0 var(--space-3); gap: 2px; }
-    .content { padding: var(--space-4); }
+    .frame { padding: var(--space-3) var(--space-3) 0; }
+    .edge { left: 8px; }
+    .top { padding: 8px var(--space-3) 8px 44px; gap: 2px; }
+    .content { padding: var(--space-4) 0; }
   }
 </style>

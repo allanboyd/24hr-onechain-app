@@ -6,7 +6,6 @@
   import { watch } from '../../../lib/load.svelte';
   import ErrorState from '../../../components/ErrorState.svelte';
   import SmoothTrend from '../../../components/charts/SmoothTrend.svelte';
-  import RingDonut from '../../../components/charts/RingDonut.svelte';
   import { BarChart } from '../../../components/charts';
   import { compact } from '../../../components/charts/scale';
   import { currency, cv, cvRow } from '../fmt.svelte';
@@ -55,10 +54,9 @@
   const STATE: Record<TodayDecision['severity'], string> = { critical: 'Critical', high: 'High', medium: 'Watch', low: 'Clear' };
   const decRows = () => [['Decision', 'State', 'Count', `Value (${currency.code})`, 'Detail', 'Owner', 'Link'], ...(d?.decisions ?? []).map((x) => [x.label, STATE[x.severity], x.count ?? '-', cvRow(x.value), x.detail, x.owner, x.href])];
 
-  const BAND_COLOR: Record<string, string> = { risk: 'var(--danger)', low: 'var(--warning-solid)', healthy: 'var(--success)', over: 'var(--viz-other)', nosales: 'var(--border-strong)' };
-  const BAND_SHORT: Record<string, string> = { risk: 'At risk', low: 'Low', healthy: 'Healthy', over: 'Overstocked', nosales: 'No sales' };
-  const bandRange = (k: string) => (!d ? '' : k === 'risk' ? '≤ 7 d' : k === 'low' ? `8-${d.cover.min} d` : k === 'healthy' ? `${d.cover.min + 1}-${d.cover.max} d` : k === 'over' ? `> ${d.cover.max} d` : '30 d');
-  const stockRows = () => [['Band', 'Cases', 'Products', `Value (${currency.code})`], ...(d?.stock?.bands ?? []).map((b) => [b.label, b.cases, b.products, cvRow(b.value)])];
+  const pct = (n: number) => `${Math.round(n * 100)} %`;
+  const sold = $derived((d?.top ?? []).slice(0, 6));
+  const soldRows = () => [['Product', 'Cases', `Sales (${currency.code})`, 'Margin'], ...sold.map((x) => [x.pack ? `${x.brand} ${x.pack}` : x.brand, x.cases, cvRow(x.revenue), x.margin == null ? '-' : pct(x.margin)])];
 
   const sc = $derived(d ? change(d.sales.value, d.sales.prev) : null);
   const ageTotal = $derived(d ? d.owed.bands.reduce((a, b) => a + b.value, 0) : 0);
@@ -147,7 +145,7 @@
     </a>
   </div>
 
-  <!-- Decisions | Sales | Stock -->
+  <!-- Decisions | Sales | What sold -->
   <div class="main" class:busy={w.loading}>
     <div class="slot o-dec">
       <TodayCard title="Decisions" tone="primary" caption="Six things to clear" updatedAt={res?.freshness ?? null} rows={decRows} filename="decisions-today" viewToggle>
@@ -187,17 +185,16 @@
     </div>
 
     <div class="slot o-stock">
-      <TodayCard title="Stock cover" caption="Cases by days of cover" updatedAt={res?.freshness ?? null} rows={stockRows} filename="stock-health" empty={!d.stock} drill={{ label: 'Open warehouse', href: '#/dashboards/warehouse' }} viewToggle>
-        {#if d.stock}
-          <div class="stock">
-            <RingDonut size={130} thickness={14} label="Stock by days of cover" parts={d.stock.bands.map((b) => ({ label: b.label, value: b.cases, color: BAND_COLOR[b.key] }))} centerLabel="Stock value" centerValue={d.stock.value == null ? 'No data yet' : `${currency.code} ${amount(d.stock.value)}`} />
-            <ul class="bands">
-              {#each d.stock.bands as b (b.key)}
-                <li class:zero={!b.cases} title={b.label}><i style:background={BAND_COLOR[b.key]}></i><span>{BAND_SHORT[b.key]}<em>{bandRange(b.key)}</em></span><b>{d.stock.cases ? Math.round((b.cases / d.stock.cases) * 100) : 0}%</b></li>
-              {/each}
-            </ul>
-          </div>
-        {/if}
+      <TodayCard title="What sold" caption="Top products · margin against the {pct(d.targetMargin)} target" updatedAt={res?.freshness ?? null} rows={soldRows} filename="what-sold" empty={!sold.length} drill={{ label: 'Open sales', href: '#/sales' }} viewToggle>
+        <ul class="sold">
+          {#each sold as x (x.productId)}
+            <li>
+              <span class="nm"><b>{x.brand}</b><span>{x.pack || x.warehouses[0] || '-'}</span></span>
+              <span class="cases">{count(x.cases)} cases</span>
+              <span class="mg" class:good={x.margin != null && x.margin >= d.targetMargin} class:warn={x.margin != null && x.margin < d.targetMargin}>{x.margin == null ? '-' : pct(x.margin)}</span>
+            </li>
+          {/each}
+        </ul>
       </TodayCard>
     </div>
   </div>
@@ -278,25 +275,28 @@
   .dec li + li { border-top: 1px solid color-mix(in srgb, var(--text-on-primary) 22%, transparent); }
   .dec a { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto auto 14px; align-items: center; gap: var(--space-2); padding: 8px 0; color: var(--text-on-primary); text-decoration: none; }
   .dec a:hover b { text-decoration: underline; }
-  .dec .ic { display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--text-on-primary) 16%, transparent); color: var(--text-on-primary); }
+  .dec .ic { display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-md); background: transparent; color: var(--text-on-primary); }
   .tx { display: flex; flex-direction: column; min-width: 0; font-size: 11px; color: color-mix(in srgb, var(--text-on-primary) 78%, transparent); }
   .tx b { font-size: 13px; font-weight: 600; color: var(--text-on-primary); line-height: 1.3; }
   .tx > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
-  .st { justify-self: end; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 700; background: color-mix(in srgb, var(--text-on-primary) 16%, transparent); color: var(--text-on-primary); }
-  .sev-critical .st, .sev-critical .ic { background: var(--danger-solid); color: var(--text-on-danger); }
-  .sev-high .st, .sev-high .ic { background: var(--warning-solid); color: var(--text); }
-  .sev-medium .st, .sev-medium .ic { background: var(--info); color: var(--text-on-primary); }
-  .sev-low .st, .sev-low .ic { background: var(--success); color: var(--text-on-primary); }
+  .st { justify-self: end; padding: 0; border-radius: 0; font-size: 12px; font-weight: 700; background: transparent; color: var(--text-on-primary); }
+  .sev-critical .st, .sev-critical .ic { background: transparent; color: color-mix(in srgb, var(--danger-solid) 70%, white); }
+  .sev-high .st, .sev-high .ic { background: transparent; color: var(--warning-solid); }
+  .sev-medium .st, .sev-medium .ic { background: transparent; color: color-mix(in srgb, var(--info) 45%, white); }
+  .sev-low .st, .sev-low .ic { background: transparent; color: color-mix(in srgb, var(--success) 50%, white); }
   .ct b { font-size: 16px; font-variant-numeric: tabular-nums; color: var(--text-on-primary); }
   .dec :global(.chev) { color: var(--text-on-primary); }
 
-  .stock { display: flex; flex-direction: column; align-items: center; gap: var(--space-4); }
-  .bands { list-style: none; margin: 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
-  .bands li { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: var(--space-2); }
-  .bands i { width: 10px; height: 10px; border-radius: 50%; }
-  .bands b { font-variant-numeric: tabular-nums; font-size: 14px; }
-  .bands em { font-style: normal; color: var(--text-subtle); margin-left: 6px; font-size: 12px; }
-  .bands .zero { color: var(--text-subtle); }
+  .sold { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .sold li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--space-3); padding: 8px 0; }
+  .sold li + li { border-top: 1px solid var(--border); }
+  .sold .nm { display: flex; flex-direction: column; min-width: 0; }
+  .sold .nm b { font-size: 13px; line-height: 1.3; }
+  .sold .nm span, .sold .cases { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sold .cases { font-variant-numeric: tabular-nums; }
+  .sold .mg { font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+  .sold .mg.good { color: var(--success); }
+  .sold .mg.warn { color: var(--warning); }
 
   .owed-wrap { margin-bottom: var(--space-4); }
   .owed-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); }

@@ -129,3 +129,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 top bar uses the page background, so it sits flush with the rest of the screen. |
 | 26 Nov 2026 | cursor | V3-11 period plans: the first stat reads Active plan. |
 | 26 Nov 2026 | cursor | V3-11 top bar is a solid bar again. The menu control is a blue circle. |
+| 26 Nov 2026 | cursor | V3-11 Decisions keep a quiet colour on the word and icon. Stock cover is now What sold. The top bar is a rounded card with a scrollable trail. |
