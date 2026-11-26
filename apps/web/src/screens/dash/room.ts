@@ -15,7 +15,7 @@ export const HOME_TAB: Partial<Record<DashKey, string>> = {
  * Anything they may see that is not listed here, and not hidden, still appears after these.
  */
 export const REPORT: Partial<Record<string, DashKey[]>> = {
-  business: ['exec-overview', 'selling-price', 'landed-product'],
+  business: ['exec-overview', 'profit-margin', 'selling-price', 'landed-product'],
   purchasing: ['order-this-week', 'po-pipeline', 'open-orders', 'ordered-loaded-delivered', 'plan-vs-actual'],
   loading: ['loading-list', 'loading-status', 'dispatched-today', 'loading-queues'],
   fleet: ['fleet-board', 'delayed-trucks', 'truck-issues', 'driver-updates', 'border-stops', 'logistics-report'],
@@ -35,8 +35,7 @@ const DUPLICATE = new Set<DashKey>([
   'finance-report', // landed cost on Business, trip costs on Fees
   'sales-velocity', // fast and slow
   'sales-report', // sales summary, balances, cash vs credit
-  'profit-margin', // Management overview: bridge, where each $100 went, sales and profit by month
-  'combined-performance', // the same sales, cost and profit totals
+  'combined-performance', // the same sales, cost and profit totals as the profit bridge
 ]);
 
 /** Directors get the valued stock report (FIFO age). Warehouse staff get stock positions. Never both. */

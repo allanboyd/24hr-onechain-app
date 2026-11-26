@@ -147,3 +147,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 Overview: revenue, cost of sales and profit are vertical bars, and decision marks follow urgency. |
 | 26 Nov 2026 | cursor | V3-11 Overview: the revenue chart shows the actual amount under each bar. |
 | 26 Nov 2026 | cursor | V3-11 Business: sales, profit and margin, prices below target, and landed cost per product. The longer study stays on Management. Trip cost per truck is on Fees. |
+| 26 Nov 2026 | cursor | V3-11 Business graphs return in short cards: profit bridge, where each $100 went, sales and profit, expenses. Overview chart is expenses, sales and profit. |

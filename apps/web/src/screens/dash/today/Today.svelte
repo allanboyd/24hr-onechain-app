@@ -52,11 +52,11 @@
   });
   const chartRows = () => [['Day', `Sales (${currency.code})`, `Profit (${currency.code})`], ...chart.labels.map((l, i) => [l, chart.sales[i] == null ? '' : Math.round(chart.sales[i]! * 100) / 100, chart.profit[i] == null ? '' : Math.round(chart.profit[i]! * 100) / 100])];
   const chartTotal = $derived({ sales: chart.sales.reduce((a: number, v) => a + (v ?? 0), 0), profit: chart.profit.reduce((a: number, v) => a + (v ?? 0), 0) });
-  // Revenue is the money taken. Cost of sales is what those sales cost. Profit is what remains.
+  // Expenses are what the sales cost. Sales is the money taken. Profit is what remains.
   const mix = $derived.by(() => {
-    const revenue = Math.max(0, chartTotal.sales);
-    const profit = Math.max(0, Math.min(chartTotal.profit, revenue));
-    return { revenue, cost: Math.max(0, revenue - profit), profit };
+    const sales = Math.max(0, chartTotal.sales);
+    const profit = Math.max(0, Math.min(chartTotal.profit, sales));
+    return { expenses: Math.max(0, sales - profit), sales, profit };
   });
   const money = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -206,11 +206,11 @@
 
   <div class="graphs">
     <div>
-      <TodayCard title="Revenue, sales and profit" caption="{currency.code} · revenue {compact(mix.revenue)}, cost of sales {compact(mix.cost)}, profit {compact(mix.profit)}" updatedAt={res?.freshness ?? null} rows={chartRows} filename="revenue-sales-profit" empty={mix.revenue <= 0.5 && mix.profit <= 0.5} viewToggle>
-        <BarChart label="Revenue, sales and profit" categories={['Revenue', 'Cost of sales', 'Profit']} series={[{ name: 'Revenue', values: [mix.revenue, 0, 0], ink: 'navy' }, { name: 'Cost of sales', values: [0, mix.cost, 0], ink: 'cost' }, { name: 'Profit', values: [0, 0, mix.profit], ink: 'good' }]} stacked format={(n) => `${currency.code} ${axisFmt(n)}`} height={220} />
+      <TodayCard title="Expenses, sales and profit" caption="{currency.code} · expenses {compact(mix.expenses)}, sales {compact(mix.sales)}, profit {compact(mix.profit)}" updatedAt={res?.freshness ?? null} rows={chartRows} filename="expenses-sales-profit" empty={mix.sales <= 0.5 && mix.profit <= 0.5} viewToggle>
+        <BarChart label="Expenses, sales and profit" categories={['Expenses', 'Sales', 'Profit']} series={[{ name: 'Expenses', values: [mix.expenses, 0, 0], ink: 'cost' }, { name: 'Sales', values: [0, mix.sales, 0], ink: 'navy' }, { name: 'Profit', values: [0, 0, mix.profit], ink: 'good' }]} stacked format={(n) => `${currency.code} ${axisFmt(n)}`} height={220} />
         <div class="figs">
-          <b><span>{currency.code}</span>{money(mix.revenue)}</b>
-          <b><span>{currency.code}</span>{money(mix.cost)}</b>
+          <b><span>{currency.code}</span>{money(mix.expenses)}</b>
+          <b><span>{currency.code}</span>{money(mix.sales)}</b>
           <b><span>{currency.code}</span>{money(mix.profit)}</b>
         </div>
       </TodayCard>
