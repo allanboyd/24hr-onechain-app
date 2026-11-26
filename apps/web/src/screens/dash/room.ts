@@ -18,7 +18,7 @@ export const REPORT: Partial<Record<string, DashKey[]>> = {
   business: ['exec-overview', 'profit-margin', 'selling-price', 'landed-product'],
   purchasing: ['order-this-week', 'po-pipeline', 'open-orders', 'ordered-loaded-delivered', 'plan-vs-actual'],
   loading: ['loading-list', 'loading-status', 'dispatched-today', 'loading-queues'],
-  fleet: ['fleet-board', 'delayed-trucks', 'truck-issues', 'driver-updates', 'border-stops', 'logistics-report'],
+  fleet: ['fleet-board', 'delayed-trucks', 'truck-issues', 'border-stops', 'logistics-report'],
   fees: ['agreed-vs-actual', 'unpaid-fees', 'fee-payments', 'truck-expenses', 'landed-truck', 'trip-costs'],
   deliveries: ['incoming', 'received-damaged-short', 'delivery-losses'],
   warehouse: ['warehouse-today', 'stock-on-hand', 'fast-slow', 'stock-in-transit', 'warehouse-expenses', 'reexports', 'stock-movements'],
@@ -32,6 +32,7 @@ const DUPLICATE = new Set<DashKey>([
   'plan-vs-actual-report', // plan vs actual
   'purchase-planning', // order this week
   'shipment-analysis', // live board, delays, delivery losses
+  'driver-updates', // the live board already shows which trucks have gone quiet
   'finance-report', // landed cost on Business, trip costs on Fees
   'sales-velocity', // fast and slow
   'sales-report', // sales summary, balances, cash vs credit
