@@ -8,8 +8,8 @@
   import { watch } from '../lib/load.svelte';
   import { PageHeader } from '../components/page';
   import { allCompanies, companyBrand, companyLabel } from '../lib/companies';
-  import { allowedIds } from '../lib/company.svelte';
-  import { canEditPeriodPlans, monthsOf, onPlanningChange, periodPlans, planTotals, type PeriodPlan } from '../lib/planning';
+  import { GROUP, allowedIds, company } from '../lib/company.svelte';
+  import { canEditPeriodPlans, monthsOf, onPlanningChange, periodLabel, periodPlans, planTotals, type PeriodPlan } from '../lib/planning';
   let { user }: { user: User } = $props();
   let list = $state<PeriodPlan[] | null>(null);
   const w = watch(async () => { list = await periodPlans.list(); });
@@ -23,8 +23,11 @@
   let month = $state<string | null>(null);
   let panel = $state<'month' | 'check' | 'actual'>('check');
   let creating = $state(false);
+  let start = $state<{ ym: string; entityId?: string } | null>(null);
+  let choice = $state<string | null>(null);
+  let choiceDlg = $state<HTMLDialogElement>();
   const canCreate = $derived(canEditPeriodPlans(user));
-  const companies = $derived(allCompanies().filter((c) => allowedIds(user).includes(c.id)));
+  const companies = $derived(allCompanies().filter((c) => allowedIds(user).includes(c.id) && (company.active === GROUP || c.id === company.active)));
   const ink = (id: string) => companyBrand(id).colors.accent;
 
   const active = $derived((list ?? []).filter((p) => p.status === 'Active'));
@@ -38,10 +41,35 @@
   const picked = $derived(months.find((m) => m.key === month) ?? null);
 
   function openMonth(key: string) { month = key; panel = 'month'; }
+  const choiceMonth = $derived(months.find((m) => m.key === choice) ?? null);
+  const missing = $derived(choiceMonth ? companies.filter((c) => !choiceMonth.plans.some((p) => p.entityId === c.id)) : []);
+  $effect(() => {
+    if (!choiceDlg) return;
+    if (choice && !choiceDlg.open) choiceDlg.showModal();
+    else if (!choice && choiceDlg.open) choiceDlg.close();
+  });
+
+  function addAt(ym: string, entityId?: string) {
+    choice = null;
+    start = { ym, entityId };
+    creating = true;
+  }
+  function onDouble(m: { key: string; plans: PeriodPlan[] }) {
+    openMonth(m.key);
+    const miss = companies.filter((c) => !m.plans.some((p) => p.entityId === c.id));
+    if (!canCreate) {
+      if (m.plans.length === 1) router.go(`/period-plans/${m.plans[0].id}`);
+      else if (m.plans.length > 1) choice = m.key;
+      return;
+    }
+    if (!m.plans.length) { addAt(m.key, miss.length === 1 ? miss[0].id : undefined); return; }
+    if (m.plans.length === 1 && !miss.length) { router.go(`/period-plans/${m.plans[0].id}`); return; }
+    choice = m.key;
+  }
 </script>
 
 <PageHeader overline="Procurement" title="Period plans" description="What each company plans to buy, month by month.">
-  {#snippet primary()}{#if canCreate}<button class="btn btn-primary" type="button" onclick={() => (creating = true)}>New period plan</button>{/if}{/snippet}
+  {#snippet primary()}{#if canCreate}<button class="btn btn-primary" type="button" onclick={() => { start = null; creating = true; }}>New period plan</button>{/if}{/snippet}
 </PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
 
@@ -62,7 +90,7 @@
 <div class="split">
   <div class="year-grid" role="list" aria-label={`Months in ${year}`}>
     {#each months as m (m.key)}
-      <button type="button" class="mo" class:on={panel === 'month' && month === m.key} onclick={() => openMonth(m.key)}>
+      <button type="button" class="mo" class:on={panel === 'month' && month === m.key} title={canCreate ? 'Double-click to add or update a plan' : 'Double-click to open a plan'} onclick={() => openMonth(m.key)} ondblclick={() => onDouble(m)}>
         <span class="name">{m.name}</span>
         {#if m.plans.length}
           <span class="marks">{#each m.plans as p (p.id)}<span class="mark" style:--co={ink(p.entityId)}>{companyLabel(p.entityId)}</span>{/each}</span>
@@ -83,7 +111,7 @@
       {#if picked.plans.length}
         <ul class="plans">
           {#each picked.plans as p (p.id)}
-            <li>
+            <li title="Double-click to update this plan" ondblclick={() => router.go(`/period-plans/${p.id}`)}>
               <span class="swatch" style:background={ink(p.entityId)}></span>
               <div>
                 <b>{companyLabel(p.entityId)}</b>
@@ -94,7 +122,7 @@
             </li>
           {/each}
         </ul>
-      {:else}<p class="caption">No company has a plan in {picked.name}.</p>{/if}
+      {:else}<p class="caption">No company has a plan in {picked.name}.{#if canCreate} Double-click the month to add one.{/if}</p>{/if}
     {:else}
       <h2>Check the year</h2>
       {#if list == null}<p class="caption">Loading the plans.</p>
@@ -112,7 +140,30 @@
   </aside>
 </div>
 
-<PlanCreateDialog {user} bind:open={creating} />
+<PlanCreateDialog {user} {start} bind:open={creating} />
+
+<dialog class="sheet choose" bind:this={choiceDlg} onclose={() => (choice = null)} aria-labelledby="plan-choice-title">
+  {#if choiceMonth}
+    <header class="top">
+      <h2 id="plan-choice-title">{choiceMonth.name} {year}</h2>
+      <button type="button" class="btn btn-ghost btn-sm" onclick={() => (choice = null)}>Close</button>
+    </header>
+    <p class="caption">Update a plan that already covers this month, or add one for a company that does not.</p>
+    <ul class="picks">
+      {#each choiceMonth.plans as p (p.id)}
+        <li>
+          <button type="button" class="pick" onclick={() => { choice = null; router.go(`/period-plans/${p.id}`); }}>
+            <span class="swatch" style:background={ink(p.entityId)}></span>
+            <span class="txt"><b>{canCreate ? 'Update' : 'Open'} {companyLabel(p.entityId)}</b><span class="caption">{p.ref} · {periodLabel(p)}</span></span>
+          </button>
+        </li>
+      {/each}
+    </ul>
+    {#if canCreate && missing.length}
+      <button type="button" class="btn btn-primary" onclick={() => addAt(choiceMonth.key, missing.length === 1 ? missing[0].id : undefined)}>Add a plan for {missing.map((c) => companyLabel(c.id)).join(', ')}</button>
+    {/if}
+  {/if}
+</dialog>
 
 <style>
   .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-4); margin-bottom: var(--space-4); }
@@ -137,5 +188,12 @@
   .plans, .gaps { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
   .plans li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
   .plans li > div { display: flex; flex-direction: column; min-width: 0; }
+  dialog.choose { width: min(440px, calc(100vw - 32px)); }
+  dialog.choose .top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+  dialog.choose h2 { margin: 0 0 8px; font-size: 20px; }
+  .picks { list-style: none; margin: 12px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .pick { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); color: var(--text); text-align: left; cursor: pointer; }
+  .pick:hover { border-color: var(--border-strong); }
+  .pick .txt { display: flex; flex-direction: column; min-width: 0; }
   @media (max-width: 900px) { .split { grid-template-columns: 1fr; } .side { max-height: none; } .tools { margin-left: 0; } }
 </style>
