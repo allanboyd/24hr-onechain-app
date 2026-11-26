@@ -3,8 +3,8 @@ import bcrypt from 'bcryptjs';
 import { and, arrayOverlaps, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import { db, schema as t } from '../db/client';
 import { randomInt } from 'node:crypto';
-import type { AuditFilter, AuditPage, DocumentRef, DriverInput, EntityInput, ProductInput, ProviderInput, ReceivingCompanyInput, Role, RouteStop, SupplierInput, TruckInput, UserPair, WarehouseInput } from '@btw/api/types';
-import { canEditTransport, checkpointCodes, countryCode, hasFeature, normPhone as toE164, normReg, validateDriver, validateProvider, validateRoute, validateTruck, validateWarehouse } from '@btw/api/rules';
+import type { AuditFilter, AuditPage, MyDevice, MyProfile, DocumentRef, DriverInput, EntityInput, ProductInput, ProviderInput, ReceivingCompanyInput, Role, RouteStop, SupplierInput, TruckInput, UserPair, WarehouseInput } from '@btw/api/types';
+import { profileError, canEditTransport, checkpointCodes, countryCode, hasFeature, normPhone as toE164, normReg, TRUCK_CASES, validateDriver, validateProvider, validateRoute, validateTruck, validateWarehouse } from '@btw/api/rules';
 import { validateEntity, validateProduct, validateReceivingCompany, validateSupplier } from '@btw/api/static-data';
 import { auditNote } from '../common/audit-context';
 import { invalidateEntities } from '../auth/entity-scope';
@@ -57,6 +57,31 @@ export class PlatformService {
       .onConflictDoUpdate({ target: t.devices.id, set: { pushToken: input.pushToken ?? null, platform: input.platform ?? 'app', appVersion: input.appVersion ?? null, lastSeenAt: iso() } });
     return { id };
   }
+  // ---- V3-14: my profile ----------------------------------------------------------------------------------------------
+  async myProfile(p: Principal): Promise<MyProfile> {
+    const [u] = await db.select().from(t.users).where(eq(t.users.id, p.id));
+    if (!u) fail('Account not found', 404, 'not-found');
+    return { id: u!.id, name: u!.name, email: u!.email ?? null, phone: u!.phone, roles: u!.roles as Role[], entityIds: u!.entityIds, warehouseIds: u!.warehouseIds,
+      loadingPointIds: u!.loadingPointIds, pairs: u!.pairs ?? [], hasPassword: !!u!.passwordHash, hasPin: !!u!.pinHash, lastLoginAt: u!.lastLoginAt ? new Date(u!.lastLoginAt).toISOString() : null };
+  }
+  /** Name and email only: phone (the field sign-in), roles and scope stay with the admin. */
+  async updateMe(p: Principal, input: { name?: string; email?: string | null }) {
+    const err = profileError(input ?? {});
+    if (err) fail(err, 422);
+    const before = await this.myProfile(p);
+    const set: Partial<typeof t.users.$inferInsert> = {};
+    if (input.name !== undefined) set.name = input.name.trim();
+    if (input.email !== undefined) set.email = input.email ? input.email.trim() : null;
+    if (Object.keys(set).length) await db.update(t.users).set(set).where(eq(t.users.id, p.id));
+    this.ref.invalidate();
+    auditNote({ recordType: 'user', recordId: p.id, summary: `${p.name}: own details changed`, before: { name: before.name, email: before.email }, after: set });
+    return this.myProfile(p);
+  }
+  async myDevices(p: Principal): Promise<MyDevice[]> {
+    const rows = await db.select().from(t.devices).where(and(eq(t.devices.userId, p.id), isNull(t.devices.revokedAt)));
+    return rows.map((d) => ({ id: d.id, platform: d.platform, appVersion: d.appVersion ?? null, lastSeenAt: new Date(d.lastSeenAt).toISOString(), current: d.id === p.deviceId }))
+      .sort((a, b) => (a.lastSeenAt < b.lastSeenAt ? 1 : -1));
+  }
   async devices(p: Principal, userId: string) {
     if (userId !== p.id && !has(p, 'admin', 'director')) forbidden();
     return (await db.select().from(t.devices).where(eq(t.devices.userId, userId))).map(({ pushToken, ...d }) => ({ ...d, hasPush: !!pushToken }));
@@ -107,7 +132,7 @@ export class PlatformService {
     await db.insert(t.users).values(row);
     this.ref.invalidate();
     auditNote({ recordType: 'user', recordId: row.id, summary: `${row.name} (${row.roles.join(', ')})`, after: { roles: row.roles, entityIds: row.entityIds, pairs: row.pairs, loadingPointIds: row.loadingPointIds, warehouseIds: row.warehouseIds, routeIds: row.routeIds } });
-    return this.view({ ...row, active: true, tokenVersion: 0, createdAt: iso(), lastLoginAt: null });
+    return this.view({ ...row, active: true, tokenVersion: 0, createdAt: iso(), lastLoginAt: null, notifyEmail: false, notifySms: false });
   }
   async updateUser(p: Principal, id: string, input: Partial<{ name: string; email: string; roles: Role[]; entityIds: string[]; loadingPointIds: string[]; warehouseIds: string[]; pairs: UserPair[]; routeIds: string[]; active: boolean }>) {
     this.assertAdmin(p);
@@ -217,7 +242,7 @@ export class PlatformService {
     if (!input || typeof input !== 'object') fail('Send the truck details', 400, 'bad-request');
     const [providers, trucks, drivers] = await Promise.all([db.select({ id: t.providers.id }).from(t.providers), db.select().from(t.trucks), db.select({ id: t.drivers.id, providerId: t.drivers.providerId }).from(t.drivers)]);
     const cur = id ? trucks.find((x) => x.id === id) ?? notFound('Truck') : null;
-    const v = { providerId: cur?.providerId, reg: cur?.reg, trailer: cur?.trailer ?? '', capacityCases: cur?.capacityCases ?? (id ? undefined : 2000), defaultDriverId: cur?.defaultDriverId ?? null, active: cur?.active ?? true, note: cur?.note ?? null, documents: cur?.documents ?? [], ...input } as Partial<TruckInput>;
+    const v = { providerId: cur?.providerId, reg: cur?.reg, trailer: cur?.trailer ?? '', capacityCases: cur?.capacityCases ?? (id ? undefined : TRUCK_CASES), defaultDriverId: cur?.defaultDriverId ?? null, active: cur?.active ?? true, note: cur?.note ?? null, documents: cur?.documents ?? [], ...input } as Partial<TruckInput>;
     const errs = validateTruck(v, { providers, trucks, drivers }, id);
     if (errs.length) fail(errs.join('; '), errs.some((e) => /already registered/.test(e)) ? 409 : 422, errs.some((e) => /already registered/.test(e)) ? 'duplicate' : undefined);
     if (v.note !== undefined && v.note !== null && typeof v.note !== 'string') fail('note must be text', 400, 'bad-request');

@@ -3,7 +3,7 @@ import { and, arrayOverlaps, eq, isNotNull, isNull, inArray } from 'drizzle-orm'
 import { db, schema as t, type Tx } from '../db/client';
 import { uid, iso } from '../common/ids';
 import { MAIL, PUSH, SMS, type MailPort, type PushPort, type SmsPort } from '../integrations/ports';
-import { entityAccess, withTruckPlanner } from '@btw/api/rules';
+import { entityAccess, moneyRecipients, withTruckPlanner } from '@btw/api/rules';
 import type { Role } from '@btw/api/types';
 
 /** NT-01: in-app row for the roles, then best-effort delivery (push to their devices, email to office roles). */
@@ -36,6 +36,26 @@ export class NotifyService {
       const to = users.filter((u) => u.email && u.roles.some((r) => ['director', 'planner', 'operations', 'fleet', 'truck_planner', 'accounts'].includes(r))).map((u) => u.email!);
       if (to.length) await this.mail.send({ to, subject: title, text: `${body}${link ? `\n\nOpen: ${link}` : ''}` });
     }
+  }
+
+  /** V3-12: a money record (advance, credit note, cash sent to the company). In-app to the company's directors, with push;
+   *  email and SMS only to the directors who turned them on (Management → Settings → My notifications). */
+  async notifyMoney(q: typeof db | Tx, title: string, body: string, link: string | undefined, entityId: string | null) {
+    const id = uid('n');
+    await q.insert(t.notifications).values({ id, at: iso(), title, body, link: link ?? null, forRoles: ['director'], entityId });
+    setImmediate(() => this.deliverMoney(title, body, link, entityId).catch((e) => this.log.warn(`money delivery failed: ${e?.message ?? e}`)));
+    return id;
+  }
+  private async deliverMoney(title: string, body: string, link: string | undefined, entityId: string | null) {
+    const all = (await db.select({ id: t.entities.id }).from(t.entities)).map((e) => e.id);
+    const users = (await db.select().from(t.users).where(arrayOverlaps(t.users.roles, ['director'])))
+      .filter((u) => !entityId || entityAccess({ roles: u.roles as Role[], entityIds: u.entityIds }, all).allowedEntityIds.includes(entityId));
+    const to = moneyRecipients(users.map((u) => ({ ...u, roles: u.roles as Role[] })));
+    if (!to.inApp.length) return;
+    const devs = await db.select().from(t.devices).where(and(inArray(t.devices.userId, to.inApp), isNotNull(t.devices.pushToken), isNull(t.devices.revokedAt)));
+    if (devs.length) await this.push.send(devs.map((d) => d.pushToken!), { title, body, data: link ? { link } : undefined });
+    if (to.email.length) await this.mail.send({ to: to.email, subject: title, text: `${body}${link ? `\n\nOpen: ${link}` : ''}` });
+    for (const phone of to.sms) await this.smsTo(phone, `${title}: ${body}`);
   }
 
   /** In-app notification + push to a driver's phone(s) (hand-over done, trip assigned). Drivers without the app get SMS elsewhere. */

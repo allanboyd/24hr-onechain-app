@@ -15,9 +15,10 @@ Small fixes (one file, under ~20 lines, no new behaviour) can skip steps 2 and 4
 
 ## 2. Work in your own worktree and branch
 ```bash
-git worktree add ../btw-gd-<ID> -b ui/<ID>-<slug> main   # e.g. ../btw-gd-UI-3  ui/UI-3-forms
+git worktree add ../btw-gd-<ID> -b <prefix>/<ID>-<slug> <base>   # e.g. ../btw-gd-V3-2  v3/V3-2-management design-v3
 cd ../btw-gd-<ID> && pnpm install
 ```
+- `<base>` is the **base branch named in your board section** (`design-v3` for V3 rows, `main` for UI rows). Claim, rebase and merge against that branch, not `main`.
 - Never work on `main` directly, and never in another agent's worktree.
 - **The main checkout runs the shared stack** (`pnpm work`: API :3101, web :5173, field :5174). Don't stop it.
 - To see your branch, run its web app on **your own port** against the shared API (the `/v1` proxy goes to :3101):
@@ -35,7 +36,9 @@ cd ../btw-gd-<ID> && pnpm install
 - Screens import only `@btw/api` and `@btw/ui`. Colours, sizes and radii come from tokens (`docs/design-system/tokens.json` → `pnpm tokens`), never hard-coded hex.
 - Icons: `@lucide/svelte/icons/<name>`, 18 px in nav and buttons, 16 px inline.
 - Product text: plain, short, sentence case. **No em dashes (—)**. Empty cells show `-`. No spec codes in UI text (`pnpm check:text`).
+- Status cards: do not put a coloured bar on the left. The card corner makes that bar look curved. Show the state with the icon in that colour, or with a light wash of the colour on the card (about 10% of danger, warning, success, or info on the surface). A danger note is a pale red with a red icon.
 - Dashboards: follow `.cursor/rules/dashboards-home.mdc`.
+- Management pages: follow `.cursor/rules/management-pages.mdc` (title and description first, then the filter bar).
 - Business rules live in `packages/api/src/rules.ts`, with a test.
 - Size budgets: web entry 130 KB, phone entry 90 KB (`pnpm size`).
 
@@ -64,7 +67,9 @@ Steps (≈ 2 minutes, do them before anything else):
 - `pnpm check:text && pnpm check && pnpm test && pnpm build && pnpm size` pass in your worktree.
 - Before/after screenshots of every changed screen are listed in your plan file (light + dark; 390 px wide for shell and login).
 - Every issue ID in your plan is fixed, or moved with a reason, and has a row in the Fix log.
-- Rebase on `main`, then set your row to `👀 review` with the branch name. The human reviews on the running app and merges. Only then does the row become `✅ done`.
+- Rebase on your base branch, then set your row to `👀 review` with the branch name.
+  - Base `main`: the human reviews and merges.
+  - Base is a feature line (e.g. `design-v3`): once the checks pass, the agent merges the row into the line (`--no-ff`), so it shows on the shared stack the human reviews. The human then sets `✅ done` or asks for changes, and only the human merges the line into `main`.
 - Clean up: `git worktree remove ../btw-gd-<ID>` after the merge.
 
 ## 8. Report back in one line

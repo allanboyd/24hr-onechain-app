@@ -35,23 +35,25 @@ const groupLabel = (g: string) => (room && ROOM[g]) || DASH_GROUPS.find((x) => x
     const r = await dashboards.get(serverKeys, filter);
     res = r; onload?.(r);
   }, () => JSON.stringify([serverKeys, filter]));
-  // Row filling (2 columns): panels per key and full-width ones; a single panel that would sit alone takes the whole row.
-  // Keys whose panel emits two grid cells (a fragment of two cards). One card with an inner pair is still one cell.
-  const TWO = ['profit-margin', 'sales-summary'];
-  const FULL = ['exec-overview', 'fleet-board', 'alerts', 'fast-slow', 'border-stops', 'warehouse-today', 'order-this-week', 'stock-movements', 'data-completeness', 'po-pipeline'];
+  // Wide charts and opening summaries keep the whole row. A short card stretches up to its neighbour.
+  const FULL = ['exec-overview', 'fleet-board', 'alerts', 'fast-slow', 'border-stops', 'warehouse-today', 'order-this-week', 'stock-movements', 'data-completeness'];
   const spans = $derived.by(() => {
     const out: Record<string, 'full' | undefined> = {};
     if (cols !== 2) return out;
-    const shown = keys.filter((k) => dashDef(k)?.client || res?.results[k]);
-    let pos = 0;
-    shown.forEach((k, i) => {
-      if (FULL.includes(k)) { pos = 0; return; }
-      const n = TWO.includes(k) ? 2 : 1;
-      const next = shown[i + 1];
-      if (n === 1 && pos === 0 && (!next || FULL.includes(next))) { out[k] = 'full'; return; }
-      pos = (pos + n) % 2;
-    });
+    for (const k of keys) if (FULL.includes(k)) out[k] = 'full';
     return out;
+  });
+  // Shipments scrolls, with the truck map under the stats. The old locked grid hid that map.
+  const FIT_AREAS: Record<string, string> = { 'fleet-board': 'board', 'delayed-trucks': 'delayed', 'truck-issues': 'issues', 'driver-updates': 'updates', 'border-stops': 'borders' };
+  const lockFleet = false;
+  const fit = $derived(lockFleet && keys.includes('fleet-board') && keys.every((k) => k in FIT_AREAS));
+  let fitEl = $state<HTMLDivElement>();
+  let fitH = $state(0);
+  $effect(() => {
+    if (!fit || !fitEl) return;
+    const size = () => { const room = innerHeight - fitEl!.getBoundingClientRect().top - 16; fitH = Math.max(240, room); };
+    size(); addEventListener('resize', size);
+    return () => removeEventListener('resize', size);
   });
   const C: Record<string, any> = { business: Business, purchasing: Purchasing, loading: Purchasing, fleet: Fleet, fees: Money, sales: Money, deliveries: Stock, warehouse: Stock, admin: Admin };
 </script>
@@ -59,6 +61,14 @@ const groupLabel = (g: string) => (room && ROOM[g]) || DASH_GROUPS.find((x) => x
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
 {#if !res && w.loading && serverKeys.length}
   <DashboardGrid {cols}>{#each keys.slice(0, 4) as _}<div class="card"><div class="skeleton" style="width:40%"></div><div class="skeleton" style="height:200px;margin-top:12px"></div></div>{/each}</DashboardGrid>
+{:else if fit}
+  <div class="fit" bind:this={fitEl} style:--fit-h="{fitH}px" role="region" aria-label="Fleet board">
+    {#each keys as k (k)}
+      {@const def = dashDef(k)}
+      {@const r = res?.results[k]}
+      {#if def && r}<div class="cell" style:grid-area={FIT_AREAS[k]}><Fleet key={k} {r} link={def.link} span={1} /></div>{/if}
+    {/each}
+  </div>
 {:else}
   <DashboardGrid {cols}>
     {#each keys as k, i (k)}
@@ -76,5 +86,17 @@ const groupLabel = (g: string) => (room && ROOM[g]) || DASH_GROUPS.find((x) => x
 {/if}
 
 <style>
+  /* V3-11 LD-1 Fleet fit layout */
+  .fit { display: grid; gap: var(--space-4); margin-top: var(--space-4); height: var(--fit-h, 80vh);
+    grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: minmax(0, 1.15fr) minmax(0, 1fr);
+    grid-template-areas: 'board board board delayed' 'issues updates borders borders'; }
+  .fit .cell { min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .fit .cell > :global(.dash-panel) { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .fit .cell :global(.dash-panel > header), .fit .cell :global(.dash-panel > footer) { flex: none; }
+  .fit .cell :global(.dash-panel .body) { flex: 1; min-height: 0; overflow: auto; }
+  .fit .cell :global(.dash-panel .body thead th) { position: sticky; top: 0; z-index: 1; }
+  .fit .cell :global(.table-wrap) { max-height: none !important; overflow: visible !important; }
+  @media (max-width: 1100px) { .fit { height: auto; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: 70vh; grid-template-areas: 'board board' 'delayed issues' 'updates borders'; } }
+  @media (max-width: 700px) { .fit { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'board' 'delayed' 'issues' 'updates' 'borders'; } }
   .grp { grid-column: 1 / -1; margin: var(--space-5) 0 0; font-size: var(--fs-h2); line-height: var(--lh-h2); }
 </style>

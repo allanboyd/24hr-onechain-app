@@ -6,7 +6,7 @@ import { inArray } from 'drizzle-orm';
 import { db, schema as t } from '../db/client';
 import { hasFeature } from '@btw/api/rules';
 import { buildDashboards, dashDef, dashboardsFor, homeFor, invalidKeys, type DashFilter, type DashKey, type DashResponse } from '@btw/api/dashboards';
-import type { ReexportOrder, Role, SellingPrice, UserAdmin, WarehouseExpense } from '@btw/api/types';
+import type { ClientPayment, ReexportOrder, Role, SellingPrice, UserAdmin, WarehouseExpense } from '@btw/api/types';
 import { fail, forbidden } from '../common/errors';
 import type { Principal } from '../auth/principal';
 import { appConfig } from '../config/app-config';
@@ -33,7 +33,7 @@ export class DashboardsService {
     const office: Principal = { ...p, roles: ['director'] as Role[], pairs: [], routeIds: [] };
     const data = await this.reports.data(office, { report: 'reports' });
     const scope = p.scope;
-    const [expenses, prices, orders, waiting, people, fees, users] = await Promise.all([
+    const [expenses, prices, orders, waiting, people, fees, users, cps, ses, ces] = await Promise.all([
       hasFeature(p.roles, 'warehouse-expenses') ? db.select().from(t.warehouseExpenses) : Promise.resolve([]),
       hasFeature(p.roles, 'selling-prices') ? db.select().from(t.sellingPrices).where(inArray(t.sellingPrices.entityId, scope)) : Promise.resolve([]),
       hasFeature(p.roles, 're-export') ? db.select().from(t.reexportOrders).where(inArray(t.reexportOrders.entityId, scope)) : Promise.resolve([]),
@@ -41,6 +41,12 @@ export class DashboardsService {
       db.select({ id: t.users.id, name: t.users.name, roles: t.users.roles, warehouseIds: t.users.warehouseIds, loadingPointIds: t.users.loadingPointIds, pairs: t.users.pairs, active: t.users.active }).from(t.users),
       hasFeature(p.roles, 'transport-fees') ? this.money.fees(p) : Promise.resolve(null),
       hasFeature(p.roles, 'users') ? this.platform.users(p) : Promise.resolve(null),
+      // V3-12 step 2: client payments by date (Cash and closing: money received in the period)
+      hasFeature(p.roles, 'sales') ? db.select().from(t.clientPayments).where(inArray(t.clientPayments.entityId, scope)) : Promise.resolve([]),
+      // V3-12 step 3: supplier money recorded on the POs (Supplier balances)
+      this.money.supplierEntries(p),
+      // V3-12 step 4: cash at start and cash sent to the company account (Cash and closing)
+      this.money.cashEntries(p),
     ]);
     return buildDashboards({
       ...data,
@@ -48,6 +54,9 @@ export class DashboardsService {
       sellingPrices: prices.map((r): SellingPrice => ({ ...r, currency: r.currency as SellingPrice['currency'], at: iso(r.at)! })),
       reexports: orders.map((r): ReexportOrder => ({ ...r, status: r.status as ReexportOrder['status'], createdAt: iso(r.createdAt)!, loadedAt: iso(r.loadedAt), deliveredAt: iso(r.deliveredAt) })),
       waiting: waiting.map(map.waiting),
+      supplierEntries: ses,
+      cashEntries: ces,
+      clientPayments: cps.map((r): ClientPayment => ({ id: r.id, entityId: r.entityId, saleId: r.saleId, saleRef: '', clientId: r.clientId ?? undefined, customer: '', warehouseId: r.warehouseId, amount: r.amount, currency: r.currency as ClientPayment['currency'], amountUsd: r.amountUsd, at: iso(r.at)!, method: (r.method as ClientPayment['method']) ?? null, reference: r.reference ?? undefined })),
       people: people.filter((u) => u.active).map((u) => ({ id: u.id, name: u.name, roles: u.roles as Role[], warehouseIds: u.warehouseIds, loadingPointIds: u.loadingPointIds, pairs: u.pairs })),
       fees, users: users ? (users.map((u) => ({ ...u, lastLoginAt: iso(u.lastLoginAt) })) as unknown as UserAdmin[]) : null,
       config: appConfig,

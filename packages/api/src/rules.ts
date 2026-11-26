@@ -2,7 +2,7 @@
 // and the NestJS server. No I/O, no globals: every input is a parameter, `now` included.
 import type {
   Acknowledgement, AppConfig, CheckpointPass, Currency, EtaInfo, FeatureKey, Flag, FxRate, ID, JourneyStep, Leg, LegStatus, Loading, LoadingAlternative, LoadingLine, PeriodKind, PeriodPlan, Plan, PlanLine, PlanLineContext, PoLineChange, PoLineSnap, PoRevisionChange, PoStage, Product, PurchaseOrder,
-  PvThresholds, Role, RouteStop, Sale, Shipment, StockRow, VelocityClass, VelocityRow, WarehouseInput,
+  MoneySettings, NotifyPrefs, PvThresholds, Role, RouteStop, Sale, Shipment, StockRow, VelocityClass, VelocityRow, WarehouseInput,
 } from './types';
 
 export const H = 36e5;
@@ -255,7 +255,7 @@ export function flagsFrom(rows: VelocityRow[], now = Date.now()): Flag[] {
 /** Sale payment status from amount paid vs total (SL-03). */
 export function saleStatus(lines: { qty: number; price: number }[], paid: number) {
   const total = lines.reduce((a, l) => a + amount(l.qty, l.price), 0);
-  return paid >= total ? 'Paid' as const : paid > 0 ? 'Part-paid' as const : 'Unpaid' as const;
+  return paid >= total - 0.005 ? 'Paid' as const : paid > 0 ? 'Part-paid' as const : 'Unpaid' as const; // a cent of rounding counts as paid
 }
 
 /** Checkpoint short code for SMS/USSD ("Malaba border (KE/UG)" → MALABA; warehouses use their town). */
@@ -469,6 +469,8 @@ export const missingReasons = (ctx: PlanLineContext[]) => ctx.filter((c) => c.ex
 // ---- Server config (apps/api/config.toml) ---------------------------------------------------------------
 /** Defaults when config.toml is missing or a key is absent. The mock client uses the same. */
 export const defaultConfig: AppConfig = { approvals: { purchaseOrders: false }, loading: { allowancePct: 10, allowAlternatives: true, revisionSuffix: '-rev' }, fees: { amberDays: 14, redDays: 30 }, costs: { allocation: 'quantity' } };
+/** Cases one truck may carry. Used on a purchase order and as the size of a new truck. */
+export const TRUCK_CASES = 3500;
 /** Label of an order's state for the UI. POs are not drafted: Issued (approved automatically or by a director), Awaiting
  *  approval (approvals on), Revised (a later revision replaced it) or Deleted. */
 export function planStatusLabel(p: Pick<Plan, 'status' | 'history' | 'revision' | 'supersededById'>, _cfg: AppConfig = defaultConfig): string {
@@ -641,6 +643,59 @@ export function revisePlan(prev: Plan, truckNo: number, loading: Pick<LoadingLin
   return { plan, altLines };
 }
 export const defaultPvThresholds: PvThresholds = { behind: 0.85, over: 1.05 };
+
+// ---- V3-14: my profile ------------------------------------------------------------------------------------------------
+/** Name and email a person may set on their own account. Returns the error or null. */
+export function profileError(input: { name?: unknown; email?: unknown }): string | null {
+  if (input.name !== undefined && (typeof input.name !== 'string' || input.name.trim().length < 2 || input.name.trim().length > 80)) return 'Enter your name (2 to 80 characters)';
+  if (input.email !== undefined && input.email !== null && input.email !== '' && (typeof input.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email.trim()))) return 'Enter a valid email, or leave it empty';
+  return null;
+}
+/** A new password (web) or PIN (field app), the same rules as Users & access. Returns the error or null. */
+export function secretError(input: { password?: unknown; pin?: unknown }): string | null {
+  if (input.password === undefined && input.pin === undefined) return 'Enter the new password or PIN';
+  if (input.pin !== undefined && !/^\d{4,6}$/.test(String(input.pin))) return 'The PIN must be 4 to 6 digits';
+  if (input.password !== undefined && (typeof input.password !== 'string' || input.password.length < 8)) return 'The password must be at least 8 characters';
+  return null;
+}
+
+// ---- V3-12 step 2: client payments ---------------------------------------------------------------------------------------
+export const PAYMENT_METHODS = ['Cash', 'Mobile money', 'Bank'] as const;
+/** What is still owed on a sale (never below zero). */
+export const saleBalance = (s: { lines: { qty: number; price: number }[]; paid: number }) => Math.max(0, Math.round((s.lines.reduce((a, l) => a + amount(l.qty, l.price), 0) - s.paid) * 100) / 100);
+/** A payment against a sale: above zero, not more than the balance (a cent of rounding allowed), a known method. Returns the error or null. */
+export function paymentError(balance: number, input: { amount?: unknown; method?: unknown }): string | null {
+  const a = Number(input.amount);
+  if (!(a > 0)) return 'Enter the amount received';
+  if (a > balance + 0.005) return `That is more than the balance of USD ${balance.toFixed(2)}`;
+  if (!PAYMENT_METHODS.includes(input.method as (typeof PAYMENT_METHODS)[number])) return 'Pick how the client paid';
+  return null;
+}
+
+// ---- V3-12 step 1: clients ----------------------------------------------------------------------------------------------
+/** Same client whatever the spacing or capitals: "kimironko  wholesale" = "Kimironko Wholesale". */
+export const clientKey = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+export const cleanClientName = (name: string) => name.trim().replace(/\s+/g, ' ');
+/** Credit days: a whole number from 0 (pay at once) to 180. */
+export const validTermsDays = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 0 && (n as number) <= 180;
+/** Who changes a client's credit days: money decisions (directors, accounts). Anyone who sells may add a client. */
+export const canSetCreditDays = (roles: Role[]) => roles.includes('director') || roles.includes('accounts') || roles.includes('admin');
+
+// ---- V3-12 step 0: Management settings and money notifications -------------------------------------------------------
+export const defaultMoneySettings: MoneySettings = { advanceApproval: false };
+export const defaultNotifyPrefs: NotifyPrefs = { email: false, sms: false };
+/** Directors and the system administrator change the Management settings. */
+export const canChangeSettings = (roles: Role[]) => roles.includes('director') || roles.includes('admin');
+/** Who hears about a money record (an advance, a credit note, cash sent to the company): every active director of the
+ *  company in-app; by email / SMS only the directors who turned that on and have an address / phone. */
+export function moneyRecipients<U extends { id: string; roles: Role[]; active?: boolean; email?: string | null; phone?: string | null; notifyEmail?: boolean; notifySms?: boolean }>(users: U[]) {
+  const dirs = users.filter((u) => u.roles.includes('director') && u.active !== false);
+  return {
+    inApp: dirs.map((u) => u.id),
+    email: dirs.filter((u) => u.notifyEmail && u.email).map((u) => u.email!),
+    sms: dirs.filter((u) => u.notifySms && u.phone).map((u) => u.phone!),
+  };
+}
 /** Reports a role may open: the general Reports feature, or the feature the report belongs to (e.g. a sales clerk's sales overview). */
 export const REPORT_FEATURES: Record<string, FeatureKey[]> = {
   // inventory shows stock values (purchase prices): not for receivers (A-04) — their own reports come with the dashboards

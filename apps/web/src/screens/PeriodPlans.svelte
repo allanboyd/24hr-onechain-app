@@ -1,79 +1,199 @@
 <script lang="ts">
-  // Period plans (§8.3 PL-06..PL-12; docs/17 Phase 1): what each company plans to buy over a month / quarter / half year /
-  // year. Work page: opens on the plan list with a strip (registry: in force · upcoming · plan used vs expected). The
-  // planned-vs-actual charts live on Home · Purchasing; "Plan or check a period" (from the retired Reports page) is a
-  // secondary action. No needs-action default: the list is short and plans are suggestions (nothing waits for approval).
+  // Period plans as a year of months. Each company keeps its own plan. The year is on the left.
+  // A month, the year check, or plan vs actual opens in the panel on the right.
   import { type User } from '@btw/api';
   import { Badge, fmtNum, router } from '@btw/ui';
-  import SearchX from '@lucide/svelte/icons/search-x';
-  import CalendarSearch from '@lucide/svelte/icons/calendar-search';
   import ErrorState from '../components/ErrorState.svelte';
-  import CompanyCell from '../components/CompanyCell.svelte';
+  import PlanCreateDialog from '../components/PlanCreateDialog.svelte';
   import { watch } from '../lib/load.svelte';
-  import { PageHeader, SummaryStrip, FilterBar, ActionInCompany, EmptyState, queryFilters, type SummaryTile } from '../components/page';
-  import { planTiles, infoOf } from '../lib/tiles';
-  import { canEditPeriodPlans, KIND_LABEL, onPlanningChange, periodFor, periodLabel, periodPlans, plannedVsActual, planTotals, type PeriodPlan, type PlannedVsActual } from '../lib/planning';
+  import { PageHeader } from '../components/page';
+  import { allCompanies, companyBrand, companyLabel } from '../lib/companies';
+  import { GROUP, allowedIds, company } from '../lib/company.svelte';
+  import { canEditPeriodPlans, monthsOf, onPlanningChange, periodLabel, periodPlans, planTotals, type PeriodPlan } from '../lib/planning';
   let { user }: { user: User } = $props();
   let list = $state<PeriodPlan[] | null>(null);
-  // Plans are suggestions (no approval): Active, or Replaced by a newer plan (kept for history, hidden by default).
-  const f = queryFilters({ show: '', status: '', q: '' });
-  let search = $state(f.values.q);
-  $effect(() => { if (search !== f.values.q) f.set('q', search); });
-  const showReplaced = $derived(f.values.status === 'Replaced' || f.values.status === 'all');
-  let pv = $state<PlannedVsActual | null>(null);
-  const today = new Date().toISOString().slice(0, 10);
-  const w = watch(async () => {
-    [list, pv] = await Promise.all([periodPlans.list({ all: showReplaced }), plannedVsActual(periodFor('quarter', today)).catch(() => null)]);
-  }, () => showReplaced);
+  const w = watch(async () => { list = await periodPlans.list(); });
   $effect(() => onPlanningChange(() => w.retry()));
-  // docs/18: strip figures from the registry (plans in force / upcoming; this quarter's plan used vs expected by today)
-  const fig = $derived(planTiles(list ?? [], pv?.measures ?? null));
-  const pctS = (n: number) => `${Math.round(n * 100)} %`;
-  const tiles = $derived<SummaryTile[]>([
-    { key: 'inforce', label: 'In force today', value: list ? fig.inForce : null, info: infoOf('plansInForce') },
-    { key: 'upcoming', label: 'Upcoming', value: list ? fig.upcoming : null, sub: 'plans starting later', info: infoOf('plansUpcoming') },
-    { key: 'used', label: 'Plan used this quarter', value: fig.used, format: pctS, filter: false, sub: fig.expected !== null ? `${pctS(fig.expected)} expected by today` : undefined,
-      status: fig.used === null || fig.expected === null || !pv ? undefined : fig.used < fig.expected * pv.thresholds.behind ? 'warn' : fig.used > pv.thresholds.over ? 'bad' : 'good',
-      statusLabel: fig.used === null || fig.expected === null || !pv ? undefined : fig.used < fig.expected * pv.thresholds.behind ? 'Behind' : fig.used > pv.thresholds.over ? 'Over plan' : 'On track', info: infoOf('planUsed') },
-  ]);
-  const SHOW: Record<string, (p: PeriodPlan) => boolean> = { inforce: (p) => p.status === 'Active' && p.from <= today && p.to >= today, upcoming: (p) => p.status === 'Active' && p.from > today };
-  const rows = $derived((list ?? []).filter((p) => (!f.values.show || SHOW[f.values.show]?.(p) !== false) && (!f.values.status || f.values.status === 'all' || p.status === f.values.status)
-    && (!f.values.q || `${p.ref} ${p.title}`.toLowerCase().includes(f.values.q.toLowerCase()))));
+
+  const now = new Date();
+  const thisYear = now.getUTCFullYear();
+  const YEARS = [thisYear - 1, thisYear, thisYear + 1, thisYear + 2];
+  const NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  let year = $state(String(thisYear));
+  let month = $state<string | null>(null);
+  let panel = $state<'month' | 'check' | 'actual'>('check');
+  let creating = $state(false);
+  let start = $state<{ ym: string; entityId?: string } | null>(null);
+  let choice = $state<string | null>(null);
+  let choiceDlg = $state<HTMLDialogElement>();
   const canCreate = $derived(canEditPeriodPlans(user));
-  const active = $derived((f.values.show ? 1 : 0) + (f.values.status ? 1 : 0));
-  function clearAll() { f.clear(); search = ''; }
+  const companies = $derived(allCompanies().filter((c) => allowedIds(user).includes(c.id) && (company.active === GROUP || c.id === company.active)));
+  const ink = (id: string) => companyBrand(id).colors.accent;
+
+  const active = $derived((list ?? []).filter((p) => p.status === 'Active'));
+  const covers = (p: PeriodPlan, ym: string) => p.from.slice(0, 7) <= ym && p.to.slice(0, 7) >= ym;
+  const months = $derived(NAMES.map((name, i) => {
+    const key = `${year}-${String(i + 1).padStart(2, '0')}`;
+    return { key, name, plans: active.filter((p) => covers(p, key)) };
+  }));
+  const gaps = $derived(companies.flatMap((c) => months.filter((m) => !m.plans.some((p) => p.entityId === c.id)).map((m) => ({ company: c, month: m.name }))));
+  const covered = $derived(list != null && gaps.length === 0);
+  const picked = $derived(months.find((m) => m.key === month) ?? null);
+
+  function openMonth(key: string) { month = key; panel = 'month'; }
+  const choiceMonth = $derived(months.find((m) => m.key === choice) ?? null);
+  const missing = $derived(choiceMonth ? companies.filter((c) => !choiceMonth.plans.some((p) => p.entityId === c.id)) : []);
+  $effect(() => {
+    if (!choiceDlg) return;
+    if (choice && !choiceDlg.open) choiceDlg.showModal();
+    else if (!choice && choiceDlg.open) choiceDlg.close();
+  });
+
+  function addAt(ym: string, entityId?: string) {
+    choice = null;
+    start = { ym, entityId };
+    creating = true;
+  }
+  function onDouble(m: { key: string; plans: PeriodPlan[] }) {
+    openMonth(m.key);
+    const miss = companies.filter((c) => !m.plans.some((p) => p.entityId === c.id));
+    if (!canCreate) {
+      if (m.plans.length === 1) router.go(`/period-plans/${m.plans[0].id}`);
+      else if (m.plans.length > 1) choice = m.key;
+      return;
+    }
+    if (!m.plans.length) { addAt(m.key, miss.length === 1 ? miss[0].id : undefined); return; }
+    if (m.plans.length === 1 && !miss.length) { router.go(`/period-plans/${m.plans[0].id}`); return; }
+    choice = m.key;
+  }
 </script>
 
-<PageHeader overline="Procurement" title="Period plans" description="What each company plans to buy over a month, quarter, half year or year." analysis="purchasing"
-  info="Plans are suggestions: saved directly (no approval), never overlapping for one company, and shown on purchase orders for information. Plan used = cases ordered this quarter ÷ cases planned; the expected share assumes orders spread evenly over the period.">
-  {#snippet secondary()}<a class="btn btn-secondary" href="#/period-plans/check"><CalendarSearch size={16} aria-hidden="true" />Plan or check a period</a>{/snippet}
-  {#snippet primary()}<ActionInCompany label="New period plan" what="period plan" href="#/period-plans/new" when={canCreate} />{/snippet}
+<PageHeader overline="Procurement" title="Period plans" description="What each company plans to buy, month by month.">
+  {#snippet primary()}{#if canCreate}<button class="btn btn-primary" type="button" onclick={() => { start = null; creating = true; }}>New period plan</button>{/if}{/snippet}
 </PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
-<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Period plans summary" noun="plans" total={list ? list.length : null} shown={list ? rows.length : null} />
-<FilterBar bind:search placeholder="Reference or title" {active} onclear={clearAll}>
-  <label class="field"><span>Status</span><select class="select" value={f.values.status} onchange={(e) => f.set('status', e.currentTarget.value)}><option value="">Active</option><option value="Replaced">Replaced</option><option value="all">Active and replaced</option></select></label>
-  {#snippet end()}{#if list}<span class="caption">{rows.length} plans</span>{/if}{/snippet}
-</FilterBar>
-  <div class="card flush table-wrap">
-    <table class="table">
-      <thead><tr><th>Reference</th><th>Title</th><CompanyCell head /><th>Period</th><th>Kind</th><th class="num">Lines</th><th class="num">Cases</th><th class="num">Value (USD)</th><th>Status</th></tr></thead>
-      <tbody>
-        {#if !list}{#each Array(3) as _}<tr><td colspan="9"><div class="skeleton"></div></td></tr>{/each}{/if}
-        {#each rows as p (p.id)}
-          <tr class="clickable" onclick={() => router.go(`/period-plans/${p.id}`)}>
-            <td class="mono"><a href="#/period-plans/{p.id}">{p.ref}</a></td>
-            <td>{p.title || '—'}</td>
-            <CompanyCell entityId={p.entityId} />
-            <td>{periodLabel(p)}</td>
-            <td class="small">{KIND_LABEL[p.periodKind]}</td>
-            <td class="num">{p.lines.length}</td>
-            <td class="num">{fmtNum(planTotals(p).cases)}</td>
-            <td class="num">{fmtNum(planTotals(p).value, 2)}</td>
-            <td><Badge tone={p.status === 'Active' ? 'success' : 'neutral'}>{p.status}</Badge>{#if p.version > 1}<span class="caption"> v{p.version}</span>{/if}</td>
-          </tr>
-        {:else}{#if list}<tr><td colspan="9">{#if active || f.values.q}<EmptyState title="No period plans match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState>{:else}<EmptyState title="No period plans yet" hint={canCreate ? 'Create one to compare purchase orders with it.' : undefined} compact />{/if}</td></tr>{/if}{/each}
-      </tbody>
-    </table>
+
+<div class="toolbar">
+  <label class="year"><span>Year</span>
+    <select class="select" aria-label="Year" bind:value={year}>{#each YEARS as y}<option value={String(y)}>{y}</option>{/each}</select>
+  </label>
+  <ul class="legend" aria-label="Companies">
+    {#each companies as c}<li><span class="swatch" style:background={c.colors.accent}></span>{companyLabel(c.id)}</li>{/each}
+  </ul>
+  <div class="tools">
+    <Badge tone={list == null ? 'neutral' : covered ? 'success' : 'warning'}>{list == null ? 'Loading' : covered ? 'Year is covered' : `${gaps.length} gaps`}</Badge>
+    <button type="button" class="btn btn-secondary btn-sm" aria-pressed={panel === 'check'} onclick={() => (panel = 'check')}>Check the year</button>
+    <button type="button" class="btn btn-secondary btn-sm" aria-pressed={panel === 'actual'} onclick={() => (panel = 'actual')}>Plan vs actual</button>
+  </div>
+</div>
+
+<div class="split">
+  <div class="year-grid" role="list" aria-label={`Months in ${year}`}>
+    {#each months as m (m.key)}
+      <button type="button" class="mo" class:on={panel === 'month' && month === m.key} title={canCreate ? 'Double-click to add or update a plan' : 'Double-click to open a plan'} onclick={() => openMonth(m.key)} ondblclick={() => onDouble(m)}>
+        <span class="name">{m.name}</span>
+        {#if m.plans.length}
+          <span class="marks">{#each m.plans as p (p.id)}<span class="mark" style:--co={ink(p.entityId)}>{companyLabel(p.entityId)}</span>{/each}</span>
+        {:else}<span class="empty">No plan</span>{/if}
+      </button>
+    {/each}
   </div>
 
+  <aside class="side card" aria-label="Plan detail">
+    {#if panel === 'actual'}
+      <h2>Plan vs actual</h2>
+      <p class="caption">{year}. Orders against the plans that cover this year.</p>
+      {#await import('../components/reports/PlannedVsActualTab.svelte') then M}
+        <M.default {user} />
+      {/await}
+    {:else if panel === 'month' && picked}
+      <h2>{picked.name} {year}</h2>
+      {#if picked.plans.length}
+        <ul class="plans">
+          {#each picked.plans as p (p.id)}
+            <li title="Double-click to update this plan" ondblclick={() => router.go(`/period-plans/${p.id}`)}>
+              <span class="swatch" style:background={ink(p.entityId)}></span>
+              <div>
+                <b>{companyLabel(p.entityId)}</b>
+                <span class="caption">{p.ref}{p.title ? ` · ${p.title}` : ''}</span>
+                <span class="caption">{fmtNum(planTotals(p).cases)} cases · {monthsOf(p.from, p.to).length} {monthsOf(p.from, p.to).length === 1 ? 'month' : 'months'}</span>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" aria-label={`Open the ${companyLabel(p.entityId)} plan`} onclick={() => router.go(`/period-plans/${p.id}`)}>Open</button>
+            </li>
+          {/each}
+        </ul>
+      {:else}<p class="caption">No company has a plan in {picked.name}.{#if canCreate} Double-click the month to add one.{/if}</p>{/if}
+    {:else}
+      <h2>Check the year</h2>
+      {#if list == null}<p class="caption">Loading the plans.</p>
+      {:else if covered}<p>Every company has a plan in each month of {year}.</p>
+      {:else}
+        <p class="caption">A month is open when that company has no active plan covering it.</p>
+        <ul class="gaps">
+          {#each companies as c (c.id)}
+            {@const miss = gaps.filter((g) => g.company.id === c.id)}
+            {#if miss.length}<li><span class="swatch" style:background={c.colors.accent}></span><span><b>{companyLabel(c.id)}</b> <span class="caption">{miss.map((g) => g.month).join(', ')}</span></span></li>{/if}
+          {/each}
+        </ul>
+      {/if}
+    {/if}
+  </aside>
+</div>
+
+<PlanCreateDialog {user} {start} bind:open={creating} />
+
+<dialog class="sheet choose" bind:this={choiceDlg} onclose={() => (choice = null)} aria-labelledby="plan-choice-title">
+  {#if choiceMonth}
+    <header class="top">
+      <h2 id="plan-choice-title">{choiceMonth.name} {year}</h2>
+      <button type="button" class="btn btn-ghost btn-sm" onclick={() => (choice = null)}>Close</button>
+    </header>
+    <p class="caption">Update a plan that already covers this month, or add one for a company that does not.</p>
+    <ul class="picks">
+      {#each choiceMonth.plans as p (p.id)}
+        <li>
+          <button type="button" class="pick" onclick={() => { choice = null; router.go(`/period-plans/${p.id}`); }}>
+            <span class="swatch" style:background={ink(p.entityId)}></span>
+            <span class="txt"><b>{canCreate ? 'Update' : 'Open'} {companyLabel(p.entityId)}</b><span class="caption">{p.ref} · {periodLabel(p)}</span></span>
+          </button>
+        </li>
+      {/each}
+    </ul>
+    {#if canCreate && missing.length}
+      <button type="button" class="btn btn-primary" onclick={() => addAt(choiceMonth.key, missing.length === 1 ? missing[0].id : undefined)}>Add a plan for {missing.map((c) => companyLabel(c.id)).join(', ')}</button>
+    {/if}
+  {/if}
+</dialog>
+
+<style>
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-4); margin-bottom: var(--space-4); }
+  .year { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+  .year .select { height: 36px; min-width: 96px; }
+  .legend { list-style: none; display: flex; flex-wrap: wrap; gap: 12px; margin: 0; padding: 0; font-size: 13px; }
+  .legend li, .gaps li { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+  .split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr); gap: var(--space-4); align-items: start; }
+  .year-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .mo { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-height: 92px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); color: var(--text); text-align: left; cursor: pointer; }
+  .mo:hover { border-color: var(--border-strong); }
+  .mo.on { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+  .name { font: 600 14px/1.2 var(--ff-display); }
+  .marks { display: flex; flex-wrap: wrap; gap: 4px; }
+  .mark { display: inline-flex; align-items: center; gap: 4px; color: var(--text); font-size: 12px; font-weight: 650; line-height: 1; }
+  .mark::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--co); flex: none; }
+  .empty { font-size: 12px; color: var(--text-muted); }
+  .side { padding: var(--space-4) var(--space-5); max-height: calc(100vh - 140px); overflow: auto; }
+  .side h2 { margin: 0 0 8px; font-size: var(--fs-h3); }
+  .plans, .gaps { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .plans li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+  .plans li > div { display: flex; flex-direction: column; min-width: 0; }
+  dialog.choose { width: min(440px, calc(100vw - 32px)); }
+  dialog.choose .top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+  dialog.choose h2 { margin: 0 0 8px; font-size: 20px; }
+  .picks { list-style: none; margin: 12px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .pick { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); color: var(--text); text-align: left; cursor: pointer; }
+  .pick:hover { border-color: var(--border-strong); }
+  .pick .txt { display: flex; flex-direction: column; min-width: 0; }
+  @media (max-width: 900px) { .split { grid-template-columns: 1fr; } .side { max-height: none; } .tools { margin-left: 0; } }
+</style>

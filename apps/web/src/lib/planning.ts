@@ -36,9 +36,11 @@ export function monthsOf(from: string, to: string): string[] {
 export const monthLabel = (k: string) => new Date(k.slice(0, 7) + '-01T00:00:00Z').toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
 export function periodLabel(p: { from: string; to: string; periodKind?: PeriodKind }) {
   const ms = monthsOf(p.from, p.to);
-  if (p.periodKind === 'quarter') return `Q${Math.floor((+p.from.slice(5, 7) - 1) / 3) + 1} ${p.from.slice(0, 4)}`;
-  if (p.periodKind === 'half') return `H${+p.from.slice(5, 7) <= 6 ? 1 : 2} ${p.from.slice(0, 4)}`;
-  if (p.periodKind === 'year') return p.from.slice(0, 4);
+  const aligned = p.periodKind && p.periodKind !== 'custom' && p.periodKind !== 'month' ? periodFor(p.periodKind, p.from) : null;
+  const onCalendar = !!aligned && aligned.from === p.from.slice(0, 10) && aligned.to === p.to.slice(0, 10);
+  if (onCalendar && p.periodKind === 'quarter') return `Q${Math.floor((+p.from.slice(5, 7) - 1) / 3) + 1} ${p.from.slice(0, 4)}`;
+  if (onCalendar && p.periodKind === 'half') return `H${+p.from.slice(5, 7) <= 6 ? 1 : 2} ${p.from.slice(0, 4)}`;
+  if (onCalendar && p.periodKind === 'year') return p.from.slice(0, 4);
   return ms.length === 1 ? monthLabel(ms[0]) : `${monthLabel(ms[0])} – ${monthLabel(ms.at(-1)!)}`;
 }
 /** Even split of `total` over `months` (remainder on the first months), summing exactly to total. */

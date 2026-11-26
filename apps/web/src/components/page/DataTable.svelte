@@ -3,6 +3,9 @@
   // (numbers / dates by `sortValue`), pages of 25 with "Show 25 more", comfortable / compact density, column menu, CSV of
   // the filtered + sorted rows, sticky header (with `maxHeight`) and first column, fade edges when it scrolls sideways,
   // keyboard rows (↑ ↓ Home End, Enter opens) and, below `cardsBelow` px of its own width, one card per row.
+  // V3-8: sorting, search and filters run on TanStack Table (datatable.ts processRows). `searchable` shows the search box;
+  // columns with `filter` appear in the Filters panel (pick-lists with counts, from / to ranges, contains), active filters
+  // show as chips. `search` / `filters` are bindable so a screen can keep them in the address; `shown` = rows after them.
   import type { Snippet } from 'svelte';
   import { untrack } from 'svelte';
   import SearchX from '@lucide/svelte/icons/search-x';
@@ -10,14 +13,18 @@
   import Columns from '@lucide/svelte/icons/columns-3';
   import ChevronLeft from '@lucide/svelte/icons/chevron-left';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
+  import Search from '@lucide/svelte/icons/search';
+  import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
+  import X from '@lucide/svelte/icons/x';
   import EmptyState from './EmptyState.svelte';
   import { downloadCsv } from '../charts/scale';
-  import { sortRows, type Cell, type Column, type SortState } from './datatable';
+  import { processRows, isActive, isRange, type Cell, type Column, type SortState, type Filters, type FilterValue, type RangeValue } from './datatable';
 
   let {
     rows, columns, rowKey, onrowclick, selected = null, rowClass, initialSort, pageSize = 25, density: initialDensity = 'comfortable',
     id = '', label, caption = '', noun = 'rows', loading = false, empty, emptyTitle = '', emptyHint = '', onclear,
     filename = '', maxHeight = '', cardsBelow = 640, card, totalLabel = 'Total', tools = true, toolbar,
+    searchable = false, searchPlaceholder = 'Search', searchExtra, search = $bindable(''), filters = $bindable({}), shown = $bindable(0),
   }: {
     /** null = still loading (skeleton rows) */
     rows: T[] | null;
@@ -58,6 +65,17 @@
     tools?: boolean;
     /** extra content on the left of the tool row */
     toolbar?: Snippet;
+    /** V3-8: show the search box (matches what each searchable column shows) */
+    searchable?: boolean;
+    searchPlaceholder?: string;
+    /** V3-8: more text the search box matches that is not a column (e.g. truck plates, driver names) */
+    searchExtra?: (row: T) => string;
+    /** V3-8: search text (bindable) */
+    search?: string;
+    /** V3-8: active filters by column key (bindable) */
+    filters?: Filters;
+    /** V3-8: number of rows after search + filters (bind it to show "12 of 140" elsewhere) */
+    shown?: number;
   } = $props();
 
   // ---- per-person preferences (density, hidden columns) ----
@@ -83,11 +101,10 @@
   // ---- sorting ----
   let sort = $state<SortState | null>(untrack(() => initialSort ?? null));
   const sortable = (c: Column<T>) => c.sortable ?? !!(c.sortValue || c.value);
-  const sorted = $derived.by(() => {
-    const list = rows ?? [];
-    if (!sort) return list;
-    return sortRows(list, columns.find((c) => c.key === sort!.key), sort.dir);
-  });
+  // TanStack: search + filters + sort (empty values last both ways); facets / ranges for the Filters panel
+  const processed = $derived(processRows({ rows: rows ?? [], columns, rowKey, sort, search, filters, searchExtra }));
+  const sorted = $derived(processed.rows);
+  $effect(() => { const n = sorted.length; untrack(() => { if (shown !== n) shown = n; }); });
   function sortBy(c: Column<T>) {
     if (sort?.key === c.key) sort = { key: c.key, dir: sort.dir === 'asc' ? 'desc' : 'asc' };
     else sort = { key: c.key, dir: c.align === 'right' ? 'desc' : 'asc' }; // figures: biggest first
@@ -148,7 +165,7 @@
     downloadCsv(`${filename}-${new Date().toISOString().slice(0, 10)}`, [cols.map((c) => c.label), ...sorted.map((r) => cols.map((c) => v(csvOf(c)!(r))))]);
   }
   const hasTotals = $derived(columns.some((c) => c.total));
-  const text = (c: Column<T>, r: T) => { const x = (c.value ?? c.sortValue)?.(r); return x === null || x === undefined || x === '' ? '—' : x; };
+  const text = (c: Column<T>, r: T) => { const x = (c.value ?? c.sortValue)?.(r); return x === null || x === undefined || x === '' ? '-' : x; };
   const fmtN = (n: number) => n.toLocaleString('en-US');
 
   // column menu
@@ -162,6 +179,39 @@
   });
   const busy = $derived(loading || rows === null);
   const titleCol = $derived(columns.find((c) => c.mobile === 'title') ?? columns.find((c) => c.mobile !== false && c.mobile !== 'aside' && c.mobile !== 'actions'));
+
+  // ---- V3-8 filters panel + chips ----
+  const filterCols = $derived(columns.filter((c) => c.filter));
+  const activeKeys = $derived(filterCols.filter((c) => isActive(filters[c.key])).map((c) => c.key));
+  let panel = $state(false);
+  let panelEl = $state<HTMLDivElement>();
+  let optQuery = $state<Record<string, string>>({});
+  function setFilter(key: string, v: FilterValue | undefined) { filters = { ...filters, [key]: v }; start = 0; }
+  function toggleOpt(key: string, value: string) {
+    const cur = (Array.isArray(filters[key]) && !isRange(filters[key]) ? filters[key] : []) as string[];
+    setFilter(key, cur.includes(value) ? cur.filter((x) => x !== value) : [...cur, value]);
+  }
+  function setRange(key: string, i: 0 | 1, raw: string) {
+    const cur: RangeValue = isRange(filters[key]) ? [...(filters[key] as RangeValue)] as RangeValue : [null, null];
+    cur[i] = raw.trim() === '' || Number.isNaN(Number(raw)) ? null : Number(raw);
+    setFilter(key, cur);
+  }
+  function clearFilters() { filters = Object.fromEntries(Object.keys(filters).map((k) => [k, undefined])); search = ''; }
+  const labelOf = (c: Column<T>, v: string) => c.filterLabel?.(v) ?? v;
+  const fmtR = (n: number | null) => (n === null ? '' : n.toLocaleString('en-US'));
+  function chipText(c: Column<T>): string {
+    const v = filters[c.key];
+    if (isRange(v)) return v[0] !== null && v[1] !== null ? `${fmtR(v[0])} to ${fmtR(v[1])}` : v[0] !== null ? `from ${fmtR(v[0])}` : `up to ${fmtR(v[1])}`;
+    if (Array.isArray(v)) return v.length > 2 ? `${labelOf(c, v[0])} +${v.length - 1}` : v.map((x) => labelOf(c, x)).join(', ');
+    return `contains “${v}”`;
+  }
+  $effect(() => {
+    if (!panel) return;
+    const away = (e: PointerEvent) => { if (panelEl && !panelEl.contains(e.target as Node)) panel = false; };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') panel = false; };
+    document.addEventListener('pointerdown', away); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc); };
+  });
 </script>
 
 {#snippet content(c: Column<T>, r: T)}{#if c.cell}{@render c.cell(r)}{:else}{text(c, r)}{/if}{/snippet}
@@ -173,9 +223,57 @@
 {/snippet}
 
 <section class="dt" class:compact={density === 'compact'} bind:clientWidth={width} bind:this={host} aria-label={label}>
-  {#if tools || toolbar}
+  {#if tools || toolbar || searchable || filterCols.length}
     <div class="dt-tools">
-      <div class="dt-left">{#if toolbar}{@render toolbar()}{/if}</div>
+      <div class="dt-left">
+        {#if searchable}
+          <label class="dt-search"><Search size={16} aria-hidden="true" /><span class="dt-sr">Search {noun}</span>
+            <input type="search" class="input" placeholder={searchPlaceholder} bind:value={search} oninput={() => (start = 0)} />
+            {#if search}<button type="button" class="dt-x" aria-label="Clear the search" onclick={() => (search = '')}><X size={14} /></button>{/if}
+          </label>
+        {/if}
+        {#if filterCols.length}
+          <div class="dt-filt" bind:this={panelEl}>
+            <button type="button" class="btn btn-secondary btn-sm" aria-expanded={panel} aria-haspopup="dialog" onclick={() => (panel = !panel)}>
+              <SlidersHorizontal size={15} aria-hidden="true" />Filters{#if activeKeys.length}<span class="dt-badge">{activeKeys.length}</span>{/if}
+            </button>
+            {#if panel}
+              <div class="dt-panel" role="dialog" aria-label="Filters for {noun}">
+                {#each filterCols as c (c.key)}
+                  <fieldset class="dt-fs">
+                    <legend>{c.label}</legend>
+                    {#if c.filter === 'select'}
+                      {@const opts = processed.facets(c.key)}
+                      {@const chosen = (Array.isArray(filters[c.key]) && !isRange(filters[c.key]) ? filters[c.key] : []) as string[]}
+                      {@const q = (optQuery[c.key] ?? '').toLowerCase()}
+                      {#if opts.length > 8}<input class="input dt-oq" type="search" placeholder="Find a {c.label.toLowerCase()}" aria-label="Find a {c.label.toLowerCase()}" value={optQuery[c.key] ?? ''} oninput={(e) => (optQuery = { ...optQuery, [c.key]: e.currentTarget.value })} />{/if}
+                      <div class="dt-opts">
+                        {#each [...chosen.filter((v) => !opts.some((o) => o.value === v)).map((v) => ({ value: v, count: 0 })), ...opts].filter((o) => !q || labelOf(c, o.value).toLowerCase().includes(q)) as o (o.value)}
+                          <label class="dt-opt"><input type="checkbox" checked={chosen.includes(o.value)} onchange={() => toggleOpt(c.key, o.value)} /><span class="grow">{labelOf(c, o.value)}</span><span class="dt-cnt">{o.count}</span></label>
+                        {:else}<p class="caption">Nothing to pick</p>{/each}
+                      </div>
+                    {:else if c.filter === 'range'}
+                      {@const r = processed.range(c.key)}
+                      {@const cur = isRange(filters[c.key]) ? (filters[c.key] as RangeValue) : [null, null]}
+                      <div class="dt-range">
+                        <label><span class="caption">From</span><input class="input" type="number" inputmode="decimal" placeholder={r ? fmtR(r[0]) : ''} value={cur[0] ?? ''} onchange={(e) => setRange(c.key, 0, e.currentTarget.value)} /></label>
+                        <label><span class="caption">To</span><input class="input" type="number" inputmode="decimal" placeholder={r ? fmtR(r[1]) : ''} value={cur[1] ?? ''} onchange={(e) => setRange(c.key, 1, e.currentTarget.value)} /></label>
+                      </div>
+                    {:else}
+                      <input class="input" type="search" placeholder="Contains" aria-label="{c.label} contains" value={typeof filters[c.key] === 'string' ? filters[c.key] : ''} oninput={(e) => setFilter(c.key, e.currentTarget.value)} />
+                    {/if}
+                  </fieldset>
+                {/each}
+                <div class="dt-panel-foot">
+                  <button type="button" class="btn btn-ghost btn-sm" onclick={clearFilters} disabled={!activeKeys.length && !search}>Clear all</button>
+                  <button type="button" class="btn btn-primary btn-sm" onclick={() => (panel = false)}>Done</button>
+                </div>
+              </div>
+            {/if}
+          </div>
+        {/if}
+        {#if toolbar}{@render toolbar()}{/if}
+      </div>
       {#if tools}
         <div class="dt-right">
           {#if !cards}
@@ -198,6 +296,14 @@
           {#if filename}<button type="button" class="btn btn-ghost btn-sm" onclick={exportCsv} disabled={busy || !total} title="Download these {fmtN(total)} {noun} as CSV (filters and sort applied)"><Download size={14} aria-hidden="true" />CSV</button>{/if}
         </div>
       {/if}
+    </div>
+  {/if}
+  {#if activeKeys.length}
+    <div class="dt-chips" aria-label="Active filters">
+      {#each filterCols.filter((c) => activeKeys.includes(c.key)) as c (c.key)}
+        <span class="dt-chip"><span><b>{c.label}:</b> {chipText(c)}</span><button type="button" aria-label="Remove the {c.label} filter" onclick={() => setFilter(c.key, undefined)}><X size={13} /></button></span>
+      {/each}
+      <button type="button" class="btn btn-ghost btn-sm" onclick={clearFilters}>Clear all</button>
     </div>
   {/if}
 
@@ -270,7 +376,7 @@
 
   {#if !busy && total > 0}
     <div class="dt-foot">
-      <span class="caption" aria-live="polite">Showing {fmtN(start + 1)}–{fmtN(end)} of {fmtN(total)} {noun}</span>
+      <span class="caption" aria-live="polite">Showing {fmtN(start + 1)}–{fmtN(end)} of {fmtN(total)} {noun}{#if total !== (rows?.length ?? 0)}{' '}(from {fmtN(rows?.length ?? 0)}){/if}</span>
       <span class="dt-pager">
         {#if more > 0}<button type="button" class="btn btn-secondary btn-sm" onclick={() => (count += pageSize)}>Show {more} more</button>{/if}
         {#if pages > 1}
@@ -288,7 +394,7 @@
   .dt-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   /* tools */
   .dt-tools { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; min-height: 32px; }
-  .dt-left { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+  .dt-left { display: flex; align-items: center; gap: var(--space-2); min-width: 0; flex: 1 1 auto; flex-wrap: wrap; }
   .dt-right { display: flex; align-items: center; gap: var(--space-1); margin-left: auto; }
   .dt-seg { display: inline-flex; }
   .dt-seg > button { padding: 3px 10px; font-size: 12px; }
@@ -299,6 +405,34 @@
   .dt-pop { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 220px; max-height: 360px; overflow: auto; padding: var(--space-2); display: flex; flex-direction: column; gap: 2px; box-shadow: var(--shadow-lg, 0 8px 24px rgb(0 0 0 / .16)); }
   .dt-pop label { display: flex; align-items: center; gap: var(--space-2); padding: 6px var(--space-2); border-radius: var(--radius-sm); cursor: pointer; font-size: var(--fs-small, 14px); white-space: nowrap; }
   .dt-pop label:hover { background: var(--surface-sunken); }
+  /* V3-8 search, filters, chips */
+  .dt-search { position: relative; display: flex; align-items: center; min-width: 220px; flex: 1 1 260px; max-width: 360px; }
+  .dt-search :global(svg) { position: absolute; left: 10px; color: var(--text-subtle); pointer-events: none; }
+  .dt-search .input { padding-left: 34px; padding-right: 30px; height: var(--control-sm); border-radius: 999px; background: var(--surface); }
+  .dt-search .input::-webkit-search-cancel-button { display: none; }
+  .dt-x { position: absolute; right: 6px; display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 50%; background: var(--surface-sunken); color: var(--text-muted); cursor: pointer; }
+  /* screens' own choices in the tool row (Status, Show, Route…) look like the Filters button */
+  .dt-left :global(select.select) { width: auto; max-width: 220px; height: var(--control-sm); border-radius: 999px; font-size: 14px; }
+  .dt-filt { position: relative; }
+  .dt-filt > .btn { border-radius: 999px; }
+  .dt-badge { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--primary); color: var(--text-on-primary); font: 700 11px/1 var(--ff-body); }
+  .dt-panel { position: absolute; left: 0; top: calc(100% + 6px); z-index: 40; width: min(340px, 90vw); max-height: min(70vh, 560px); overflow: auto; padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-3); background: var(--surface-raised); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--elevation-3); animation: dtpop var(--motion-fast) var(--motion-easing); }
+  .dt-fs { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .dt-fs legend { font-weight: 700; font-size: 13px; padding: 0; margin-bottom: 4px; }
+  .dt-opts { display: flex; flex-direction: column; max-height: 200px; overflow: auto; }
+  .dt-opt { display: flex; align-items: center; gap: var(--space-2); padding: 5px 6px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+  .dt-opt:hover { background: var(--surface-sunken); }
+  .dt-opt input { accent-color: var(--primary); width: 16px; height: 16px; }
+  .dt-cnt { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .dt-oq, .dt-range .input { height: var(--control-sm); }
+  .dt-range { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+  .dt-range label { display: flex; flex-direction: column; gap: 2px; }
+  .dt-panel-foot { display: flex; justify-content: space-between; position: sticky; bottom: calc(-1 * var(--space-3)); background: var(--surface-raised); padding-top: var(--space-2); border-top: 1px solid var(--border); }
+  .dt-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .dt-chip { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 4px 0 12px; border-radius: 999px; background: var(--primary-subtle); color: var(--text); font-size: 13px; }
+  .dt-chip button { display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 50%; background: transparent; color: var(--text-muted); cursor: pointer; }
+  .dt-chip button:hover { background: var(--surface); color: var(--text); }
+  @keyframes dtpop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
   /* frame + scroller with fade edges */
   .dt-frame { position: relative; overflow: hidden; }
   .dt-frame::before, .dt-frame::after { content: ''; position: absolute; top: 0; bottom: 0; width: 40px; pointer-events: none; opacity: 0; transition: opacity .15s; z-index: 3; }

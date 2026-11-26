@@ -5,9 +5,9 @@
   import { baseLayout, colorOf, alpha } from './theme.svelte';
   import { autoTick } from './scale';
   import { wrapLabel } from './labels';
-  let { groups, unit = '', target, targetLabel = 'Target', format = (n: number) => `${Math.round(n * 10) / 10}`, height = 300, label, filename = 'spread', onselect }: {
+  let { groups, unit = '', target, targetLabel = 'Target', format = (n: number) => `${Math.round(n * 10) / 10}`, height = 300, label, filename = 'spread', note = 'Box = middle half of trips, line = median, dots = each trip.', onselect }: {
     groups: { label: string; values: number[]; slot?: number }[]; /** e.g. "hours" */ unit?: string; target?: number; targetLabel?: string;
-    format?: (n: number) => string; height?: number; label: string; filename?: string; onselect?: (group: string) => void;
+    format?: (n: number) => string; height?: number; label: string; filename?: string; /** set '' to hide */ note?: string; onselect?: (group: string) => void;
   } = $props();
   const name = (g: { label: string; values: number[] }) => `${g.label} (n=${g.values.length})`;
 
@@ -23,7 +23,19 @@
     const lay = baseLayout(t, { height });
     lay.hovermode = 'closest';
     const all = groups.flatMap((g) => g.values);
+    const pct = (xs: number[], p: number) => {
+      const s = [...xs].sort((a, b) => a - b);
+      if (!s.length) return 0;
+      const i = (s.length - 1) * p;
+      const lo = Math.floor(i);
+      const hi = Math.ceil(i);
+      return s[lo] + (s[hi] - s[lo]) * (i - lo);
+    };
+    const usual = Math.max(0, ...groups.map((g) => pct(g.values, 0.9)));
+    const peak = Math.max(0, ...all);
     lay.yaxis = { ...lay.yaxis, showgrid: true, gridcolor: t.grid, rangemode: 'tozero', tickformat: autoTick(all), fixedrange: true, title: { ...lay.yaxis.title, text: ctx.narrow ? '' : unit } };
+    // One extreme day would flatten the boxes on the axis. Keep the usual spread readable.
+    if (usual > 0 && peak > usual * 4) lay.yaxis.range = [0, usual * 2.6];
     lay.xaxis = { ...lay.xaxis, fixedrange: true, tickangle: 0, ...(ctx.narrow ? { tickmode: 'array', tickvals: groups.map(name), ticktext: groups.map((g) => `${wrapLabel(g.label, 10)}<br>n=${g.values.length}`) } : {}) };
     if (target != null) {
       lay.shapes = [{ type: 'line', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: target, y1: target, line: { color: t.danger, width: 1.5, dash: 'dash' } }];
@@ -33,4 +45,4 @@
   }
 </script>
 <PlotlyChart {spec} {height} {label} {filename} zoom={false} onselect={onselect ? (p: PlotPoint) => onselect(String(p.seriesName ?? p.x).replace(/ \(n=\d+\)$/, '')) : undefined} />
-<p class="caption">Box = middle half of trips, line = median, dots = each trip.</p>
+{#if note}<p class="caption">{note}</p>{/if}

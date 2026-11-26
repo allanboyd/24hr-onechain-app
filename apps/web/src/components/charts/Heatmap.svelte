@@ -3,12 +3,19 @@
   import PlotlyChart, { type PlotPoint } from './PlotlyChart.svelte';
   import { baseLayout } from './theme.svelte';
   import { compact } from './scale';
+  import { wrapLabel } from './labels';
+  // Column ticks drop the country note and the words "border" / "weighbridge", then rotate when they would still collide.
+  function colLabel(c: string): string {
+    const bare = c.replace(/\s*\([^)]*\)\s*$/, '').replace(/\s+(border|weighbridge)$/i, '').trim();
+    return wrapLabel(bare || c, 16);
+  }
   let { rows, cols, values, text, classes, format = compact, height, label, filename = 'heatmap', onselect }: {
     rows: string[]; cols: string[]; values: (number | null)[][]; text?: string[][];
     /** discrete states: values are indexes into this list */ classes?: { label: string; tone: 'success' | 'info' | 'warning' | 'danger' | 'other' }[];
     format?: (n: number) => string; height?: number; label: string; filename?: string; onselect?: (row: string, col: string) => void;
   } = $props();
-  const h = $derived(height ?? Math.max(180, rows.length * 34 + 70));
+  // Many columns rotate their ticks, which needs room above the cells so the last row is not clipped.
+  const h = $derived(height ?? Math.max(180, rows.length * 34 + 70 + (cols.length > 6 ? 84 : 0)));
   function spec(t: any, ctx: { narrow: boolean }) {
     let colorscale: any[]; let zmin: number | undefined; let zmax: number | undefined;
     if (classes) {
@@ -21,8 +28,12 @@
     }
     const txt = text ?? values.map((r) => r.map((v) => (v == null ? '' : classes ? classes[v]?.label ?? '' : format(v))));
     const lay = baseLayout(t, { height: h });
-    lay.xaxis = { ...lay.xaxis, side: 'top', showline: false, fixedrange: true, tickangle: 0, ticks: '', ...(ctx.narrow ? { tickmode: 'array', tickvals: cols, ticktext: cols.map((c) => c.replace(' ', '<br>')) } : {}) };
-    if (ctx.narrow && rows.some((r) => r.length > 16)) lay.yaxis = { ...lay.yaxis, tickmode: 'array', tickvals: rows, ticktext: rows.map((r) => (r.length > 16 ? `${r.slice(0, 15)}…` : r)) };
+    const ticktext = cols.map((c) => colLabel(c).replace(/<br>/g, ' '));
+    const longest = Math.max(0, ...ticktext.map((c) => c.length));
+    const crowded = ctx.narrow || cols.length > 6 || longest > 14;
+    lay.xaxis = { ...lay.xaxis, side: 'top', showline: false, fixedrange: true, ticks: '', automargin: true, tickmode: 'array', tickvals: cols, ticktext, tickangle: crowded ? -90 : 0 };
+    if (crowded) lay.margin = { ...(lay.margin ?? {}), t: Math.max((lay.margin as { t?: number } | undefined)?.t ?? 8, Math.min(96, 28 + longest * 5)) };
+    if ((ctx.narrow || crowded) && rows.some((r) => r.length > 16)) lay.yaxis = { ...lay.yaxis, tickmode: 'array', tickvals: rows, ticktext: rows.map((r) => (r.length > 16 ? `${r.slice(0, 15)}…` : r)) };
     lay.yaxis = { ...lay.yaxis, autorange: 'reversed', fixedrange: true, showgrid: false, ticks: '', ticklabelstandoff: 6 };
     return {
       data: [{

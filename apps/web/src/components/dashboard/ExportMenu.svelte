@@ -8,9 +8,9 @@
   import FileSpreadsheet from '@lucide/svelte/icons/file-spreadsheet';
   import FileDown from '@lucide/svelte/icons/file-down';
   import Loader from '@lucide/svelte/icons/loader-circle';
-  let { name, meta, rows, root, formats = ['csv', 'xlsx', 'pdf'] }: {
+  let { name, meta, rows, root, formats = ['csv', 'xlsx', 'pdf'], iconOnly = false }: {
     name: string; meta: () => ExportMeta; rows: () => Rows; /** element holding the charts (for PDF images) */ root?: () => Element | undefined;
-    formats?: ('csv' | 'xlsx' | 'pdf')[];
+    formats?: ('csv' | 'xlsx' | 'pdf')[]; /** icon only, sitting with the chart and table icons */ iconOnly?: boolean;
   } = $props();
   let open = $state(false);
   let busy = $state<string | null>(null);
@@ -46,8 +46,8 @@
   ].filter((i) => formats.includes(i.k)));
 </script>
 <div class="xm" bind:this={el}>
-  <button class="btn btn-ghost btn-sm" aria-haspopup="menu" aria-expanded={open} onclick={() => (open = !open)} disabled={!!busy} title="Export" aria-label="Export">
-    {#if busy}<Loader size={16} class="spin" />{:else}<Download size={16} />{/if}<span class="lbl">Export</span>
+  <button class={iconOnly ? 'ib' : 'btn btn-ghost btn-sm'} aria-haspopup="menu" aria-expanded={open} onclick={() => (open = !open)} disabled={!!busy} title="Export" aria-label="Export">
+    {#if busy}<Loader size={16} class="spin" />{:else}<Download size={16} />{/if}{#if !iconOnly}<span class="lbl">Export</span>{/if}
   </button>
   {#if open}
     <div class="pop" role="menu">
@@ -56,7 +56,9 @@
   {/if}
 </div>
 <style>
-  .xm { position: relative; }
+  .xm { position: relative; display: inline-flex; }
+  .ib { display: grid; place-items: center; width: 32px; height: 30px; border: 0; border-left: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; }
+  .ib:hover { color: var(--text); background: var(--surface-sunken); }
   .pop { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 220px; background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--elevation-2); padding: var(--space-1); display: flex; flex-direction: column; }
   .pop button { display: grid; grid-template-columns: 20px 1fr auto; align-items: center; gap: var(--space-2); background: none; border: 0; text-align: left; padding: var(--space-2) var(--space-3); min-height: 40px; border-radius: var(--radius-sm); font: inherit; color: var(--text); cursor: pointer; }
   .pop button:hover, .pop button:focus-visible { background: var(--primary-subtle); }

@@ -37,7 +37,7 @@ export const map = {
     return { ...l, status: l.status as Leg['status'], departedAt: toIso(l.departedAt), plannedArrival: toIso(l.plannedArrival)!, lastPing: und(l.lastPing), ackId: und(l.ackId) };
   },
   ack: (r: typeof t.acks.$inferSelect): Acknowledgement => { const { byUserId: _b, ...a } = r; return { ...a, at: toIso(a.at)!, signature: und(a.signature) }; },
-  sale: (r: typeof t.sales.$inferSelect): Sale => ({ ...r, counterpartyEntityId: und(r.counterpartyEntityId), at: toIso(r.at)!, kind: r.kind as Sale['kind'], currency: r.currency as Sale['currency'], status: r.status as Sale['status'] }),
+  sale: (r: typeof t.sales.$inferSelect): Sale => ({ ...r, counterpartyEntityId: und(r.counterpartyEntityId), clientId: und(r.clientId), at: toIso(r.at)!, kind: r.kind as Sale['kind'], currency: r.currency as Sale['currency'], status: r.status as Sale['status'] }),
   cost: (r: typeof t.tripCosts.$inferSelect): TripCost => ({ ...r, amountUsd: r.amountUsd ?? undefined, legId: und(r.legId), docRef: und(r.docRef), kind: r.kind as TripCost['kind'], currency: r.currency as TripCost['currency'] }),
   payment: (r: typeof t.tripPayments.$inferSelect): TripPayment => ({ id: r.id, entityId: r.entityId, shipmentId: r.shipmentId, costId: r.costId, amount: r.amount, at: toIso(r.at)!, reference: r.reference, approvedById: und(r.approvedById), status: r.status as TripPayment['status'], fxRate: r.fxRate, amountUsd: r.amountUsd ?? undefined }),
 };

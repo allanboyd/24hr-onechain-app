@@ -6,6 +6,8 @@ import type {
   StockAdjustment, TransportFeeRow, TripCost, TripPayment, WarehouseExpense, WarehouseExpenseCategory, WarehouseExpenseInput, WarehouseStockRow,
 } from './types';
 import type { StockMove } from './rules';
+import { fxFor } from './rules';
+import type { CashEntry, CashOpeningInput, CashTransferInput, FxRate, Loading, Plan, PurchaseOrder, SupplierEntry, SupplierEntryInput } from './types';
 
 const DAY = 864e5;
 const r2 = (x: number) => Math.round(x * 100) / 100;
@@ -255,4 +257,102 @@ export function lossByReason(acks: Pick<Acknowledgement, 'lines'>[]): { label: s
     m.set(k, (m.get(k) ?? 0) + lost);
   }
   return [...m].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+}
+
+
+// ---- V3-12 step 3: supplier money ------------------------------------------------------------------------------------
+/** One short line on a loaded truck: ordered − loaded × the PO line price, USD at the average rate of the loading month.
+ *  That value stays with the supplier (Management → Supplier balances; the PO page). */
+export interface ShortLoadRow { id: string; at: string; poId: ID; poRef: string; entityId: ID; supplierId: ID; productId: ID; ordered: number; loaded: number; short: number; value: number }
+export function shortLoadRows(d: { loadings: Loading[]; pos: PurchaseOrder[]; plans: Plan[]; fxRates?: FxRate[] }): ShortLoadRow[] {
+  const pos = new Map(d.pos.map((p) => [p.id, p]));
+  const plans = new Map(d.plans.map((p) => [p.id, p]));
+  const rows: ShortLoadRow[] = [];
+  for (const l of d.loadings) {
+    if (l.status !== 'Loaded' || !l.loadedAt) continue;
+    const po = pos.get(l.poId); if (!po) continue;
+    const plan = plans.get(po.planId);
+    for (const x of l.lines) {
+      const short = Math.max(0, x.orderedQty - x.loadedQty);
+      if (!short || x.alternativeFor) continue;
+      const price = plan?.lines.find((y) => y.id === x.planLineId)?.price ?? 0;
+      const value = r2((short * price) / (po.currency === 'USD' ? 1 : fxFor(d.fxRates ?? [], po.currency, l.loadedAt, 'avg')));
+      rows.push({ id: `${l.id}:${x.planLineId}`, at: l.loadedAt, poId: po.id, poRef: po.ref, entityId: po.entityId, supplierId: po.supplierId, productId: x.productId, ordered: x.orderedQty, loaded: x.loadedQty, short, value });
+    }
+  }
+  return rows.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+}
+/** What a supplier holds for one company (USD): short loads + credit notes − money used on advances. Pending uses are
+ *  set aside, so the same money can't be used twice while a director decides. */
+export function supplierHeld(shorts: ShortLoadRow[], entries: SupplierEntry[], entityId: ID, supplierId: ID) {
+  const mine = (x: { entityId: ID; supplierId: ID }) => x.entityId === entityId && x.supplierId === supplierId;
+  const es = entries.filter(mine);
+  const shortLoads = r2(shorts.filter(mine).reduce((a, x) => a + x.value, 0));
+  const creditNotes = r2(es.filter((e) => e.kind === 'credit-note' && e.status === 'Recorded').reduce((a, e) => a + e.amountUsd, 0));
+  const used = r2(es.filter((e) => e.kind === 'use' && e.status === 'Recorded').reduce((a, e) => a + e.amountUsd, 0));
+  const pendingUse = r2(es.filter((e) => e.kind === 'use' && e.status === 'Pending approval').reduce((a, e) => a + e.amountUsd, 0));
+  const balance = r2(shortLoads + creditNotes - used);
+  return { shortLoads, creditNotes, used, pendingUse, balance, available: r2(balance - pendingUse) };
+}
+/** One PO's pro-forma and what is paid against it (PO currency): advances + uses, recorded or waiting for a director. */
+export function poMoney(entries: SupplierEntry[], poId: ID) {
+  const es = entries.filter((e) => e.poId === poId && e.status !== 'Rejected');
+  const sumOf = (f: (e: SupplierEntry) => boolean) => r2(es.filter(f).reduce((a, e) => a + e.amount, 0));
+  const proforma = sumOf((e) => e.kind === 'proforma');
+  const advances = sumOf((e) => (e.kind === 'advance' || e.kind === 'use') && e.status === 'Recorded');
+  const pending = sumOf((e) => (e.kind === 'advance' || e.kind === 'use') && e.status === 'Pending approval');
+  return { proforma, advances, pending, open: r2(Math.max(0, proforma - advances - pending)) };
+}
+/** Who records supplier money: directors, accounts, the system administrator, and the planner of that buyer–supplier pair. */
+export const canRecordSupplierMoney = (u: { roles: Role[]; pairs?: { entityId: ID; supplierId: ID }[] }, entityId: ID, supplierId: ID) =>
+  has(u, 'director', 'accounts', 'admin') || (has(u, 'planner') && (!u.pairs?.length || u.pairs.some((p) => p.entityId === entityId && p.supplierId === supplierId)));
+/** Checks a pro-forma / advance / credit note. `usd(x)` converts PO currency to USD at the entry date. Returns the error or null. */
+export function supplierEntryError(input: Partial<SupplierEntryInput>, po: { proforma: number; open: number }, available: number, usd: (x: number) => number): string | null {
+  const amt = Number(input.amount ?? 0), use = Number(input.useHeld ?? 0);
+  if (!['proforma', 'advance', 'credit-note'].includes(String(input.kind))) return 'Pick what you are recording';
+  if (!(amt >= 0) || !(use >= 0) || !Number.isFinite(amt) || !Number.isFinite(use)) return 'Amounts must be numbers of zero or more';
+  if (input.date && !/^\d{4}-\d{2}-\d{2}$/.test(input.date)) return 'Give the date as YYYY-MM-DD';
+  if (input.kind === 'proforma' || input.kind === 'credit-note') return amt > 0 ? null : 'Enter the amount';
+  if (!(amt + use > 0)) return 'Enter the amount paid';
+  if (!(po.proforma > 0)) return 'Add the supplier\'s pro-forma first: an advance is paid against it';
+  if (use > 0 && usd(use) > available + 0.005) return `The supplier holds USD ${available.toFixed(2)} for this company`;
+  if (amt + use > po.open + 0.005) return `That is more than the open pro-forma (${po.open.toFixed(2)})`;
+  return null;
+}
+
+
+// ---- V3-12 step 4: warehouse cash ------------------------------------------------------------------------------------
+/** Cash at start is a money decision: directors, accounts, the system administrator. */
+export const canSetOpening = (u: { roles: Role[] }) => has(u, 'director', 'accounts', 'admin');
+/** Send cash from `wh` to the company account: the warehouse's receiver, or a director (same as recording its expenses). */
+export const canSendCash = (u: U, wh: ID) => canRecordWarehouse(u, wh);
+/** Checks cash at start. A warehouse takes its company's date and currency; warehouse parts can't add up to more than the
+ *  company amount, and the company amount can't go below them. Returns the error or null. */
+export function openingError(input: Partial<CashOpeningInput>, company: CashEntry | null, others: CashEntry[]): string | null {
+  const amt = Number(input.amount);
+  if (!(amt >= 0) || !Number.isFinite(amt)) return 'Enter the cash at start (zero or more)';
+  if (input.date && !/^\d{4}-\d{2}-\d{2}$/.test(input.date)) return 'Give the date as YYYY-MM-DD';
+  if (input.currency && !CURRENCIES.includes(input.currency)) return 'Pick a currency';
+  const split = others.filter((e) => e.warehouseId).reduce((a, e) => a + e.amount, 0);
+  if (input.warehouseId) {
+    if (company && split + amt > company.amount + 0.005) return `The warehouses would hold more than the company's cash at start (${company.currency} ${company.amount.toFixed(2)})`;
+  } else if (amt + 0.005 < split) return `The warehouses already hold ${split.toFixed(2)} of it; the company amount can't be lower`;
+  return null;
+}
+export function transferError(input: Partial<CashTransferInput>, today: string): string | null {
+  const amt = Number(input.amount);
+  if (!(amt > 0) || !Number.isFinite(amt)) return 'Enter the amount sent';
+  if (!input.currency || !CURRENCIES.includes(input.currency)) return 'Pick a currency';
+  if (input.date && (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || input.date > today)) return 'The date can\'t be after today';
+  return null;
+}
+/** What each receiving company and warehouse has as cash at start, and the part of the company amount not split by warehouse. */
+export function cashCompanies(entries: CashEntry[], warehouses: { id: ID; name: string; receivingCompanyId: ID }[], companies: { id: ID; name: string }[]) {
+  const open = entries.filter((e) => e.kind === 'opening');
+  return companies.map((rc) => {
+    const company = open.find((e) => e.receivingCompanyId === rc.id && !e.warehouseId) ?? null;
+    const whs = warehouses.filter((w) => w.receivingCompanyId === rc.id).map((w) => ({ warehouseId: w.id, name: w.name, opening: open.find((e) => e.warehouseId === w.id) ?? null }));
+    const split = whs.reduce((a, w) => a + (w.opening?.amount ?? 0), 0);
+    return { receivingCompanyId: rc.id, name: rc.name, opening: company, warehouses: whs, notSplit: company ? r2(company.amount - split) : null };
+  }).filter((c) => c.warehouses.length);
 }

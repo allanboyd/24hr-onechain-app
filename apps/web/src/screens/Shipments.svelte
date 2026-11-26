@@ -14,7 +14,14 @@
   import Clock from '@lucide/svelte/icons/clock';
   import MapIcon from '@lucide/svelte/icons/map';
   import ListIcon from '@lucide/svelte/icons/list';
-    import { PageHeader, SummaryStrip, FilterBar, DataTable, queryFilters, readQuery, ts, type Column, type SummaryTile } from '../components/page';
+  import Columns2 from '@lucide/svelte/icons/columns-2';
+  import X from '@lucide/svelte/icons/x';
+  import Phone from '@lucide/svelte/icons/phone';
+  import ArrowRight from '@lucide/svelte/icons/arrow-right';
+  import ShipmentCard from '../components/live/ShipmentCard.svelte';
+  import Journey from '../components/live/Journey.svelte';
+  import { view as legView } from '../components/live/legs';
+    import { PageHeader, SummaryStrip, DataTable, queryFilters, readQuery, ts, tableQuery, processRows, type Column, type SummaryTile } from '../components/page';
   import { chainOf, fromLabel } from '../lib/journey';
   import { shipmentTiles, infoOf } from '../lib/tiles';
   import { can } from '../lib/features';
@@ -24,9 +31,11 @@
   let list = $state<Shipment[] | null>(null);
   async function load() { list = await shipments.list(); }
   const w = watch(load);
-  const f = queryFilters({ show: '', route: '', company: '', q: '', view: '' });
-  let search = $state(f.values.q);
-  $effect(() => { if (search !== f.values.q) f.set('q', search); });
+  const f = queryFilters({ show: '', route: '', company: '', q: '', view: '', status: '', entity: '', sh: '' });
+  // V3-8: search + Status / Receiving company / Company filters in the table (same address names; ?status=, ?entity= new)
+  const tq = tableQuery(f, { search: 'q', filters: { status: 'status', recv: 'company', company: 'entity' } });
+  const searchExtra = (sh: Shipment) => `${sh.truckNo} ${lookup.poRef(sh.poId)} ${sh.legs.map((l) => `${lookup.truck(l.truckId)?.reg} ${lookup.driver(l.driverId)?.name}`).join(' ')}`;
+  let shown = $state(0);
 
   const activeLeg = (sh: Shipment): Leg => sh.legs.find((l) => l.status !== 'Acknowledged') ?? sh.legs.at(-1)!;
   const scoped = $derived((list ?? []).filter((sh) => !user.roles.includes('receiver') || user.roles.includes('director') || user.warehouseIds.includes(sh.warehouseId)));
@@ -44,17 +53,28 @@
   $effect(() => {
     if (defaulted || !list) return;
     defaulted = true;
-    if (['show', 'q', 'route', 'company'].some((k) => readQuery(k))) return;
+    if (['show', 'q', 'route', 'company', 'status', 'entity'].some((k) => readQuery(k))) return;
     const pick = can(user, 'trucks') && fig.delayed ? 'delayed' : 'road';
     if (pick === 'delayed') auto = pick; // "On the road" is the usual view, not an action list
     f.set('show', pick);
   });
+  // Show (strip) and Route (any leg on the route) stay here; the table adds search + column filters
   const rows = $derived(scoped.filter((sh) => (!f.values.show || f.values.show === 'all' || TEST[f.values.show]?.(sh))
-    && (!f.values.company || sh.receivingCompanyId === f.values.company) && (!f.values.route || sh.legs.some((l) => l.routeId === f.values.route))
-    && (!f.values.q || `${sh.ref} ${sh.truckNo} ${lookup.poRef(sh.poId)} ${sh.legs.map((l) => `${lookup.truck(l.truckId)?.reg} ${lookup.driver(l.driverId)?.name}`).join(' ')}`.toLowerCase().includes(f.values.q.toLowerCase()))));
-  const map = $derived(f.values.view === 'map');
-  const active = $derived((f.values.show && f.values.show !== 'all' ? 1 : 0) + (f.values.route ? 1 : 0) + (f.values.company ? 1 : 0));
-  function clearAll() { f.clear(['show', 'route', 'company', 'q']); f.set('show', 'all'); search = ''; }
+    && (!f.values.route || sh.legs.some((l) => l.routeId === f.values.route))));
+  // V3-15: one page, three views kept in the address: split (cards + map, the default on a wide screen), list (the table,
+  // for long searches and export), map (the map with the journey panel). Old ?view=map links still open the map.
+  let wide = $state(typeof matchMedia === 'function' ? matchMedia('(min-width: 1100px)').matches : true);
+  $effect(() => { const mq = matchMedia('(min-width: 1100px)'); const on = () => (wide = mq.matches); mq.addEventListener('change', on); return () => mq.removeEventListener('change', on); });
+  const mode = $derived<'split' | 'list' | 'map'>(f.values.view === 'map' ? 'map' : f.values.view === 'list' ? 'list' : f.values.view === 'split' || wide ? 'split' : 'list');
+  const map = $derived(mode !== 'list');
+  // the picked shipment is in the address too (?sh=), so a link opens the map on it
+  const picked = $derived(f.values.sh || null);
+  let hovered = $state<string | null>(null);
+  const pick = (id: string | null) => f.set('sh', id ?? '');
+  const pickedSh = $derived((list ?? []).find((x) => x.id === picked) ?? null);
+  const pv = $derived(pickedSh ? legView(pickedSh) : null);
+  const VIEWS = [{ key: 'split', label: 'Split', icon: Columns2 }, { key: 'list', label: 'List', icon: ListIcon }, { key: 'map', label: 'Map', icon: MapIcon }] as const;
+  function clearAll() { f.clear(['show', 'route', 'company', 'q', 'status', 'entity', 'sh']); f.set('show', 'all'); }
 
   function where(leg: Leg) {
     const i = leg.passes.reduce((a, p, k) => (p.arrivedAt ? k : a), -1);
@@ -73,40 +93,78 @@
   const etaOf = (sh: Shipment) => (sh.status === 'Acknowledged' ? null : ts(shipments.eta(activeLeg(sh)).eta));
   const lastAt = (sh: Shipment) => { const l = activeLeg(sh); const p = l.passes.filter((x) => x.arrivedAt).at(-1); return ts(p?.departedAt ?? p?.arrivedAt); };
   const columns = $derived<Column<Shipment>[]>([
-    ...(company.active === GROUP ? [{ key: 'company', label: 'Company', value: (sh: Shipment) => companyLabel((sh as { entityId?: string }).entityId ?? ''), cell: companyCell, hideBelow: 960 }] : []),
+    ...(company.active === GROUP ? [{ key: 'company', label: 'Company', value: (sh: Shipment) => companyLabel((sh as { entityId?: string }).entityId ?? ''), cell: companyCell, hideBelow: 960, filter: 'select' as const, filterValue: (sh: Shipment) => (sh as { entityId?: string }).entityId ?? '', filterLabel: (id: string) => companyLabel(id) }] : []),
     { key: 'ref', label: 'Shipment', sticky: true, width: '240px', value: (sh) => sh.ref, cell: refCell },
     { key: 'from', label: 'From', value: (sh) => fromLabel(sh), class: 'small', hideBelow: 1200 },
     { key: 'truck', label: 'Truck', value: (sh) => lookup.truck(activeLeg(sh).truckId)?.reg, cell: truckCell },
     { key: 'route', label: 'Route · leg', value: (sh) => lookup.route(activeLeg(sh).routeId)?.name, cell: routeCell, class: 'small', hideBelow: 960 },
     { key: 'last', label: 'Last check-in', sortValue: lastAt, csv: (sh) => where(activeLeg(sh)).cur, cell: lastCell, class: 'small' },
     { key: 'next', label: 'Next checkpoint', sortValue: (sh) => ts(where(activeLeg(sh)).nextPlanned), csv: (sh) => where(activeLeg(sh)).next, cell: nextCell, class: 'small' },
-    { key: 'status', label: 'Status', value: (sh) => sh.status, cell: statusCell },
+    { key: 'status', label: 'Status', value: (sh) => sh.status, cell: statusCell, filter: 'select' },
+    { key: 'recv', label: 'Receiving company', value: (sh) => r.receivingCompanies.find((c) => c.id === sh.receivingCompanyId)?.name, hidden: true, filter: 'select', filterValue: (sh) => sh.receivingCompanyId ?? '', filterLabel: (id) => r.receivingCompanies.find((c) => c.id === id)?.name ?? id },
     { key: 'eta', label: 'ETA', sortValue: etaOf, csv: (sh) => (sh.status === 'Acknowledged' ? 'Delivered' : shipments.eta(activeLeg(sh)).eta), cell: etaCell },
   ]);
+  // the map shows the same rows as the table would (search + filters applied)
+  const mapRows = $derived(map ? processRows({ rows, columns, rowKey: (sh) => sh.id, sort: null, search: f.values.q, filters: tq.filters.get(), searchExtra }).rows : []);
 </script>
 
 <PageHeader overline="Logistics" title="Shipments" description="Every truck from loading to signed delivery." analysis="fleet"
   info="Position comes from checkpoint check-ins: the driver app, SMS, a geofence or the office. A truck whose next check-in is more than 3 hours overdue shows under No check-in. The Map view shows the trucks of the list below on a map.">
   {#snippet secondary()}
-    {#if map}<button class="btn btn-secondary" onclick={() => f.set('view', '')}><ListIcon size={16} aria-hidden="true" />List view</button>
-    {:else}<button class="btn btn-secondary" onclick={() => f.set('view', 'map')}><MapIcon size={16} aria-hidden="true" />Map view</button>{/if}
+    <div class="vsw" role="group" aria-label="View">
+      {#each VIEWS as x (x.key)}{@const I = x.icon}<button type="button" class:on={mode === x.key} aria-pressed={mode === x.key} onclick={() => f.set('view', x.key === 'split' && wide ? '' : x.key)}><I size={16} aria-hidden="true" />{x.label}</button>{/each}
+    </div>
   {/snippet}
 </PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
-<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Shipments summary" allValue="all" noun="shipments" total={list ? scoped.length : null} shown={list ? rows.length : null} {auto} labels={{ delivered: 'Delivered' }} />
-<FilterBar bind:search placeholder="Shipment, PO, truck or driver" {active} onclear={clearAll}>
-  <label class="field"><span>Show</span><select class="select" value={f.values.show || 'all'} onchange={(e) => f.set('show', e.currentTarget.value)}>
-    <option value="road">On the road</option><option value="delayed">Delayed</option><option value="border">At a border</option><option value="noCheckin">No check-in</option><option value="delivered">Delivered</option><option value="all">All shipments</option></select></label>
-  <label class="field"><span>Route</span><select class="select" value={f.values.route} onchange={(e) => f.set('route', e.currentTarget.value)}><option value="">All routes</option>{#each r.routes as rt}<option value={rt.id}>{rt.name}</option>{/each}</select></label>
-  <label class="field"><span>Receiving company</span><select class="select" value={f.values.company} onchange={(e) => f.set('company', e.currentTarget.value)}><option value="">All</option>{#each r.receivingCompanies as c}<option value={c.id}>{c.name}</option>{/each}</select></label>
-  {#snippet end()}{#if list}<span class="caption">{rows.length} of {scoped.length} shipments</span>{/if}{/snippet}
-</FilterBar>
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Shipments summary" allValue="all" noun="shipments" total={list ? scoped.length : null} shown={list ? (map ? mapRows.length : shown) : null} {auto} labels={{ delivered: 'Delivered' }} />
+
 
 {#if map}
-  {#await import('../components/ShipmentMap.svelte') then M}<M.default items={rows} />{/await}
+  <div class="live" class:maponly={mode === 'map'}>
+    {#if mode === 'split'}
+      <section class="cards" aria-label="Shipments">
+        <label class="search"><input class="input" type="search" placeholder="Truck, shipment, PO or driver" value={f.values.q} oninput={(e) => tq.search.set(e.currentTarget.value)} /></label>
+        <div class="count caption">{mapRows.length} {mapRows.length === 1 ? 'shipment' : 'shipments'}{f.values.show && f.values.show !== 'all' ? ' · from the figure picked above' : ''}</div>
+        <div class="scroll">
+          {#each mapRows as sh (sh.id)}<ShipmentCard {sh} selected={picked === sh.id} onselect={(id) => pick(picked === id ? null : id)} onhover={(id) => (hovered = id)} />
+          {:else}<p class="empty caption">No shipment matches. Pick another figure above, or clear the search.</p>{/each}
+        </div>
+      </section>
+    {/if}
+    <section class="mapcard" aria-label="Map">
+      {#await import('../components/live/LiveMap.svelte') then M}<M.default items={mapRows} selected={picked} hover={hovered} onselect={(id) => pick(id)} padRight={wide ? 380 : 0} />{/await}
+      {#if pickedSh && pv}
+        {@const leg = pickedSh.legs.find((l) => l.status !== 'Acknowledged') ?? pickedSh.legs.at(-1)!}
+        {@const drv = lookup.driver(leg.driverId)}
+        <aside class="panel" aria-label="Journey of {lookup.truck(leg.truckId)?.reg}">
+          <header>
+            <div><strong class="reg">{lookup.truck(leg.truckId)?.reg}</strong> <Badge status={pickedSh.status} />
+              <div class="caption mono">{pickedSh.ref}{lookup.poRef(pickedSh.poId) !== '—' ? ` · PO ${lookup.poRef(pickedSh.poId)}` : ''}</div></div>
+            <button class="btn btn-ghost btn-sm" aria-label="Close" onclick={() => pick(null)}><X size={16} /></button>
+          </header>
+          <div class="facts">
+            <div><span class="caption">Route</span><strong>{lookup.route(leg.routeId)?.name}</strong></div>
+            <div><span class="caption">Driver</span><strong>{drv?.name ?? '-'}</strong>{#if drv?.phone}<a class="call" href="tel:{drv.phone}"><Phone size={13} />{drv.phone}</a>{/if}</div>
+            <div><span class="caption">Cases</span><strong>{leg.lines.reduce((a, l) => a + l.loadedQty, 0).toLocaleString('en-US')}</strong></div>
+          </div>
+          {#if pv.problem}<p class="prob">{pv.problem}</p>{/if}
+          <Journey v={pv} />
+          <a class="btn btn-primary btn-sm open" href="#/shipments/{pickedSh.id}">Open shipment <ArrowRight size={14} /></a>
+        </aside>
+      {/if}
+    </section>
+  </div>
 {:else}
 <DataTable id="shipments" label="Shipments" noun="shipments" rows={list ? rows : null} {columns} rowKey={(sh) => sh.id} onrowclick={(sh) => router.go(`/shipments/${sh.id}`)}
-  initialSort={{ key: 'eta', dir: 'asc' }} filename="shipments" onclear={clearAll} card={phoneCard} />
+  initialSort={{ key: 'eta', dir: 'asc' }} filename="shipments" onclear={clearAll} card={phoneCard}
+  searchable searchPlaceholder="Shipment, PO, truck or driver" {searchExtra} bind:search={tq.search.get, tq.search.set} bind:filters={tq.filters.get, tq.filters.set} bind:shown>
+  {#snippet toolbar()}
+    <select class="select tsel" aria-label="Show" value={f.values.show || 'all'} onchange={(e) => f.set('show', e.currentTarget.value)}>
+      <option value="road">On the road</option><option value="delayed">Delayed</option><option value="border">At a border</option><option value="noCheckin">No check-in</option><option value="delivered">Delivered</option><option value="all">All shipments</option></select>
+    <select class="select tsel" aria-label="Route" value={f.values.route} onchange={(e) => f.set('route', e.currentTarget.value)}><option value="">All routes</option>{#each r.routes as rt}<option value={rt.id}>{rt.name}</option>{/each}</select>
+  {/snippet}
+</DataTable>
 {/if}
 
 {#snippet companyCell(sh: Shipment)}{@const id = (sh as { entityId?: string }).entityId}<span class="cc"><CompanyMark entityId={id ?? null} size={18} />{id ? companyLabel(id) : '—'}</span>{/snippet}
@@ -146,4 +204,26 @@
 <style>
   .nowrap, .mono { white-space: nowrap; }
   .cc { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 13px; }
+  .vsw { display: inline-flex; padding: 3px; gap: 2px; border-radius: 10px; background: var(--surface-sunken); }
+  .vsw button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 6px 12px; border-radius: 8px; font: inherit; font-size: 13.5px; color: var(--text-muted); cursor: pointer; }
+  .vsw button.on { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
+  .live { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: var(--space-4); height: calc(100vh - 300px); min-height: 520px; }
+  .live.maponly { grid-template-columns: minmax(0, 1fr); }
+  .cards { display: flex; flex-direction: column; min-height: 0; gap: 8px; }
+  .cards .search .input { width: 100%; }
+  .cards .count { padding: 0 2px; }
+  .scroll { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; padding: 2px 4px 8px 2px; min-height: 0; }
+  .mapcard { position: relative; border-radius: 14px; overflow: hidden; border: 1px solid var(--border); background: var(--surface); min-height: 0; }
+  .panel { position: absolute; top: 12px; right: 12px; bottom: 12px; width: min(360px, calc(100% - 24px)); z-index: 500; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 12px 32px rgb(0 0 0 / .18); padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; animation: slidein .25s var(--motion-easing, ease); }
+  .panel header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+  .panel .reg { font-size: 17px; }
+  .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .facts div { display: flex; flex-direction: column; font-size: 13.5px; } .facts div:first-child { grid-column: 1 / -1; }
+  .call { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; }
+  .prob { margin: 0; padding: 8px 10px; border-radius: 10px; background: var(--danger-subtle); color: var(--danger); font-weight: 600; font-size: 13px; }
+  .open { align-self: flex-start; }
+  .empty { padding: var(--space-5); text-align: center; }
+  @keyframes slidein { from { transform: translateX(16px); opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .panel { animation: none; } }
+  @media (max-width: 1099px) { .live { grid-template-columns: minmax(0, 1fr); height: auto; } .mapcard { height: 70vh; } .panel { position: absolute; top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 60%; } }
 </style>

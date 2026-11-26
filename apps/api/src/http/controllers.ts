@@ -23,7 +23,9 @@ import { SyncService, type SyncItem } from '../domain/sync.service';
 import { ReportsService } from '../domain/reports.service';
 import * as RP from '@btw/api/reports';
 import type { CheckpointPass, DriverInput, Leg, ProviderInput, TruckInput, WarehouseInput, PeriodPlan, PoInput, PoUpdateInput, RouteStop, Sale, TripCost, TruckIssue } from '@btw/api/types';
-import { defaultPvThresholds, featuresFor } from '@btw/api/rules';
+import { canChangeSettings, defaultMoneySettings, defaultPvThresholds, featuresFor } from '@btw/api/rules';
+import type { ClientInput, ClientPaymentInput, MoneySettings, NotifyPrefs } from '@btw/api/types';
+import { auditNote } from '../common/audit-context';
 import { seesPrices } from '@btw/api/access';
 import { eq } from 'drizzle-orm';
 
@@ -51,10 +53,32 @@ export class AuthController {
 
 @Controller()
 export class MeController {
-  constructor(private platform: PlatformService) {}
+  constructor(private platform: PlatformService, private auth: AuthService) {}
   @Get('me') me(@Me() p: Principal) { const { channel: _c, ...u } = p; return { ...u, features: featuresFor(p.roles) }; }
   @Post('devices') @HttpCode(200) device(@Me() p: Principal, @Body() b: { pushToken?: string; platform?: string; appVersion?: string }) { return this.platform.registerDevice(p, b ?? {}); }
   @Get('notifications') notifications(@Me() p: Principal) { return this.platform.notifications(p); }
+  /** V3-14: my profile: details, own password / PIN (fresh session here, others end), my signed-in devices. */
+  @Get('me/profile') profile(@Me() p: Principal) { return this.platform.myProfile(p); }
+  @Patch('me') updateMe(@Me() p: Principal, @Body() b: { name?: string; email?: string | null }) { return this.platform.updateMe(p, b ?? {}); }
+  @Post('me/secret') @HttpCode(200) async mySecret(@Me() p: Principal, @Body() b: { current?: string; password?: string; pin?: string }) {
+    const s = await this.auth.changeOwnSecret(p, b ?? {});
+    auditNote({ recordType: 'user', recordId: p.id, summary: `${p.name}: own ${b?.pin !== undefined ? 'PIN' : 'password'} changed; other sessions ended` });
+    return s;
+  }
+  @Get('me/devices') myDevices(@Me() p: Principal) { return this.platform.myDevices(p); }
+  /** V3-12: my email / SMS choices for money notifications (in-app is always on). */
+  @Get('me/notify') async myNotify(@Me() p: Principal): Promise<NotifyPrefs> {
+    const [u] = await db.select({ email: schema.users.notifyEmail, sms: schema.users.notifySms }).from(schema.users).where(eq(schema.users.id, p.id));
+    return { email: !!u?.email, sms: !!u?.sms };
+  }
+  @Put('me/notify') async setMyNotify(@Me() p: Principal, @Body() b: Partial<NotifyPrefs>): Promise<NotifyPrefs> {
+    if ((b?.email !== undefined && typeof b.email !== 'boolean') || (b?.sms !== undefined && typeof b.sms !== 'boolean')) fail('Choose on or off', 422);
+    const set: Partial<{ notifyEmail: boolean; notifySms: boolean }> = {};
+    if (b?.email !== undefined) set.notifyEmail = b.email;
+    if (b?.sms !== undefined) set.notifySms = b.sms;
+    if (Object.keys(set).length) await db.update(schema.users).set(set).where(eq(schema.users.id, p.id));
+    return this.myNotify(p);
+  }
   @Post('notifications/read') @HttpCode(200) read(@Me() p: Principal, @Body() b: { ids?: string[] }) { return this.platform.markRead(p, b?.ids); }
 }
 
@@ -72,6 +96,20 @@ export class CompaniesController {
     if (!(behind > 0 && behind <= 1) || !(over >= 1 && over <= 2)) fail('Behind must be above 0 and at most 1; over between 1 and 2', 400, 'bad-request');
     const value = { behind, over };
     await db.insert(schema.settings).values({ key: 'pvThresholds', value }).onConflictDoUpdate({ target: schema.settings.key, set: { value } });
+    return value;
+  }
+  /** V3-12: Management → Settings. Everyone with the Management pages may read; directors and the system administrator change. */
+  @Get('settings/money') async money(): Promise<MoneySettings> {
+    const [r] = await db.select().from(schema.settings).where(eq(schema.settings.key, 'money'));
+    return { ...defaultMoneySettings, ...(r?.value as Partial<MoneySettings> | undefined) };
+  }
+  @Put('settings/money') async setMoney(@Me() p: Principal, @Body() b: Partial<MoneySettings>): Promise<MoneySettings> {
+    if (!canChangeSettings(p.roles)) forbidden('Only directors and the system administrator change these settings');
+    if (b?.advanceApproval !== undefined && typeof b.advanceApproval !== 'boolean') fail('Choose on or off', 422);
+    const before = await this.money();
+    const value = { ...before, ...(b?.advanceApproval !== undefined ? { advanceApproval: b.advanceApproval } : {}) };
+    await db.insert(schema.settings).values({ key: 'money', value }).onConflictDoUpdate({ target: schema.settings.key, set: { value } });
+    auditNote({ recordType: 'settings', recordId: 'money', summary: `Advance payments need director approval: ${value.advanceApproval ? 'on' : 'off'}`, before, after: value });
     return value;
   }
   /** Directors approve a month's rate: units of currency per 1 USD (avg → P&L, closing → stock/balances). */
@@ -228,6 +266,14 @@ export class StockController {
   @Get('stock') rows(@Me() p: Principal) { return this.stock.stock(p); }
   @Get('stock/ledger') ledger(@Me() p: Principal, @Query('warehouseId') w: string, @Query('productId') pr: string) { return this.stock.ledger(p, w, pr); }
   @Get('sales') sales(@Me() p: Principal, @Query('warehouseId') w?: string) { return this.stock.sales(p, w); }
+  /** V3-12 step 2: client payments against a sale. */
+  @Post('sales/:id/payments') @HttpCode(200) recordPayment(@Me() p: Principal, @Param('id') id: string, @Body() b: ClientPaymentInput, @Headers('idempotency-key') k: Idem) { return once(k, p.id, 'sale.payment', () => this.stock.recordPayment(p, id, b ?? ({} as ClientPaymentInput))).then((r) => r.result); }
+  @Get('sales/:id/payments') salePayments(@Me() p: Principal, @Param('id') id: string) { return this.stock.payments(p, id); }
+  @Get('client-payments') clientPayments(@Me() p: Principal) { return this.stock.payments(p); }
+  /** V3-12: clients (picked on the sale; credit days set by directors / accounts). */
+  @Get('clients') clients(@Me() p: Principal) { return this.stock.clients(p); }
+  @Post('clients') createClient(@Me() p: Principal, @Body() b: ClientInput, @Headers('idempotency-key') k: Idem) { return once(k, p.id, 'client.create', () => this.stock.createClient(p, b ?? ({} as ClientInput))).then((r) => r.result); }
+  @Patch('clients/:id') updateClient(@Me() p: Principal, @Param('id') id: string, @Body() b: Partial<ClientInput>) { return this.stock.updateClient(p, id, b ?? {}); }
   @Post('sales') create(@Me() p: Principal, @Body() b: Omit<Sale, 'id' | 'ref' | 'status' | 'entityId'> & { entityId?: string; override?: boolean }, @Headers('idempotency-key') k: Idem) { const { override, ...input } = b ?? ({} as never); return once(k, p.id, 'sale.create', () => this.stock.createSale(p, input, !!override)).then((r) => r.result); }
   @Get('analytics/summary') summary(@Me() p: Principal) { return this.stock.summary(p); }
   @Get('analytics/velocity') velocity(@Me() p: Principal) { return this.stock.velocity(p); }
@@ -295,8 +341,8 @@ export class ReportsController {
   /** Directors: the three companies side by side + consolidated total (Σ companies − intercompany), all in USD. */
   @Get('group') async group(@Me() p: Principal, @Query() q: RQ) { return RP.groupReport(await this.reports.data(p, { group: true }), filter(q)); }
   /** PV-01…07: planned vs actual ordered per plan line, flags, monthly running totals, plan used per brand. */
-  @Get('planned-vs-actual') async plannedVsActual(@Me() p: Principal, @Query() q: RQ & { supplierId?: string }) {
-    return RP.plannedVsActual(await this.reports.data(p, filter(q, 'planned-vs-actual')), { ...filter(q), supplierId: q?.supplierId || undefined });
+  @Get('planned-vs-actual') async plannedVsActual(@Me() p: Principal, @Query() q: RQ & { supplierId?: string; planId?: string }) {
+    return RP.plannedVsActual(await this.reports.data(p, filter(q, 'planned-vs-actual')), { ...filter(q), supplierId: q?.supplierId || undefined, planId: q?.planId || undefined });
   }
   @Get('capture-check') async captureCheck(@Me() p: Principal, @Query() q: RQ) { return RP.captureCheck(await this.reports.data(p, filter(q, 'capture-check')), filter(q)); }
 }

@@ -58,16 +58,23 @@
     open = false;
     if (!user) return;
     const switching = id !== company.active;
-    if (switching) setCompany(user, id);
-    if (href) { router.go(withCo(href, id)); return; }
-    if (switching && intent) {
-      // the screen remounts for the new company: leave the intent in the address for it
-      // the live address (filters written in place with replaceState are not in router.path)
-      const [p, qs = ''] = (location.hash.slice(1) || '/').split('?');
-      const q = new URLSearchParams(qs); q.set('co', companyBrand(id).code); q.set('do', intent);
-      router.go(`${p}?${q}`);
+    if (href) {
+      const dest = withCo(href, id).replace(/^#/, '');
+      if (switching) history.replaceState(null, '', `#${dest}`);
+      if (switching) setCompany(user, id);
+      else router.go(dest);
       return;
     }
+    if (switching && intent) {
+      // Write the intent before the company switch. setCompany keeps the live query, and the
+      // remounted screen reads it. A later router.go would remount again and drop it.
+      const [p, qs = ''] = (location.hash.slice(1) || '/').split('?');
+      const q = new URLSearchParams(qs); q.set('co', companyBrand(id).code); q.set('do', intent);
+      history.replaceState(null, '', `#${p}?${q}`);
+      setCompany(user, id);
+      return;
+    }
+    if (switching) setCompany(user, id);
     onclick?.(id);
   }
   function press() {

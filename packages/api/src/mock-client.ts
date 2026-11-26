@@ -8,7 +8,7 @@ import * as RP from './reports';
 import * as PO from './mock/po';
 import type {
   AckLine, AppConfig, AuditFilter, AuditPage, Checkpoint, EntityInput, PriceListItem, Product, ProductInput, ReceivingCompany, ReceivingCompanyInput, Supplier, SupplierInput, UserPair, LoadingAlternative, PeriodPlanLine, PurchaseOrder, CheckpointPass, Device, DriverWork, Entity, FeatureKey, FxRate, GiverWork, ID, Leg, LegView, PeriodKind, PeriodPlan, Plan, PlanLine,
-  PlanLineContext, PoDetail, PoInput, PoUpdateInput, PvThresholds, ReceiverWork, Role, RouteStop, Sale, Shipment, StoredFile, SyncResult, TripCost, TruckIssue, User, UserAdmin, Warehouse, WarehouseInput,
+  MyDevice, MyProfile, MySecretInput, CashEntry, CashOpeningInput, CashOverview, CashTransferInput, SupplierEntry, SupplierEntryInput, SupplierMoney, Client, ClientInput, ClientPayment, ClientPaymentInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PoDetail, PoInput, PoUpdateInput, PvThresholds, ReceiverWork, Role, RouteStop, Sale, Shipment, StoredFile, SyncResult, TripCost, TruckIssue, User, UserAdmin, Warehouse, WarehouseInput,
   Driver, DriverInput, Provider, ProviderInput, SavedDriver, Truck, TruckInput,
 } from './types';
 
@@ -418,6 +418,204 @@ export const inventory = {
   async stock() { ensure(); return wait(m.stock().filter((r) => inScope(r.entityId) && seesWh(r.warehouseId)).map(stockOut)); },
   async ledger(warehouseId: ID, productId: ID) { ensure(); if (!seesWh(warehouseId)) throw httpErr('Not available for your role', 403); return wait(m.db.stockMoves.filter((x) => inScope(x.entityId) && x.warehouseId === warehouseId && x.productId === productId).slice(-50).reverse()); },
 };
+// ---- Warehouse cash (V3-12 step 4) ---------------------------------------------------------------------------------
+const today10 = () => new Date().toISOString().slice(0, 10);
+export const cash = {
+  async overview(): Promise<CashOverview> {
+    ensure(); if (!current || !R.hasFeature(current.roles, 'warehouse-expenses')) throw forbid('Warehouse cash is for the warehouses and the directors');
+    const M = await import('./money');
+    const r = ref();
+    const whs = r.warehouses.filter((w) => M.seesWarehouse(me(), w.id));
+    const es = m.db.cashEntries ?? [];
+    return wait({ companies: M.cashCompanies(es, whs, r.receivingCompanies), transfers: es.filter((e) => e.kind === 'transfer' && !!e.warehouseId && whs.some((w) => w.id === e.warehouseId)).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.at < b.at ? 1 : -1)),
+      canSetOpening: M.canSetOpening(current), canSend: whs.filter((w) => M.canSendCash(me(), w.id)).map((w) => w.id) });
+  },
+  async setOpening(input: CashOpeningInput): Promise<CashEntry> {
+    ensure();
+    const M = await import('./money');
+    if (!current || !M.canSetOpening(current)) throw forbid('Cash at start is set by the directors or accounts');
+    const r = ref();
+    if (!r.receivingCompanies.some((x) => x.id === input.receivingCompanyId)) throw Object.assign(new Error('Pick the company'), { status: 422 });
+    if (input.warehouseId && r.warehouses.find((w) => w.id === input.warehouseId)?.receivingCompanyId !== input.receivingCompanyId) throw Object.assign(new Error('That warehouse is not this company\'s'), { status: 422 });
+    const es = (m.db.cashEntries ??= []);
+    const company = es.find((e) => e.kind === 'opening' && e.receivingCompanyId === input.receivingCompanyId && !e.warehouseId) ?? null;
+    const others = es.filter((e) => e.kind === 'opening' && e.receivingCompanyId === input.receivingCompanyId && e.warehouseId && e.warehouseId !== input.warehouseId);
+    const err = M.openingError(input, company, others);
+    if (err) throw Object.assign(new Error(err), { status: 422 });
+    // a warehouse takes its company's date and currency
+    const currency = input.warehouseId && company ? company.currency : input.currency ?? 'USD';
+    const date = input.warehouseId && company ? company.date : input.date ?? today10();
+    const rate = currency === 'USD' ? 1 : R.fxFor(m.db.fxRates ?? seed.seedFxRates(), currency, `${date}T12:00:00Z`);
+    const cur = es.find((e) => e.kind === 'opening' && e.receivingCompanyId === input.receivingCompanyId && (e.warehouseId ?? null) === (input.warehouseId ?? null));
+    const amount = Math.round(Number(input.amount) * 100) / 100;
+    const next: CashEntry = { id: cur?.id ?? m.uid('ce'), kind: 'opening', receivingCompanyId: input.receivingCompanyId, warehouseId: input.warehouseId ?? null, amount, currency, fxRate: rate,
+      amountUsd: Math.round((amount / rate) * 100) / 100, date, note: input.note?.trim() || undefined, byUserId: current.id, at: new Date().toISOString() };
+    if (cur) Object.assign(cur, next); else es.push(next);
+    // a company's new date and currency carry to its warehouse parts
+    if (!input.warehouseId) for (const e of es.filter((x) => x.kind === 'opening' && x.receivingCompanyId === input.receivingCompanyId && x.warehouseId)) { e.date = date; e.currency = currency; e.fxRate = rate; e.amountUsd = Math.round((e.amount / rate) * 100) / 100; }
+    log('PUT', '/warehouse/cash/opening', { recordType: 'cash', recordId: next.id, summary: `Cash at start ${input.warehouseId ? lookup.warehouse(input.warehouseId)?.name : r.receivingCompanies.find((x) => x.id === input.receivingCompanyId)?.name}: ${currency} ${amount} on ${date}`, before: cur ? { ...cur } : null, after: next });
+    return commit(next);
+  },
+  async send(input: CashTransferInput): Promise<CashEntry> {
+    ensure();
+    const M = await import('./money');
+    const w = ref().warehouses.find((x) => x.id === input.warehouseId);
+    if (!w) throw Object.assign(new Error('Pick the warehouse'), { status: 422 });
+    if (!current || !M.canSendCash(me(), w.id)) throw forbid('Cash is sent by the warehouse\'s receiver or a director');
+    const err = M.transferError(input, today10());
+    if (err) throw Object.assign(new Error(err), { status: 422 });
+    const date = input.date ?? today10();
+    const rate = input.currency === 'USD' ? 1 : R.fxFor(m.db.fxRates ?? seed.seedFxRates(), input.currency, `${date}T12:00:00Z`);
+    const amount = Math.round(Number(input.amount) * 100) / 100;
+    const e: CashEntry = { id: m.uid('ce'), kind: 'transfer', receivingCompanyId: w.receivingCompanyId, warehouseId: w.id, amount, currency: input.currency, fxRate: rate, amountUsd: Math.round((amount / rate) * 100) / 100,
+      date, reference: input.reference?.trim() || undefined, note: input.note?.trim() || undefined, slip: input.slipFileId ? { id: input.slipFileId, kind: 'receipt', name: input.slipName ?? 'Bank slip', url: input.slipUrl ?? undefined } : null, byUserId: current.id, at: new Date().toISOString() };
+    (m.db.cashEntries ??= []).push(e);
+    log('POST', '/warehouse/cash/transfers', { recordType: 'cash', recordId: e.id, summary: `${w.name}: sent ${e.currency} ${amount} to the company account${e.reference ? ` · ${e.reference}` : ''}`, after: e });
+    m.notify('Cash sent to the company account', `${w.name}: ${e.currency} ${amount.toLocaleString('en-US')} by ${current.name}${e.reference ? ` · ${e.reference}` : ''}`, '#/warehouse-expenses?view=cash', ['director'], null);
+    return commit(e);
+  },
+};
+
+// ---- Supplier money (V3-12 step 3) --------------------------------------------------------------------------------
+/** The PO the money belongs to: the base of its chain, so revisions share one pro-forma and its advances. */
+const basePo = (id: ID) => { const p = m.db.pos.find((x) => x.id === id); return p ? m.db.pos.find((x) => x.id === (p.revisionOf ?? p.id)) ?? p : undefined; };
+async function supplierMoneyOf(poId: ID): Promise<{ po: PurchaseOrder; money: SupplierMoney }> {
+  const M = await import('./money');
+  const po = basePo(poId);
+  if (!po || !inScope(po.entityId) || !current || !R.hasFeature(current.roles, 'purchase-orders') || !planAccess(poPlan(po)) || !A.seesPrices(me())) throw httpErr('Purchase order not found', 404);
+  const entries = (m.db.supplierEntries ?? []).filter((e) => e.entityId === po.entityId && e.supplierId === po.supplierId);
+  const shorts = M.shortLoadRows({ loadings: m.db.loadings, pos: m.db.pos, plans: m.db.plans, fxRates: m.db.fxRates ?? seed.seedFxRates() });
+  const approvalOn = !!m.db.moneySettings?.advanceApproval;
+  return { po, money: { entityId: po.entityId, supplierId: po.supplierId, currency: po.currency, po: M.poMoney(entries, po.id), held: M.supplierHeld(shorts, entries, po.entityId, po.supplierId),
+    entries: entries.filter((e) => e.poId === po.id || e.kind === 'credit-note' || e.kind === 'use').sort((a, b) => (a.at < b.at ? 1 : -1)),
+    canRecord: M.canRecordSupplierMoney(current, po.entityId, po.supplierId), canDecide: current.roles.includes('director'), approvalOn } };
+}
+export const supplierMoney = {
+  async forPo(poId: ID): Promise<SupplierMoney> { ensure(); return wait((await supplierMoneyOf(poId)).money); },
+  async record(poId: ID, input: SupplierEntryInput): Promise<SupplierEntry[]> {
+    ensure();
+    const M = await import('./money');
+    const { po, money } = await supplierMoneyOf(poId);
+    if (!money.canRecord) throw forbid('Supplier money is recorded by the directors, accounts and the planner of this supplier');
+    if (po.status === 'Deleted' || po.status === 'Awaiting approval') throw Object.assign(new Error('Record supplier money on an issued purchase order'), { status: 422 });
+    const date = input.date ?? new Date().toISOString().slice(0, 10);
+    const rate = po.currency === 'USD' ? 1 : R.fxFor(m.db.fxRates ?? seed.seedFxRates(), po.currency, `${date}T12:00:00Z`);
+    const usd = (x: number) => Math.round((x / rate) * 100) / 100;
+    const err = M.supplierEntryError(input, money.po, money.held.available, usd);
+    if (err) throw Object.assign(new Error(err), { status: 422 });
+    const status = input.kind === 'advance' && money.approvalOn ? 'Pending approval' as const : 'Recorded' as const;
+    const doc = input.documentFileId ? { id: input.documentFileId, kind: 'invoice' as const, name: input.documentName ?? 'Document', url: input.documentUrl ?? undefined } : null;
+    const base = { entityId: po.entityId, supplierId: po.supplierId, poId: po.id, poRef: po.ref, currency: po.currency, fxRate: rate, date, reference: input.reference?.trim() || undefined, note: input.note?.trim() || undefined, document: doc, status, byUserId: current!.id, at: new Date().toISOString() };
+    const out: SupplierEntry[] = [];
+    const amt = Number(input.amount ?? 0), use = Number(input.useHeld ?? 0);
+    if (input.kind !== 'advance' || amt > 0) out.push({ ...base, id: m.uid('se'), kind: input.kind, amount: amt, amountUsd: usd(amt) });
+    if (input.kind === 'advance' && use > 0) out.push({ ...base, id: m.uid('se'), kind: 'use', amount: use, amountUsd: usd(use), linkedId: out[0]?.id, document: null });
+    if (out.length === 2) out[0].linkedId = out[1].id;
+    (m.db.supplierEntries ??= []).push(...out);
+    const what = input.kind === 'proforma' ? 'Pro-forma' : input.kind === 'credit-note' ? 'Credit note' : 'Advance payment';
+    const total = out.reduce((a, e) => a + e.amount, 0);
+    log('POST', `/pos/${po.id}/supplier-money`, { recordType: 'po', recordId: po.id, entityId: po.entityId, summary: `${po.ref}: ${what.toLowerCase()} ${po.currency} ${total}${use ? ` (${po.currency} ${use} from money the supplier holds)` : ''}${status === 'Pending approval' ? ' · waiting for a director' : ''}`, after: out });
+    if (input.kind !== 'proforma') m.notify(status === 'Pending approval' ? `${what} to approve` : `${what} recorded`, `${po.ref} · ${lookup.supplier(po.supplierId)?.code ?? ''}: ${po.currency} ${total.toLocaleString('en-US')} by ${current!.name}${use ? ` (${po.currency} ${use.toLocaleString('en-US')} from money the supplier holds)` : ''}`, `#/pos/${po.id}`, ['director'], po.entityId);
+    return commit(out);
+  },
+  async decide(entryId: ID, approve: boolean): Promise<SupplierEntry[]> {
+    ensure();
+    if (!current?.roles.includes('director')) throw forbid('A director approves advance payments');
+    const e = (m.db.supplierEntries ?? []).find((x) => x.id === entryId && inScope(x.entityId));
+    if (!e) throw httpErr('Not found', 404);
+    if (e.status !== 'Pending approval') throw Object.assign(new Error('Already decided'), { status: 409 });
+    const both = (m.db.supplierEntries ?? []).filter((x) => x.id === e.id || x.id === e.linkedId || x.linkedId === e.id);
+    for (const x of both) { x.status = approve ? 'Recorded' : 'Rejected'; x.decidedById = current.id; x.decidedAt = new Date().toISOString(); }
+    log('POST', `/supplier-entries/${e.id}/decision`, { recordType: 'po', recordId: e.poId ?? e.id, entityId: e.entityId, summary: `${e.poRef ?? ''}: advance ${approve ? 'approved' : 'rejected'}` });
+    return commit(both);
+  },
+  async list(): Promise<SupplierEntry[]> { ensure(); if (!current || !A.seesPrices(me())) return wait([]); return wait((m.db.supplierEntries ?? []).filter((e) => inScope(e.entityId)).sort((a, b) => (a.at < b.at ? 1 : -1))); },
+};
+
+// ---- Clients (V3-12 step 1) ------------------------------------------------------------------------------------
+const DEFAULT_TERMS = 14; // = metrics.TERMS_DAYS (kept out of the entry chunk)
+/** The company's clients. The first time, one client per customer name already on a sale (same as migration 0014). */
+function clientList(): Client[] {
+  if (!m.db.clients) {
+    const by = new Map<string, Client>();
+    for (const s of [...m.db.sales].sort((a, b) => (a.at < b.at ? -1 : 1))) {
+      if (!s.customer?.trim()) continue; // a sale recorded without a client stays flagged as missing data
+      const k = `${s.entityId}|${R.clientKey(s.customer)}`;
+      if (!by.has(k)) by.set(k, { id: `cl-${by.size + 1}`, entityId: s.entityId, name: R.cleanClientName(s.customer), warehouseId: s.warehouseId, termsDays: DEFAULT_TERMS, active: true, createdAt: s.at });
+      s.clientId = by.get(k)!.id; s.termsDays ??= DEFAULT_TERMS;
+    }
+    m.db.clients = [...by.values()];
+  }
+  return m.db.clients;
+}
+const seesClients = () => !!current && (R.hasFeature(current.roles, 'sales') || R.hasFeature(current.roles, 'reports'));
+function checkClient(input: Partial<ClientInput>, entityId: ID, selfId?: ID) {
+  if (input.name !== undefined) {
+    const name = R.cleanClientName(String(input.name ?? ''));
+    if (name.length < 1) throw Object.assign(new Error('Enter the client name'), { status: 422 });
+    if (clientList().some((c) => c.entityId === entityId && c.id !== selfId && R.clientKey(c.name) === R.clientKey(name))) throw Object.assign(new Error(`${name} is already a client`), { status: 409 });
+  }
+  if (input.termsDays !== undefined && !R.validTermsDays(input.termsDays)) throw Object.assign(new Error('Credit days must be a whole number from 0 to 180'), { status: 422 });
+  if (input.warehouseId && !ref().warehouses.some((w) => w.id === input.warehouseId)) throw Object.assign(new Error('Unknown warehouse'), { status: 422 });
+}
+export const clients = {
+  async list(): Promise<ClientRow[]> {
+    ensure(); if (!seesClients()) return wait([]);
+    const mine = clientList().filter((c) => inScope(c.entityId));
+    const MX = await import('./metrics');
+    const fig = MX.clientFigures(m.db.sales.filter((s) => inScope(s.entityId)), Date.now());
+    return wait(mine.map((c) => ({ ...c, sales: 0, lastSaleAt: null, owed: 0, overdue: 0, ...fig.get(c.id) })).sort((a, b) => a.name.localeCompare(b.name)));
+  },
+  async create(input: ClientInput): Promise<Client> {
+    ensure(); if (!current || !R.hasFeature(current.roles, 'sales')) throw forbid('Clients are added by the people who sell');
+    const entityId = writeEntity(input.entityId);
+    if (input.termsDays !== undefined && input.termsDays !== DEFAULT_TERMS && !R.canSetCreditDays(current.roles)) throw forbid('Credit days are set by the directors or accounts');
+    checkClient(input, entityId);
+    const c: Client = { id: m.uid('cl'), entityId, name: R.cleanClientName(input.name), phone: input.phone?.trim() || undefined, warehouseId: input.warehouseId || undefined, termsDays: input.termsDays ?? DEFAULT_TERMS, active: true, createdAt: new Date().toISOString() };
+    clientList().push(c);
+    log('POST', '/clients', { recordType: 'client', recordId: c.id, entityId, summary: `${c.name} · ${c.termsDays} credit days`, after: c });
+    return commit(c);
+  },
+  async update(id: ID, input: Partial<ClientInput>): Promise<Client> {
+    ensure(); if (!current || !R.hasFeature(current.roles, 'sales')) throw forbid('Clients are changed by the people who sell');
+    const c = clientList().find((x) => x.id === id && inScope(x.entityId)); if (!c) throw httpErr('Client not found', 404);
+    if (input.termsDays !== undefined && input.termsDays !== c.termsDays && !R.canSetCreditDays(current.roles)) throw forbid('Credit days are set by the directors or accounts');
+    checkClient(input, c.entityId, c.id);
+    const before = { ...c };
+    if (input.name !== undefined) c.name = R.cleanClientName(input.name);
+    if (input.phone !== undefined) c.phone = input.phone?.trim() || undefined;
+    if (input.warehouseId !== undefined) c.warehouseId = input.warehouseId || undefined;
+    if (input.termsDays !== undefined) c.termsDays = input.termsDays;
+    if (input.active !== undefined) c.active = !!input.active;
+    log('PATCH', `/clients/${id}`, { recordType: 'client', recordId: id, entityId: c.entityId, summary: c.name, before, after: { ...c } });
+    return commit(c);
+  },
+};
+/** A sale's client: the one picked, else the same name in the company, else a new client with the default days. */
+function clientForSale(entityId: ID, input: { clientId?: ID; customer: string; warehouseId: ID }): Client {
+  if (input.clientId) { const c = clientList().find((x) => x.id === input.clientId && x.entityId === entityId); if (!c) throw new Error('Pick a client of this company'); if (!c.active) throw new Error(`${c.name} is deactivated`); return c; }
+  const name = R.cleanClientName(input.customer ?? '');
+  if (name.length < 1) throw new Error('Enter the client');
+  const same = clientList().find((x) => x.entityId === entityId && R.clientKey(x.name) === R.clientKey(name));
+  if (same) { if (!same.active) throw new Error(`${same.name} is deactivated`); return same; }
+  const c: Client = { id: m.uid('cl'), entityId, name, warehouseId: input.warehouseId, termsDays: DEFAULT_TERMS, active: true, createdAt: new Date().toISOString() };
+  clientList().push(c);
+  log('POST', '/clients', { recordType: 'client', recordId: c.id, entityId, summary: `${c.name} · added with a sale`, after: c });
+  return c;
+}
+
+// ---- Client payments (V3-12 step 2) --------------------------------------------------------------------------------
+const fx = () => m.db.fxRates ?? seed.seedFxRates();
+function paymentRow(s: Sale, amt: number, at: string, method: ClientPayment['method'], reference?: string, byUserId?: ID): ClientPayment {
+  return { id: m.uid('cp'), entityId: s.entityId, saleId: s.id, saleRef: s.ref, clientId: s.clientId, customer: s.customer, warehouseId: s.warehouseId,
+    amount: Math.round(amt * 100) / 100, currency: s.currency, amountUsd: Math.round(R.toUsd(amt, s.currency, fx(), at) * 100) / 100, at, method, reference, byUserId };
+}
+/** The payments. The first time, one per sale with something paid, dated at the sale, method not recorded (= migration 0015). */
+export function paymentList(): ClientPayment[] {
+  if (!m.db.clientPayments) { clientList(); m.db.clientPayments = m.db.sales.filter((s) => s.paid > 0).map((s) => paymentRow(s, s.paid, s.at, null)); }
+  return m.db.clientPayments;
+}
+
 export const sales = {
   async list(warehouseId?: ID) { ensure(); if (!current || !R.hasFeature(current.roles, 'sales')) return wait([] as Sale[]); return wait(m.db.sales.filter((s) => inScope(s.entityId) && seesWh(s.warehouseId) && (!warehouseId || s.warehouseId === warehouseId)).slice(-200).reverse()); },
   async create(input: Omit<Sale, 'id' | 'ref' | 'status' | 'entityId'> & { entityId?: ID }, override = false) {
@@ -431,11 +629,35 @@ export const sales = {
       if (l.qty > avail && !override) throw new Error(`Only ${avail} cases of ${lookup.product(l.productId)?.brand} in stock`);
     }
     const total = input.lines.reduce((a, l) => a + m.amount(l.qty, l.price), 0);
-    const sale: Sale = { ...input, entityId, id: m.uid('sale'), ref: `SAL-${String(m.db.sales.length + 1).padStart(5, '0')}`, status: input.paid >= total ? 'Paid' : input.paid > 0 ? 'Part-paid' : 'Unpaid' };
+    const cl = clientForSale(entityId, input);
+    const sale: Sale = { ...input, customer: cl.name, clientId: cl.id, termsDays: cl.termsDays, entityId, id: m.uid('sale'), ref: `SAL-${String(m.db.sales.length + 1).padStart(5, '0')}`, status: input.paid >= total ? 'Paid' : input.paid > 0 ? 'Part-paid' : 'Unpaid' };
+    paymentList(); // payments exist before this sale's first one is added
     m.db.sales.push(sale);
+    if (sale.paid > 0) paymentList().push(paymentRow(sale, sale.paid, sale.at, input.payMethod ?? 'Cash', undefined, current?.id));
     for (const l of sale.lines) m.db.stockMoves.push({ entityId, warehouseId: sale.warehouseId, productId: l.productId, kind: 'sold', qty: l.qty, at: sale.at, ref: sale.ref });
     if (sale.counterpartyEntityId) for (const l of sale.lines) m.db.stockMoves.push({ entityId: sale.counterpartyEntityId, warehouseId: sale.warehouseId, productId: l.productId, kind: 'transferIn', qty: l.qty, at: sale.at, ref: sale.ref });
     return commit(sale);
+  },
+  /** V3-12 step 2: money received against a sale; its paid amount and status follow the payments. */
+  async recordPayment(saleId: ID, input: ClientPaymentInput): Promise<{ sale: Sale; payment: ClientPayment }> {
+    ensure();
+    const s = m.db.sales.find((x) => x.id === saleId && inScope(x.entityId) && seesWh(x.warehouseId));
+    if (!s) throw httpErr('Sale not found', 404);
+    if (!A.canSell(me(), s.warehouseId)) throw forbid('Payments are recorded by the people who sell');
+    const err = R.paymentError(R.saleBalance(s), input);
+    if (err) throw Object.assign(new Error(err), { status: 422 });
+    const at = input.at ?? new Date().toISOString();
+    if (Date.parse(at) < Date.parse(s.at) || Date.parse(at) > Date.now() + 60_000) throw Object.assign(new Error('The payment date must be between the sale and today'), { status: 422 });
+    paymentList();
+    const p = paymentRow(s, Number(input.amount), at, input.method, input.reference?.trim() || undefined, current?.id);
+    m.db.clientPayments!.push(p);
+    s.paid = Math.round((s.paid + p.amount) * 100) / 100; s.status = R.saleStatus(s.lines, s.paid);
+    log('POST', `/sales/${s.id}/payments`, { recordType: 'sale', recordId: s.id, entityId: s.entityId, summary: `${s.ref}: received ${s.currency} ${p.amount} (${p.method})${p.reference ? ` · ${p.reference}` : ''}`, after: p });
+    return commit({ sale: s, payment: p });
+  },
+  async payments(saleId?: ID): Promise<ClientPayment[]> {
+    ensure(); if (!current || !R.hasFeature(current.roles, 'sales')) return wait([]);
+    return wait(paymentList().filter((p) => inScope(p.entityId) && seesWh(p.warehouseId) && (!saleId || p.saleId === saleId)).sort((a, b) => (a.at < b.at ? 1 : -1)));
   },
 };
 
@@ -586,7 +808,7 @@ export const queue = {
     if (!known) m.db.providers.push(provider);
     const driver = { id: m.uid('d'), name: input.driverName.trim(), phone: input.driverPhone.trim(), licence: '', providerId: provider.id, hasApp: false };
     m.db.drivers.push(driver);
-    const truck = { id: m.uid('t'), providerId: provider.id, reg, trailer: input.trailer.trim().toUpperCase(), capacityCases: input.capacityCases || 2000, defaultDriverId: driver.id };
+    const truck = { id: m.uid('t'), providerId: provider.id, reg, trailer: input.trailer.trim().toUpperCase(), capacityCases: input.capacityCases || R.TRUCK_CASES, defaultDriverId: driver.id };
     m.db.trucks.push(truck);
     const position = queueAt(loadingPointId).length + 1;
     const e = { id: m.uid('wl'), entityId, loadingPointId, truckId: truck.id, driverId: driver.id, arrivedAt: new Date().toISOString(), position, status: 'Waiting' as const };
@@ -787,6 +1009,47 @@ export const users = {
 /** docs/12 A-07: the audit log — search by user, feature, date and text; newest first, paged (directors). */
 export const audit = { async list(f: AuditFilter = {}): Promise<AuditPage> { return (await admin()).auditList(adminCtx(), f); } };
 
+// ---- My profile (V3-14) -------------------------------------------------------------------------------------------
+const meAdmin = () => (current ? mockUsers.find((x) => x.id === current!.id) : undefined);
+export const profile = {
+  async get(): Promise<MyProfile> {
+    ensure(); if (!current) throw httpErr('Sign in first', 401);
+    const a = meAdmin(), s = m.db.secrets?.[current.id];
+    return wait({ id: current.id, name: current.name, email: a?.email ?? null, phone: current.phone, roles: current.roles, entityIds: current.entityIds, warehouseIds: current.warehouseIds,
+      loadingPointIds: current.loadingPointIds, pairs: current.pairs ?? [], hasPassword: a?.hasPassword ?? !!s?.password, hasPin: a?.hasPin ?? !!s?.pin, lastLoginAt: m.db.lastLogin?.[current.id] ?? null });
+  },
+  async update(input: { name?: string; email?: string | null }): Promise<MyProfile> {
+    ensure(); if (!current) throw httpErr('Sign in first', 401);
+    const err = R.profileError(input);
+    if (err) throw Object.assign(new Error(err), { status: 422 });
+    const a = meAdmin(); const before = { name: current.name, email: a?.email ?? null };
+    if (input.name !== undefined) { current = { ...current, name: input.name.trim() }; if (a) a.name = input.name.trim(); }
+    if (input.email !== undefined && a) a.email = input.email ? input.email.trim() : undefined;
+    log('PATCH', '/me', { recordType: 'user', recordId: current.id, summary: `${current.name}: own details changed`, before, after: input });
+    commit(true);
+    return this.get();
+  },
+  async changeSecret(input: MySecretInput): Promise<boolean> {
+    ensure(); if (!current) throw httpErr('Sign in first', 401);
+    const err = R.secretError(input);
+    if (err) throw Object.assign(new Error(err), { status: 422 });
+    const kind = input.pin !== undefined ? 'pin' : 'password';
+    const known = m.db.secrets?.[current.id]?.[kind];
+    // the demo accepts any current secret until one has been set here; after that it must match
+    if (!input.current || (known !== undefined && known !== input.current)) throw Object.assign(new Error(kind === 'pin' ? 'Your current PIN is not right' : 'Your current password is not right'), { status: 422 });
+    ((m.db.secrets ??= {})[current.id] ??= {})[kind] = String(kind === 'pin' ? input.pin : input.password);
+    log('POST', '/me/secret', { recordType: 'user', recordId: current.id, summary: `${current.name}: own ${kind === 'pin' ? 'PIN' : 'password'} changed; other sessions ended` });
+    return commit(true);
+  },
+  async devices(): Promise<MyDevice[]> {
+    ensure(); if (!current) return wait([]);
+    return wait([{ id: 'dev-this-browser', platform: 'web', appVersion: null, lastSeenAt: new Date().toISOString(), current: true }]);
+  },
+  async signOutDevice(id: ID): Promise<boolean> {
+    if (id === 'dev-this-browser') throw Object.assign(new Error('This is the device you are using: sign out from the top bar'), { status: 422 });
+    return wait(true);
+  },
+};
 export const devices = {
   async register(_input: { pushToken?: string; platform?: string; appVersion?: string }) { return wait({ id: 'dev-mock' }); },
   async revoke(_deviceId: ID) { return wait(true); },
@@ -905,7 +1168,7 @@ export const pricing = { list: mo('listPrices'), set: mo('setPrice') };
 /** docs/15: P1 dashboards (lazy chunk mock/dash.ts, same builders as GET /v1/dashboards). */
 export const dashboards = {
   async get(keys: import('./dashboards').DashKey[], f: import('./dashboards').DashFilter = {}) {
-    return (await import('./mock/dash')).dashboards({ current, me, ensure, wait, httpErr, scopeIds, config: mockConfig, people: allUsers, fees: () => finance.fees(), users: () => users.list() }, keys, f);
+    return (await import('./mock/dash')).dashboards({ current, me, ensure, wait, httpErr, scopeIds, config: mockConfig, people: allUsers, fees: () => finance.fees(), users: () => users.list(), clientPayments: paymentList }, keys, f);
   },
 };
 
@@ -937,5 +1200,28 @@ export const settings = {
     const next = { ...(m.db.pvThresholds ?? R.defaultPvThresholds), ...t };
     if (!(next.behind > 0 && next.behind <= 1) || !(next.over >= 1 && next.over <= 2)) throw Object.assign(new Error('Behind must be between 0 and 1, over between 1 and 2 (e.g. 0.85 and 1.05)'), { status: 422 });
     m.db.pvThresholds = next; return commit(next);
+  },
+  /** V3-12: Management → Settings. */
+  async money(): Promise<MoneySettings> { ensure(); return wait({ ...R.defaultMoneySettings, ...m.db.moneySettings }); },
+  async setMoney(s: Partial<MoneySettings>): Promise<MoneySettings> {
+    ensure();
+    if (!R.canChangeSettings(current?.roles ?? [])) throw Object.assign(new Error('Only directors and the system administrator change these settings'), { status: 403 });
+    if (s.advanceApproval !== undefined && typeof s.advanceApproval !== 'boolean') throw Object.assign(new Error('Choose on or off'), { status: 422 });
+    const before = { ...R.defaultMoneySettings, ...m.db.moneySettings };
+    const next = { ...before, ...s };
+    m.db.moneySettings = next;
+    log('PUT', '/settings/money', { recordType: 'settings', recordId: 'money', summary: `Advance payments need director approval: ${next.advanceApproval ? 'on' : 'off'}`, before, after: next });
+    return commit(next);
+  },
+  /** V3-12: my email / SMS choices for money notifications (in-app is always on). */
+  async myNotify(): Promise<NotifyPrefs> { ensure(); return wait({ ...R.defaultNotifyPrefs, ...(current ? m.db.notifyPrefs?.[current.id] : undefined) }); },
+  async setMyNotify(n: Partial<NotifyPrefs>): Promise<NotifyPrefs> {
+    ensure();
+    if (!current) throw Object.assign(new Error('Sign in first'), { status: 401 });
+    const id = current.id;
+    if ((n.email !== undefined && typeof n.email !== 'boolean') || (n.sms !== undefined && typeof n.sms !== 'boolean')) throw Object.assign(new Error('Choose on or off'), { status: 422 });
+    const next = { ...R.defaultNotifyPrefs, ...m.db.notifyPrefs?.[id], ...n };
+    (m.db.notifyPrefs ??= {})[id] = next;
+    return commit(next);
   },
 };

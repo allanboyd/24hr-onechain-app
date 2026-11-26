@@ -36,6 +36,7 @@
     if (peak > 0) val.range = [0, peak * (tip ? (horizontal ? (ctx.narrow ? 1.45 : 1.22) : 1.12) : 1.06)];
     const maxLen = ctx.narrow ? 16 : 34;
     if (categories.some((c) => c.length > maxLen)) Object.assign(cat, { tickmode: 'array', tickvals: categories, ticktext: categories.map((c) => short(c, maxLen, ctx.narrow)) });
+    if (!horizontal && categories.length > 8) cat.tickangle = -40;
     if (horizontal) { lay.yaxis = { ...cat, autorange: 'reversed', ticks: '', ticklabelstandoff: 6 }; lay.xaxis = val; }
     else { lay.xaxis = cat; lay.yaxis = val; }
     return { data, layout: lay };

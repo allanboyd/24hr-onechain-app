@@ -18,7 +18,7 @@
   let { items, height, label, filename = 'stock-cover', onselect }: {
     items: CoverItem[]; height?: number; label: string; filename?: string; onselect?: (item: CoverItem) => void;
   } = $props();
-  const h = $derived(height ?? Math.max(180, items.length * 40 + 90));
+  const h = $derived(height ?? Math.max(200, items.length * 56 + 90));
   const order: Status[] = ['bad', 'warn', 'good', 'none'];
 
   function spec(t: any, ctx: { narrow: boolean }) {

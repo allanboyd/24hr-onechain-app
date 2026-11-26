@@ -17,6 +17,8 @@
     "@btw/tokens": "workspace:*",
     "@btw/ui": "workspace:*",
     "@lucide/svelte": "^1.52.0",
+    "@tanstack/svelte-table": "^9.3.2",
+    "@tanstack/table-core": "9.3.1",
     "leaflet": "^1.9.4",
     "plotly.js-cartesian-dist-min": "^4.1.2"
   },

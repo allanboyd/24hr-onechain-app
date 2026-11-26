@@ -7,9 +7,9 @@
 //   empty     = there is nothing to show yet — screens then say "No data yet", never a zero (values are null, not 0).
 // Scope: `scopeSource` cuts the company-wide data down to what one person may see (roles document §7, access.ts / money.ts),
 // then `narrow` applies the dashboard filters (company, supplier, route, warehouse, product, date range).
-import { DAY, H, etaOf, featuresFor, hasFeature } from './rules';
-import { resolvePeriod, scopeReportData, planningReport, type ReportData } from './reports';
-import { performanceReport, type PerformanceReport } from './performance';
+import { DAY, H, etaOf, featuresFor, hasFeature, fxFor } from './rules';
+import { resolvePeriod, scopeReportData, planningReport, plannedVsActual, PV_METHOD, type ReportData, type PvMeasures, type PvFlag } from './reports';
+import { performanceReport, PERFORMANCE_METHOD, type PerformanceReport } from './performance';
 import * as M from './money';
 import * as A from './access';
 import { truckDesk, type TruckRow } from './trucks';
@@ -17,14 +17,15 @@ import * as MX from './metrics';
 import { METRICS, type MetricSource } from './metric-registry';
 import type {
   Acknowledgement, AppConfig, CostKind, FeatureKey, ID, Leg, Plan, PurchaseOrder, ReexportOrder, Role, SellingPrice, Shipment, TransportFeeRow,
-  UserAdmin, WaitingEntry, WarehouseExpense,
+  UserAdmin, WaitingEntry, WarehouseExpense, ClientPayment, SupplierEntry, CashEntry,
 } from './types';
 
 // ======================================================================================================
 // CATALOGUE — who gets which dashboard (client's dashboards document §1–§10)
 // ======================================================================================================
 /** 'home' = a curated home view (no feature-group tab of its own). */
-export type DashGroup = 'home' | 'business' | 'purchasing' | 'loading' | 'fleet' | 'fees' | 'deliveries' | 'warehouse' | 'sales' | 'admin';
+export type DashGroup = 'home' | 'business' | 'purchasing' | 'loading' | 'fleet' | 'fees' | 'deliveries' | 'warehouse' | 'sales' | 'admin'
+  /** design v3 Management pages (docs/23, V3-10): no Home tab of their own */ | 'management';
 export const DASH_GROUPS: { key: DashGroup; label: string; blurb: string }[] = [
   { key: 'business', label: 'Directors · business', blurb: 'Where the business stands, profit, landed cost and pricing' },
   { key: 'purchasing', label: 'Purchasing', blurb: 'Orders by stage, ordered vs loaded vs delivered, open orders' },
@@ -51,7 +52,9 @@ export type DashKey =
   | 'alerts' | 'users-logins' | 'audit-log' | 'data-completeness'
   // docs/17 Phase 2: analysis moved to Home from the retired Reports / Sales velocity pages and the page Overview tabs
   | 'orders-analysis' | 'plan-vs-actual-report' | 'purchase-planning' | 'loading-queues' | 'shipment-analysis' | 'logistics-report'
-  | 'trip-costs' | 'finance-report' | 'stock-analysis' | 'inventory-report' | 'sales-velocity' | 'sales-report' | 'quarterly-review';
+  | 'trip-costs' | 'finance-report' | 'stock-analysis' | 'inventory-report' | 'sales-velocity' | 'sales-report' | 'quarterly-review'
+  // design v3 Management pages on live data (V3-10): same data, scoping and builders as the dashboards above
+  | 'mgmt-overview' | 'mgmt-plans' | 'mgmt-clients' | 'mgmt-perf' | 'mgmt-suppliers' | 'mgmt-cash' | 'mgmt-exec';
 export interface DashDef {
   key: DashKey; id: string; title: string; group: DashGroup; who: Who[];
   /** the business question it answers */ question: string; /** the visual */ visual: string;
@@ -63,6 +66,13 @@ export interface DashDef {
 const d = (key: DashKey, id: string, title: string, group: DashGroup, who: Who[], question: string, visual: string, link?: string, client?: boolean): DashDef => ({ key, id, title, group, who, question, visual, link, client });
 const a = (key: DashKey, title: string, group: DashGroup, who: Who[], features: FeatureKey[], question: string, visual: string, link: string): DashDef => ({ key, id: 'F-2', title, group, who, question, visual, link, client: true, analysis: true, features });
 export const DASHBOARDS: DashDef[] = [
+  { key: 'mgmt-exec', id: 'M-02', title: 'Executive report', group: 'management', who: ['dir'], features: ['reports'], question: 'What went well, what must the directors decide, and how does each warehouse stand?', visual: 'Good news, decisions for the directors, warehouses and combined', link: '#/management/exec' },
+  { key: 'mgmt-cash', id: 'M-06', title: 'Cash and closing', group: 'management', who: ['dir'], features: ['reports'], question: 'How did money move this period, and where do stock, client balances and transport bills stand?', visual: 'Statement, month by month, by warehouse, opening to closing', link: '#/management/cash' },
+  { key: 'mgmt-suppliers', id: 'M-05', title: 'Supplier balances', group: 'management', who: ['dir'], features: ['reports'], question: 'How much of our money is with each supplier from short loads?', visual: 'KPIs, money with suppliers by month, by supplier, brands loaded short, short loads list, supplier statement', link: '#/management/suppliers' },
+  { key: 'mgmt-perf', id: 'M-07', title: 'Warehouse performance', group: 'management', who: ['dir'], features: ['reports'], question: 'Which warehouse makes the most profit, and are we selling above the safe price?', visual: 'Warehouses side by side, headline numbers, profit waterfall, plan vs actual, margin and profit per case by month, price floor', link: '#/management/perf' },
+  { key: 'mgmt-clients', id: 'M-04', title: 'Sales and clients', group: 'management', who: ['dir'], features: ['reports'], question: 'Who buys, how do they pay, and who owes us?', visual: 'KPIs, clients by frequency, how clients pay, balances within credit time vs overdue, sales records', link: '#/management/clients' },
+  { key: 'mgmt-plans', id: 'M-03', title: 'Plans and orders', group: 'management', who: ['dir'], features: ['reports'], question: 'Are we ordering what we planned, by month and by brand?', visual: 'KPIs, planned vs PO issued by month, by brand', link: '#/management/plans' },
+  { key: 'mgmt-overview', id: 'M-01', title: 'Overview', group: 'management', who: ['dir'], features: ['reports'], question: 'How does the company make profit, and what needs action first?', visual: 'KPI cards with sparklines, profit waterfall, act-on-these-first, sales and profit by month and warehouse, where each $100 went, best and weakest brands', link: '#/management/overview' },
   d('director-today', 'C-05', 'Today', 'home', ['dir'], 'What needs a director\'s decision today, and where does the business stand?', 'KPI strip with sparklines, daily sales and profit, decision list, stock health, sales by company / warehouse, top products'),
   d('warehouse-today', 'C-05b', 'Warehouse today', 'home', ['rcv', 'dir'], 'What do I sign, what arrives this week, and what is running out?', 'Tiles: to sign, arriving, stock at risk, losses; re-exports for Asie', '#/shipments'),
   d('order-this-week', 'C-05c', 'Order this week', 'home', ['kab', 'dir'], 'What should we order this week, and by when?', 'Suggested orders by urgency with cases, supplier and order-by date', '#/pos/new'),
@@ -152,6 +162,9 @@ export const FILTER_KEYS: (keyof DashFilter)[] = ['entityId', 'supplierId', 'rou
 /** Company-wide data of the caller's companies (server: ReportsService.data for the company scope; mock: its database). */
 export interface DashSource extends ReportData {
   expenses?: WarehouseExpense[]; sellingPrices?: SellingPrice[]; reexports?: ReexportOrder[];
+  /** V3-12 step 2: money received from clients, by date (absent = not loaded: Cash falls back to the sales' paid amounts) */ clientPayments?: ClientPayment[];
+  /** V3-12 step 3: pro-formas, advances, credit notes and uses recorded on the POs (absent = not loaded) */ supplierEntries?: SupplierEntry[];
+  /** V3-12 step 4: cash at start and cash sent to the company account (absent = not loaded) */ cashEntries?: CashEntry[];
   /** transport-fee rows the caller may see (null = not for this person) */ fees?: TransportFeeRow[] | null;
   /** user admin rows (directors) */ users?: UserAdmin[] | null;
   /** names and roles of the roster, for owners ("who acts") */ people?: { id: ID; name: string; roles: Role[]; warehouseIds?: ID[]; loadingPointIds?: ID[]; pairs?: { entityId: ID; supplierId: ID }[] }[];
@@ -229,6 +242,9 @@ export function scopeSource(src: DashSource, v: Viewer): DashSource & { pricesHi
     shipments, plans, pos, loadings, acks,
     costs: moneyTrips ? src.costs.filter((c) => shipIds.has(c.shipmentId)) : [], payments: moneyTrips ? src.payments.filter((p) => shipIds.has(p.shipmentId)) : [],
     sales: feats.has('sales') ? src.sales : [],
+    clientPayments: feats.has('sales') ? src.clientPayments : [],
+    cashEntries: dir || feats.has('warehouse-expenses') ? src.cashEntries?.filter((e) => dir || !e.warehouseId || M.seesWarehouse(v, e.warehouseId)) : [],
+    supplierEntries: prices && (dir || feats.has('purchase-orders')) ? src.supplierEntries : [],
     moves: src.moves.filter((m) => whOk(m.warehouseId)),
     stock: src.stock.filter((r) => whOk(r.warehouseId)).map((r) => (prices ? r : { ...r, landedCostPerCase: 0 })),
     priceList: prices ? src.priceList : [],
@@ -261,6 +277,7 @@ export function narrow<T extends DashSource>(src: T, f: DashFilter): T {
     sales: src.sales.filter((x) => (!w || x.warehouseId === w) && (!e || x.entityId === e) && (!p || x.lines.some((l) => l.productId === p))).map((x) => (p ? { ...x, lines: x.lines.filter((l) => l.productId === p) } : x)),
     moves: src.moves.filter(whp), stock: src.stock.filter(whp),
     expenses: (src.expenses ?? []).filter((x) => !w || x.warehouseId === w),
+    clientPayments: src.clientPayments?.filter((x) => (!w || x.warehouseId === w) && (!e || x.entityId === e)),
     reexports: (src.reexports ?? []).filter((x) => (!w || x.fromWarehouseId === w || x.toWarehouseId === w) && (!e || x.entityId === e)),
     fees: src.fees ? src.fees.filter((x) => ids.has(x.shipmentId)) : src.fees,
     waiting: (src.waiting ?? []).filter((x) => (!s || x.loadingPointId === s) && (!e || x.entityId === e)),
@@ -344,7 +361,7 @@ const out = (data: unknown, o: { definition: string; freshness: string | null; e
 
 // ---- shared facts --------------------------------------------------------------------------------------------------
 /** Performance report (landed cost v2) for a period — directors only (money). */
-function perf(c: Ctx, from: number, to: number, level: 'product' | 'company' = 'product'): PerformanceReport | null {
+function perf(c: Ctx, from: number, to: number, level: 'product' | 'company' | 'warehouse' = 'product'): PerformanceReport | null {
   if (c.src.pricesHidden || !c.src.sales.length && !c.src.costs.length) return null;
   return memo(c, `perf|${from}|${to}|${level}`, () => performanceReport({ ...c.src, expenses: c.src.expenses ?? [], sellingPrices: c.src.sellingPrices ?? [], allocation: c.raw.config?.costs?.allocation ?? 'quantity' },
     { from: iso(from), to: iso(to), entityId: c.f.entityId, warehouseId: c.f.warehouseId, productId: c.f.productId, level }));
@@ -527,6 +544,397 @@ export interface TodayData {
   };
 }
 
+// ---- design v3 Management · Overview (V3-10): the report's indicators from the same builders as the dashboards --------
+export interface MgmtKpi { value: number | null; prev: number | null; spark: (number | null)[] | null }
+export interface MgmtOverview {
+  period: DashPeriod; prev: DashPeriod; targetMargin: number;
+  kpis: { revenue: MgmtKpi; profit: MgmtKpi; margin: MgmtKpi; cases: MgmtKpi & { top: string | null }; landed: { value: number | null; warehouse: number | null }; flagged: { count: number; urgent: number } };
+  waterfall: { label: string; value: number; kind: 'total' | 'step' }[];
+  decisions: TodayData['decisions'];
+  byMonth: { month: string; sales: number; profit: number }[];
+  byWarehouse: { warehouseId: ID; label: string; sales: number; profit: number; margin: number | null }[];
+  per100: { label: string; value: number }[];
+  brands: { best: { label: string; margin: number; revenue: number }[]; weakest: { label: string; margin: number; revenue: number }[] };
+}
+function mgmtOverview(c: Ctx): Out {
+  const cur = perf(c, c.from, c.to), old = perf(c, t(c.prev.from), t(c.prev.to));
+  const n = names(c.src);
+  // names as the report shows them: "Brand pack" and "Country – Town" (performance rows carry ids as labels)
+  const whLabel = (id: ID) => { const w = c.src.warehouses.find((x) => x.id === id) as { country?: string; town?: string } | undefined; return w?.country && w?.town ? `${w.country} – ${w.town}` : n.warehouse(id); };
+  const ms = months(c.now, 12);
+  const byM = ms.map((m) => { const r = perf(c, m.from, m.to); return { month: m.key, sales: r2(r?.totals.revenue ?? 0), profit: r2(r?.totals.profit ?? 0), margin: r?.totals.margin ?? null, cases: r?.totals.qtySold ?? 0 }; });
+  const spark = (k: 'sales' | 'profit' | 'margin' | 'cases') => (byM.some((x) => x.sales) ? byM.slice(-6).map((x) => x[k]) : null);
+  const T = cur?.totals, P = old?.totals;
+  const topRow = (cur?.rows ?? []).filter((r) => r.qtySold > 0).sort((a, b) => b.qtySold - a.qtySold)[0];
+  const today = directorToday(c).data as TodayData;
+  const wh = perf(c, c.from, c.to, 'warehouse');
+  const rev = T?.revenue ?? 0;
+  const share = (v: number) => (rev > 0 ? r2((v / rev) * 100) : 0);
+  const otherCosts = cur?.otherCosts ?? 0;
+  const ranked = (cur?.rows ?? []).filter((r) => r.qtySold > 0 && r.margin !== null && r.revenue > 0).map((r) => ({ label: r.productId ? n.product(r.productId) : r.label, margin: r.margin!, revenue: r2(r.revenue) }));
+  const data: MgmtOverview = {
+    period: c.period, prev: c.prev, targetMargin: cur?.targetMargin ?? 0.2,
+    kpis: {
+      revenue: { value: T ? r2(T.revenue) : null, prev: P ? r2(P.revenue) : null, spark: spark('sales') },
+      profit: { value: T ? r2(T.profit) : null, prev: P ? r2(P.profit) : null, spark: spark('profit') },
+      margin: { value: T?.margin ?? null, prev: P?.margin ?? null, spark: spark('margin') },
+      cases: { value: T?.qtySold ?? null, prev: P?.qtySold ?? null, spark: spark('cases'), top: topRow?.productId ? n.product(topRow.productId) : topRow?.label ?? null },
+      landed: { value: T ? r2(T.landedCost) : null, warehouse: T ? r2(T.warehouseCost) : null },
+      flagged: { count: today.decisions.reduce((a, d) => a + (d.count ?? 0), 0), urgent: today.decisions.filter((d) => d.severity === 'critical' || d.severity === 'high').reduce((a, d) => a + (d.count ?? 0), 0) },
+    },
+    waterfall: cur?.waterfall ?? [],
+    decisions: today.decisions,
+    byMonth: byM.map(({ month, sales, profit }) => ({ month, sales, profit })),
+    byWarehouse: (wh?.rows ?? []).filter((r) => r.warehouseId).map((r) => ({ warehouseId: r.warehouseId!, label: whLabel(r.warehouseId!), sales: r2(r.revenue), profit: r2(r.profit), margin: r.margin })).sort((a, b) => b.sales - a.sales),
+    per100: T && rev > 0 ? [
+      { label: 'Goods', value: share(T.cogsGoods) }, { label: 'Transport', value: share(T.cogsTruck) }, { label: 'Warehouse', value: share(T.cogsWarehouse) },
+      ...(otherCosts ? [{ label: 'Other costs', value: share(otherCosts) }] : []), { label: 'Profit', value: share(T.profit - otherCosts) },
+    ] : [],
+    brands: { best: [...ranked].sort((a, b) => b.margin - a.margin).slice(0, 5), weakest: [...ranked].sort((a, b) => a.margin - b.margin).slice(0, 5) },
+  };
+  return out(data, {
+    definition: `${PERFORMANCE_METHOD} Figures for ${c.period.label}, compared with ${c.prev.label}; the same builders as Live dashboards (landed cost v2, metric registry).`,
+    currency: 'USD', unit: 'USD · cases', period: c.period,
+    freshness: newest(c.usd.sales.map((s) => s.at)),
+    empty: !T || (!T.revenue && !T.landedCost),
+  });
+}
+
+// ---- design v3 Management · Plans and orders (V3-10 step 2): the planned-vs-actual report, as on Live dashboards --------
+export interface MgmtPlans {
+  range: { from: string; to: string; label: string }; measures: PvMeasures;
+  months: { month: string; planned: number; ordered: number }[];
+  byBrand: { productId: ID; label: string; planned: number; ordered: number; usedPct: number; flag: PvFlag }[];
+}
+function mgmtPlans(c: Ctx): Out {
+  const n = names(c.src);
+  const pv = plannedVsActual({ ...c.src, periodPlans: c.src.periodPlans ?? [], pvThresholds: c.raw.pvThresholds } as unknown as ReportData,
+    { from: iso(c.from), to: iso(c.to), entityId: c.f.entityId, warehouseId: c.f.warehouseId, supplierId: c.f.supplierId } as Parameters<typeof plannedVsActual>[1]);
+  const data: MgmtPlans = {
+    range: pv.range, measures: pv.measures,
+    months: pv.months.map((m) => ({ month: m.month, planned: Math.round(m.planned), ordered: Math.round(m.ordered) })),
+    byBrand: pv.byBrand.map((b) => ({ ...b, label: n.product(b.productId) })).sort((a, b) => b.planned - a.planned),
+  };
+  return out(data, { definition: `${PV_METHOD} Cases; planned = period plans, PO issued = purchase orders. The same report as Live dashboards → Purchasing.`, unit: 'cases', currency: null, period: c.period,
+    freshness: newest((c.src.periodPlans ?? []).map((p) => (p as { updatedAt?: string }).updatedAt ?? null), c.src.pos.map((p) => (p as { date?: string }).date ?? null)),
+    empty: !pv.measures.planned && !pv.measures.ordered });
+}
+
+// ---- design v3 Management · Sales and clients (V3-10 step 3): the sales and owed figures of the Today view ------------
+export interface MgmtClients {
+  terms: number;
+  kpis: { sales: number | null; purchases: number; clients: number; owed: number | null; overdue: number | null };
+  clients: { customer: string; purchases: number; total: number; paid: number; balance: number }[];
+  pay: { kind: string; total: number; purchases: number }[];
+  balances: { within: number; overdue: number; top: { customer: string; within: number; overdue: number }[] };
+  /** V3-12: credit days in use on open sales (set per client on Sales → Clients), with what is owed under each. */
+  termsMix: { days: number; clients: number; owed: number; overdue: number }[];
+  /** V3-12 step 2: money received in the period by how clients paid (null = payments without a recorded method). */
+  methods: { method: string | null; total: number; count: number }[] | null;
+  records: { id: ID; ref: string; at: string; customer: string; warehouseId: ID; warehouse: string; kind: string; amount: number; paid: number; balance: number; status: string }[];
+}
+function mgmtClients(c: Ctx): Out {
+  const n = names(c.src); const now = c.now;
+  const sales = c.usd.sales; const val = (s: (typeof sales)[number]) => sum(s.lines, (l) => l.qty * l.price);
+  const inP = sales.filter((s) => { const x = t(s.at); return x >= c.from && x < c.to; });
+  const by = new Map<string, MgmtClients['clients'][number]>();
+  for (const s of inP) { const v = val(s); const x = by.get(s.customer) ?? { customer: s.customer, purchases: 0, total: 0, paid: 0, balance: 0 }; x.purchases++; x.total += v; x.paid += Math.min(s.paid, v); x.balance += Math.max(0, v - s.paid); by.set(s.customer, x); }
+  const kinds = new Map<string, { kind: string; total: number; purchases: number }>();
+  for (const s of inP) { const x = kinds.get(s.kind) ?? { kind: s.kind, total: 0, purchases: 0 }; x.total += val(s); x.purchases++; kinds.set(s.kind, x); }
+  // balances: every open sale up to now (not only this period); overdue after the sale's credit days (V3-12: the client's, default TERMS_DAYS)
+  const open = MX.openSales(sales, now);
+  const bc = new Map<string, { customer: string; within: number; overdue: number }>();
+  for (const o of open) { const x = bc.get(o.s.customer) ?? { customer: o.s.customer, within: 0, overdue: 0 }; if (o.pastDue > 0) x.overdue += o.bal; else x.within += o.bal; bc.set(o.s.customer, x); }
+  const owed = sales.length ? MX.owedByCustomers(sales, now) : null, overdue = sales.length ? MX.overdueByCustomers(sales, now) : null;
+  const rd = <X extends { total: number; paid: number; balance: number }>(x: X): X => { x.total = r2(x.total); x.paid = r2(x.paid); x.balance = r2(x.balance); return x; };
+  const ids = new Set(sales.map((s) => s.id));
+  const cpIn = c.src.clientPayments?.filter((p) => ids.has(p.saleId) && t(p.at) >= c.from && t(p.at) < c.to);
+  const mm = new Map<string, { method: string | null; total: number; count: number }>();
+  for (const p of cpIn ?? []) { const k = p.method ?? ''; const x = mm.get(k) ?? { method: p.method, total: 0, count: 0 }; x.total += p.amountUsd; x.count++; mm.set(k, x); }
+  const methodsIn = cpIn ? [...mm.values()].map((x) => ({ ...x, total: r2(x.total) })).sort((a, b) => b.total - a.total) : null;
+  const mix = new Map<number, { days: number; who: Set<string>; owed: number; overdue: number }>();
+  for (const o of open) { const d = MX.termsOf(o.s); const x = mix.get(d) ?? { days: d, who: new Set<string>(), owed: 0, overdue: 0 }; x.who.add(o.s.customer); x.owed += o.bal; if (o.pastDue > 0) x.overdue += o.bal; mix.set(d, x); }
+  const data: MgmtClients = {
+    methods: methodsIn,
+    termsMix: [...mix.values()].sort((a, b) => a.days - b.days).map((x) => ({ days: x.days, clients: x.who.size, owed: r2(x.owed), overdue: r2(x.overdue) })),
+    terms: TERMS_DAYS,
+    kpis: { sales: inP.length || sales.length ? MX.salesValue(sales, { from: c.from, to: c.to }) : null, purchases: inP.length, clients: by.size, owed, overdue },
+    clients: [...by.values()].map(rd).sort((a, b) => b.purchases - a.purchases || b.total - a.total),
+    pay: [...kinds.values()].map((x) => ({ ...x, total: r2(x.total) })).sort((a, b) => b.total - a.total),
+    balances: { within: owed !== null && overdue !== null ? r2(owed - overdue) : 0, overdue: overdue ?? 0, top: [...bc.values()].map((x) => ({ ...x, within: r2(x.within), overdue: r2(x.overdue) })).sort((a, b) => b.within + b.overdue - a.within - a.overdue).slice(0, 15) },
+    records: inP.sort((a, b) => t(b.at) - t(a.at)).slice(0, 1000).map((s) => { const v = val(s); return { id: s.id, ref: s.ref, at: s.at, customer: s.customer, warehouseId: s.warehouseId, warehouse: n.warehouse(s.warehouseId), kind: s.kind, amount: r2(v), paid: r2(Math.min(s.paid, v)), balance: r2(Math.max(0, v - s.paid)), status: s.status }; }),
+  };
+  return out(data, { definition: `Sales = cases × price (USD at the approved month rate) in ${c.period.label}. Balances: every unpaid sale up to now; overdue after each client's credit days (${TERMS_DAYS} unless set on Sales → Clients; a sale keeps the days it was made with). The same figures as the Today view and Live dashboards → Sales.`,
+    currency: 'USD', unit: 'USD', period: c.period, freshness: newest(sales.map((s) => s.at)), empty: !sales.length });
+}
+
+// ---- design v3 Management · Warehouse performance (V3-10 step 3b): performance report by warehouse + plans ------------
+export interface MgmtPerf {
+  targetMargin: number;
+  headline: { revenue: number | null; profit: number | null; margin: number | null; cases: number | null; profitPerCase: number | null; landedPerCase: number | null };
+  warehouses: { warehouseId: ID; label: string; revenue: number; profit: number; margin: number | null; cases: number; profitPerCase: number | null }[];
+  waterfall: { label: string; value: number; kind: 'total' | 'step' }[];
+  plan: { planned: number; ordered: number; months: { month: string; planned: number; ordered: number }[] };
+  months: { month: string; profit: number; margin: number | null; profitPerCase: number | null }[];
+  floor: { productId: ID; label: string; landedPerCase: number | null; floor: number | null; avgPrice: number | null; sellingPrice: number | null; below: boolean }[];
+}
+function mgmtPerf(c: Ctx): Out {
+  const n = names(c.src);
+  const whLabel = (id: ID) => { const w = c.src.warehouses.find((x) => x.id === id) as { country?: string; town?: string } | undefined; return w?.country && w?.town ? `${w.country} – ${w.town}` : n.warehouse(id); };
+  const cur = perf(c, c.from, c.to), wh = perf(c, c.from, c.to, 'warehouse');
+  const T = cur?.totals;
+  const ppc = (profit: number, cases: number) => (cases > 0 ? r2(profit / cases) : null);
+  const pv = plannedVsActual({ ...c.src, periodPlans: c.src.periodPlans ?? [], pvThresholds: c.raw.pvThresholds } as unknown as ReportData,
+    { from: iso(c.from), to: iso(c.to), entityId: c.f.entityId, warehouseId: c.f.warehouseId } as Parameters<typeof plannedVsActual>[1]);
+  const data: MgmtPerf = {
+    targetMargin: cur?.targetMargin ?? 0.2,
+    headline: { revenue: T ? r2(T.revenue) : null, profit: T ? r2(T.profit) : null, margin: T?.margin ?? null, cases: T?.qtySold ?? null, profitPerCase: T ? ppc(T.profit, T.qtySold) : null, landedPerCase: T?.landedPerUnit ?? null },
+    warehouses: (wh?.rows ?? []).filter((r) => r.warehouseId).map((r) => ({ warehouseId: r.warehouseId!, label: whLabel(r.warehouseId!), revenue: r2(r.revenue), profit: r2(r.profit), margin: r.margin, cases: r.qtySold, profitPerCase: ppc(r.profit, r.qtySold) })).sort((a, b) => b.profit - a.profit),
+    waterfall: cur?.waterfall ?? [],
+    plan: { planned: pv.measures.planned, ordered: pv.measures.ordered, months: pv.months.map((m) => ({ month: m.month, planned: Math.round(m.planned), ordered: Math.round(m.ordered) })) },
+    months: months(c.now, 12).map((m) => { const r = perf(c, m.from, m.to)?.totals; return { month: m.key, profit: r2(r?.profit ?? 0), margin: r?.margin ?? null, profitPerCase: r ? ppc(r.profit, r.qtySold) : null }; }),
+    floor: (cur?.rows ?? []).filter((r) => r.productId && (r.qtySold > 0 || r.stockOnHand > 0)).map((r) => ({
+      productId: r.productId!, label: n.product(r.productId!), landedPerCase: r.landedPerUnit, floor: r.priceForTarget, avgPrice: r.avgSalePrice, sellingPrice: r.sellingPrice,
+      below: r.priceForTarget !== null && (r.sellingPrice ?? r.avgSalePrice) !== null && (r.sellingPrice ?? r.avgSalePrice)! < r.priceForTarget,
+    })).sort((a, b) => Number(b.below) - Number(a.below) || a.label.localeCompare(b.label)),
+  };
+  return out(data, { definition: `${PERFORMANCE_METHOD} Price floor = the price per case that keeps the target margin of ${Math.round(data.targetMargin * 100)}% over the landed cost (the same helper as Selling prices). Plan vs actual = the planned-vs-actual report.`,
+    currency: 'USD', unit: 'USD · cases', period: c.period, freshness: newest(c.usd.sales.map((s) => s.at)), empty: !T || (!T.revenue && !T.landedCost) });
+}
+
+// ---- design v3 Management · Supplier balances (V3-10 step 3c): money left with suppliers by short loads ----------------
+// A short load = cases on the order line not put on the truck at loading. Their value (PO price, USD at the month's average
+// rate) stays with the supplier, with credit notes; advances and pro-formas are recorded on the PO page (V3-12 step 3).
+export interface MgmtSuppliers {
+  kpis: { held: number; addedInPeriod: number; shortLoads: number; shortCases: number; suppliers: number;
+    /** V3-12 step 3 (USD): advances paid and credit notes in the period, pro-formas still open now */ advancesPaid: number; creditNotes: number; proformaOpen: number; pending: number };
+  bySupplier: { supplierId: ID; label: string; held: number; inPeriod: number; loads: number }[];
+  byMonth: { month: string; added: number; total: number }[];
+  byBrand: { productId: ID; label: string; cases: number; value: number }[];
+  loads: { id: string; at: string; poId: ID; poRef: string; supplierId: ID; supplier: string; productId: ID; brand: string; ordered: number; loaded: number; short: number; value: number }[];
+  /** what the supplier holds: + short loads, + credit notes, − money used on advances (USD); advances and pro-formas are listed with no effect on it */
+  statement: { id: string; supplierId: ID; supplier: string; at: string; poRef: string; brand: string; kind: 'short-load' | 'credit-note' | 'use' | 'advance' | 'proforma'; added: number; balance: number }[];
+  /** advances waiting for a director (Management → Settings turns approval on) */
+  pendingAdvances: { id: ID; supplier: string; poRef: string; date: string; amountUsd: number; by: string }[];
+  notRecorded: ('creditNotes' | 'advances' | 'proformas' | 'uses')[];
+}
+function mgmtSuppliers(c: Ctx): Out {
+  const n = names(c.src);
+  const empty: MgmtSuppliers = { kpis: { held: 0, addedInPeriod: 0, shortLoads: 0, shortCases: 0, suppliers: 0, advancesPaid: 0, creditNotes: 0, proformaOpen: 0, pending: 0 }, bySupplier: [], byMonth: [], byBrand: [], loads: [], statement: [], pendingAdvances: [], notRecorded: ['creditNotes', 'advances', 'proformas', 'uses'] };
+  if (c.src.pricesHidden) return out(empty, { definition: 'Prices are not part of your work.', currency: 'USD', unit: 'USD', period: c.period, freshness: null, empty: true });
+  const supOk = (id: ID) => !c.f.supplierId || id === c.f.supplierId;
+  // short loads: the same rows as the PO page (money.shortLoadRows); entries: what the PO page records (V3-12 step 3)
+  const rows: MgmtSuppliers['loads'] = M.shortLoadRows({ loadings: c.src.loadings, pos: c.raw.pos, plans: c.raw.plans, fxRates: c.raw.fxRates })
+    .filter((r) => supOk(r.supplierId))
+    .map((r) => ({ id: r.id, at: r.at, poId: r.poId, poRef: r.poRef, supplierId: r.supplierId, supplier: n.supplier(r.supplierId), productId: r.productId, brand: n.product(r.productId), ordered: r.ordered, loaded: r.loaded, short: r.short, value: r.value }));
+  const scope = new Set(c.src.pos.map((p) => p.entityId).concat(c.src.loadings.map((l) => l.entityId)));
+  const entries = c.src.supplierEntries?.filter((e) => supOk(e.supplierId) && (!c.f.entityId || e.entityId === c.f.entityId) && (scope.size === 0 || scope.has(e.entityId)));
+  const es = entries ?? [];
+  const rec = es.filter((e) => e.status === 'Recorded');
+  const inP = rows.filter((r) => inPeriod(c, r.at));
+  const sup = new Map<ID, MgmtSuppliers['bySupplier'][number]>();
+  const bump = (supplierId: ID, v: number, at: string, load = false) => { const x = sup.get(supplierId) ?? { supplierId, label: n.supplier(supplierId), held: 0, inPeriod: 0, loads: 0 }; x.held += v; if (load) x.loads++; if (inPeriod(c, at)) x.inPeriod += v; sup.set(supplierId, x); };
+  for (const r of rows) bump(r.supplierId, r.value, r.at, true);
+  const heldMoves = rec.filter((e) => e.kind === 'credit-note' || e.kind === 'use').map((e) => ({ at: `${e.date}T12:00:00.000Z`, supplierId: e.supplierId, value: e.kind === 'use' ? -e.amountUsd : e.amountUsd }));
+  for (const m of heldMoves) bump(m.supplierId, m.value, m.at);
+  const brand = new Map<ID, MgmtSuppliers['byBrand'][number]>();
+  for (const r of inP) { const x = brand.get(r.productId) ?? { productId: r.productId, label: r.brand, cases: 0, value: 0 }; x.cases += r.short; x.value += r.value; brand.set(r.productId, x); }
+  const allMoves = [...rows.map((r) => ({ at: r.at, value: r.value })), ...heldMoves];
+  let run = 0; const byMonth = months(c.now, 12).map((m) => { const added = r2(sum(allMoves.filter((r) => { const x = t(r.at); return x >= m.from && x < m.to; }), (r) => r.value)); run += added; return { month: m.key, added, total: r2(run) }; });
+  const before = r2(sum(allMoves.filter((r) => t(r.at) < months(c.now, 12)[0].from), (r) => r.value));
+  for (const m of byMonth) m.total = r2(m.total + before);
+  // statement per supplier, oldest first: short loads, credit notes and uses change what it holds; advances and pro-formas are shown for the story
+  type Line = MgmtSuppliers['statement'][number];
+  const lines: Omit<Line, 'balance'>[] = [
+    ...rows.map((r) => ({ id: r.id, supplierId: r.supplierId, supplier: r.supplier, at: r.at, poRef: r.poRef, brand: r.brand, kind: 'short-load' as const, added: r.value })),
+    ...rec.map((e) => ({ id: e.id, supplierId: e.supplierId, supplier: n.supplier(e.supplierId), at: `${e.date}T12:00:00.000Z`, poRef: e.poRef ?? '-', brand: '-', kind: e.kind,
+      added: e.kind === 'credit-note' ? e.amountUsd : e.kind === 'use' ? -e.amountUsd : 0 })),
+  ];
+  const bal = new Map<ID, number>();
+  const statement = lines.sort((a, b) => t(a.at) - t(b.at)).map((l) => { const b = r2((bal.get(l.supplierId) ?? 0) + l.added); bal.set(l.supplierId, b); return { ...l, added: r2(l.added), balance: b }; }).reverse();
+  const inPe = (e: { date: string }) => inPeriod(c, `${e.date}T12:00:00.000Z`);
+  // open pro-forma now, in USD at each PO's own entry rate
+  const openNow = r2(sum([...new Set(es.filter((e) => e.poId).map((e) => e.poId!))], (poId) => { const m = M.poMoney(es, poId); const rate = es.find((e) => e.poId === poId)?.fxRate || 1; return m.open / rate; }));
+  const data: MgmtSuppliers = {
+    kpis: { held: r2(sum(rows, (r) => r.value) + sum(heldMoves, (m) => m.value)), addedInPeriod: r2(sum(inP, (r) => r.value) + sum(heldMoves.filter((m) => inPeriod(c, m.at)), (m) => m.value)),
+      shortLoads: new Set(inP.map((r) => r.id.split(':')[0])).size, shortCases: sum(inP, (r) => r.short), suppliers: sup.size,
+      advancesPaid: r2(sum(rec.filter((e) => (e.kind === 'advance' || e.kind === 'use') && inPe(e)), (e) => e.amountUsd)),
+      creditNotes: r2(sum(rec.filter((e) => e.kind === 'credit-note' && inPe(e)), (e) => e.amountUsd)),
+      proformaOpen: openNow, pending: r2(sum(es.filter((e) => e.status === 'Pending approval' && e.kind !== 'use'), (e) => e.amountUsd)) },
+    bySupplier: [...sup.values()].map((x) => ({ ...x, held: r2(x.held), inPeriod: r2(x.inPeriod) })).sort((a, b) => b.held - a.held),
+    byMonth, byBrand: [...brand.values()].map((x) => ({ ...x, value: r2(x.value) })).sort((a, b) => b.value - a.value),
+    loads: rows.slice(0, 1000), statement: statement.slice(0, 1000),
+    pendingAdvances: es.filter((e) => e.kind === 'advance' && e.status === 'Pending approval').map((e) => ({ id: e.id, supplier: n.supplier(e.supplierId), poRef: e.poRef ?? '-', date: e.date, amountUsd: r2(e.amountUsd + sum(es.filter((u) => u.linkedId === e.id), (u) => u.amountUsd)), by: c.src.people?.find((u) => u.id === e.byUserId)?.name ?? '-' })),
+    notRecorded: entries ? [] : ['creditNotes', 'advances', 'proformas', 'uses'],
+  };
+  return out(data, { definition: `Short load = cases on the order line not loaded on the truck; value = short cases × the PO price (USD at the average rate of the loading month). This value stays with the supplier, with credit notes (promotions); money used on later advances comes off it. Advances are paid against the supplier's pro-forma on the purchase order. All recorded on the PO page.`,
+    currency: 'USD', unit: 'USD · cases', period: c.period, freshness: newest(rows.map((r) => r.at), es.map((e) => e.at)), empty: !rows.length && !es.length });
+}
+
+// ---- design v3 Management · Cash and closing (V3-10 step 3d): money in and out from what we record ---------------------
+// Received = paid on the period's sales (sales carry their paid total, not dated payments). Bills = transport payments
+// (approved / paid, by payment date) + warehouse expenses (by date). Opening cash and transfers to the company account are
+// recorded on Warehouse expenses → Cash since V3-12 step 4, so the page shows cash in hand.
+export interface MgmtCash {
+  kpis: { received: number; toCollect: number; transportPaid: number; warehouseBills: number; net: number };
+  statement: { label: string; value: number | null; kind: 'in' | 'out' | 'total' | 'missing' }[];
+  byMonth: { month: string; received: number; bills: number; net: number }[];
+  byWarehouse: { warehouseId: ID; label: string; received: number; bills: number; net: number }[];
+  stock: { opening: number; received: number; sold: number; other: number; closing: number };
+  clients: { before: number; period: number; closing: number };
+  transport: { paid: number; owed: number | null };
+  notRecorded: ('openingCash' | 'transfers' | 'paymentDates')[];
+  /** V3-12 step 4: cash at the start of the period and cash in hand at its end (null = no cash at start set in this view) */
+  cash: { atStart: number | null; inHand: number | null; transfers: number; companies: number; withOpening: number };
+  /** cash sent to the company account in the period */
+  transfers: { id: ID; date: string; warehouse: string; amountUsd: number; reference: string; by: string }[];
+}
+function mgmtCash(c: Ctx): Out {
+  const n = names(c.src); const now = c.now;
+  const whLabel = (id: ID) => { const w = c.src.warehouses.find((x) => x.id === id) as { country?: string; town?: string } | undefined; return w?.country && w?.town ? `${w.country} – ${w.town}` : n.warehouse(id); };
+  const sales = c.usd.sales; const val = (s: (typeof sales)[number]) => sum(s.lines, (l) => l.qty * l.price);
+  const paidOf = (s: (typeof sales)[number]) => Math.min(s.paid, val(s));
+  const within = (at: string | number, a: number, b: number) => { const x = typeof at === 'number' ? at : t(at); return x >= a && x < b; };
+  const shipWh = new Map(c.src.shipments.map((s) => [s.id, s.warehouseId]));
+  const payUsd = (p: (typeof c.src.payments)[number]) => (p as { amountUsd?: number }).amountUsd ?? p.amount;
+  const paidOut = c.src.payments.filter((p) => p.status !== 'Pending approval');
+  const expenses = c.src.expenses ?? [];
+  // V3-12 step 2: received = client payments dated in the period (USD at the payment date's rate), for the sales in view
+  // (so sales between our own companies stay out in the Group view). Without payment records: what was paid on the period's sales.
+  const saleIds = new Set(sales.map((s) => s.id));
+  const cps = c.src.clientPayments?.filter((p) => saleIds.has(p.saleId));
+  // V3-12 step 4: cash sent from the warehouses to the company account (out of the warehouses' cash), by date
+  const ces = c.src.cashEntries;
+  const transfersOut = (ces ?? []).filter((e) => e.kind === 'transfer');
+  const inOut = (a: number, b: number, wh?: ID | ID[]) => {
+    const okWh = (x: ID | null | undefined) => !wh || (Array.isArray(wh) ? !!x && wh.includes(x) : x === wh);
+    const received = cps ? sum(cps.filter((p) => within(p.at, a, b) && okWh(p.warehouseId)), (p) => p.amountUsd)
+      : sum(sales.filter((s) => within(s.at, a, b) && okWh(s.warehouseId)), paidOf);
+    const sent = sum(transfersOut.filter((e) => within(Date.parse(`${e.date}T12:00:00Z`), a, b) && okWh(e.warehouseId)), (e) => e.amountUsd);
+    const transport = sum(paidOut.filter((p) => within(p.at, a, b) && okWh(shipWh.get(p.shipmentId))), payUsd);
+    const wexp = sum(expenses.filter((e) => within(Date.parse(`${e.date}T00:00:00Z`), a, b) && okWh(e.warehouseId)), (e) => e.amountUsd);
+    return { received: r2(received), transport: r2(transport), wexp: r2(wexp), sent: r2(sent) };
+  };
+  const cur = inOut(c.from, c.to);
+  const toCollect = r2(sum(sales.filter((s) => within(s.at, c.from, c.to)), (s) => Math.max(0, val(s) - s.paid)));
+  const net = r2(cur.received - cur.transport - cur.wexp);
+  // Cash at start of the period: per receiving company (its own amount, or its warehouses' parts when it has none), or the
+  // chosen warehouse's own part; plus everything that moved between the cash-at-start date and the period start.
+  const whRc = new Map(c.src.warehouses.map((w) => [w.id, (w as { receivingCompanyId?: ID }).receivingCompanyId ?? '']));
+  const openings = (ces ?? []).filter((e) => e.kind === 'opening');
+  type Pot = { amountUsd: number; date: string; whs: ID[] } | null;
+  const pots: Pot[] = c.f.warehouseId
+    ? [((e) => (e ? { amountUsd: e.amountUsd, date: e.date, whs: [c.f.warehouseId!] } : null))(openings.find((e) => e.warehouseId === c.f.warehouseId))]
+    : [...new Set([...whRc.values()].filter(Boolean))].map((rc) => {
+        const whs = [...whRc].filter(([, r]) => r === rc).map(([w]) => w);
+        const co = openings.find((e) => e.receivingCompanyId === rc && !e.warehouseId);
+        const parts = openings.filter((e) => e.receivingCompanyId === rc && e.warehouseId);
+        if (co) return { amountUsd: co.amountUsd, date: co.date, whs };
+        if (parts.length) return { amountUsd: sum(parts, (e) => e.amountUsd), date: parts.map((e) => e.date).sort()[0], whs };
+        return null;
+      });
+  const netOf = (x: ReturnType<typeof inOut>) => x.received - x.transport - x.wexp - x.sent;
+  const set = pots.filter((x): x is NonNullable<Pot> => !!x);
+  const atStart = ces && set.length ? r2(sum(set, (x) => { const d = Date.parse(`${x.date}T00:00:00Z`); return x.amountUsd + (d < c.from ? netOf(inOut(d, c.from, x.whs)) : 0); })) : null;
+  const netAll = r2(cur.received - cur.transport - cur.wexp - cur.sent);
+  // stock (cases) at a moment: the same signs as rules.computeStock
+  const sign = (k: string) => (k === 'received' || k === 'transferIn' || k === 'adjustment' ? 1 : -1);
+  const stockAt = (x: number) => sum(c.src.moves.filter((m) => t(m.at) < x), (m) => sign(m.kind) * m.qty);
+  const end = Math.min(c.to, now + 1);
+  const inPMoves = c.src.moves.filter((m) => within(m.at, c.from, end));
+  const owedNow = sales.length ? MX.owedByCustomers(sales, now) : 0;
+  const owedBefore = r2(sum(sales.filter((s) => t(s.at) < c.from && s.status !== 'Paid'), (s) => Math.max(0, val(s) - s.paid)));
+  const whIds = [...new Set([...sales.map((s) => s.warehouseId), ...expenses.map((e) => e.warehouseId)])].filter((w) => !c.f.warehouseId || w === c.f.warehouseId);
+  const data: MgmtCash = {
+    kpis: { received: cur.received, toCollect, transportPaid: cur.transport, warehouseBills: cur.wexp, net },
+    statement: ces ? [
+      { label: 'Cash at the start of the period', value: atStart, kind: atStart === null ? 'missing' : 'total' },
+      { label: 'Cash received from sales', value: cur.received, kind: 'in' },
+      { label: 'Transport bills paid', value: -cur.transport, kind: 'out' },
+      { label: 'Warehouse expenses', value: -cur.wexp, kind: 'out' },
+      { label: 'Sent to the company account', value: -cur.sent, kind: 'out' },
+      { label: atStart === null ? 'Net cash movement' : 'Cash in hand at the end', value: atStart === null ? netAll : r2(atStart + netAll), kind: 'total' },
+    ] : [
+      { label: 'Opening cash', value: null, kind: 'missing' },
+      { label: 'Cash received from sales', value: cur.received, kind: 'in' },
+      { label: 'Transport bills paid', value: -cur.transport, kind: 'out' },
+      { label: 'Warehouse expenses', value: -cur.wexp, kind: 'out' },
+      { label: 'Sent to the company account', value: null, kind: 'missing' },
+      { label: 'Net cash movement', value: net, kind: 'total' },
+    ],
+    cash: { atStart, inHand: atStart === null ? null : r2(atStart + netAll), transfers: cur.sent, companies: pots.length, withOpening: set.length },
+    transfers: transfersOut.filter((e) => within(Date.parse(`${e.date}T12:00:00Z`), c.from, c.to) && (!c.f.warehouseId || e.warehouseId === c.f.warehouseId))
+      .sort((a, b) => (a.date < b.date ? 1 : -1)).map((e) => ({ id: e.id, date: e.date, warehouse: e.warehouseId ? whLabel(e.warehouseId) : '-', amountUsd: e.amountUsd, reference: e.reference ?? '-', by: c.src.people?.find((u) => u.id === e.byUserId)?.name ?? '-' })),
+    byMonth: months(now, 12).map((m) => { const x = inOut(m.from, m.to); return { month: m.key, received: x.received, bills: r2(x.transport + x.wexp), net: r2(x.received - x.transport - x.wexp) }; }),
+    byWarehouse: whIds.map((w) => { const x = inOut(c.from, c.to, w); return { warehouseId: w, label: whLabel(w), received: x.received, bills: r2(x.transport + x.wexp), net: r2(x.received - x.transport - x.wexp) }; }).sort((a, b) => b.net - a.net),
+    stock: {
+      opening: stockAt(c.from), closing: stockAt(end),
+      received: sum(inPMoves.filter((m) => m.kind === 'received'), (m) => m.qty), sold: sum(inPMoves.filter((m) => m.kind === 'sold'), (m) => m.qty),
+      other: sum(inPMoves.filter((m) => m.kind !== 'received' && m.kind !== 'sold'), (m) => sign(m.kind) * m.qty),
+    },
+    clients: { before: owedBefore, period: toCollect, closing: owedNow },
+    transport: { paid: cur.transport, owed: c.src.fees ? MX.transportOwed(c.src.fees) : null },
+    notRecorded: [...(ces ? [] : ['openingCash', 'transfers'] as const), ...(cps ? [] : ['paymentDates'] as const)],
+  };
+  return out(data, { definition: `Received = ${cps ? `client payments dated in ${c.period.label} (sales made before payments were recorded count their paid amount on the sale date)` : `what was paid on the sales of ${c.period.label}`}. Bills = transport payments approved or paid in the period + warehouse expenses dated in the period, in USD. Stock in cases. ${ces ? 'Cash in hand = cash at start (Warehouse expenses → Cash, per receiving company or warehouse) + received − bills − cash sent to the company account, counted from the cash-at-start date.' : 'Cash at start and cash sent to the company account are not loaded in this view, so this is the net cash movement.'}`,
+    currency: 'USD', unit: 'USD · cases', period: c.period, freshness: newest(sales.map((s) => s.at), paidOut.map((p) => p.at), expenses.map((e) => e.at), (cps ?? []).map((p) => p.at)),
+    empty: !sales.length && !paidOut.length && !expenses.length });
+}
+
+// ---- design v3 Management · Executive report (V3-10 step 3e): plain sentences written by fixed rules -------------------
+// Every sentence comes from the figures of the other Management builders (same Ctx, same memoised performance report), so
+// the report never disagrees with them. No AI: a rule fires only when its figure says so.
+export interface MgmtExecItem { key: string; text: string; tone: 'good' | 'warn' | 'bad'; href?: string }
+export interface MgmtExec {
+  period: DashPeriod; prev: DashPeriod; targetMargin: number;
+  good: MgmtExecItem[]; decisions: MgmtExecItem[];
+  table: { key: string; label: string; revenue: number; profit: number; margin: number | null; cases: number; profitPerCase: number | null; combined?: boolean }[];
+}
+function mgmtExec(c: Ctx): Out {
+  const ov = mgmtOverview(c).data as MgmtOverview, pf = mgmtPerf(c).data as MgmtPerf, cl = mgmtClients(c).data as MgmtClients;
+  const pl = mgmtPlans(c).data as MgmtPlans, sp = mgmtSuppliers(c).data as MgmtSuppliers;
+  const usd = (x: number) => `$${Math.round(x).toLocaleString('en-US')}`;
+  const pct = (x: number, d = 1) => `${(x * 100).toFixed(d)}%`;
+  const ch = (v: number | null, p: number | null) => (v !== null && p !== null && p !== 0 ? (v - p) / Math.abs(p) : null);
+  const k = ov.kpis, tm = pf.targetMargin;
+  const good: MgmtExecItem[] = [], dec: MgmtExecItem[] = [];
+  const rev = ch(k.revenue.value, k.revenue.prev), prof = ch(k.profit.value, k.profit.prev);
+  if (rev !== null && rev > 0) good.push({ key: 'sales-up', tone: 'good', text: `Sales are up ${pct(rev, 0)} to ${usd(k.revenue.value!)} compared with the previous period.` });
+  if (prof !== null && prof > 0) good.push({ key: 'profit-up', tone: 'good', text: `Profit is up ${pct(prof, 0)} to ${usd(k.profit.value!)}.` });
+  if (k.margin.value !== null && k.margin.value >= tm) good.push({ key: 'margin-ok', tone: 'good', text: `The margin of ${pct(k.margin.value)} is at or above the ${pct(tm, 0)} target.` });
+  const topWh = pf.warehouses[0];
+  if (topWh && topWh.profit > 0) good.push({ key: 'best-warehouse', tone: 'good', text: `${topWh.label} made the most profit: ${usd(topWh.profit)} at a ${topWh.margin === null ? '-' : pct(topWh.margin)} margin.`, href: '#/management/perf' });
+  const bestB = ov.brands.best[0];
+  if (bestB && bestB.margin >= tm) good.push({ key: 'best-brand', tone: 'good', text: `${bestB.label} has the best margin: ${pct(bestB.margin)}.` });
+  if (pl.measures.planned > 0 && pl.measures.usedPct >= 90) good.push({ key: 'plans-ordered', tone: 'good', text: `Purchase orders cover ${Math.round(pl.measures.usedPct)}% of the plans.`, href: '#/management/plans' });
+  if (cl.kpis.owed !== null && cl.kpis.owed > 0 && (cl.kpis.overdue ?? 0) === 0) good.push({ key: 'no-overdue', tone: 'good', text: `No client is past the ${cl.terms}-day credit time.` });
+
+  if (k.margin.value !== null && k.margin.value < tm) {
+    const weak = ov.brands.weakest.filter((b) => b.margin < tm).slice(0, 3).map((b) => b.label);
+    dec.push({ key: 'margin-low', tone: 'bad', text: `The margin is ${pct(k.margin.value)}, below the ${pct(tm, 0)} target.${weak.length ? ` Review the prices of ${weak.join(', ')}.` : ''}`, href: '#/management/perf' });
+  }
+  const below = pf.floor.filter((x) => x.below);
+  if (below.length) dec.push({ key: 'below-floor', tone: 'bad', text: `${below.length} ${below.length === 1 ? 'product sells' : 'products sell'} below the safe price: ${below.slice(0, 3).map((x) => x.label).join(', ')}${below.length > 3 ? ' and more' : ''}.`, href: '#/management/perf' });
+  if ((cl.kpis.overdue ?? 0) > 0) {
+    const top = cl.balances.top.filter((x) => x.overdue > 0).slice(0, 2).map((x) => x.customer);
+    dec.push({ key: 'overdue', tone: 'warn', text: `Collect ${usd(cl.kpis.overdue!)} overdue (over ${cl.terms} days)${top.length ? `, starting with ${top.join(' and ')}` : ''}.`, href: '#/management/clients' });
+  }
+  if (pl.measures.planned > 0 && pl.measures.usedPct < 90) dec.push({ key: 'plans-behind', tone: 'warn', text: `Plans are ${Math.round(pl.measures.usedPct)}% ordered: ${Math.round(pl.measures.remaining).toLocaleString('en-US')} cases still to order.`, href: '#/management/plans' });
+  if (sp.kpis.held > 0) dec.push({ key: 'supplier-cash', tone: 'warn', text: `${usd(sp.kpis.held)} of our money is with suppliers from short loads${sp.bySupplier[0] ? `, most with ${sp.bySupplier[0].label} (${usd(sp.bySupplier[0].held)})` : ''}. Use it on the next orders.`, href: '#/management/suppliers' });
+  for (const d of ov.decisions.filter((x) => (x.count ?? 0) > 0 && (x.severity === 'critical' || x.severity === 'high')))
+    dec.push({ key: `today-${d.key}`, tone: 'bad', text: `${d.label} (${d.count}): ${d.detail}.`.replace('..', '.'), href: d.href });
+  const h = pf.headline;
+  const data: MgmtExec = {
+    period: c.period, prev: c.prev, targetMargin: tm, good, decisions: dec,
+    table: [
+      ...pf.warehouses.map((w) => ({ key: w.warehouseId, label: w.label, revenue: w.revenue, profit: w.profit, margin: w.margin, cases: w.cases, profitPerCase: w.profitPerCase })),
+      ...(h.revenue !== null ? [{ key: 'combined', label: 'Combined', revenue: h.revenue, profit: h.profit ?? 0, margin: h.margin, cases: h.cases ?? 0, profitPerCase: h.profitPerCase, combined: true }] : []),
+    ],
+  };
+  return out(data, { definition: `Sentences written by fixed rules from the Management figures for ${c.period.label} (compared with ${c.prev.label}): Overview, Warehouse performance, Sales and clients, Plans and orders, Supplier balances. A sentence shows only when its figure says so.`,
+    currency: 'USD', unit: 'USD', period: c.period, freshness: newest(c.usd.sales.map((x) => x.at)), empty: !good.length && !dec.length && !data.table.length });
+}
+
 function directorToday(c: Ctx): Out {
   const n = names(c.src); const now = c.now; const d0 = new Date(now);
   const dayStart = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate());
@@ -656,11 +1064,12 @@ function directorToday(c: Ctx): Out {
   const rank = { critical: 0, high: 1, medium: 2, low: 3 };
   decisions.sort((a, b) => Number(!(a.count ?? 0)) - Number(!(b.count ?? 0)) || rank[a.severity] - rank[b.severity]);
 
-  const openBal = sales.filter((s) => s.status !== 'Paid').map((s) => ({ customer: s.customer, age: Math.floor((now - t(s.at)) / DAY), balance: r2(sum(s.lines, (l) => l.qty * l.price) - s.paid) })).filter((x) => x.balance > 0.5);
+  // V3-12: bands by days past each sale's credit days (the client's, default TERMS_DAYS)
+  const openBal = sales.filter((s) => s.status !== 'Paid').map((s) => ({ customer: s.customer, age: Math.floor((now - t(s.at)) / DAY) - MX.termsOf(s), balance: r2(sum(s.lines, (l) => l.qty * l.price) - s.paid) })).filter((x) => x.balance > 0.5);
   const bandDefs = [
-    { name: `Within terms (≤ ${TERMS_DAYS} d)`, lo: 0, hi: TERMS_DAYS + 1, tone: 'good' as const },
-    { name: '1–30 days overdue', lo: TERMS_DAYS + 1, hi: TERMS_DAYS + 31, tone: 'warn' as const },
-    { name: 'Over 30 days overdue', lo: TERMS_DAYS + 31, hi: Infinity, tone: 'bad' as const },
+    { name: 'Within terms', lo: -Infinity, hi: 1, tone: 'good' as const },
+    { name: '1–30 days overdue', lo: 1, hi: 31, tone: 'warn' as const },
+    { name: 'Over 30 days overdue', lo: 31, hi: Infinity, tone: 'bad' as const },
   ];
   const owed: TodayData['owed'] = {
     terms: TERMS_DAYS, total: cashK.value, overdue: cashK.overdue,
@@ -843,6 +1252,13 @@ function dataCompleteness(c: Ctx): Out {
 // ======================================================================================================
 const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
   'director-today': directorToday,
+  'mgmt-overview': mgmtOverview,
+  'mgmt-plans': mgmtPlans,
+  'mgmt-clients': mgmtClients,
+  'mgmt-perf': mgmtPerf,
+  'mgmt-suppliers': mgmtSuppliers,
+  'mgmt-cash': mgmtCash,
+  'mgmt-exec': mgmtExec,
   'warehouse-today': warehouseToday,
   'order-this-week': orderThisWeek,
   'stock-movements': stockMovements,
@@ -1226,12 +1642,12 @@ const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
   },
   // C-P1-25 ----------------------------------------------------------------------------------------------------
   'customer-balances': (c) => {
-    const open = c.usd.sales.filter((s) => s.status !== 'Paid').map((s) => ({ customer: s.customer, age: Math.floor((c.now - t(s.at)) / DAY), balance: r2(sum(s.lines, (l) => l.qty * l.price) - s.paid), at: s.at })).filter((x) => x.balance > 0.5);
-    const bands = [{ name: `Within terms (≤ ${TERMS_DAYS} d)`, lo: 0, hi: TERMS_DAYS + 1 }, { name: '1–30 days overdue', lo: TERMS_DAYS + 1, hi: TERMS_DAYS + 31 }, { name: 'Over 30 days overdue', lo: TERMS_DAYS + 31, hi: Infinity }];
+    const open = c.usd.sales.filter((s) => s.status !== 'Paid').map((s) => ({ customer: s.customer, age: Math.floor((c.now - t(s.at)) / DAY) - MX.termsOf(s), balance: r2(sum(s.lines, (l) => l.qty * l.price) - s.paid), at: s.at })).filter((x) => x.balance > 0.5);
+    const bands = [{ name: 'Within terms', lo: -Infinity, hi: 1 }, { name: '1–30 days overdue', lo: 1, hi: 31 }, { name: 'Over 30 days overdue', lo: 31, hi: Infinity }]; // days past each sale's credit days (V3-12)
     const cust = [...new Set(open.map((x) => x.customer))].map((cu) => ({ cu, total: sum(open.filter((x) => x.customer === cu), (x) => x.balance) })).sort((a, b) => b.total - a.total).slice(0, 10).map((x) => x.cu);
     const values = bands.map((b) => ({ name: b.name, values: cust.map((cu) => r2(sum(open.filter((x) => x.customer === cu && x.age >= b.lo && x.age < b.hi), (x) => x.balance))) }));
     return out({ customers: cust, bands: values, total: MX.owedByCustomers(c.usd.sales, c.now), overdue: MX.overdueByCustomers(c.usd.sales, c.now), terms: TERMS_DAYS }, {
-      definition: `Unpaid and part-paid sales (value − paid, USD) per customer by days since the sale. Overdue = past ${TERMS_DAYS} days payment terms (to confirm). Top 10 customers by balance.`, currency: 'USD', unit: 'USD', period: null,
+      definition: `Unpaid and part-paid sales (value − paid, USD) per customer by days since the sale. Overdue = past the client's credit days (${TERMS_DAYS} unless set on the client). Top 10 customers by balance.`, currency: 'USD', unit: 'USD', period: null,
       freshness: newest(c.usd.sales.map((s) => s.at)), empty: !open.length,
     });
   },

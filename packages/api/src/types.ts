@@ -190,6 +190,22 @@ export interface PlanLineContext {
   planned: number; orderedBefore: number; thisPo: number; remaining: number;
   exception?: 'over' | 'unplanned'; reason?: string;
 }
+/** V3-14: my own account, as the Profile page shows it. */
+export interface MyProfile {
+  id: ID; name: string; email: string | null; phone: string; roles: Role[];
+  entityIds: ID[]; warehouseIds: ID[]; loadingPointIds: ID[]; pairs: UserPair[];
+  /** how this person signs in: a web password, a field-app PIN, or both */ hasPassword: boolean; hasPin: boolean;
+  lastLoginAt: ISODate | null;
+}
+export interface MyDevice { id: ID; platform: string; appVersion: string | null; lastSeenAt: ISODate; current: boolean }
+export interface MySecretInput { current: string; password?: string; pin?: string }
+/** V3-12: Management → Settings (directors and the system administrator). */
+export interface MoneySettings {
+  /** Advance payments to suppliers wait for a director's approval. Off by default (26 Nov): the advance counts at once. */
+  advanceApproval: boolean;
+}
+/** V3-12: how a director hears about money records. In-app always; email and SMS when they turn them on. */
+export interface NotifyPrefs { email: boolean; sms: boolean }
 export interface PvThresholds { /** behind when ordered-to-date < behind × expected */ behind: number; /** over when ordered > over × planned */ over: number }
 
 /** Lifecycle of a PO (stored): created as Issued (approved automatically) or Awaiting approval (approvals on); soft-deleted
@@ -347,7 +363,69 @@ export interface Sale {
   kind: 'Cash' | 'Credit' | 'Batch'; lines: SaleLine[]; currency: Currency; paid: number; status: PaymentStatus;
   /** Set when the buyer is a sibling company (intercompany): eliminated from group totals. */
   counterpartyEntityId?: ID;
+  /** V3-12: the client record (picked or created with the sale) and its credit days when the sale was made. */
+  clientId?: ID; termsDays?: number;
+  /** V3-12 step 2: how the amount paid when the sale was made came in (its first payment). */
+  payMethod?: ClientPaymentMethod;
 }
+/** V3-12: a client of one company. Picked on the sale (web and phone); a new name on a sale creates it with the default
+ *  credit days. Changing the days applies to the client's next sales; each sale keeps the days it was made with. */
+export interface Client {
+  id: ID; entityId: ID; name: string; phone?: string; warehouseId?: ID; termsDays: number; active: boolean; createdAt: ISODate;
+}
+/** V3-12 step 4: warehouse cash. `opening` = cash at start: one per receiving company (warehouseId null, sets the date and
+ *  currency for its warehouses) and optionally one per warehouse (its part of it). `transfer` = cash sent from a warehouse
+ *  to the company account (bank slip). */
+export interface CashEntry {
+  id: ID; kind: 'opening' | 'transfer'; receivingCompanyId: ID; warehouseId: ID | null;
+  amount: number; currency: Currency; fxRate: number; amountUsd: number; date: string;
+  reference?: string; note?: string; slip?: DocumentRef | null; byUserId: ID; at: ISODate;
+}
+export interface CashOpeningInput { receivingCompanyId: ID; warehouseId?: ID | null; amount: number; currency?: Currency; date?: string; note?: string }
+export interface CashTransferInput { warehouseId: ID; amount: number; currency: Currency; date?: string; reference?: string; note?: string; slipFileId?: ID | null; slipName?: string | null; slipUrl?: string | null }
+export interface CashOverview {
+  companies: { receivingCompanyId: ID; name: string; opening: CashEntry | null; warehouses: { warehouseId: ID; name: string; opening: CashEntry | null }[]; notSplit: number | null }[];
+  transfers: CashEntry[];
+  /** set or change cash at start: directors, accounts, the system administrator */ canSetOpening: boolean;
+  /** warehouses this person sends cash from */ canSend: ID[];
+}
+/** V3-12 step 3: supplier money, recorded on the purchase order. A pro-forma is the supplier's bill for the PO; an advance is
+ *  paid against it (part of it may come from money the supplier already holds: a `use`); a credit note (promotion) adds to
+ *  what the supplier holds. Short loads are not stored: they come from the loadings (`money.shortLoadRows`). */
+export type SupplierEntryKind = 'proforma' | 'advance' | 'credit-note' | 'use';
+export type SupplierEntryStatus = 'Recorded' | 'Pending approval' | 'Rejected';
+export interface SupplierEntry {
+  id: ID; entityId: ID; supplierId: ID; poId?: ID; poRef?: string; kind: SupplierEntryKind;
+  amount: number; currency: Currency; fxRate: number; amountUsd: number; date: string;
+  reference?: string; note?: string; document?: DocumentRef | null; status: SupplierEntryStatus;
+  /** the advance a `use` belongs to (they are approved or rejected together) */ linkedId?: ID;
+  byUserId: ID; at: ISODate; decidedById?: ID; decidedAt?: ISODate;
+}
+export interface SupplierEntryInput {
+  kind: 'proforma' | 'advance' | 'credit-note'; amount: number; date?: string; reference?: string; note?: string;
+  /** advance only: the part paid from money the supplier already holds (PO currency) */ useHeld?: number;
+  documentFileId?: ID | null; documentName?: string | null; documentUrl?: string | null;
+}
+/** Supplier money for one PO: its pro-formas and advances, and what the supplier holds for the company (USD). */
+export interface SupplierMoney {
+  entityId: ID; supplierId: ID; currency: Currency;
+  po: { proforma: number; advances: number; pending: number; open: number };
+  held: { shortLoads: number; creditNotes: number; used: number; pendingUse: number; balance: number; available: number };
+  entries: SupplierEntry[]; canRecord: boolean; canDecide: boolean; approvalOn: boolean;
+}
+/** V3-12 step 2: money received from a client against a sale. The sale writes the first one (what was paid when it was
+ *  made); later ones come from "Record payment". `sale.paid` is always the sum of its payments. */
+export type ClientPaymentMethod = 'Cash' | 'Mobile money' | 'Bank';
+export interface ClientPayment {
+  id: ID; entityId: ID; saleId: ID; saleRef: string; clientId?: ID; customer: string; warehouseId: ID;
+  amount: number; currency: Currency; /** USD at the approved month-average rate of the payment date */ amountUsd: number;
+  at: ISODate; /** null = not recorded (payments copied from sales made before V3-12) */ method: ClientPaymentMethod | null;
+  reference?: string; byUserId?: ID;
+}
+export interface ClientPaymentInput { amount: number; method: ClientPaymentMethod; reference?: string; at?: ISODate }
+/** A client with its figures over all its sales (USD): how many, the last one, what it owes and how much is overdue. */
+export type ClientRow = Client & { sales: number; lastSaleAt: ISODate | null; owed: number; overdue: number };
+export type ClientInput = { entityId?: ID; name: string; phone?: string; warehouseId?: ID | null; termsDays?: number; active?: boolean };
 
 // ---- Trip financials & landing cost (FN-*, §17.6) -------------------------
 export type CostKind = 'Transport' | 'Taxes & duties' | 'Clearing & forwarding' | 'Loading & offloading' | 'Storage' | 'Other';

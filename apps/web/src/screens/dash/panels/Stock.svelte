@@ -6,6 +6,7 @@
   import { DashboardPanel, StackedBarH, Pareto, paretoRows, StockCoverBars, StockCoverBands, StatusBadge, bandCounts, DEFAULT_BANDS, coverStatus, type CoverBand } from '../../../components/dashboard';
   import { BarChart, Donut } from '../../../components/charts';
   import { frame, money, cvRow, n0, day, dayTime, monthLabel, currency } from '../fmt.svelte';
+  import StatRow from '../StatRow.svelte';
   import Camera from '@lucide/svelte/icons/camera';
   import PenLine from '@lucide/svelte/icons/pen-line';
   let { key, r, link, span }: { key: DashKey; r: DashResult; link?: string; span?: 1 | 2 | 'full' } = $props();
@@ -21,21 +22,33 @@
   const coverItems = $derived(key === 'stock-on-hand' ? (d.items ?? []).filter((x: any) => inBand(x.cover, band)).slice(0, 15).map((x: any) => ({ label: x.label, days: x.cover, min: x.min, max: x.max })) : []);
   const runningOut = $derived(key === 'stock-on-hand' ? [...(d.items ?? [])].filter((x: any) => x.cover != null && x.cover <= 14).sort((a: any, b: any) => a.cover - b.cover).slice(0, 6) : []);
   // transit timeline: by day of expected arrival
-  const days = $derived(key === 'stock-in-transit' ? [...new Set((d.rows ?? []).map((x: any) => (x.eta ?? '').slice(0, 10)))].map((k) => ({ day: k as string, rows: d.rows.filter((x: any) => (x.eta ?? '').slice(0, 10) === k) })) : []);
+  const days = $derived.by(() => {
+    if (key !== 'stock-in-transit') return [] as { day: string; rows: any[] }[];
+    const groups = [...new Set((d.rows ?? []).map((x: any) => (x.eta ?? '').slice(0, 10)))].map((k) => ({ day: k as string, rows: (d.rows as any[]).filter((x) => (x.eta ?? '').slice(0, 10) === k) }));
+    let left = 6;
+    const out: { day: string; rows: any[] }[] = [];
+    for (const g of groups) {
+      if (!left) break;
+      const rows = g.rows.slice(0, left);
+      left -= rows.length;
+      out.push({ day: g.day, rows });
+    }
+    return out;
+  });
+  const transitMore = $derived(key === 'stock-in-transit' ? Math.max(0, (d.rows ?? []).length - 6) : 0);
   // categories by total (largest first) so the columns and the donut give each category the same colour
   const ranked = $derived(key === 'warehouse-expenses' ? [...(d.byCategory ?? [])].sort((a: any, b: any) => b.total - a.total).map((x: any) => x.category as string) : []);
   const rxTone = (s: string) => (s === 'Delivered' ? 'good' : s === 'Cancelled' ? 'none' : s === 'Open' ? 'none' : 'warn');
 </script>
 
 {#if key === 'warehouse-today'}
+  <StatRow label="Warehouse today" items={[
+    { label: 'To sign', value: n0(d.sign?.count), sub: `${n0(d.sign?.cases)} cases`, href: '#/shipments' },
+    { label: 'Arriving', value: n0(d.arriving?.trucks), sub: `${n0(d.arriving?.cases)} cases in 7 days`, href: '#/shipments' },
+    { label: 'At risk', value: n0((d.stock?.risk ?? 0) + (d.stock?.low ?? 0)), sub: `${n0(d.stock?.over)} over · ${n0(d.stock?.nosales)} no sales`, href: '#/stock?show=attention' },
+    { label: 'Lost', value: n0((d.losses?.damaged ?? 0) + (d.losses?.short ?? 0)), sub: `${n0(d.losses?.damaged)} damaged · ${n0(d.losses?.short)} short`, href: '#/shipments?show=delivered' },
+  ]} />
   <DashboardPanel span={span ?? 'full'} subtitle="to sign · arriving this week · stock at risk · losses" decision={d.sign?.count ? 'Count and sign every arrived truck before the next count.' : d.stock?.risk ? 'Count the at-risk lines and tell purchasing to reorder.' : 'Prepare space for this week’s arrivals; record any damage with a cause.'} {...fr} title={r.title} rows={() => [['Kind', 'What', 'Detail'], ...(d.sign?.rows ?? []).map((x: any) => ['To sign', x.truck, `${x.ref} · ${x.warehouse} · ${x.cases} cases`]), ...(d.arriving?.rows ?? []).map((x: any) => ['Arriving', x.truck, `${x.ref} · ${x.warehouse} · ${x.eta}`]), ...(d.stock?.items ?? []).map((x: any) => ['Stock', x.label, x.cover == null ? `${x.held} cases · no sales` : `${x.held} cases · ${x.cover} d cover`])]} filename="warehouse-today" {drill} emptyText="Nothing waiting at the warehouse">
-    <div class="tw">
-      <a href="#/shipments"><span class="caption">To sign</span><b class:hot={d.sign?.count}>{n0(d.sign?.count)}</b><span class="caption">{n0(d.sign?.cases)} cases</span></a>
-      <a href="#/shipments"><span class="caption">Arriving (7 d)</span><b>{n0(d.arriving?.trucks)}</b><span class="caption">{n0(d.arriving?.cases)} cases</span></a>
-      <a href="#/stock?show=attention"><span class="caption">At risk / low</span><b class:hot={d.stock?.risk}>{n0((d.stock?.risk ?? 0) + (d.stock?.low ?? 0))}</b><span class="caption">{n0(d.stock?.over)} over · {n0(d.stock?.nosales)} no sales</span></a>
-      <a href="#/shipments?show=delivered"><span class="caption">Lost (30 d)</span><b class:hot={(d.losses?.damaged ?? 0) + (d.losses?.short ?? 0)}>{n0((d.losses?.damaged ?? 0) + (d.losses?.short ?? 0))}</b><span class="caption">{n0(d.losses?.damaged)} damaged · {n0(d.losses?.short)} short</span></a>
-      {#if d.reexports}<a href="#/re-exports"><span class="caption">Re-exports</span><b class:hot={d.reexports.open}>{n0(d.reexports.open)}</b><span class="caption">{n0(d.reexports.noOwner)} without an owner</span></a>{/if}
-    </div>
     <div class="pair">
       {#if d.sign?.rows?.length}
         <div>
@@ -43,30 +56,22 @@
           <ul class="att">{#each d.sign.rows as x}<li><a href="#/shipments/{x.shipmentId}">{x.truck}</a><span class="caption">{x.ref} · {x.warehouse} · {n0(x.cases)} cases</span><StatusBadge status="warn" label="Acknowledge" /></li>{/each}</ul>
         </div>
       {/if}
-      {#if d.arriving?.rows?.length}
-        <div>
-          <h4 class="overline">Arriving this week</h4>
-          <ul class="att scroll">{#each d.arriving.rows as x}<li><a href="#/shipments/{x.shipmentId}">{x.truck}</a><span class="caption">{x.warehouse} · {day(x.eta)} · {n0(x.cases)} cases</span>{#if x.late}<StatusBadge status="bad" label="late" />{/if}</li>{/each}</ul>
-        </div>
-      {/if}
-    </div>
-    {#if d.stock?.items?.length || d.reexports?.rows?.length}<div class="pair">
       {#if d.stock?.items?.length}
         <div>
           <h4 class="overline">Stock that needs a count</h4>
-          <ul class="att scroll">{#each d.stock.items as x}<li><a href="#/stock?show=attention">{x.label}</a><span class="caption">{n0(x.held)} cases · {x.cover == null ? 'no sales in 30 days' : `${x.cover} d cover`}</span><StatusBadge status={x.cover == null ? 'none' : x.cover <= 7 ? 'bad' : 'warn'} label={x.cover == null ? 'No sales' : x.cover <= 7 ? 'At risk' : 'Low'} /></li>{/each}</ul>
+          <ul class="att scroll">{#each d.stock.items.slice(0, 6) as x}<li><a href="#/stock?show=attention">{x.label}</a><span class="caption">{n0(x.held)} cases · {x.cover == null ? 'no sales in 30 days' : `${x.cover} d cover`}</span><StatusBadge status={x.cover == null ? 'none' : x.cover <= 7 ? 'bad' : 'warn'} label={x.cover == null ? 'No sales' : x.cover <= 7 ? 'At risk' : 'Low'} /></li>{/each}</ul>
         </div>
       {/if}
-      {#if d.reexports?.rows?.length}
-        <div>
-          <h4 class="overline">Open re-exports</h4>
-          <ul class="att scroll">{#each d.reexports.rows as x}<li><a href="#/re-exports">{x.ref}</a><span class="caption">{n0(x.cases)} cases{x.owner ? ` · ${x.owner}` : ''}</span><StatusBadge status={x.owner ? 'warn' : 'none'} label={x.owner ? x.status : 'Owner not assigned'} /></li>{/each}</ul>
-        </div>
-      {/if}
-    </div>{/if}
+    </div>
     {#if d.losses?.topCause}<p class="caption">Top cause of losses (30 days): {d.losses.topCause}.</p>{/if}
   </DashboardPanel>
 {:else if key === 'incoming'}
+  <StatRow label="Incoming deliveries" items={[
+    { label: 'To sign', value: n0((d.rows ?? []).filter((x: any) => x.toAcknowledge).length), sub: 'Arrived', href: '#/shipments' },
+    { label: 'Late', value: n0((d.rows ?? []).filter((x: any) => x.late).length), sub: 'Behind the expected time', href: '#/shipments' },
+    { label: 'On time', value: n0((d.rows ?? []).filter((x: any) => !x.toAcknowledge && !x.late).length), sub: 'Still on the way', href: '#/shipments' },
+    { label: 'Cases', value: n0((d.rows ?? []).reduce((a: number, x: any) => a + (x.cases ?? 0), 0)), sub: 'On these trucks', href: '#/shipments' },
+  ]} />
   <DashboardPanel span={span ?? 1} subtitle="arrived trucks first, then by expected arrival" decision="Sign arrived trucks before the next count." {...fr} title={r.title} rows={() => [['Shipment', 'Truck', 'From', 'To', 'Expected', 'Status', 'Cases'], ...(d.rows ?? []).map((x: any) => [x.ref, x.truck, x.from, x.warehouse, x.eta, x.toAcknowledge ? 'Arrived, acknowledge' : x.status, x.cases])]} filename="incoming-deliveries" {drill} emptyText="No truck heading to your warehouse">
     <ul class="cards">
       {#each d.rows ?? [] as x}
@@ -98,7 +103,9 @@
   </DashboardPanel>
   <DashboardPanel span={span ?? 1} subtitle={band ? `band ${band.label}` : 'lowest cover first'} decision="Count or write off the lines furthest below minimum." {...fr} title="Stock cover by product" rows={() => [['Product', 'Held (cases)', 'Moved out', 'Damaged', 'Short', 'Sold 30 days', 'Days of cover', 'Minimum', 'Slow above', 'State'], ...(d.items ?? []).map((x: any) => [x.label, x.held, x.movedOut, x.damaged, x.short, x.sold30, x.cover ?? 'No data yet', x.min, x.max, coverStatus({ label: x.label, days: x.cover, min: x.min, max: x.max }).label])]} filename="stock-on-hand" empty={!coverItems.length}>
     <StockCoverBars label="Days of stock cover against minimum by product" items={coverItems} onselect={() => go('#/stock?show=attention')} />
-    <BarChart label="Cases held, moved out and damaged by product (30 days)" horizontal stacked categories={(d.items ?? []).slice(0, 10).map((x: any) => x.label)} series={[{ name: 'Held', values: (d.items ?? []).slice(0, 10).map((x: any) => Math.max(0, x.held)), ink: 'navy' }, { name: 'Moved out / sent on', values: (d.items ?? []).slice(0, 10).map((x: any) => x.movedOut), ink: 'teal' }, { name: 'Damaged', values: (d.items ?? []).slice(0, 10).map((x: any) => x.damaged), ink: 'bad' }]} format={(n) => n0(n)} />
+  </DashboardPanel>
+  <DashboardPanel span="full" subtitle="last 30 days" decision="Count a line where damaged cases are high." {...fr} title="Held, moved and damaged" rows={() => [['Product', 'Held', 'Moved out', 'Damaged'], ...(d.items ?? []).slice(0, 10).map((x: any) => [x.label, x.held, x.movedOut, x.damaged])]} filename="held-moved-damaged">
+    <BarChart label="Cases held, moved out and damaged by product (30 days)" horizontal stacked categories={(d.items ?? []).slice(0, 8).map((x: any) => x.label)} series={[{ name: 'Held', values: (d.items ?? []).slice(0, 8).map((x: any) => Math.max(0, x.held)), ink: 'navy' }, { name: 'Moved out / sent on', values: (d.items ?? []).slice(0, 8).map((x: any) => x.movedOut), ink: 'teal' }, { name: 'Damaged', values: (d.items ?? []).slice(0, 8).map((x: any) => x.damaged), ink: 'bad' }]} format={(n) => n0(n)} height={Math.max(240, Math.min(8, (d.items ?? []).length) * 36 + 48)} />
   </DashboardPanel>
 {:else if key === 'stock-in-transit'}
   <DashboardPanel span={span ?? 1} subtitle="expected arrivals · totals per warehouse" decision="Prepare the warehouse for the next arrivals." {...fr} title={r.title} rows={() => [['Shipment', 'Truck', 'Warehouse', 'Expected', 'Cases', 'Status'], ...(d.rows ?? []).map((x: any) => [x.ref, x.truck, x.warehouse, x.eta, x.cases, x.status])]} filename="stock-in-transit" {drill}>
@@ -109,19 +116,14 @@
           {#each g.rows as x}<a class="small tr" href="#/shipments/{x.shipmentId}">{x.truck} → {x.warehouse} · {n0(x.cases)} cases {#if x.late}<StatusBadge status="bad" label="late" />{/if}</a>{/each}</li>
       {/each}
     </ol>
+    {#if transitMore}<p class="caption">{transitMore} more on the full list.</p>{/if}
   </DashboardPanel>
 {:else if key === 'warehouse-expenses'}
-  <DashboardPanel span={span ?? 1} subtitle="by month and category" decision="Record this month’s rent, salary and utilities if they are missing." {...fr} title={r.title} rows={() => [['Month', ...(d.categories ?? []).map((c: string) => `${c} (${C})`), `Total (${C})`], ...(d.byMonth ?? []).map((m: any) => [m.month, ...d.categories.map((c: string) => cvRow(m.byCategory[c])), cvRow(m.total)])]} filename="warehouse-expenses" {drill}>
-    <div class="split">
-      <div>
-        <p class="cap-line">By month</p>
-        <BarChart label="Warehouse expenses by month and category" stacked categories={(d.byMonth ?? []).map((m: any) => monthLabel(m.month))} series={ranked.map((c: string, i: number) => ({ name: c, values: d.byMonth.map((m: any) => m.byCategory[c] ?? 0), slot: i }))} format={money} onselect={() => go('#/warehouse-expenses')} />
-      </div>
-      <div>
-        <p class="cap-line">Share by category</p>
-        <Donut label="Share of each expense category" data={(d.byCategory ?? []).map((x: any) => ({ label: x.category, value: x.total }))} format={money} center={money(d.total)} height={220} />
-      </div>
-    </div>
+  <DashboardPanel span={span ?? 1} subtitle="last 6 months" decision="Record this month’s rent, salary and utilities if they are missing." {...fr} title="Expenses by month" rows={() => [['Month', ...(d.categories ?? []).map((c: string) => `${c} (${C})`), `Total (${C})`], ...(d.byMonth ?? []).map((m: any) => [m.month, ...d.categories.map((c: string) => cvRow(m.byCategory[c])), cvRow(m.total)])]} filename="warehouse-expenses" {drill}>
+    <BarChart label="Warehouse expenses by month and category" stacked categories={(d.byMonth ?? []).map((m: any) => monthLabel(m.month))} series={ranked.map((c: string, i: number) => ({ name: c, values: d.byMonth.map((m: any) => m.byCategory[c] ?? 0), slot: i }))} format={money} height={240} onselect={() => go('#/warehouse-expenses')} />
+  </DashboardPanel>
+  <DashboardPanel span={1} subtitle="share of the total" decision="The largest category is the one to challenge." {...fr} title="Where expenses went" rows={() => [['Category', `Total (${C})`], ...(d.byCategory ?? []).map((x: any) => [x.category, cvRow(x.total)])]} filename="expense-share" empty={!(d.byCategory ?? []).length}>
+    <Donut label="Share of each expense category" data={(d.byCategory ?? []).map((x: any) => ({ label: x.category, value: x.total }))} format={money} center={money(d.total)} height={268} snug />
   </DashboardPanel>
 {:else if key === 'stock-movements'}
   <DashboardPanel span={span ?? 'full'} subtitle="last 14 days of the period · running balance" decision="Investigate a day where out far exceeds in, or a line that is not moving." {...fr} title={r.title} rows={() => [['Day', 'In', 'Out', 'Closing'], ...(d.days ?? []).map((x: any) => [x.day, x.in, x.out, x.closing]), ['Kind', 'When', 'Product', 'Warehouse', 'Cases', 'Ref'], ...(d.log ?? []).map((x: any) => [x.kind, x.at, x.product, x.warehouse, x.qty, x.ref])]} filename="stock-movements" {drill} emptyText="No stock movement in this period">
@@ -131,11 +133,7 @@
       <div><span class="caption">Out</span><b class:hot={d.out > d.in}>{n0(d.out)}</b><span class="caption">sold · damaged · sent on</span></div>
       <div><span class="caption">Closing</span><b>{n0(d.closing)}</b><span class="caption">cases</span></div>
     </div>
-    <BarChart label="Cases in and out by day" categories={(d.days ?? []).map((x: any) => day(x.day))} series={[{ name: 'In', values: (d.days ?? []).map((x: any) => x.in), slot: 0 }, { name: 'Out', values: (d.days ?? []).map((x: any) => x.out), slot: 1 }]} format={(n) => n0(n)} />
-    <div class="table-wrap"><table class="table">
-      <thead><tr><th>When</th><th>Kind</th><th>Product</th><th class="hide-sm">Warehouse</th><th class="num">Cases</th></tr></thead>
-      <tbody>{#each d.log ?? [] as x}<tr><td class="small">{day(x.at)}</td><td>{x.kind}</td><td>{x.product}</td><td class="hide-sm caption">{x.warehouse}</td><td class="num">{x.dir === 'out' ? '−' : '+'}{n0(x.qty)}</td></tr>{:else}<tr><td colspan="5" class="caption">No moves in this window.</td></tr>{/each}</tbody>
-    </table></div>
+    <BarChart label="Cases in and out by day" categories={(d.days ?? []).map((x: any) => day(x.day))} series={[{ name: 'In', values: (d.days ?? []).map((x: any) => x.in), slot: 0 }, { name: 'Out', values: (d.days ?? []).map((x: any) => x.out), slot: 1 }]} format={(n) => n0(n)} height={240} />
   </DashboardPanel>
 {:else if key === 'reexports'}
   <DashboardPanel span={span ?? 1} subtitle="Rwanda → Juba" decision="Assign an owner and load every Open order." {...fr} title={r.title} rows={() => [['Order', 'Status', 'From', 'To', 'Cases', 'Truck', 'Loaded', 'Delivered', 'Follow-up'], ...(d.rows ?? []).map((x: any) => [x.ref, x.status, x.from, x.to, x.cases, x.truck ?? '', x.loadedAt ?? '', x.deliveredAt ?? '', x.owner ?? 'Owner not assigned'])]} filename="re-exports" {drill}>
@@ -156,8 +154,7 @@
   .pair > div { flex: 1 1 280px; min-width: 0; }
   .att.scroll { max-height: 280px; overflow: auto; }
   .tw { display: flex; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-3); }
-  .tw div, .tw a { display: flex; flex-direction: column; color: var(--text); text-decoration: none; min-width: 7rem; }
-  .tw a:hover { color: var(--primary); }
+  .tw div { display: flex; flex-direction: column; color: var(--text); text-decoration: none; min-width: 7rem; }
   .tw b { font: 700 20px/1.1 var(--ff-display); }
   .tw b.hot { color: var(--danger); }
   .overline { margin: var(--space-4) 0 var(--space-1); }
@@ -165,10 +162,4 @@
   .tl li { position: relative; padding: 0 0 var(--space-3) var(--space-2); display: flex; flex-direction: column; gap: 2px; }
   .dot { position: absolute; left: -21px; top: 4px; width: 12px; height: 12px; border-radius: 50%; background: var(--viz-1); border: 2px solid var(--surface); }
   .tr { color: var(--text); }
-  .num { text-align: right; font-variant-numeric: tabular-nums; }
-  .split { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: stretch; }
-  .split > div { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; }
-  .cap-line { margin: 0 0 var(--space-2); font-size: 12px; font-weight: 600; color: var(--text-muted); }
-  @media (max-width: 900px) { .split { flex-direction: column; } }
-  @media (max-width: 600px) { .hide-sm { display: none; } }
 </style>

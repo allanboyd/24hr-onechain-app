@@ -7,11 +7,11 @@
   import ExportMenu from './ExportMenu.svelte';
   import { freshnessText, type When } from './Freshness.svelte';
   import type { Rows } from './export/meta';
-  import InfoTip from '../page/InfoTip.svelte';
   import Table from '@lucide/svelte/icons/table-2';
   import ChartIcon from '@lucide/svelte/icons/chart-column';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import CircleDashed from '@lucide/svelte/icons/circle-dashed';
+  import './report.css';
 
   let {
     title, subtitle = '', decision = '', definition = '', owner = '', unit = '', period = '', updatedAt, freshness = 'updated', staleAfter = 60,
@@ -40,21 +40,18 @@
   let now = $state(Date.now());
   $effect(() => { const id = setInterval(() => (now = Date.now()), 30_000); return () => clearInterval(id); });
   const ready = $derived(!loading && !error);
-  const stale = $derived(updatedAt != null && now - +new Date(updatedAt) > staleAfter * 60000);
-  const infoLines = $derived([subtitle, definition, unit ? `Unit: ${unit}` : '', period, updatedAt !== undefined ? freshnessText(updatedAt, freshness, now) : '', owner ? `Data owner: ${owner}` : ''].filter((x): x is string => !!x));
   const data = $derived(ready && rows ? rows() : []);
   const isEmpty = $derived(ready && (empty ?? (rows ? data.length <= 1 : false)));
   const isNum = (v: unknown) => typeof v === 'number';
   const name = $derived(filename ?? title.toLowerCase().replace(/\W+/g, '-').replace(/^-|-$/g, ''));
+  $effect(() => { decision; filters; staleAfter; });
   const meta = () => ({ title, subtitle, definition, unit, period, filters: filterText, owner, freshness: updatedAt === undefined ? '' : freshnessText(updatedAt, freshness, now) });
 </script>
 
 <section class="card dash-panel span-{span}" aria-labelledby="{uid}-t" aria-busy={loading}>
   <header>
     <div class="title-row">
-      <h3 id="{uid}-t">{title}</h3>
-      {#if infoLines.length}<InfoTip lines={infoLines} label="About {title}" mark={stale} size={15} />{/if}
-      {#if decision}<InfoTip kind="alert" text={decision} label="Recommendation" size={15} />{/if}
+      <h3 id="{uid}-t" title={title}>{title}</h3>
     </div>
     <div class="tools">
       {@render actions?.()}
@@ -67,8 +64,6 @@
       {/if}
     </div>
   </header>
-  {#if filters}<div class="filters">{@render filters()}</div>{/if}
-
   <div class="body" bind:this={body}>
     {#if error}
       <ErrorState {error} {onretry} compact />
@@ -95,17 +90,22 @@
 </section>
 
 <style>
-  .dash-panel { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; width: 100%; height: auto; align-self: start; padding: var(--space-4) var(--space-5); }
-  .dash-panel > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin: 0; min-height: 32px; }
+  .dash-panel { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; width: 100%; height: 100%; align-self: stretch; padding: var(--space-4) var(--space-5); container-type: inline-size; container-name: dash-panel; }
+  .dash-panel > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); margin: 0; min-height: 32px; }
   .title-row { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1 1 auto; }
-  .dash-panel h3 { margin: 0; min-width: 0; font-size: var(--fs-h4); line-height: var(--lh-h4); }
+  .dash-panel h3 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-h4); line-height: var(--lh-h4); }
   .tools { display: flex; align-items: center; gap: var(--space-1); flex: none; margin-left: auto; }
+  /* Narrow cards: the title stays one line; chart, table and export drop to the next row. */
+  @container dash-panel (max-width: 460px) {
+    .dash-panel > header { flex-wrap: wrap; align-items: center; }
+    .title-row { flex: 1 1 100%; }
+    .tools { margin-left: 0; }
+  }
   .view-toggle { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-sunken); }
   .view-toggle .ibtn[aria-pressed='true'] { color: var(--text); background: var(--surface-raised); box-shadow: var(--elevation-1); }
   .ibtn { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--radius-full); border: 0; background: none; color: var(--text-subtle); cursor: pointer; }
   .ibtn:hover, .ibtn[aria-pressed='true'] { color: var(--text); background: var(--surface-sunken); }
-  .filters { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
-  .body { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+  .body { min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; gap: var(--space-2); }
   .nodata { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-1); min-height: 180px; text-align: center; color: var(--text-muted); background: var(--surface-sunken); border-radius: var(--radius-md); padding: var(--space-6); }
   footer { display: flex; justify-content: flex-end; }
   footer :global(.btn) { gap: 4px; }

@@ -56,6 +56,95 @@ ok(td.mtd && td.period.from.slice(8, 10) === '01' && Date.parse(td.prev.to) - Da
 const pmM = (await api.dashboards.get(['combined-performance'], { from: td.period.from, to: new Date(Date.parse(td.period.to) + 1).toISOString() })).results['combined-performance']!.data as { revenue: number };
 ok(Math.abs(td.sales.value! - pmM.revenue) < 1, 'Today: sales = the performance report revenue for the same days (landed cost v2 source)', [td.sales.value, pmM.revenue]);
 ok(td.profit.value !== null && td.profit.margin !== null && Math.abs(td.profit.margin - (td.profit.value + 0) / td.sales.value!) < 0.02, 'Today: profit and margin (landed cost based)', [td.profit.value, td.profit.margin]);
+// ---- design v3 Management · Overview (V3-10): the same numbers as the live dashboards for the same period ----
+type MO = import('../src/dashboards').MgmtOverview;
+const mo = (await api.dashboards.get(['mgmt-overview'], { from: td.period.from, to: new Date(Date.parse(td.period.to) + 1).toISOString() })).results['mgmt-overview']!.data as MO;
+ok(Math.abs(mo.kpis.revenue.value! - td.sales.value!) < 1 && Math.abs(mo.kpis.revenue.value! - pmM.revenue) < 1, 'Management Overview: revenue = Today sales = performance revenue (same period)', [mo.kpis.revenue.value, td.sales.value, pmM.revenue]);
+ok(Math.abs(mo.kpis.profit.value! - td.profit.value!) < 1 && Math.abs((mo.kpis.margin.value ?? 0) - (td.profit.margin ?? 0)) < 0.001, 'Management Overview: profit and margin = Today', [mo.kpis.profit.value, td.profit.value, mo.kpis.margin.value, td.profit.margin]);
+ok(mo.kpis.revenue.prev !== null && (mo.kpis.revenue.spark?.length ?? 0) === 6 && mo.byMonth.length === 12, 'Management Overview: previous period, 6-month sparks, 12 months of sales and profit', [mo.kpis.revenue.prev, mo.byMonth.length]);
+ok(mo.waterfall.length >= 3 && mo.waterfall[0].kind === 'total' && Math.abs(mo.waterfall[0].value - mo.kpis.revenue.value!) < 1, 'Management Overview: profit waterfall starts at revenue', mo.waterfall.slice(0, 2));
+ok(Math.abs(mo.per100.reduce((a, x) => a + x.value, 0) - 100) < 0.5, 'Management Overview: where each $100 went adds up to 100', mo.per100);
+ok(mo.decisions.length === td.decisions.length && mo.kpis.flagged.count === td.decisions.reduce((a, d) => a + (d.count ?? 0), 0), 'Management Overview: act-on-these-first = the Today decisions', [mo.kpis.flagged, td.decisions.length]);
+ok(mo.byWarehouse.length > 0 && Math.abs(mo.byWarehouse.reduce((a, w) => a + w.sales, 0) - mo.kpis.revenue.value!) < 2, 'Management Overview: sales by warehouse add up to revenue', [mo.byWarehouse.reduce((a, w) => a + w.sales, 0), mo.kpis.revenue.value]);
+ok(mo.brands.best.length > 0 && mo.brands.best.every((b, i, a) => i === 0 || a[i - 1].margin >= b.margin), 'Management Overview: best brands by margin, highest first');
+// ---- Management · Plans and orders (V3-10 step 2) = the planned-vs-actual report for the same dates ----
+{
+  const y0 = `${new Date().getUTCFullYear()}-01-01T00:00:00.000Z`, y1 = new Date(Date.now() + 864e5).toISOString();
+  const mp = (await api.dashboards.get(['mgmt-plans'], { from: y0, to: y1 })).results['mgmt-plans']!.data as import('../src/dashboards').MgmtPlans;
+  const pv = await api.reports.plannedVsActual({ from: y0, to: y1 });
+  ok(mp.measures.planned === pv.measures.planned && mp.measures.ordered === pv.measures.ordered && mp.measures.usedPct === pv.measures.usedPct, 'Management Plans: planned / ordered / used = the planned-vs-actual report (same dates)', [mp.measures, pv.measures]);
+  ok(Math.abs(mp.months.reduce((a, m) => a + m.planned, 0) - pv.measures.planned) <= mp.months.length && mp.byBrand.length === pv.byBrand.length, 'Management Plans: months add up to the plan; one row per brand', [mp.months.length, mp.byBrand.length]);
+  ok(mp.byBrand.every((b) => !/^p-[a-z]\d+/.test(b.label)), 'Management Plans: brand names, not codes', mp.byBrand.slice(0, 2));
+}
+// ---- Management · Sales and clients (V3-10 step 3) = the Today view's sales and owed figures ----
+{
+  const mc = (await api.dashboards.get(['mgmt-clients'], { from: td.period.from, to: new Date(Date.parse(td.period.to) + 1).toISOString() })).results['mgmt-clients']!.data as import('../src/dashboards').MgmtClients;
+  ok(Math.abs(mc.kpis.sales! - td.sales.value!) < 1, 'Management Clients: sales = Today sales (same period)', [mc.kpis.sales, td.sales.value]);
+  ok(mc.kpis.owed === td.cash.value && mc.kpis.overdue === td.cash.overdue, 'Management Clients: owed and overdue = Today cash to collect', [mc.kpis.owed, td.cash.value, mc.kpis.overdue, td.cash.overdue]);
+  ok(Math.abs(mc.balances.within + mc.balances.overdue - mc.kpis.owed!) < 1, 'Management Clients: within credit time + overdue = owed');
+  ok(Math.abs(mc.clients.reduce((a, x) => a + x.total, 0) - mc.kpis.sales!) < 2 && Math.abs(mc.pay.reduce((a, x) => a + x.total, 0) - mc.kpis.sales!) < 2, 'Management Clients: clients and payment types add up to sales');
+  ok(mc.clients.every((x, i, a) => i === 0 || a[i - 1].purchases >= x.purchases) && mc.records.length === Math.min(1000, mc.kpis.purchases) && mc.terms === 14, 'Management Clients: most frequent first; a record per sale; one 14-day rule');
+}
+// ---- Management · Warehouse performance (V3-10 step 3b) = the performance report by warehouse ----
+{
+  const per = { from: td.period.from, to: new Date(Date.parse(td.period.to) + 1).toISOString() };
+  const mf = (await api.dashboards.get(['mgmt-perf'], per)).results['mgmt-perf']!.data as import('../src/dashboards').MgmtPerf;
+  ok(Math.abs(mf.headline.revenue! - mo.kpis.revenue.value!) < 1 && Math.abs(mf.headline.profit! - mo.kpis.profit.value!) < 1, 'Management Performance: headline revenue / profit = Overview (same period)', [mf.headline, mo.kpis.revenue.value]);
+  ok(Math.abs(mf.warehouses.reduce((a, w) => a + w.revenue, 0) - mf.headline.revenue!) < 2 && mf.warehouses.every((w, i, a) => i === 0 || a[i - 1].profit >= w.profit), 'Management Performance: warehouses add up, most profitable first');
+  ok(mf.floor.length > 0 && mf.floor.every((x) => x.floor === null || x.landedPerCase === null || Math.abs(x.floor - x.landedPerCase / (1 - mf.targetMargin)) < 0.05 * x.floor), 'Management Performance: price floor = landed cost ÷ (1 − target margin)', mf.floor.slice(0, 2));
+  ok(mf.months.length === 12 && mf.plan.months.length >= 1, 'Management Performance: 12 months of margin / profit per case; plan vs actual by month');
+}
+// ---- Management · Supplier balances (V3-10 step 3c): short loads = ordered − loaded on loaded trucks, at the PO price ----
+{
+  const y0 = `${new Date().getUTCFullYear() - 1}-01-01T00:00:00.000Z`, y1 = new Date(Date.now() + 864e5).toISOString();
+  const ms = (await api.dashboards.get(['mgmt-suppliers'], { from: y0, to: y1 })).results['mgmt-suppliers']!.data as import('../src/dashboards').MgmtSuppliers;
+  const lds = await api.loading.list();
+  const shortLines = lds.filter((l) => l.status === 'Loaded' && l.loadedAt).flatMap((l) => l.lines.filter((x) => !x.alternativeFor && x.orderedQty > x.loadedQty));
+  ok(ms.loads.length > 0 && ms.loads.length === Math.min(1000, shortLines.length) && ms.loads.every((r) => r.short === r.ordered - r.loaded && r.short > 0 && r.value >= 0), 'Management Suppliers: one row per short line on loaded trucks (= the loadings), short = ordered − loaded', [ms.loads.length, shortLines.length]);
+  ok(Math.abs(ms.bySupplier.reduce((a, x) => a + x.held, 0) - ms.kpis.held) < 1 && Math.abs(ms.byMonth.at(-1)!.total - ms.kpis.held) < 1, 'Management Suppliers: suppliers and the running total by month add up to the money held', [ms.kpis.held, ms.byMonth.at(-1)]);
+  const lastBal = new Map<string, number>(); for (const r of [...ms.statement].reverse()) lastBal.set(r.supplierId, r.balance);
+  ok(ms.bySupplier.every((x) => Math.abs((lastBal.get(x.supplierId) ?? 0) - x.held) < 1), 'Management Suppliers: each statement ends at that supplier\'s balance');
+  ok(ms.notRecorded.length === 0 && ms.loads.every((r) => !/^p-[a-z]\d/.test(r.brand)), 'Management Suppliers: credit notes, advances and pro-formas are recorded on the PO now (none flagged); names not codes');
+}
+// ---- Management · Cash and closing (V3-10 step 3d): money in / out and opening → closing from what we record ----
+{
+  const per = { from: td.period.from, to: new Date(Date.parse(td.period.to) + 1).toISOString() };
+  const r = await api.dashboards.get(['mgmt-cash', 'mgmt-clients'], per);
+  const mcash = r.results['mgmt-cash']!.data as import('../src/dashboards').MgmtCash;
+  const mcl = r.results['mgmt-clients']!.data as import('../src/dashboards').MgmtClients;
+  const recPaid = mcl.records.reduce((a, x) => a + x.paid, 0), recBal = mcl.records.reduce((a, x) => a + x.balance, 0);
+  ok(Math.abs(mcash.kpis.received - recPaid) < 1 && Math.abs(mcash.kpis.toCollect - recBal) < 1, 'Management Cash: received / still to collect = the Sales and clients records (same period)', [mcash.kpis.received, recPaid, mcash.kpis.toCollect, recBal]);
+  ok(mcash.clients.closing === mcl.kpis.owed, 'Management Cash: client balances closing = owed on Sales and clients', [mcash.clients.closing, mcl.kpis.owed]);
+  // V3-12 step 4: the statement ends at cash in hand (cash at start + in − out) or, with no cash at start yet, at the net movement
+  const st = mcash.statement; const end = st[st.length - 1].value!; const start = st[0].kind === 'missing' ? 0 : st[0].value ?? 0;
+  ok(Math.abs(start + st.filter((x) => x.kind === 'in' || x.kind === 'out').reduce((a, x) => a + (x.value ?? 0), 0) - end) < 1 && Math.abs(-st.find((x) => /Sent to the company/.test(x.label))!.value! - mcash.cash.transfers) < 0.01 && mcash.notRecorded.length === 0,
+    'Management Cash: statement adds up (cash at start + in − out = the last line); cash sent to the company is recorded');
+  const stockRows = await api.inventory.stock();
+  const closingNow = stockRows.reduce((a, x) => a + x.closing, 0);
+  ok(Math.abs(mcash.stock.closing - closingNow) <= 1 && mcash.stock.opening + mcash.stock.received - mcash.stock.sold + mcash.stock.other === mcash.stock.closing, 'Management Cash: stock closing = the stock list; opening + received − sold ± other = closing', [mcash.stock, closingNow]);
+  const exps = await api.warehouse.expenses({ from: per.from.slice(0, 10), to: per.to.slice(0, 10) });
+  const expIn = exps.filter((e) => Date.parse(`${e.date}T00:00:00Z`) >= Date.parse(per.from) && Date.parse(`${e.date}T00:00:00Z`) < Date.parse(per.to)).reduce((a, e) => a + e.amountUsd, 0);
+  ok(Math.abs(mcash.kpis.warehouseBills - expIn) < 1, 'Management Cash: warehouse bills = the warehouse expenses of the period', [mcash.kpis.warehouseBills, expIn]);
+  ok(mcash.byMonth.length === 12 && mcash.byWarehouse.length > 0, 'Management Cash: 12 months and by warehouse');
+}
+// ---- Management · Executive report (V3-10 step 3e): sentences by fixed rules from the same figures ----
+{
+  const per = { from: td.period.from, to: new Date(Date.parse(td.period.to) + 1).toISOString() };
+  const r = await api.dashboards.get(['mgmt-exec', 'mgmt-overview', 'mgmt-perf', 'mgmt-clients', 'mgmt-suppliers'], per);
+  const ex = r.results['mgmt-exec']!.data as import('../src/dashboards').MgmtExec;
+  const o = r.results['mgmt-overview']!.data as import('../src/dashboards').MgmtOverview;
+  const pfd = r.results['mgmt-perf']!.data as import('../src/dashboards').MgmtPerf;
+  const cld = r.results['mgmt-clients']!.data as import('../src/dashboards').MgmtClients;
+  const spd = r.results['mgmt-suppliers']!.data as import('../src/dashboards').MgmtSuppliers;
+  const all = [...ex.good, ...ex.decisions];
+  ok(all.length > 0 && all.every((x) => /\.$/.test(x.text) && !/undefined|NaN|null|—/.test(x.text)), 'Management Exec: every sentence is clean (no undefined / NaN / em dash, ends with a full stop)', all.map((x) => x.text));
+  const has = (k: string) => ex.decisions.some((x) => x.key === k);
+  ok(has('margin-low') === ((o.kpis.margin.value ?? 1) < ex.targetMargin), 'Management Exec: "margin below target" exactly when the margin is below target');
+  ok(has('below-floor') === pfd.floor.some((x) => x.below), 'Management Exec: "below the safe price" exactly when a product is');
+  ok(has('overdue') === ((cld.kpis.overdue ?? 0) > 0) && has('supplier-cash') === (spd.kpis.held > 0), 'Management Exec: overdue and supplier-cash decisions follow their figures');
+  const comb = ex.table.find((x) => x.combined)!;
+  ok(Math.abs(comb.revenue - o.kpis.revenue.value!) < 1 && Math.abs(ex.table.filter((x) => !x.combined).reduce((a, x) => a + x.revenue, 0) - comb.revenue) < 2, 'Management Exec: combined row = Overview; warehouses add up', [comb.revenue, o.kpis.revenue.value]);
+}
 ok(td.cash.value! > 0 && td.cash.overdue! <= td.cash.value! && td.cash.spark?.length === 8, 'Today: cash to collect with the overdue part (never more than the total)', [td.cash.value, td.cash.overdue]);
 ok(td.owed.bands.length === 3 && td.owed.total === td.cash.value && td.owed.overdue === td.cash.overdue && td.owed.top.length > 0 && td.owed.bands.every((b) => b.value >= 0), 'Today: who-owes-us ageing bands and top customers', td.owed);
 ok(td.trucks.value !== null && td.trucks.delayed <= td.trucks.value && td.trucks.spark?.length === 14 && td.trucks.spark.at(-1) === td.trucks.value, 'Today: trucks on the road, delayed, 14-day trend ending at now', td.trucks);
@@ -199,5 +288,7 @@ const eT = emptyT.data as import('../src/dashboards').TodayData;
 ok(emptyT.empty && eT.sales.value === null && eT.profit.value === null && eT.cash.value === null && eT.trucks.value === null && eT.stock === null && eT.daily.every((x) => x.sales === null), 'Today with no records: null everywhere ("No data yet"), never zeros', { s: eT.sales, t: eT.trucks.value });
 ok(buildDashboards(src, { id: 'u', roles: ['planner'], loadingPointIds: [], warehouseIds: [] }, ['director-today']).results['director-today'] === undefined, 'Today is not built for a planner');
 
+await as('u-kabonge');
+await rejects(api.dashboards.get(['mgmt-overview']), /not available|403|forbidden/i, 'Management Overview: not for a planner (no reports access)');
 console.log(fails ? `\n${fails} dashboard check(s) FAILED` : '\nall dashboard checks passed');
 if (fails) process.exitCode = 1;

@@ -36,6 +36,9 @@ export const users = pgTable('users', {
   createdAt: ts('created_at').notNull().default(now()),
   /** docs/12 A-08: last successful sign-in. */
   lastLoginAt: ts('last_login_at'),
+  /** V3-12: money notifications by email / SMS (in-app is always on); off until the person turns them on. */
+  notifyEmail: boolean('notify_email').notNull().default(false),
+  notifySms: boolean('notify_sms').notNull().default(false),
 });
 
 /** The three sibling companies (tenants). Legal/contact fields are the source for letterheads; brand assets live in
@@ -185,7 +188,37 @@ export const sales = pgTable('sales', {
   currency: text('currency').notNull(), paid: doublePrecision('paid').notNull(), status: text('status').notNull(),
   /** Buyer is a sibling company: eliminated from group totals. */
   counterpartyEntityId: text('counterparty_entity_id'),
-}, (t) => [index('sales_wh_at_idx').on(t.warehouseId, t.at), index('sales_entity_idx').on(t.entityId, t.at)]);
+  /** V3-12: the client record and its credit days when the sale was made (the overdue rule uses these). */
+  clientId: text('client_id'), termsDays: integer('terms_days').notNull().default(14),
+}, (t) => [index('sales_wh_at_idx').on(t.warehouseId, t.at), index('sales_entity_idx').on(t.entityId, t.at), index('sales_client_idx').on(t.clientId)]);
+/** V3-12 step 4: warehouse cash: cash at start (per receiving company, warehouseId null; or a warehouse's part) and cash
+ *  sent from a warehouse to the company account (with the bank slip). */
+export const cashEntries = pgTable('cash_entries', {
+  id: text('id').primaryKey(), kind: text('kind').notNull(), receivingCompanyId: text('receiving_company_id').notNull(), warehouseId: text('warehouse_id'),
+  amount: doublePrecision('amount').notNull(), currency: text('currency').notNull(), fxRate: doublePrecision('fx_rate').notNull().default(1), amountUsd: doublePrecision('amount_usd').notNull(),
+  date: text('date').notNull(), reference: text('reference'), note: text('note'), slip: jsonb('slip').$type<DocumentRef | null>(),
+  byUserId: text('by_user_id').notNull(), at: ts('at').notNull().default(now()),
+}, (t) => [index('cash_entries_rc_idx').on(t.receivingCompanyId, t.kind), index('cash_entries_wh_idx').on(t.warehouseId, t.date)]);
+/** V3-12 step 3: supplier money on the purchase order (base PO of the chain): pro-forma, advance, credit note, use of held money. */
+export const supplierEntries = pgTable('supplier_entries', {
+  id: text('id').primaryKey(), entityId: text('entity_id').notNull(), supplierId: text('supplier_id').notNull(), poId: text('po_id'), poRef: text('po_ref'),
+  kind: text('kind').notNull(), amount: doublePrecision('amount').notNull(), currency: text('currency').notNull(), fxRate: doublePrecision('fx_rate').notNull().default(1), amountUsd: doublePrecision('amount_usd').notNull(),
+  date: text('date').notNull(), reference: text('reference'), note: text('note'), document: jsonb('document').$type<DocumentRef | null>(),
+  status: text('status').notNull(), linkedId: text('linked_id'), byUserId: text('by_user_id').notNull(), at: ts('at').notNull().default(now()),
+  decidedById: text('decided_by_id'), decidedAt: ts('decided_at'),
+}, (t) => [index('supplier_entries_pair_idx').on(t.entityId, t.supplierId), index('supplier_entries_po_idx').on(t.poId)]);
+/** V3-12 step 2: money received from a client against a sale; `sales.paid` = the sum of its payments. */
+export const clientPayments = pgTable('client_payments', {
+  id: text('id').primaryKey(), entityId: text('entity_id').notNull(), saleId: text('sale_id').notNull(), clientId: text('client_id'), warehouseId: text('warehouse_id').notNull(),
+  amount: doublePrecision('amount').notNull(), currency: text('currency').notNull(), fxRate: doublePrecision('fx_rate').notNull().default(1), amountUsd: doublePrecision('amount_usd').notNull(),
+  at: ts('at').notNull(), method: text('method'), reference: text('reference'), byUserId: text('by_user_id'), createdAt: ts('created_at').notNull().default(now()),
+}, (t) => [index('client_payments_sale_idx').on(t.saleId), index('client_payments_entity_at_idx').on(t.entityId, t.at)]);
+/** V3-12: clients of a company, picked (or created) on the sale; credit days per client (default 14). */
+export const clients = pgTable('clients', {
+  id: text('id').primaryKey(), entityId: text('entity_id').notNull(), name: text('name').notNull(), nameKey: text('name_key').notNull(),
+  phone: text('phone'), warehouseId: text('warehouse_id'), termsDays: integer('terms_days').notNull().default(14),
+  active: boolean('active').notNull().default(true), createdAt: ts('created_at').notNull().default(now()), byUserId: text('by_user_id'),
+}, (t) => [uniqueIndex('clients_entity_name_idx').on(t.entityId, t.nameKey)]);
 export const tripCosts = pgTable('trip_costs', {
   id: text('id').primaryKey(), entityId: text('entity_id').notNull(), shipmentId: text('shipment_id').notNull(), legId: text('leg_id'), kind: text('kind').notNull(),
   amount: doublePrecision('amount').notNull(), currency: text('currency').notNull(), docRef: text('doc_ref'),

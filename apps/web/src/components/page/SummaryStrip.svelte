@@ -10,6 +10,8 @@
     /** the status word (defaults to the status' own word: On track / At risk / Delayed / No data) */ statusLabel?: string;
     /** false = information only, not a filter */ filter?: boolean;
     /** ⓘ explanation of how the figure is counted */ info?: string;
+    /** icon in the status line (an arrow, and so on). The status colour still comes from `status`. */
+    icon?: any;
   }
 </script>
 
@@ -40,14 +42,11 @@
   } = $props();
   const shownTiles = $derived(tiles.slice(0, 4));
   const fmt = (t: SummaryTile) => (t.value === null || t.value === undefined ? '—' : typeof t.value === 'number' ? (t.format ?? ((n: number) => n.toLocaleString('en-US')))(t.value) : t.value);
-  let touched = $state(false);
   const filtered = $derived(!!value && value !== allValue);
   const activeLabel = $derived(tiles.find((t) => t.key === value)?.label ?? labels[value] ?? value);
-  const needsAction = $derived(filtered && !touched && !!auto && value === auto);
   const count = (n: number | null) => (n === null || n === undefined ? '' : n.toLocaleString('en-US'));
 
   function set(v: string) {
-    touched = true;
     value = v;
     if (sync) writeQuery({ [param]: value || null });
     onchange?.(value);
@@ -61,7 +60,7 @@
     {@const m = t.status ? statusMeta(t.status, t.statusLabel) : null}
     {@const empty = t.value === null || t.value === undefined}
     {@const on = value === t.key}
-    {@const Icon = m?.icon}
+    {@const Icon = t.icon ?? m?.icon}
     <div class="tile" class:on class:static={t.filter === false}>
       {#if t.filter === false}
         <div class="face">
@@ -81,13 +80,13 @@
   {/each}
 </div>
 {#if noun}
-  <div class="filter-note" class:on={filtered}>
+  <div class="filter-note" class:on={filtered} class:opened={!!auto && value === auto}>
     <button type="button" class="sel-chip" aria-pressed={!filtered} onclick={showAll} title={filtered ? `Show all ${noun}` : `Showing all ${noun}`}>All {noun}{#if total !== null && total !== undefined}<span class="n">{count(total)}</span>{/if}</button>
-    <span class="say" aria-live="polite">
-      {#if filtered}{needsAction ? 'Showing what needs action:' : 'Showing:'} <b>{activeLabel}</b>{#if shown !== null && total !== null}{' '}({count(shown)} of {count(total)}){:else if shown !== null}{' '}({count(shown)}){/if}
-      {:else if shown !== null && total !== null && shown !== total}Showing {count(shown)} of {count(total)} {noun} (other filters below)
-      {:else}Showing all {noun} · pick a figure above to see only those{/if}
-    </span>
+    {#if filtered}
+      <span class="say" aria-live="polite"><b>{activeLabel}</b>{#if shown !== null && total !== null}{' · '}{count(shown)} of {count(total)}{:else if shown !== null}{' · '}{count(shown)}{/if}</span>
+    {:else if shown !== null && total !== null && shown !== total}
+      <span class="say" aria-live="polite">{count(shown)} of {count(total)}</span>
+    {/if}
     {#if filtered}<button type="button" class="btn btn-ghost btn-sm all-btn" onclick={showAll}>Show all<X size={14} aria-hidden="true" /></button>{/if}
   </div>
 {/if}
@@ -110,7 +109,7 @@
   .tile { position: relative; min-width: 0; }
   /* layout only — colours, border and the chosen state come from .sel-card (base.css) */
   .face { flex-direction: column; align-items: stretch; justify-content: center; gap: 2px; width: 100%; min-height: 72px; height: 100%; padding: var(--space-2) var(--space-4); }
-  div.face { display: flex; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+  div.face { display: flex; background: var(--surface); color: var(--text); border: 1px solid var(--card-border); border-radius: var(--radius-lg); box-shadow: var(--elevation-1); }
   .top { display: flex; align-items: center; gap: 6px; min-width: 0; padding-right: 22px; }
   .vrow { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
   .lbl { font: 600 var(--fs-label) / var(--lh-label) var(--ff-body); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -118,13 +117,16 @@
   .on .lbl { color: var(--sel-ink); font-weight: 700; }
   .val { font: 700 22px / 28px var(--ff-display); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
   .val.none { color: var(--text-subtle); }
-  .sub { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: var(--fs-caption); line-height: var(--lh-caption); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sub { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 16px; font-size: var(--fs-caption); line-height: var(--lh-caption); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .st { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; flex: none; }
   .st :global(svg) { flex: none; }
   .dot { color: var(--text-subtle); }
   .muted { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; }
   .info { position: absolute; top: 8px; right: 8px; }
-  .say { min-width: 0; }
+  .filter-note { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--elevation-1); min-height: 52px; padding: 8px 12px; margin-bottom: var(--space-4); }
+  .filter-note.on { background: var(--surface); color: var(--text); box-shadow: var(--elevation-1); }
+  .say { min-width: 0; color: var(--text-muted); }
+  .say b { color: var(--text); font-weight: 600; }
   .all-btn { gap: 4px; }
   @media (max-width: 600px) {
     .strip { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }

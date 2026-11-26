@@ -10,6 +10,12 @@ body { background: var(--bg); color: var(--text); font-family: var(--ff-body); f
 a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
 :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* V3-11a: scrollbars in the brand colour (light: navy, dark: orange), thin, rounded */
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--primary) 55%, transparent) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--primary) 55%, transparent); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--primary); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
 /* Typography */
@@ -35,15 +41,23 @@ h4 { font-size: var(--fs-h4); line-height: var(--lh-h4); font-weight: 600; }
 .grid { display: grid; gap: var(--space-4); }
 .grid-2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
 .grid-kpi { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
-.ribbon { height: 3px; background: var(--brand-ribbon); }
+.ribbon { display: none; } /* v3: no brand ribbon above the top bar (docs/23 §5) */
 hr.sep { border: 0; border-top: 1px solid var(--border); margin: var(--space-4) 0; }
 
 /* Card */
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-5); }
+.card { background: var(--surface); border: 1px solid var(--card-border); border-radius: var(--radius-lg); box-shadow: var(--elevation-1); padding: var(--space-5); }
 .card.flush { padding: 0; overflow: hidden; }
 .card > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); }
 .card.flush > header { padding: var(--space-4) var(--space-5); margin: 0; border-bottom: 1px solid var(--border); }
-.card.flag-danger { border-left: 3px solid var(--danger); } .card.flag-warning { border-left: 3px solid var(--warning-solid); } .card.flag-success { border-left: 3px solid var(--success); } .card.flag-info { border-left: 3px solid var(--info); }
+/* Status cards: a light wash of the state colour, and the icon in that colour. No left bar (it follows the corner). */
+.card.flag-danger { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); border-left-width: 1px; }
+.card.flag-warning { background: color-mix(in srgb, var(--warning-solid) 14%, var(--surface)); border-left-width: 1px; }
+.card.flag-success { background: color-mix(in srgb, var(--success) 10%, var(--surface)); border-left-width: 1px; }
+.card.flag-info { background: color-mix(in srgb, var(--info) 10%, var(--surface)); border-left-width: 1px; }
+.card.flag-danger svg { color: var(--danger); }
+.card.flag-warning svg { color: var(--warning); }
+.card.flag-success svg { color: var(--success); }
+.card.flag-info svg { color: var(--info); }
 .kpi .value { font-family: var(--ff-display); font-size: 28px; line-height: 36px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .kpi .delta { font-size: var(--fs-caption); color: var(--text-muted); }
 
@@ -63,6 +77,11 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: var(--space-4) 
 .field { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
 .field > span, .label { font-size: var(--fs-label); line-height: var(--lh-label); font-weight: 600; color: var(--text); }
 .input, .select, .textarea { width: 100%; height: var(--control-md); padding: 0 var(--space-3); background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius-md); font: inherit; }
+/* v3: one chevron for every select (no OS arrow), drawn from tokens so it follows the theme */
+.select, select.input { appearance: none; -webkit-appearance: none; padding-right: 34px; cursor: pointer; background-repeat: no-repeat;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%), linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position: calc(100% - 17px) 52%, calc(100% - 12px) 52%; background-size: 5px 5px, 5px 5px; }
+.select[multiple], select.input[multiple] { background-image: none; padding-right: var(--space-3); height: auto; }
 .textarea { height: auto; min-height: 80px; padding: var(--space-2) var(--space-3); resize: vertical; }
 .input.num { text-align: right; }
 .input:focus, .select:focus, .textarea:focus { outline: 2px solid var(--focus-ring); outline-offset: 0; border-color: transparent; }
@@ -71,7 +90,7 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: var(--space-4) 
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-4); }
 
 /* Badges */
-.badge { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: var(--radius-sm); font: 600 12px/1 var(--ff-body); white-space: nowrap; }
+.badge { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 9px; border-radius: var(--radius-full); font: 600 12px/1 var(--ff-body); white-space: nowrap; }
 .tone-neutral { background: var(--surface-sunken); color: var(--text-muted); }
 .tone-info { background: var(--info-subtle); color: var(--info); }
 .tone-success { background: var(--success-subtle); color: var(--success); }
@@ -129,7 +148,7 @@ dialog.sheet > .body { padding: var(--space-6); }
 :root { --sel-bg: var(--primary-subtle); --sel-line: var(--primary); --sel-ink: var(--primary); --sel-fill: var(--primary); --sel-on-fill: var(--text-on-primary); }
 
 /* 1. radio-card */
-.sel-card { position: relative; display: flex; align-items: center; gap: var(--space-3); min-width: 0; text-align: left; font: inherit; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4); cursor: pointer;
+.sel-card { position: relative; display: flex; align-items: center; gap: var(--space-3); min-width: 0; text-align: left; font: inherit; color: var(--text-muted); background: var(--surface); border: 1px solid var(--card-border); border-radius: var(--radius-lg); box-shadow: var(--elevation-1); padding: var(--space-3) var(--space-4); cursor: pointer;
   transition: background var(--motion-fast) var(--motion-easing), border-color var(--motion-fast) var(--motion-easing), box-shadow var(--motion-fast) var(--motion-easing), transform var(--motion-fast) var(--motion-easing); }
 .sel-card:hover { border-color: var(--border-strong); background: var(--surface-sunken); box-shadow: var(--elevation-2); transform: translateY(-1px); }
 .sel-card:is([aria-pressed='true'], [aria-selected='true'], [aria-checked='true'], [aria-current='page'], [aria-current='true'], .on) { color: var(--text); background: var(--sel-bg); border-color: var(--sel-line); box-shadow: inset 0 0 0 1px var(--sel-line); transform: none; }

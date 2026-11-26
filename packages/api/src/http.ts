@@ -5,7 +5,7 @@ import * as R from './rules';
 import * as RP from './reports';
 import type {
   AckLine, Acknowledgement, CheckpointPass, Device, DriverWork, Entity, Flag, FxRate, GiverWork, ID, JourneyStep, Leg, Loading, Notification, PeriodKind, PeriodPlan, Plan, PlanLine, PoDetail, PoInput, PoUpdateInput,
-  PlanLineContext, PvThresholds,
+  MyDevice, MyProfile, MySecretInput, CashEntry, CashOpeningInput, CashOverview, CashTransferInput, SupplierEntry, SupplierEntryInput, SupplierMoney, Client, ClientInput, ClientPayment, ClientPaymentInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PvThresholds,
   PurchaseOrder, ReceiverWork, Role, RouteStop, Sale, Shipment, StockRow, StoredFile, SyncResult, TripCost, TripPayment,
   Route, TruckIssue, User, UserAdmin, VelocityRow, WaitingEntry, Warehouse, WarehouseInput,
   DriverInput, Provider, ProviderInput, SavedDriver, Truck, TruckInput,
@@ -257,6 +257,10 @@ export const inventory = {
 export const sales = {
   list: (warehouseId?: ID) => get<Sale[]>(`/sales${warehouseId ? `?warehouseId=${warehouseId}` : ''}`),
   create: (input: Omit<Sale, 'id' | 'ref' | 'status' | 'entityId'> & { entityId?: ID }, override = false) => mutate(post<Sale>('/sales', { ...input, override }, key())),
+  /** V3-12 step 2: money received against a sale (updates its paid amount and status). */
+  recordPayment: (saleId: ID, input: ClientPaymentInput) => mutate(post<{ sale: Sale; payment: ClientPayment }>(`/sales/${saleId}/payments`, input, key())),
+  /** Payments of one sale, or all the caller may see (newest first). */
+  payments: (saleId?: ID) => get<ClientPayment[]>(saleId ? `/sales/${saleId}/payments` : '/client-payments'),
 };
 type Trip = { shipment: Shipment; costs: TripCost[]; payments: TripPayment[]; transport: number; paid: number; balance: number; goods: number; expenses: number; landing: number; cases: number; perCase: number; /** false = agreed transport price not recorded yet */ agreedRecorded: boolean };
 export const finance = {
@@ -343,6 +347,22 @@ export const users = {
   setSecret: (id: ID, input: { pin?: string; password?: string }) => post<boolean>(`/users/${id}/secret`, input),
   devices: (id: ID) => get<Device[]>(`/users/${id}/devices`),
 };
+/** V3-14: my own account. A password / PIN change ends my other sessions and gives this one a fresh session. */
+export const profile = {
+  get: () => get<MyProfile>('/me/profile'),
+  async update(input: { name?: string; email?: string | null }) {
+    const p = await call<MyProfile>('PATCH', '/me', input);
+    if (session) { session = { ...session, user: { ...session.user, name: p.name } }; write('btw-session', session); }
+    emit(); return p;
+  },
+  async changeSecret(input: MySecretInput) {
+    const s = await post<Session>('/me/secret', input);
+    session = { ...s, user: { ...(session?.user ?? s.user), ...s.user } }; write('btw-session', session); emit();
+    return true;
+  },
+  devices: () => get<MyDevice[]>('/me/devices'),
+  signOutDevice: (id: ID) => mutate(post<boolean>(`/auth/devices/${id}/revoke`)).then(() => true),
+};
 export const devices = {
   register: (input: { pushToken?: string; platform?: string; appVersion?: string }) => post<{ id: string }>('/devices', input),
   revoke: (deviceId: ID) => post<boolean>(`/auth/devices/${deviceId}/revoke`).then(() => true),
@@ -383,6 +403,12 @@ export const dashboards = {
 };
 
 // ---- docs/14 workstream B: warehouse money and data ---------------------------------------------------------------
+/** V3-12 step 4: warehouse cash (cash at start; cash sent to the company account). */
+export const cash = {
+  overview: () => get<CashOverview>('/warehouse/cash'),
+  setOpening: (input: CashOpeningInput) => mutate(call<CashEntry>('PUT', '/warehouse/cash/opening', input)),
+  send: (input: CashTransferInput) => mutate(post<CashEntry>('/warehouse/cash/transfers', input, key())),
+};
 export const warehouse = {
   expenses: (f: ExpenseFilter = {}) => get<WarehouseExpense[]>(`/warehouse/expenses${qs(f)}`),
   addExpense: (input: WarehouseExpenseInput) => mutate(post<WarehouseExpense>('/warehouse/expenses', input)),
@@ -412,6 +438,19 @@ export const entities = {
   active: (): ID | null => activeEntity,
   setActive: (id: ID | null) => configure({ entityId: id }),
 };
+/** V3-12 step 3: supplier money on a purchase order (pro-forma, advance, credit note) and a director's decision. */
+export const supplierMoney = {
+  forPo: (poId: ID) => get<SupplierMoney>(`/pos/${poId}/supplier-money`),
+  record: (poId: ID, input: SupplierEntryInput) => mutate(post<SupplierEntry[]>(`/pos/${poId}/supplier-money`, input, key())),
+  decide: (entryId: ID, approve: boolean) => mutate(post<SupplierEntry[]>(`/supplier-entries/${entryId}/decision`, { approve })),
+  list: () => get<SupplierEntry[]>('/supplier-entries'),
+};
+/** V3-12: clients of the company (picked on the sale; credit days). */
+export const clients = {
+  list: () => get<ClientRow[]>('/clients'),
+  create: (c: ClientInput) => mutate(call<Client>('POST', '/clients', c)),
+  update: (id: ID, c: Partial<ClientInput>) => mutate(call<Client>('PATCH', `/clients/${id}`, c)),
+};
 export const settings = {
   fx: () => get<FxRate[]>('/settings/fx'),
   /** Directors approve exchange rates (units of currency per 1 USD) for a month. */
@@ -419,4 +458,10 @@ export const settings = {
   /** §8.14: planned-vs-actual flag thresholds (directors change them). */
   pvThresholds: () => get<PvThresholds>('/settings/pv-thresholds'),
   setPvThresholds: (t: Partial<PvThresholds>) => mutate(call<PvThresholds>('PUT', '/settings/pv-thresholds', t)),
+  /** V3-12: Management → Settings (directors and the system administrator change it). */
+  money: () => get<MoneySettings>('/settings/money'),
+  setMoney: (s: Partial<MoneySettings>) => mutate(call<MoneySettings>('PUT', '/settings/money', s)),
+  /** V3-12: the signed-in person's email / SMS choices for money notifications. */
+  myNotify: () => get<NotifyPrefs>('/me/notify'),
+  setMyNotify: (n: Partial<NotifyPrefs>) => mutate(call<NotifyPrefs>('PUT', '/me/notify', n)),
 };

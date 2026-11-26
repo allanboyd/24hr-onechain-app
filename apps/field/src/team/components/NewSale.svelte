@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Quick sale: warehouse · customer · brand lines (from stock on hand) · cash or credit · amount paid.
-  import { inventory, lookup, pricing, sales, type SaleLine, type SellingPrice, type StockRow, type User } from '@btw/api';
+  // Quick sale: warehouse · client (picked, or a new name adds the client, V3-12) · brand lines (from stock on hand) · cash or credit · amount paid.
+  import { clients, inventory, lookup, pricing, sales, type Client, type SaleLine, type SellingPrice, type StockRow, type User } from '@btw/api';
   import { sellingPriceFor } from '@btw/api/money';
   import { say } from '@btw/ui';
   import Plus from '@lucide/svelte/icons/plus';
@@ -22,9 +22,14 @@
   const whs = $derived([...new Set(stock.map((x) => x.warehouseId))].filter((w) => !user.warehouseIds.length || user.warehouseIds.includes(w)));
   let wh = $state('');
   let customer = $state('');
+  let clientList = $state<Client[]>([]);
+  clients.list().then((c) => (clientList = c.filter((x) => x.active && x.entityId === co.active))).catch(() => {});
+  const key = (n: string) => n.trim().replace(/\s+/g, ' ').toLowerCase();
+  const picked = $derived(clientList.find((c) => key(c.name) === key(customer)) ?? null);
   let kind = $state<'Cash' | 'Credit'>('Cash');
   let lines = $state<SaleLine[]>([]);
   let paid = $state<number | null>(null);
+  let payMethod = $state<'Cash' | 'Mobile money' | 'Bank'>('Cash');
   let busy = $state(false), error = $state('');
   const avail = (pid: string) => stock.find((x) => x.warehouseId === wh && x.productId === pid)?.closing ?? 0;
   const products = $derived(stock.filter((x) => x.warehouseId === wh).map((x) => ({ id: x.productId, p: lookup.product(x.productId), n: x.closing })).sort((a, b) => (a.p?.brand ?? '').localeCompare(b.p?.brand ?? '')));
@@ -35,13 +40,13 @@
 
   async function save() {
     error = '';
-    if (!customer.trim()) { error = 'Enter the customer'; return; }
+    if (customer.trim().length < 1) { error = 'Enter the client'; return; }
     if (!lines.length || lines.some((l) => !(l.qty > 0))) { error = 'Every line needs a quantity'; return; }
     const over = lines.find((l) => l.qty > avail(l.productId));
     if (over) { error = `Only ${avail(over.productId)} cases of ${lookup.product(over.productId)?.brand} in stock`; return; }
     busy = true;
     try {
-      const s = await sales.create({ at: new Date().toISOString(), warehouseId: wh, customer: customer.trim(), salespersonId: user.id, kind, lines: $state.snapshot(lines), currency: 'USD', paid: paidNow });
+      const s = await sales.create({ at: new Date().toISOString(), warehouseId: wh, customer: picked?.name ?? customer.trim(), clientId: picked?.id, salespersonId: user.id, kind, lines: $state.snapshot(lines), currency: 'USD', paid: paidNow, payMethod });
       haptic('success'); say(`Sale ${s.ref} saved`); ondone();
     } catch (e) { error = (e as Error).message; haptic('warning'); } finally { busy = false; }
   }
@@ -53,7 +58,9 @@
   {:else}
     <label class="field"><span>Warehouse</span>
       <select class="select" bind:value={wh} onchange={() => (lines = [])}>{#each whs as w}<option value={w}>{warehouseLabel(w)}</option>{/each}</select></label>
-    <label class="field"><span>Customer</span><input class="input" bind:value={customer} placeholder="Customer name" autocomplete="off" /></label>
+    <label class="field"><span>Client</span><input class="input" bind:value={customer} placeholder="Client name" list="sale-clients" autocomplete="off" />
+      <small class="t-meta">{#if picked}{picked.termsDays === 0 ? 'Pays at once' : `${picked.termsDays} credit days`}{:else if customer.trim().length >= 1}New client: added when you save{:else}Pick or type a client{/if}</small></label>
+    <datalist id="sale-clients">{#each clientList as c (c.id)}<option value={c.name}></option>{/each}</datalist>
     <Segmented options={[{ id: 'Cash', label: 'Cash' }, { id: 'Credit', label: 'Credit' }]} bind:value={kind} label="Sale type" />
     {#each lines as l, i (i)}
       <div class="line">
@@ -69,6 +76,7 @@
     {/each}
     {#if products.length > lines.length}<button class="btn btn-ghost add" onclick={addLine}><Plus size={18} />Add another brand</button>{/if}
     <label class="field"><span>Paid now (USD)</span><input class="input" type="number" inputmode="decimal" min="0" step="0.01" value={paidNow} oninput={(e) => (paid = Number((e.currentTarget as HTMLInputElement).value))} /></label>
+    {#if paidNow > 0}<Segmented options={[{ id: 'Cash', label: 'Cash' }, { id: 'Mobile money', label: 'Mobile money' }, { id: 'Bank', label: 'Bank' }]} bind:value={payMethod} label="How the client paid" />{/if}
     <div class="total"><span>Total</span><strong>{usdFull(total)}</strong></div>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     <button class="btn btn-primary btn-lg btn-block" onclick={save} disabled={busy}>{busy ? 'Saving…' : 'Save sale'}</button>

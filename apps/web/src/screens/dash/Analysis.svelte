@@ -3,7 +3,6 @@
   // Browser-built from the report endpoints; the Home filter's period, warehouse and product apply.
   import type { DashFilter, DashKey, ReportFilter, User } from '@btw/api';
   import { dashDef } from '@btw/api/dashboards';
-  import InfoTip from '../../components/page/InfoTip.svelte';
   import '../../components/charts';
   let { keys, filter, user }: { keys: DashKey[]; filter: DashFilter; user: User } = $props();
   const DAY = 864e5;
@@ -45,7 +44,6 @@
     <section class="an" aria-labelledby="an-{k}">
       <header>
         <h2 id="an-{k}">{def.title}</h2>
-        <InfoTip text={def.question} label="About {def.title}" size={16} />
         {#if def.link}<a class="open" href={def.link}>Open the list</a>{/if}
       </header>
       {#await load() then M}

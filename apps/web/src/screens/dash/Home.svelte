@@ -11,8 +11,6 @@
   import { dashDef } from '@btw/api/dashboards';
   import Board from './Board.svelte';
   import Filters from './Filters.svelte';
-  import FilterPanel from './FilterPanel.svelte';
-  import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
   import { DEFAULT_PERIOD, datesOf } from './period';
   import { HOME_TAB, reportKeys } from './room';
   let { user, params }: { user: User; params?: { group?: string } } = $props();
@@ -23,25 +21,26 @@
   const home = $derived(homeFor(user));
   type Tab = { key: string; label: string; blurb: string };
   // Short tab names so every tab fits on one row (the group's full name stays in the page caption)
-  const SHORT: Record<string, string> = { business: 'Business', fees: 'Fees & expenses', admin: 'Alerts & admin' };
+  const SHORT: Record<string, string> = { business: 'Business', purchasing: 'Purchase orders', fleet: 'Shipments', fees: 'Fees & expenses', admin: 'Alerts & admin' };
   const ROOM_BLURB: Record<string, string> = {
-    business: 'Stand of the business: KPIs, exceptions, profit bridge, and prices vs target.',
+    business: 'Sales, expenses and profit, then prices and landed cost.',
     purchasing: 'What to order, the pipeline, open orders, and plan vs actual.',
     loading: 'Today’s loading list, how far each order is loaded, and where trucks wait.',
-    fleet: 'Live board, delays, open issues, and quiet trucks.',
+    fleet: 'Where the trucks are, then delays, issues, and quiet trucks.',
     fees: 'Agreed vs actual, trip costs, payments, and unpaid ageing.',
     deliveries: 'Incoming trucks, damage and shortage, and loss causes.',
-    warehouse: 'Warehouse today, stock cover, in transit, spend, and movements.',
+    warehouse: 'What to sign, stock cover, trucks on the way, and warehouse spend.',
     sales: 'Sales mix, cash vs credit, and who still owes.',
     admin: 'Alerts to handle first, and missing documents.',
   };
   const placed = (k: string) => HOME_TAB[k as keyof typeof HOME_TAB] ?? dashDef(k)?.group ?? '';
   const tabs = $derived<Tab[]>([
-    { key: 'mine', label: 'My dashboards', blurb: home.includes('director-today') ? 'What needs a decision, and where the business stands.' : home.includes('warehouse-today') ? 'Today at the warehouse: what to sign, what arrives this week, what is running out.' : home.includes('order-this-week') ? 'What to order this week, then the pipeline and open orders.' : 'Your own set: only the companies, suppliers, routes and warehouses you work on.' },
+    { key: 'mine', label: 'Overview', blurb: '' },
     ...DASH_GROUPS.filter((g) => mine.some((d) => placed(d.key) === g.key)).map((g) => ({ key: g.key as string, label: SHORT[g.key] ?? g.label, blurb: ROOM_BLURB[g.key] ?? `${g.label}: ${g.blurb}` })),
     ...(director && groupView ? [{ key: 'companies', label: 'Companies', blurb: 'BTW, Nihna and Kivu compared on the same measures.' }] : []),
   ]);
-  const wanted = $derived(params?.group ?? (location.hash.startsWith('#/overview') ? 'companies' : 'mine'));
+  // Operations → Live dashboards (#/dashboards) opens the first dashboard tab the person may see; Home (#/) stays on Overview
+  const wanted = $derived(params?.group ?? (location.hash.startsWith('#/overview') ? 'companies' : /^#\/dashboards\/?$/.test(location.hash) ? (tabs[1]?.key ?? 'mine') : 'mine'));
   const active = $derived((tabs.find((t) => t.key === wanted) ?? tabs[0]).key);
   const tabAll = $derived(active === 'mine' ? home : reportKeys(active, mine.filter((d) => placed(d.key) === active).map((d) => d.key), user.roles));
   const analysisKeys = $derived(tabAll.filter((k) => dashDef(k)?.analysis));
@@ -49,29 +48,17 @@
   const hrefOf = (k: string) => (k === 'mine' ? '#/' : `#/dashboards/${k}`);
   let filter = $state<DashFilter>(datesOf(DEFAULT_PERIOD));
   let options = $state<DashResponse['options'] | null>(null);
-  let filterOpen = $state(false);
-  let filtersRef = $state<{ reset: () => void }>();
-  let filterActive = $state(false);
-  let filterChip = $state('');
-  const showFilterBar = $derived.by(() => {
-    if (active === 'companies') return false;
-    if (active === 'mine' && home.includes('director-today')) return false;
-    return panelKeys.length > 0 || analysisKeys.length > 0;
-  });
+  const showFilterBar = $derived(active !== 'companies' && (panelKeys.length > 0 || analysisKeys.length > 0 || (active === 'mine' && home.includes('director-today'))));
   const hour = new Date().getHours();
 </script>
 
 <div class="page-head">
-  <div><div class="overline crumb">{roleText(user.roles)}{groupView ? ' · Group view (read-only)' : ''}</div>
+  <div><div class="overline crumb">{roleText(user.roles)}{groupView ? ' · Group view' : ''}</div>
     <h1>Good {hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening'}, {user.name.split(' ')[0]}</h1>
-    <p class="caption">{tabs.find((t) => t.key === active)?.blurb ?? ''}</p></div>
-  <div class="head-actions">
-    {#if showFilterBar}
-      <button type="button" class="btn btn-secondary btn-sm icon-only" aria-expanded={filterOpen} aria-label="Filters" onclick={() => (filterOpen = true)}>
-        <SlidersHorizontal size={16} aria-hidden="true" />
-      </button>
-      {#if filterActive && filterChip}<span class="fchip">{filterChip}</span>{/if}
-    {/if}
+    </div>
+    <div class="head-actions">
+    <!-- V3-11a: My dashboards puts its filter toolbar here, at the right of the greeting (lib/portal.ts) -->
+    <div id="home-head-tools" class="head-tools"></div>
     {#if user.roles.includes('planner') && can(user, 'purchase-orders')}
       {#await import('../../components/page/ActionInCompany.svelte') then A}<A.default label="New purchase order" what="purchase order" href="#/pos/new" />{/await}
     {/if}
@@ -85,25 +72,20 @@
 {#if active === 'companies'}
   {#await import('../../components/group/GroupDashboard.svelte') then m}<m.default {user} embedded />{/await}
 {:else if active === 'mine' && home.includes('director-today')}
-  {#await import('./today/Today.svelte') then m}<m.default />{/await}
+  <Filters bind:filter {options} money={director} />
+  {#await import('./today/Today.svelte') then m}<m.default {filter} onload={(o) => (options = o)} />{/await}
 {:else if !panelKeys.length && !analysisKeys.length}
   <div class="card empty"><h2>No dashboards for your role yet</h2><p class="small">Use the menu to open your work.</p></div>
 {:else}
   {#key active}
+    {#if showFilterBar}<Filters bind:filter {options} money={director} />{/if}
     {#if panelKeys.length}<Board keys={panelKeys} {filter} onload={(r) => (options = r.options)} />{/if}
     {#if analysisKeys.length}{#await import('./Analysis.svelte') then An}<An.default keys={analysisKeys} {filter} {user} />{/await}{/if}
   {/key}
 {/if}
 
-{#if showFilterBar}
-  <FilterPanel bind:open={filterOpen} onClear={() => filtersRef?.reset()}>
-    <Filters bind:this={filtersRef} bind:filter bind:active={filterActive} bind:chip={filterChip} {options} money={director} embedded />
-  </FilterPanel>
-{/if}
-
 <style>
   .head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-  .fchip { font-size: 12px; font-weight: 600; color: var(--text-muted); padding: 2px 10px; border-radius: var(--radius-full); border: 1px solid var(--border); background: var(--surface-sunken); }
-  .icon-only { gap: 0; padding-inline: var(--space-2); }
+  .head-tools { display: contents; }
 </style>
 

@@ -110,5 +110,22 @@ await as('u-testfie');
 ok((await api.shipments.list()).every((s) => s.legs.some((l) => ['r-msa-juba', 'r-msa-goma'].includes(l.routeId))), 'route scope narrows Testfie\'s shipments');
 await as('u-daniel'); await api.users.update('u-testfie', { routeIds: [] });
 
+// ---- V3-14: my profile ---------------------------------------------------------------------------------------------------
+{
+  const R5 = await import('../src/rules');
+  ok(R5.profileError({ name: 'Daniel O.' }) === null && /name/.test(R5.profileError({ name: 'D' }) ?? '') && /email/.test(R5.profileError({ email: 'not-an-email' }) ?? '') && R5.profileError({ email: '' }) === null, 'profile: a name of 2+ characters; a valid email or none');
+  ok(R5.secretError({ password: 'longenough' }) === null && /8 characters/.test(R5.secretError({ password: 'short' }) ?? '') && R5.secretError({ pin: '4821' }) === null && /4 to 6 digits/.test(R5.secretError({ pin: '12' }) ?? ''), 'password at least 8 characters; PIN 4 to 6 digits');
+  await api.auth.login('u-yonas', '');
+  const me0 = await api.profile.get();
+  ok(me0.id === 'u-yonas' && me0.phone && me0.warehouseIds.includes('w-juba'), 'my profile: my phone and my warehouse');
+  const me1 = await api.profile.update({ name: 'Yonas T.', email: 'yonas@example.com' });
+  ok(me1.name === 'Yonas T.' && me1.email === 'yonas@example.com' && api.auth.me()?.name === 'Yonas T.', 'I change my own name and email; the top bar name follows');
+  await rejects(api.profile.update({ email: 'nope' }), /valid email/, 'a wrong email is refused');
+  ok(await api.profile.changeSecret({ current: 'anything', pin: '4821' }), 'I set a new PIN (the demo accepts any current PIN the first time)');
+  await rejects(api.profile.changeSecret({ current: '0000', pin: '9999' }), /current PIN is not right/, 'after that, a wrong current PIN is refused');
+  ok(await api.profile.changeSecret({ current: '4821', pin: '9999' }), 'the right current PIN changes it');
+  await api.profile.update({ name: me0.name, email: me0.email });
+}
+
 console.log(failed ? `\n${failed} access check(s) FAILED` : '\nall access checks passed');
 if (failed) process.exitCode = 1;

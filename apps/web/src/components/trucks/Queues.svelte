@@ -4,12 +4,12 @@
   // Access as the API: queues — truck planners anywhere, planners on their pairs' points, loaders at their own points;
   // loadings are recorded by the loaders of that point (and the truck follow-up officer at GBI); directors view.
   import { loading, lookup, pos, queue as q, ref, shipments, type Loading, type PurchaseOrder, type Shipment, type User, type WaitingEntry } from '@btw/api';
-  import { QUEUE_REMOVE_REASONS, seesLoadingPoint } from '@btw/api/rules';
+  import { QUEUE_REMOVE_REASONS, seesLoadingPoint, TRUCK_CASES } from '@btw/api/rules';
   import { canEditQueue, canRecordLoading } from '@btw/api/access';
   import { trucksToLoad } from '@btw/api/metrics';
   import { waitLabel } from '@btw/api/trucks';
   import { Badge, fmtDateTime, fmtNum, say } from '@btw/ui';
-  import { SummaryStrip, ChipGroup, EmptyState, readQuery, writeQuery, takeIntent, type SummaryTile } from '../page';
+  import { SummaryStrip, ChipGroup, EmptyState, Tabs, readQuery, writeQuery, takeIntent, type SummaryTile } from '../page';
   import RecordFor from '../RecordFor.svelte';
   import ErrorState from '../ErrorState.svelte';
   import RecordLoading from './RecordLoading.svelte';
@@ -72,13 +72,13 @@
   let addDlg = $state<HTMLDialogElement>();
   let addMode = $state<'known' | 'market'>('known');
   let addTruck = $state(''); let addDriver = $state('');
-  let mk = $state({ company: '', reg: '', trailer: '', capacityCases: 2000, driverName: '', driverPhone: '' });
+  let mk = $state({ company: '', reg: '', trailer: '', capacityCases: TRUCK_CASES, driverName: '', driverPhone: '' });
   let addErr = $state('');
   const queuedIds = $derived(new Set(queue.map((x) => x.truckId)));
   export function openAdd() {
     const free = r.trucks.find((t) => !queuedIds.has(t.id)) ?? r.trucks[0];
     addMode = 'known'; addTruck = free.id; addDriver = free.defaultDriverId ?? r.drivers[0].id;
-    mk = { company: '', reg: '', trailer: '', capacityCases: 2000, driverName: '', driverPhone: '' };
+    mk = { company: '', reg: '', trailer: '', capacityCases: TRUCK_CASES, driverName: '', driverPhone: '' };
     addErr = '';
     addDlg?.showModal();
   }
@@ -117,6 +117,9 @@
   }
 
   let rec = $state<RecordLoading>();
+  // V3-15: the waiting list, the lines to load and the recently loaded trucks as tabs (no scrolling to find the next table)
+  let qtab = $state<'waiting' | 'load' | 'done'>((readQuery('list') as 'waiting' | 'load' | 'done') || 'waiting');
+  function setQtab(k: string) { qtab = k as typeof qtab; writeQuery({ list: k === 'waiting' ? null : k }); }
 </script>
 
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
@@ -128,7 +131,9 @@
 {#if !points.length}
   <EmptyState title="No loading point to show" hint="Your account is not linked to a loading point yet." />
 {:else}
-<div class="grid grid-2">
+<Tabs label="Queue lists" tabs={[{ key: 'waiting', label: 'Waiting trucks', n: queue.length }, { key: 'load', label: 'To load', n: pending.length }, { key: 'done', label: 'Recently loaded', n: done.length }]} value={qtab} onselect={setQtab} />
+<div class="qwrap">
+  {#if qtab === 'waiting'}
   <section class="card flush">
     <header><div><h3>Truck waiting list</h3><div class="caption">Queue at {lpLabel} — first in, first loaded{#if canQueue && queue.length > 1} · drag a row or pick a place to reorder{/if}</div></div></header>
     <div class="table-wrap"><table class="table">
@@ -155,7 +160,7 @@
       </tbody>
     </table></div>
   </section>
-
+  {:else if qtab === 'load'}
   <section class="card flush">
     <header><div><h3>Waiting to be loaded</h3><div class="caption">Truck lines from approved purchase orders</div></div></header>
     <div class="table-wrap"><table class="table">
@@ -172,13 +177,18 @@
         {:else}<tr><td colspan="4" class="empty">{ready ? 'Nothing to load here — new lines appear when a plan for this supplier is approved' : 'Loading…'}</td></tr>{/each}
       </tbody>
     </table></div>
+  </section>
+  {:else}
+  <section class="card flush">
+    <header><div><h3>Recently loaded</h3><div class="caption">Trucks loaded here, newest first, with their shipment</div></div></header>
+    {#if !done.length}<p class="empty caption pad">No truck loaded here yet.</p>{/if}
     {#if done.length}
       <div class="recent stack-sm">
-        <div class="overline">Recently loaded</div>
         {#each done as l}{@const sh = shipmentFor(l)}<div class="row between small"><span><span class="mono">{poRef(l.poId)}</span> · Truck {l.truckNo} · {lookup.truck(l.truckId)?.reg}{#if sh} · <a href="#/shipments/{sh.id}" class="mono">{sh.ref}</a>{/if}</span>{#if sh}<Badge status={sh.status} />{:else}<Badge status="Loaded" />{/if}</div>{/each}
       </div>
     {/if}
   </section>
+  {/if}
 </div>
 {/if}
 
@@ -239,6 +249,8 @@
   .long { color: var(--warning); }
   .mono { white-space: nowrap; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  /* V3-6: keep the hidden header labels inside the table scroller (they widened the page in Safari) */
+  .table-wrap { position: relative; }
   .phone { display: none; }
   @media (max-width: 600px) {
     .opt { display: none; }
@@ -246,4 +258,6 @@
     .grip { display: none; }
     .recent { padding: var(--space-3) var(--space-4); }
   }
+  .qwrap { margin-top: var(--space-3); }
+  .pad { padding: var(--space-4) var(--space-5); margin: 0; }
 </style>

@@ -29,6 +29,18 @@ export interface DB {
   fxRates?: FxRate[];
   /** Period plans (§8.3) and planned-vs-actual thresholds (§8.14); optional so older saved data still loads. */
   periodPlans?: PeriodPlan[]; pvThresholds?: PvThresholds;
+  /** V3-12: Management settings and each person's email / SMS choices (optional so older saved data still loads). */
+  moneySettings?: import('../types').MoneySettings;
+  /** V3-12: clients (built from the sales' customer names the first time they are needed). */
+  clients?: import('../types').Client[];
+  /** V3-12 step 2: client payments (built from the sales' paid amounts the first time they are needed). */
+  clientPayments?: import('../types').ClientPayment[];
+  /** V3-12 step 3: pro-formas, advances, credit notes and uses recorded on the POs. */
+  supplierEntries?: import('../types').SupplierEntry[];
+  /** V3-12 step 4: cash at start and cash sent to the company account. */
+  cashEntries?: import('../types').CashEntry[];
+  /** V3-14: demo-only own password / PIN (the demo accepts any secret until one is set here), keyed by user id. */
+  secrets?: Record<ID, { password?: string; pin?: string }>; notifyPrefs?: Record<ID, import('../types').NotifyPrefs>;
   trucks: typeof seed.trucks; routes: typeof seed.routes;
   /** Transport master data, editable by truck planners / fleet / planners (docs/10). */
   providers: typeof seed.providers; drivers: typeof seed.drivers;

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db, schema as t, type Tx } from '../db/client';
-import { applyPass, deriveShipmentStatus, dwell, etaOf, hasFeature, journeyOf, loadingCheck, makePasses, overdue, reorderQueue, revisePlan, revisionRef, diffPoLines, revisionSummary, undoPass, H } from '@btw/api/rules';
+import { applyPass, deriveShipmentStatus, dwell, etaOf, hasFeature, journeyOf, loadingCheck, makePasses, overdue, reorderQueue, revisePlan, revisionRef, diffPoLines, revisionSummary, undoPass, TRUCK_CASES, H } from '@btw/api/rules';
 import { canAcknowledge, canDispatch, canEditQueue, canRecordLoading, canSendOn, canSplitLeg, canUpdateTrip, loadingWithoutPrice, seesPair, seesPrices, seesShipment, TRIP_ROLES } from '@btw/api/access';
 import { auditNote } from '../common/audit-context';
 import { ACK_REASONS, validAckReason } from '@btw/api/money';
@@ -157,7 +157,7 @@ export class LogisticsService implements InboundHandler {
       if (!provider) { provider = { id: uid('pr'), name: company, regular: false, phone: '', kind: 'market', contactName: '', email: '', notes: '', active: true }; await tx.insert(t.providers).values(provider); }
       const driver = { id: uid('d'), name: input.driverName.trim(), phone: input.driverPhone?.trim() ?? '', licence: '', providerId: provider.id, hasApp: false };
       await tx.insert(t.drivers).values(driver);
-      const truck = { id: uid('t'), providerId: provider.id, reg, trailer: (input.trailer ?? '').trim().toUpperCase(), capacityCases: input.capacityCases || 2000, defaultDriverId: driver.id };
+      const truck = { id: uid('t'), providerId: provider.id, reg, trailer: (input.trailer ?? '').trim().toUpperCase(), capacityCases: input.capacityCases || TRUCK_CASES, defaultDriverId: driver.id };
       await tx.insert(t.trucks).values(truck);
       const n = (await tx.select().from(t.waitingEntries).where(and(eq(t.waitingEntries.loadingPointId, loadingPointId), eq(t.waitingEntries.status, 'Waiting')))).length;
       const entry = { id: uid('wl'), entityId, loadingPointId, truckId: truck.id, driverId: driver.id, arrivedAt: iso(), position: n + 1, status: 'Waiting' as const };

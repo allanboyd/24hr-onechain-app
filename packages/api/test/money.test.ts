@@ -216,5 +216,241 @@ ok(Math.abs(byLevel[3].rows[0].qtyReceived - perf.totals.qtyReceived) <= 1 && by
 ok(perf.fast.length > 0 && perf.slow.length > 0 && perf.byTruck.length > 0, 'fast / slow products and landed cost per truck');
 for (const who of ['u-kabonge', 'u-testfie', 'u-asie', 'u-yonas']) { await as(who); await rejects(api.reports.performance(), /403/, `${who}: no performance report`); await rejects(api.pricing.list(), /403/, `${who}: no selling prices`); }
 
+// ---- V3-12 step 0: Management settings and money notifications ----------------------------------------------------------
+{
+  const R2 = await import('../src/rules');
+  const people = [
+    { id: 'd1', roles: ['director'] as const, email: 'd1@x', phone: '+1', notifyEmail: true, notifySms: false },
+    { id: 'd2', roles: ['director'] as const, email: null, phone: '+2', notifyEmail: true, notifySms: true },
+    { id: 'd3', roles: ['director'] as const, active: false, email: 'd3@x', phone: '+3', notifyEmail: true, notifySms: true },
+    { id: 'p1', roles: ['planner'] as const, email: 'p1@x', phone: '+4', notifyEmail: true, notifySms: true },
+  ].map((u) => ({ ...u, roles: [...u.roles] }));
+  const to = R2.moneyRecipients(people);
+  ok(JSON.stringify(to) === JSON.stringify({ inApp: ['d1', 'd2'], email: ['d1@x'], sms: ['+2'] }), 'money news: active directors in-app; email / SMS only to those who turned it on and have an address', to);
+  ok(R2.canChangeSettings(['director']) && R2.canChangeSettings(['admin']) && !R2.canChangeSettings(['accounts', 'operations']), 'settings: directors and the system administrator change them');
+
+  await as('u-daniel');
+  ok((await api.settings.money()).advanceApproval === false, 'settings: advance approval is off by default (26 Nov)');
+  ok((await api.settings.setMoney({ advanceApproval: true })).advanceApproval === true && (await api.settings.money()).advanceApproval === true, 'settings: a director turns advance approval on');
+  await api.settings.setMoney({ advanceApproval: false });
+  const n0 = await api.settings.myNotify();
+  ok(n0.email === false && n0.sms === false, 'my notifications: email and SMS off by default');
+  const n1 = await api.settings.setMyNotify({ sms: true });
+  ok(n1.sms === true && n1.email === false && (await api.settings.myNotify()).sms === true, 'my notifications: turning SMS on keeps email as it was');
+  await as('u-yonas');
+  await rejects(api.settings.setMoney({ advanceApproval: true }), /403|Only directors/, 'settings: a warehouse user cannot change approvals');
+  ok((await api.settings.myNotify()).sms === false, 'my notifications: each person has their own choices');
+  await as('u-daniel'); await api.settings.setMyNotify({ sms: false });
+}
+
+// ---- V3-12 step 1: clients and credit days ------------------------------------------------------------------------------
+{
+  const MX = await import('../src/metrics');
+  const R3 = await import('../src/rules');
+  const now = Date.UTC(2026, 10, 26, 12), at = (d: number) => iso(now - d * DAY);
+  const sale = (d: number, termsDays?: number) => ({ at: at(d), lines: [{ productId: 'p', qty: 10, price: 10 }], paid: 0, status: 'Unpaid' as const, termsDays });
+  ok(MX.termsOf({}) === 14 && MX.termsOf({ termsDays: 30 }) === 30 && MX.termsOf({ termsDays: 0 }) === 0, 'credit days: the sale\'s own, else 14');
+  ok(MX.overdueByCustomers([sale(20)], now) === 100 && MX.overdueByCustomers([sale(20, 30)], now) === 0 && MX.overdueByCustomers([sale(31, 30)], now) === 100, 'overdue: 20 days old is overdue on 14 days, not on 30; 31 days is overdue on 30');
+  ok(MX.overdueByCustomers([sale(1, 0)], now) === 100 && MX.owedByCustomers([sale(20), sale(20, 30)], now) === 200, 'overdue: "pay at once" (0 days) is overdue the next day; owed counts every open sale');
+  ok(R3.clientKey('  Kimironko   Wholesale ') === R3.clientKey('kimironko wholesale') && R3.cleanClientName('  Kimironko   Wholesale ') === 'Kimironko Wholesale', 'client names: same client whatever the spacing or capitals');
+  ok(R3.validTermsDays(0) && R3.validTermsDays(180) && !R3.validTermsDays(-1) && !R3.validTermsDays(181) && !R3.validTermsDays(7.5), 'credit days: whole days from 0 to 180');
+  ok(R3.canSetCreditDays(['director']) && R3.canSetCreditDays(['accounts']) && !R3.canSetCreditDays(['sales']), 'credit days: set by directors and accounts, not by sales staff');
+
+  await as('u-daniel');
+  const before = await api.dashboards.get(['director-today', 'mgmt-clients'], {});
+  const cl = await api.clients.list();
+  const all = await api.sales.list();
+  ok(cl.length > 0 && all.filter((s) => s.customer.trim()).every((s) => !!s.clientId && cl.some((c) => c.id === s.clientId && c.name === s.customer)), 'backfill: every sale points to a client with its name', cl.length);
+  ok(cl.every((c) => c.name.trim()) && all.filter((s) => !s.customer.trim()).every((s) => !s.clientId), 'backfill: a sale without a client name stays without a client (still flagged as missing data)');
+
+  ok(cl.every((c) => c.termsDays === 14) && new Set(cl.map((c) => `${c.entityId}|${R3.clientKey(c.name)}`)).size === cl.length, 'backfill: one client per name and company, 14 credit days');
+  const after = await api.dashboards.get(['director-today', 'mgmt-clients'], {});
+  // the figures, not the period's end (it is "now", a few ms later on the second call)
+  const fig = (r: typeof before, k: string) => JSON.stringify({ ...((r.results as Record<string, { data: object }>)[k]?.data ?? {}), period: null, prev: null });
+  ok(fig(before, 'mgmt-clients') === fig(after, 'mgmt-clients') && fig(before, 'director-today') === fig(after, 'director-today'), 'backfill keeps the figures: Today and Sales and clients are the same before and after');
+  const mc = (after.results['mgmt-clients']!.data) as import('../src/dashboards').MgmtClients;
+  // the Clients tab adds up to the company totals, apart from the sales recorded without a client (no client to show them on)
+  const mdb = (await import('../src/mock/db')).db, MXc = await import('../src/metrics');
+  const noClient = mdb.sales.filter((x) => !x.clientId);
+  const sumOf = (k: 'owed' | 'overdue') => cl.reduce((a, c) => a + c[k], 0);
+  ok(Math.abs(sumOf('owed') + MXc.owedByCustomers(noClient, Date.now()) - MXc.owedByCustomers(mdb.sales, Date.now())) < 1
+    && Math.abs(sumOf('overdue') + MXc.overdueByCustomers(noClient, Date.now()) - MXc.overdueByCustomers(mdb.sales, Date.now())) < 1, 'Clients tab: owed and overdue over all sales add up to the totals (with the sales that have no client)');
+  ok(Math.abs(mc.termsMix.reduce((a, x) => a + x.owed, 0) - (mc.kpis.owed ?? 0)) < 1 && Math.abs(mc.termsMix.reduce((a, x) => a + x.overdue, 0) - (mc.kpis.overdue ?? 0)) < 1, 'Management: credit days in use add up to owed and overdue', mc.termsMix);
+
+  const stockRow = (await api.inventory.stock()).find((r) => r.entityId === 'e-btw' && r.closing > 5)!;
+  api.entities.setActive('e-btw');
+  const line = [{ productId: stockRow.productId, qty: 1, price: 10 }];
+  const mk = (customer: string, clientId?: string) => api.sales.create({ entityId: 'e-btw', at: new Date().toISOString(), warehouseId: stockRow.warehouseId, customer, clientId, salespersonId: 'u-daniel', kind: 'Credit', lines: line, currency: 'USD', paid: 0 });
+  const n0 = (await api.clients.list()).length;
+  const s1 = await mk('  Nyabugogo   Traders ');
+  const c1 = (await api.clients.list()).find((c) => c.id === s1.clientId)!;
+  ok(c1 && c1.name === 'Nyabugogo Traders' && c1.termsDays === 14 && s1.termsDays === 14 && s1.customer === 'Nyabugogo Traders' && (await api.clients.list()).length === n0 + 1, 'a sale to a new name adds the client with 14 credit days');
+  const s2 = await mk('nyabugogo traders');
+  ok(s2.clientId === c1.id && (await api.clients.list()).length === n0 + 1, 'the same name again (other capitals) is the same client');
+  const c1b = await api.clients.update(c1.id, { termsDays: 30 });
+  const s3 = await mk('Nyabugogo Traders', c1.id);
+  ok(c1b.termsDays === 30 && s3.termsDays === 30 && (await api.sales.list()).find((x) => x.id === s1.id)!.termsDays === 14, 'new credit days apply to the next sales; earlier sales keep theirs');
+  await rejects(api.clients.update(c1.id, { termsDays: 200 }), /0 to 180/, 'credit days over 180 are refused');
+  await rejects(api.clients.create({ entityId: 'e-btw', name: 'NYABUGOGO traders' }), /already a client/, 'a second client with the same name is refused');
+  await api.clients.update(c1.id, { active: false });
+  await rejects(mk('Nyabugogo Traders'), /deactivated/, 'a deactivated client cannot be picked on a new sale');
+  await api.clients.update(c1.id, { active: true });
+  api.entities.setActive(null);
+}
+
+// ---- V3-12 step 2: client payments ------------------------------------------------------------------------------------
+{
+  const R4 = await import('../src/rules');
+  ok(R4.paymentError(100, { amount: 40, method: 'Cash' }) === null && /more than the balance/.test(R4.paymentError(100, { amount: 100.02, method: 'Cash' }) ?? '') && R4.paymentError(100, { amount: 100.004, method: 'Bank' }) === null, 'payment: up to the balance (a cent of rounding allowed)');
+  ok(/amount/.test(R4.paymentError(100, { amount: 0, method: 'Cash' }) ?? '') && /how the client paid/.test(R4.paymentError(100, { amount: 5, method: 'Cheque' }) ?? ''), 'payment: above zero and a known method');
+
+  await as('u-daniel'); api.entities.setActive(null);
+  const per = { from: new Date(Date.now() - 30 * DAY).toISOString(), to: new Date(Date.now() + DAY).toISOString() };
+  const cash0 = (await api.dashboards.get(['mgmt-cash'], per)).results['mgmt-cash']!.data as import('../src/dashboards').MgmtCash;
+  const pays = await api.sales.payments();
+  const all = await api.sales.list();
+  const bySale = new Map<string, number>(); for (const x of pays) bySale.set(x.saleId, (bySale.get(x.saleId) ?? 0) + x.amount);
+  ok(pays.length > 0 && all.filter((x) => x.paid > 0).every((x) => Math.abs((bySale.get(x.id) ?? 0) - x.paid) < 0.01), 'backfill: each sale\'s payments add up to what it says is paid', pays.length);
+  const allSales = (await import('../src/mock/db')).db.sales; // every sale (the list returns the latest 200)
+  const cp = (await import('../src/mock/db')).db.clientPayments!;
+  ok(cp.every((x) => x.method !== null || allSales.find((y) => y.id === x.saleId)?.at === x.at) && allSales.filter((x) => x.paid > 0).every((x) => cp.some((y) => y.saleId === x.id)), 'backfill: every sale with money paid has a payment; copied payments are dated at the sale, method not recorded');
+  ok(!cash0.notRecorded.includes('paymentDates'), 'Cash and closing: payment dates are recorded now');
+
+  const row = (await api.inventory.stock()).find((r) => r.entityId === 'e-btw' && r.closing > 5)!;
+  api.entities.setActive('e-btw');
+  const credit = await api.sales.create({ entityId: 'e-btw', at: new Date(Date.now() - 2 * DAY).toISOString(), warehouseId: row.warehouseId, customer: 'Payment Test Client', salespersonId: 'u-daniel', kind: 'Credit', lines: [{ productId: row.productId, qty: 2, price: 50 }], currency: 'USD', paid: 30, payMethod: 'Mobile money' });
+  const first = (await api.sales.payments(credit.id));
+  ok(first.length === 1 && first[0].amount === 30 && first[0].method === 'Mobile money' && credit.status === 'Part-paid', 'a sale with money paid writes its first payment, with how it was paid');
+  const r1 = await api.sales.recordPayment(credit.id, { amount: 50, method: 'Bank', reference: 'TT-123' });
+  ok(r1.sale.paid === 80 && r1.sale.status === 'Part-paid' && r1.payment.amountUsd === 50 && (await api.sales.list()).find((x) => x.id === credit.id)!.paid === 80, 'Record payment: paid and status follow (30 + 50 of 100 → part-paid)');
+  await rejects(api.sales.recordPayment(credit.id, { amount: 25, method: 'Cash' }), /more than the balance/, 'Record payment: not more than the balance (20 left)');
+  await rejects(api.sales.recordPayment(credit.id, { amount: 5, method: 'Cash', at: new Date(Date.now() - 10 * DAY).toISOString() }), /between the sale and today/, 'Record payment: not dated before the sale');
+  const r2 = await api.sales.recordPayment(credit.id, { amount: 20, method: 'Cash' });
+  ok(r2.sale.status === 'Paid' && (await api.sales.payments(credit.id)).length === 3, 'Record payment: the last 20 makes it paid; three payments on the sale');
+  await rejects(api.sales.recordPayment(credit.id, { amount: 1, method: 'Cash' }), /more than the balance/, 'a paid sale takes no more payments');
+  api.entities.setActive(null);
+  const cash1 = (await api.dashboards.get(['mgmt-cash'], per)).results['mgmt-cash']!.data as import('../src/dashboards').MgmtCash;
+  ok(Math.abs(cash1.kpis.received - cash0.kpis.received - 100) < 0.02, 'Cash and closing: received goes up by the 100 paid in the period (30 on the sale + 50 + 20)', [cash0.kpis.received, cash1.kpis.received]);
+  const clientsD = (await api.dashboards.get(['mgmt-clients'], per)).results['mgmt-clients']!.data as import('../src/dashboards').MgmtClients;
+  ok(!!clientsD.methods && Math.abs(clientsD.methods.reduce((a, x) => a + x.total, 0) - cash1.kpis.received) < 0.05 && clientsD.methods.some((x) => x.method === 'Bank'), 'Sales and clients: money by how clients paid adds up to Cash received', clientsD.methods);
+  await as('u-yonas');
+  await rejects(api.sales.recordPayment(credit.id, { amount: 1, method: 'Cash' }), /404|403|not found|Not/, 'a warehouse user outside the sale cannot record a payment');
+  await as('u-daniel');
+}
+
+// ---- V3-12 step 3: supplier money on the purchase order ----------------------------------------------------------------
+{
+  const M3 = await import('../src/money');
+  const mdb = (await import('../src/mock/db')).db;
+  await as('u-daniel'); api.entities.setActive(null);
+  const per = { from: new Date(Date.now() - 30 * DAY).toISOString(), to: new Date(Date.now() + DAY).toISOString() };
+  const sup0 = (await api.dashboards.get(['mgmt-suppliers'], per)).results['mgmt-suppliers']!.data as import('../src/dashboards').MgmtSuppliers;
+  const shorts = M3.shortLoadRows({ loadings: mdb.loadings, pos: mdb.pos, plans: mdb.plans, fxRates: mdb.fxRates });
+  ok(Math.abs(sup0.kpis.held - shorts.reduce((a, x) => a + x.value, 0)) < 0.05 && sup0.notRecorded.length === 0, 'Supplier balances: before any entry, what suppliers hold = the short loads (one source with the PO page)', [sup0.kpis.held]);
+
+  // an issued USD purchase order of BTW
+  const po = mdb.pos.find((x) => x.entityId === 'e-btw' && x.currency === 'USD' && x.status === 'Issued' && !x.revisionOf && !x.supersededById)!;
+  const m0 = await api.supplierMoney.forPo(po.id);
+  ok(m0.po.proforma === 0 && m0.canRecord && m0.canDecide && !m0.approvalOn, 'a new PO has no pro-forma; a director may record and decide; approval is off');
+  await rejects(api.supplierMoney.record(po.id, { kind: 'advance', amount: 100 }), /pro-forma first/, 'an advance needs the supplier\'s pro-forma first');
+  const n0 = mdb.notifications.length;
+  await api.supplierMoney.record(po.id, { kind: 'proforma', amount: 10000, reference: 'PF-1' });
+  await api.supplierMoney.record(po.id, { kind: 'advance', amount: 4000, reference: 'TT-1' });
+  const m1 = await api.supplierMoney.forPo(po.id);
+  ok(m1.po.proforma === 10000 && m1.po.advances === 4000 && m1.po.open === 6000, 'pro-forma 10,000, advance 4,000 counted at once (approval off): 6,000 open', m1.po);
+  ok(mdb.notifications.length === n0 + 1 && /Advance payment recorded/.test(mdb.notifications[0].title) && mdb.notifications[0].forRoles.includes('director'), 'the advance tells the directors (who recorded it is in the message)');
+  await rejects(api.supplierMoney.record(po.id, { kind: 'advance', amount: 6000.5 }), /more than the open pro-forma/, 'an advance cannot be more than the open pro-forma');
+
+  const held0 = m1.held.balance;
+  await api.supplierMoney.record(po.id, { kind: 'credit-note', amount: 500, reference: 'CN-9', note: 'Promotion' });
+  const m2 = await api.supplierMoney.forPo(po.id);
+  ok(Math.abs(m2.held.balance - held0 - 500) < 0.01 && m2.held.creditNotes >= 500, 'a credit note of 500 adds to what the supplier holds', [held0, m2.held.balance]);
+  await rejects(api.supplierMoney.record(po.id, { kind: 'advance', amount: 0, useHeld: m2.held.available + 50 }), /holds USD/, 'money used from the supplier cannot be more than it holds');
+  await api.supplierMoney.record(po.id, { kind: 'advance', amount: 1000, useHeld: 300 });
+  const m3 = await api.supplierMoney.forPo(po.id);
+  ok(m3.po.advances === 5300 && m3.po.open === 4700 && Math.abs(m3.held.balance - (m2.held.balance - 300)) < 0.01, 'an advance of 1,000 paid + 300 from what the supplier holds: 4,700 open, the supplier holds 300 less');
+
+  // approval on: the advance waits for a director and sets its money aside
+  await api.settings.setMoney({ advanceApproval: true });
+  await api.supplierMoney.record(po.id, { kind: 'advance', amount: 700, useHeld: 100 });
+  const m4 = await api.supplierMoney.forPo(po.id);
+  const pend = m4.entries.find((e) => e.kind === 'advance' && e.status === 'Pending approval')!;
+  ok(m4.po.pending === 800 && m4.po.advances === 5300 && m4.po.open === 3900 && m4.held.pendingUse === 100 && m4.held.balance === m3.held.balance, 'approval on: 800 waits (700 + 100 held), set aside from the open pro-forma and the held money');
+  ok(/to approve/.test(mdb.notifications[0].title), 'the directors are told an advance is waiting');
+  const supP = (await api.dashboards.get(['mgmt-suppliers'], per)).results['mgmt-suppliers']!.data as import('../src/dashboards').MgmtSuppliers;
+  ok(supP.pendingAdvances.some((x) => x.id === pend.id && Math.abs(x.amountUsd - 800) < 0.01), 'Management → Supplier balances lists the advance waiting for a director');
+  await as('u-kabonge');
+  await rejects(api.supplierMoney.decide(pend.id, true), /director/, 'a planner cannot approve an advance');
+  await as('u-daniel');
+  await api.supplierMoney.decide(pend.id, false);
+  const m5 = await api.supplierMoney.forPo(po.id);
+  ok(m5.po.pending === 0 && m5.po.open === 4700 && m5.held.pendingUse === 0, 'rejected: the 800 is free again');
+  await api.supplierMoney.record(po.id, { kind: 'advance', amount: 200 });
+  await api.supplierMoney.decide(m5.entries.length ? (await api.supplierMoney.forPo(po.id)).entries.find((e) => e.status === 'Pending approval')!.id : '', true);
+  ok((await api.supplierMoney.forPo(po.id)).po.advances === 5500, 'approved: the 200 counts');
+  await api.settings.setMoney({ advanceApproval: false });
+
+  const sup1 = (await api.dashboards.get(['mgmt-suppliers'], per)).results['mgmt-suppliers']!.data as import('../src/dashboards').MgmtSuppliers;
+  ok(Math.abs(sup1.kpis.held - (sup0.kpis.held + 500 - 300)) < 0.05 && Math.abs(sup1.kpis.creditNotes - 500) < 0.01 && Math.abs(sup1.kpis.advancesPaid - 5500) < 0.01, 'Supplier balances: held + 500 credit note − 300 used; advances paid 5,500 in the period', sup1.kpis);
+  ok(Math.abs(sup1.bySupplier.reduce((a, x) => a + x.held, 0) - sup1.kpis.held) < 0.05 && sup1.statement.some((x) => x.kind === 'credit-note') && sup1.statement.some((x) => x.kind === 'use' && x.added === -300), 'by supplier adds up; the statement shows the credit note and the money used');
+  await as('u-yonas');
+  await rejects(api.supplierMoney.forPo(po.id), /not found|404/, 'a warehouse user does not see supplier money');
+  await as('u-daniel');
+}
+
+// ---- V3-12 step 4: warehouse cash -------------------------------------------------------------------------------------
+{
+  const mdb = (await import('../src/mock/db')).db;
+  await as('u-daniel'); api.entities.setActive(null);
+  const DAYS = (n: number) => new Date(Date.now() - n * DAY).toISOString().slice(0, 10);
+  const per = { from: new Date(Date.now() - 10 * DAY).toISOString(), to: new Date(Date.now() + DAY).toISOString() };
+  const cash0 = (await api.dashboards.get(['mgmt-cash'], per)).results['mgmt-cash']!.data as import('../src/dashboards').MgmtCash;
+  ok(cash0.cash.atStart === null && cash0.statement[0].kind === 'missing' && !cash0.notRecorded.includes('transfers'), 'before any cash at start: no cash in hand yet, transfers are recorded');
+  const o0 = await api.cash.overview();
+  const rc = o0.companies.find((x) => x.warehouses.length >= 2)!;
+  const [w1, w2] = rc.warehouses;
+  ok(o0.canSetOpening && o0.canSend.includes(w1.warehouseId) && rc.opening === null, 'a director sets cash at start and sends cash from any warehouse');
+
+  await api.cash.setOpening({ receivingCompanyId: rc.receivingCompanyId, amount: 10000, currency: 'USD', date: DAYS(20) });
+  await api.cash.setOpening({ receivingCompanyId: rc.receivingCompanyId, warehouseId: w1.warehouseId, amount: 6000, currency: 'KES', date: DAYS(1) });
+  const o1 = await api.cash.overview();
+  const c1 = o1.companies.find((x) => x.receivingCompanyId === rc.receivingCompanyId)!;
+  const p1 = c1.warehouses.find((x) => x.warehouseId === w1.warehouseId)!.opening!;
+  ok(p1.currency === 'USD' && p1.date === DAYS(20) && c1.notSplit === 4000, 'a warehouse takes its company\'s date and currency; 4,000 is not split by warehouse');
+  await rejects(api.cash.setOpening({ receivingCompanyId: rc.receivingCompanyId, warehouseId: w2.warehouseId, amount: 4000.5 }), /more than the company/, 'the warehouse parts cannot add up to more than the company amount');
+  await rejects(api.cash.setOpening({ receivingCompanyId: rc.receivingCompanyId, amount: 5000 }), /can't be lower/, 'the company amount cannot go below its warehouse parts');
+
+  const n0 = mdb.notifications.length;
+  await rejects(api.cash.send({ warehouseId: w1.warehouseId, amount: 100, currency: 'USD', date: DAYS(-2) }), /after today/, 'cash cannot be sent on a date after today');
+  await api.cash.send({ warehouseId: w1.warehouseId, amount: 1500, currency: 'USD', date: DAYS(2), reference: 'SLIP-1' });
+  ok(mdb.notifications.length === n0 + 1 && /Cash sent to the company account/.test(mdb.notifications[0].title) && mdb.notifications[0].forRoles.includes('director'), 'sending cash tells the directors');
+  ok((await api.cash.overview()).transfers.some((e) => e.reference === 'SLIP-1' && e.amountUsd === 1500), 'the transfer is listed on the warehouse cash');
+
+  const cash1 = (await api.dashboards.get(['mgmt-cash'], per)).results['mgmt-cash']!.data as import('../src/dashboards').MgmtCash;
+  const st = (label: RegExp) => cash1.statement.find((x) => label.test(x.label))!;
+  const sum6 = cash1.statement.slice(1, 5).reduce((a, x) => a + (x.value ?? 0), 0);
+  ok(cash1.cash.withOpening >= 1 && cash1.cash.atStart !== null && Math.abs(st(/Sent to the company/).value! + 1500) < 0.01, 'Cash and closing: cash at start is set; 1,500 sent to the company in the period', cash1.cash);
+  ok(Math.abs((cash1.cash.inHand ?? 0) - ((cash1.cash.atStart ?? 0) + sum6)) < 0.05 && st(/Cash in hand at the end/).value === cash1.cash.inHand, 'cash in hand = cash at start + received − bills − sent');
+  ok(cash1.transfers.some((x) => x.reference === 'SLIP-1') && cash1.notRecorded.length === 0, 'Management lists the transfer; nothing is "not recorded" any more');
+  // at the start of the period = 10,000 + what moved at this company's warehouses from its date (20 days ago) to the period start (10 days ago)
+  const whs = rc.warehouses.map((x) => x.warehouseId);
+  const from = Date.parse(`${DAYS(20)}T00:00:00Z`), to = Date.parse(per.from);
+  const inWin = (at: string | number) => { const x = typeof at === 'number' ? at : Date.parse(at); return x >= from && x < to; };
+  const ids = new Set(mdb.sales.filter((x) => !x.counterpartyEntityId).map((x) => x.id));
+  const recv = (mdb.clientPayments ?? []).filter((x) => ids.has(x.saleId) && whs.includes(x.warehouseId) && inWin(x.at)).reduce((a, x) => a + x.amountUsd, 0);
+  const wexp = (mdb.expenses ?? []).filter((x) => whs.includes(x.warehouseId) && inWin(Date.parse(`${x.date}T00:00:00Z`))).reduce((a, x) => a + x.amountUsd, 0);
+  const shipWh = new Map(mdb.shipments.map((x) => [x.id, x.warehouseId]));
+  const trn = mdb.payments.filter((x) => x.status !== 'Pending approval' && whs.includes(shipWh.get(x.shipmentId) ?? '') && inWin(x.at)).reduce((a, x) => a + ((x as { amountUsd?: number }).amountUsd ?? x.amount), 0);
+  const only = (await api.dashboards.get(['mgmt-cash'], { ...per })).results['mgmt-cash']!.data as import('../src/dashboards').MgmtCash;
+  ok(only.cash.withOpening === 1 && Math.abs((only.cash.atStart ?? 0) - (10000 + recv - wexp - trn)) < 1, 'cash at the start of the period = 10,000 + received − bills from the cash-at-start date', [only.cash.atStart, 10000 + recv - wexp - trn]);
+
+  await as('u-yonas');
+  const oy = await api.cash.overview();
+  ok(!oy.canSetOpening && oy.canSend.every((w) => w === 'w-juba') && oy.companies.every((c) => c.warehouses.every((w) => w.warehouseId === 'w-juba')), 'a receiver sees and sends from their own warehouse only, and cannot set cash at start');
+  await rejects(api.cash.setOpening({ receivingCompanyId: rc.receivingCompanyId, amount: 1 }), /directors or accounts/, 'a receiver cannot set cash at start');
+  await rejects(api.cash.send({ warehouseId: w1.warehouseId === 'w-juba' ? w2.warehouseId : w1.warehouseId, amount: 1, currency: 'USD' }), /receiver or a director/, 'a receiver cannot send cash from another warehouse');
+  await as('u-daniel');
+}
+
 console.log(fails ? `\n${fails} money check(s) FAILED` : '\nall money checks passed');
 if (fails) process.exitCode = 1;

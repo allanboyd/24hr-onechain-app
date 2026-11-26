@@ -5,6 +5,7 @@
   import { Badge, fmtNum, say } from '@btw/ui';
   import Plus from '@lucide/svelte/icons/plus';
   import Pencil from '@lucide/svelte/icons/pencil';
+  import { DataTable, type Column } from './page';
   import { listWarehouses, saveWarehouse, serverBacked, warehouseLabel, type WarehouseInput, type WarehouseRow } from '../lib/warehouses';
   import 'leaflet/dist/leaflet.css';
   let { user }: { user: User } = $props();
@@ -12,6 +13,17 @@
   const r = ref();
   const canEdit = $derived(user.roles.some((x) => x === 'admin' || x === 'director'));
   let rows = $state<WarehouseRow[]>(listWarehouses());
+  // V3-8 batch 2: the shared table (search, Company / Status filters, CSV, phone cards)
+  let wq = $state(''), wf = $state({});
+  const columns = $derived<Column<WarehouseRow>[]>([
+    { key: 'dest', label: 'Destination', sticky: true, mobile: 'title', value: (w) => warehouseLabel(w), cell: destCell },
+    { key: 'name', label: 'Warehouse', value: (w) => w.name },
+    { key: 'rc', label: 'Receiving company', value: (w) => companyName(w.receivingCompanyId), filter: 'select' },
+    { key: 'pin', label: 'Pin (lat, lng)', align: 'right', value: (w) => (w.lat != null ? `${w.lat.toFixed(4)}, ${w.lng?.toFixed(4)}` : '-'), class: 'small', hideBelow: 1000 },
+    { key: 'fence', label: 'Geofence', align: 'right', sortValue: (w) => w.radiusM ?? 0, value: (w) => (w.radiusM ? `${fmtNum(w.radiusM)} m` : '-'), hideBelow: 1000 },
+    { key: 'status', label: 'Status', value: (w) => (w.active === false ? 'Inactive' : 'Active'), cell: statusCell, filter: 'select', mobile: 'aside' },
+    ...(canEdit ? [{ key: 'edit', label: '', sortable: false, csv: false as const, cell: editCell, mobile: 'actions' as const }] : []),
+  ]);
   let dialog = $state<HTMLDialogElement>();
   let editing = $state<string | null>(null);
   let form = $state<WarehouseInput>(blank());
@@ -59,15 +71,12 @@
   <p class="caption">Final destinations are warehouses, e.g. Congo – Goma, Rwanda – Gisenyi, South Sudan – Juba. Add another warehouse in any country or town; it becomes a destination in plans, POs and routes.{#if !serverBacked()} <Badge tone="warning">prototype: saved in this session</Badge>{/if}</p>
   {#if canEdit}<button class="btn btn-primary" onclick={() => open(null)}><Plus size={16} />Add warehouse</button>{/if}
 </div>
-<div class="card flush table-wrap"><table class="table">
-  <thead><tr><th>Destination</th><th>Warehouse</th><th>Receiving company</th><th class="num">Pin (lat, lng)</th><th class="num">Geofence</th><th>Status</th>{#if canEdit}<th></th>{/if}</tr></thead>
-  <tbody>{#each rows as w (w.id)}
-    <tr class:off={w.active === false}><td><strong>{warehouseLabel(w)}</strong></td><td>{w.name}</td><td>{companyName(w.receivingCompanyId)}</td>
-      <td class="num small">{w.lat != null ? `${w.lat.toFixed(4)}, ${w.lng?.toFixed(4)}` : '—'}</td><td class="num">{w.radiusM ? `${fmtNum(w.radiusM)} m` : '—'}</td>
-      <td>{#if w.active === false}<Badge tone="neutral">Inactive</Badge>{:else}<Badge tone="success">Active</Badge>{/if}</td>
-      {#if canEdit}<td><button class="btn btn-ghost btn-sm" onclick={() => open(w)} aria-label="Edit {warehouseLabel(w)}"><Pencil size={14} />Edit</button></td>{/if}</tr>
-  {/each}</tbody>
-</table></div>
+<DataTable id="md-warehouses" label="Warehouses" noun="warehouses" {rows} {columns} rowKey={(w) => w.id} rowClass={(w) => (w.active === false ? 'off' : '')} initialSort={{ key: 'dest', dir: 'asc' }} filename="warehouses"
+  searchable searchPlaceholder="Destination, warehouse, company…" bind:search={wq} bind:filters={wf} />
+
+{#snippet destCell(w: WarehouseRow)}<strong>{warehouseLabel(w)}</strong>{/snippet}
+{#snippet statusCell(w: WarehouseRow)}{#if w.active === false}<Badge tone="neutral">Inactive</Badge>{:else}<Badge tone="success">Active</Badge>{/if}{/snippet}
+{#snippet editCell(w: WarehouseRow)}<button class="btn btn-ghost btn-sm" onclick={() => open(w)} aria-label="Edit {warehouseLabel(w)}"><Pencil size={14} />Edit</button>{/snippet}
 
 <dialog class="sheet wide" bind:this={dialog}>
   <form class="body stack" onsubmit={save}>
@@ -92,7 +101,7 @@
 <style>
   .head { margin-bottom: var(--space-3); align-items: flex-start; }
   .head p { max-width: 80ch; margin: 0; }
-  tr.off td { color: var(--text-subtle); }
+  :global(tr.off td) { color: var(--text-subtle); }
   dialog.wide { width: min(720px, calc(100vw - 32px)); }
   .map { height: 300px; border-radius: var(--radius-md); border: 1px solid var(--border); }
   .check { flex-direction: row; align-items: center; gap: var(--space-2); align-self: end; }
