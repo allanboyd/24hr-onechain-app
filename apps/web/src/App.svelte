@@ -78,15 +78,13 @@
   const showSwitch = $derived(canSeeManagement(user));
   const visibleNav = $derived(navFor(user, side));
   const bellCount = $derived(unread > 99 ? '99+' : String(unread));
-  // Top bar (V3-1b SB-5): the page title = the menu entry you are on, else the route title
-  const pageTitle = $derived(visibleNav.flatMap((g) => g.items).find((i) => active(i.href) && i.href !== '#/')?.label ?? matched?.route.title ?? '');
   const crumbs = $derived.by(() => {
     const path = router.path.split('?')[0];
     const items = visibleNav.flatMap((g) => g.items);
     const home = items.find((i) => i.href === '#/') ?? { href: '#/', label: 'Home', icon: LayoutDashboard };
     const here = '#' + path;
     const list: { href: string; label: string; icon: typeof LayoutDashboard }[] = [];
-    if (path !== '/') list.push({ href: home.href, label: home.label, icon: home.icon });
+    list.push({ href: home.href, label: home.label, icon: home.icon });
     if (side === 'management') list.push({ href: '#/management/overview', label: 'Management', icon: ChartPie });
     const hit = items.filter((i) => i.href !== '#/' && (here === i.href || here.startsWith(i.href + '/'))).sort((a, b) => b.href.length - a.href.length)[0];
     if (hit) list.push({ href: hit.href, label: hit.label, icon: hit.icon });
@@ -187,23 +185,18 @@
           {#if isPhone ? !navOpen : sidebar.collapsed}<PanelLeftOpen size={16} />{:else}<PanelLeftClose size={16} />{/if}
         </button>
         <header class="top" class:scrolled>
-        <div class="ttl">
-          <strong class="pt">{pageTitle}</strong>
-          {#if crumbs.length > 1}
-            <nav class="trail" aria-label="Breadcrumb">
-              <ol>
-                {#each crumbs as c, i (c.href + c.label)}
-                  {@const Icon = c.icon}
-                  <li>
-                    {#if i > 0}<ChevronRight size={14} aria-hidden="true" />{/if}
-                    {#if i < crumbs.length - 1}<a href={c.href}><Icon size={14} aria-hidden="true" />{c.label}</a>
-                    {:else}<span aria-current="page"><Icon size={14} aria-hidden="true" />{c.label}</span>{/if}
-                  </li>
-                {/each}
-              </ol>
-            </nav>
-          {/if}
-        </div>
+        <nav class="trail" aria-label="Breadcrumb">
+          <ol>
+            {#each crumbs as c, i (c.href + c.label)}
+              {@const Icon = c.icon}
+              <li>
+                {#if i > 0}<ChevronRight size={14} aria-hidden="true" />{/if}
+                {#if i < crumbs.length - 1}<a href={c.href}><Icon size={15} aria-hidden="true" />{c.label}</a>
+                {:else}<span aria-current="page"><Icon size={15} aria-hidden="true" />{c.label}</span>{/if}
+              </li>
+            {/each}
+          </ol>
+        </nav>
         <div class="grow"></div>
         {#if scope}<span class="scope small" title="Your data scope">Scope: <strong>{scope}</strong></span>{/if}
         <button class="ibtn" onclick={toggleTheme} aria-label="Toggle theme">{#if theme === 'dark'}<Sun size={18} />{:else}<Moon size={18} />{/if}</button>
@@ -263,7 +256,7 @@
   .seg.mgmt .thumb { transform: translateX(calc(100% + 4px)); }
   .seg a { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 6px; border-radius: 11px; color: var(--nav-text); font-weight: 600; font-size: 13px; text-decoration: none; transition: color 220ms ease; }
   .seg a:hover { color: var(--nav-strong); }
-  .seg a.on { color: var(--nav); }
+  .seg a.on, .seg a.on:hover { color: var(--nav); }
   .rail .seg { grid-template-columns: 1fr; margin-inline: auto; width: 48px; }
   .rail .seg .thumb { width: auto; right: 4px; height: calc(50% - 6px); bottom: auto; }
   .rail .seg.mgmt .thumb { transform: translateY(calc(100% + 4px)); }
@@ -273,6 +266,7 @@
   .grp { display: flex; flex-direction: column; gap: 2px; }
   nav a { position: relative; display: flex; align-items: center; gap: var(--space-3); color: var(--nav-text); padding: 9px var(--space-3); border-radius: 10px; font-weight: 500; text-decoration: none; white-space: nowrap; transition: background var(--motion-fast) var(--motion-easing), color var(--motion-fast) var(--motion-easing); }
   nav a:hover { background: var(--nav-hover); color: var(--nav-strong); text-decoration: none; }
+  nav a:hover :global(svg) { color: var(--nav-strong); }
   nav a.active { background: var(--nav-active-bg); color: var(--nav-strong); font-weight: 600; }
   nav a.active::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; background: var(--nav-indicator); }
   nav a :global(svg) { flex: none; }
@@ -283,20 +277,19 @@
   .frame { max-width: 1320px; width: 100%; margin-inline: auto; padding: var(--space-4) var(--space-4) 0; min-width: 0; }
   /* SB-5 top bar: the same white card as the page, with the sidebar control on its left edge */
   .bar { position: sticky; top: var(--space-3); z-index: 10; }
-  .edge { position: absolute; left: -14px; top: 50%; z-index: 2; transform: translateY(-50%); display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: var(--surface); color: var(--text); box-shadow: var(--elevation-1); cursor: pointer; }
-  .edge:hover { background: var(--surface-sunken); color: var(--text); }
-  .top { display: flex; align-items: center; gap: var(--space-3); min-height: 64px; padding: 10px var(--space-5) 10px 28px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--elevation-1); }
+  .edge { position: absolute; left: -14px; top: 50%; z-index: 2; transform: translateY(-50%); display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: var(--primary); color: var(--nav-strong); box-shadow: var(--elevation-1); cursor: pointer; }
+  .edge:hover { background: var(--primary-hover); color: var(--nav-strong); }
+  .top { display: flex; align-items: center; gap: var(--space-3); min-height: 52px; padding: 8px var(--space-5) 8px 32px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; box-shadow: var(--elevation-1); }
   .top.scrolled { box-shadow: var(--elevation-2); }
-  .ibtn { position: relative; display: inline-grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: 10px; background: transparent; color: var(--text-muted); cursor: pointer; text-decoration: none; transition: background var(--motion-fast) var(--motion-easing), color var(--motion-fast) var(--motion-easing); }
-  .ibtn:hover { background: var(--surface-sunken); color: var(--text); text-decoration: none; }
-  .ttl { display: flex; flex-direction: column; gap: 2px; line-height: 1.2; min-width: 0; flex: 1; }
-  .pt { font: 700 17px/1.25 var(--ff-display); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .trail { min-width: 0; overflow-x: auto; scrollbar-width: thin; }
-  .trail ol { display: flex; align-items: center; gap: 2px; margin: 0; padding: 0; list-style: none; width: max-content; }
+  .ibtn { position: relative; display: inline-grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: var(--text-muted); cursor: pointer; text-decoration: none; transition: background var(--motion-fast) var(--motion-easing), color var(--motion-fast) var(--motion-easing); }
+  .ibtn:hover { background: var(--primary); color: var(--nav-strong); text-decoration: none; }
+  .trail { min-width: 0; flex: 1; overflow-x: auto; scrollbar-width: thin; }
+  .trail ol { display: flex; align-items: center; gap: 2px; margin: 0; padding: 2px 0; list-style: none; width: max-content; }
   .trail li { display: inline-flex; align-items: center; gap: 2px; color: var(--text-subtle); }
-  .trail a, .trail span { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-muted); white-space: nowrap; text-decoration: none; }
-  .trail a:hover { color: var(--link); }
-  .trail [aria-current='page'] { color: var(--text); }
+  .trail a, .trail span { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 10px; border-radius: 999px; font-size: 14px; font-weight: 600; color: var(--text-muted); white-space: nowrap; text-decoration: none; }
+  .trail a:hover { background: var(--primary); color: var(--nav-strong); }
+  .trail a:hover :global(svg), .ibtn:hover :global(svg), .edge:hover :global(svg) { color: var(--nav-strong); }
+  .trail [aria-current='page'] { color: var(--text); font-weight: 700; }
   .scope { color: var(--text-muted); max-width: 32ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bell .dotcount { position: absolute; top: 3px; right: 1px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: grid; place-items: center; background: var(--danger-solid); color: var(--text-on-danger); font: 700 10.5px/1 var(--ff-body); box-shadow: 0 0 0 2px var(--surface); }
   .acct { display: flex; align-items: center; gap: var(--space-2); padding: 4px 10px 4px 4px; margin-left: var(--space-1); border: 1px solid var(--border); border-radius: 999px; background: var(--surface); }

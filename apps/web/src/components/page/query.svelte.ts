@@ -1,3 +1,5 @@
+import { onDestroy } from 'svelte';
+
 // Page kit (docs/17 §3, §5 step 4): list filters kept in the hash query (#/shipments?show=delayed&route=r1), like
 // lib/tab.ts `drill`, so a filtered list can be bookmarked and shared and Home cards can deep-link into it.
 //
@@ -53,4 +55,15 @@ export function takeIntent(name: string): boolean {
   if (readQuery('do') !== name) return false;
   writeQuery({ do: null });
   return true;
+}
+
+/**
+ * True only while this component is still on screen. Call during init, then check before `takeIntent`.
+ * A company switch remounts the screen, but the screen that is leaving is still subscribed and its load
+ * finishes after the switch. Without this it consumes `do=` and the new screen never opens the form.
+ */
+export function intentGate(): () => boolean {
+  let live = true;
+  onDestroy(() => { live = false; });
+  return () => live;
 }

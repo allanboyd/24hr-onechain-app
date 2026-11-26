@@ -62,7 +62,7 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 <!-- BUG-<n> · where · steps · screenshot · found by <agent> (gets its own row once triaged) -->
 - **BUG-1** · `packages/api/test/plans.test.ts` lines 110, 141, 142 fail on unchanged `design-v3` (and `main`): over-plan mark / Kivu plan link / over-plan PO issued. Likely date-driven (the demo plan period vs today, 26 Nov). Run: `npx tsx packages/api/test/plans.test.ts`. Found by claude (V3-0).
 - **BUG-3** · ✅ fixed in V3-8 batch 1: Stock's table listed every line whatever the filters (the strip said "6 of 20"). Found by claude.
-- **BUG-4** · open: Group view → Sales → **New sale** → pick BTW switches the company but the form doesn't open (the `do=` intent is lost; the address ends `?co=BTW`). Same on design-v3 before V3-12; likely in `components/page/ActionInCompany.svelte`. `tests/design-v3/clients.mjs` opens the form again as a workaround. Found by claude.
+- **BUG-4** · ✅ fixed in V3-11: Group view → Sales → New sale → pick BTW now opens the form. The screen that was leaving reloaded on the company switch and consumed `do=` before the new screen could read it. Found by claude.
 - **BUG-2** · `packages/api/test/metrics.test.ts`: "Group (Daniel) · needs attention: Inventory page 8 = stock report 9" fails on unchanged `design-v3`. The two pages count stock needing attention differently (probably also date-driven). Found by claude (V3-0).
 
 ## Requests
@@ -133,3 +133,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | claude | V3-12 step 2 merged: client payments. A sale records its first payment and how it was paid; Record payment on web Sales and the phone; Cash and closing counts money on the day it came in; Sales and clients shows money by how clients paid. Migration 0015 applied (existing paid amounts copied as payments dated at the sale). |
 | 26 Nov 2026 | cursor | V3-11 Decisions keep a quiet colour on the word and icon. Stock cover is now What sold. The top bar is a rounded card with a scrollable trail. |
 | 26 Nov 2026 | claude | V3-1f merged: one Home entry in Operations (the dashboard tabs keep it selected). V3-12 step 3 merged: supplier money on the PO page (pro-forma, advance, credit note, use of held money; approval per Settings; directors notified); Supplier balances reads it. Migration 0016 applied. |
+| 26 Nov 2026 | cursor | V3-11 top bar is the breadcrumb only, with circular ends and a primary menu button. Hover text on that bar is white. BUG-4 fixed: New sale in Group view opens the form. |
