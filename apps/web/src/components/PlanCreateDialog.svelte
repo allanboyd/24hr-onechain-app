@@ -10,13 +10,18 @@
   import { allCompanies, companyLabel } from '../lib/companies';
   import { canEditPeriodPlans, monthsOf, periodLabel, periodPlans, withReplace, type PeriodKind, type PeriodPlan } from '../lib/planning';
 
-  let { user, open = $bindable(false) }: { user: User; open?: boolean } = $props();
+  let { user, open = $bindable(false), start = null }: { user: User; open?: boolean; /** Month the plan should start in, from a double-click on the year. */ start?: { ym: string; entityId?: string } | null } = $props();
   const group = $derived(company.active === GROUP);
   const lockedId = $derived(company.active === GROUP ? '' : company.active);
   const companies = $derived(allCompanies().filter((c) => allowedIds(user).includes(c.id)));
   const nextMonth = (() => { const d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + 1); return d.toISOString().slice(0, 7); })();
   const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((label, i) => ({ value: String(i + 1).padStart(2, '0'), label }));
-  const YEARS = [0, 1].map((n) => { const y = String(new Date().getUTCFullYear() + n); return { value: y, label: y }; });
+  const yearChoices = $derived.by(() => {
+    const ys = [0, 1].map((n) => String(new Date().getUTCFullYear() + n));
+    const extra = start?.ym?.slice(0, 4);
+    if (extra && !ys.includes(extra)) ys.push(extra);
+    return ys.sort().map((y) => ({ value: y, label: y }));
+  });
   const LENGTH: { k: PeriodKind; label: string; hint: string }[] = [
     { k: 'month', label: 'Month', hint: '1 month' },
     { k: 'quarter', label: 'Quarter', hint: '3 months' },
@@ -59,9 +64,9 @@
   $effect(() => {
     if (!dlg) return;
     if (open && !dlg.open) {
-      const ym = nextMonth;
-      const end = spanOf('quarter', ym).to;
-      picked = lockedId || 'all'; kind = 'quarter'; startY = ym.slice(0, 4); startM = ym.slice(5, 7);
+      const ym = start?.ym ?? nextMonth;
+      const end = spanOf(start ? 'month' : 'quarter', ym).to;
+      picked = lockedId || start?.entityId || 'all'; kind = start ? 'month' : 'quarter'; startY = ym.slice(0, 4); startM = ym.slice(5, 7);
       customFrom = `${ym}-01`; customTo = end; title = ''; copyFrom = '';
       dlg.showModal();
     } else if (!open && dlg.open) dlg.close();
@@ -122,7 +127,7 @@
         <FormSelect label="Month" bind:value={startM} options={MONTHS} />
       </label>
       <label class="field"><span>Year</span>
-        <FormSelect label="Year" bind:value={startY} options={YEARS} />
+        <FormSelect label="Year" bind:value={startY} options={yearChoices} />
       </label>
     </div>
     <div class="field"><span>Length</span>

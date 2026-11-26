@@ -178,3 +178,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | claude | V3-6 step 1 merged: the web app on phones has a bottom bar per role, More (full menu, switch, company, theme, sign-out), search, and a slim top bar. |
 | 26 Nov 2026 | cursor | V3-11 Period plans: a year of month tiles, one colour per company. All companies writes three plans. Check the year and Plan vs actual open in the panel beside the year. |
 | 26 Nov 2026 | claude | V3-6 steps 2 and 3 merged: field app sync dot and matching bottom navs; sign-in form first with a show / hide eye and a brand panel on wide screens. |
+| 26 Nov 2026 | cursor | V3-11 Period plans: double-click a month to add a plan, or to update the plan that already covers it. |
