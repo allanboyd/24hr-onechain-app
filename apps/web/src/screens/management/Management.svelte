@@ -24,9 +24,10 @@
   import Overview from './Overview.svelte';
   import Plans from './Plans.svelte';
   import Clients from './Clients.svelte';
+  import Suppliers from './Suppliers.svelte';
   import Perf from './Perf.svelte';
   /** pages rebuilt in our code on live data (V3-10); the others still show the report as is */
-  const LIVE: ReportPage[] = ['overview', 'plans', 'clients', 'perf'];
+  const LIVE: ReportPage[] = ['overview', 'plans', 'clients', 'perf', 'suppliers'];
 
   let { params = {} }: { params?: Record<string, string> } = $props();
   const page = $derived<ReportPage>(params.page && params.page in REPORT_PAGES ? (params.page as ReportPage) : 'overview');
@@ -67,7 +68,7 @@
 </script>
 
 {#if LIVE.includes(page)}
-  {#if page === 'plans'}<Plans />{:else if page === 'clients'}<Clients />{:else if page === 'perf'}<Perf />{:else}<Overview />{/if}
+  {#if page === 'plans'}<Plans />{:else if page === 'clients'}<Clients />{:else if page === 'perf'}<Perf />{:else if page === 'suppliers'}<Suppliers />{:else}<Overview />{/if}
 {:else}
 <div class="mgmt">
   <div class="note" role="note">

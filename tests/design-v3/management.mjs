@@ -54,13 +54,20 @@ const profits = await p.locator('.mrep .wh').evaluateAll((ws) => ws.map((w) => N
 ok(profits.every((x, i, a) => i === 0 || a[i - 1] >= x), `Performance: most profitable first (${profits.join(', ')})`);
 ok(await p.locator('.mrep .dt-table tbody tr[data-dt-row]').count() > 0 && !(await p.locator('.mrep').innerText()).match(/\bp-[a-z]\d{3}\b|\bw-[a-z]+\b/), 'Performance: price floor rows, names not codes');
 await p.screenshot({ path: `${out}/mgmt-perf-live.png`, fullPage: true });
+// V3-10 step 3c: Supplier balances on live data
+await p.goto(`${base}#/management/suppliers?p=ytd`); await p.locator('.mrep .kpi .val').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(1000);
+ok(await p.locator('iframe[title^="Management report"]').count() === 0, 'Suppliers: our page, no report frame');
+ok(n(await p.locator('.mrep .kpi .val').first().textContent()) > 0 && await p.locator('.mrep .rank li').count() > 0, 'Suppliers: money held from our short loads, per supplier');
+ok(await p.locator('.mrep .kpi', { hasText: 'Credit notes' }).getByText('Not recorded yet').count() === 1 && await p.locator('.mrep .ct', { hasText: 'Advance payments' }).locator('.chip', { hasText: 'Not recorded yet' }).count() === 1, 'Suppliers: credit notes / advances say "Not recorded yet"');
+ok(await p.locator('.mrep .dt-table').count() === 2 && await p.locator('.mrep .dt-table').first().locator('tbody tr[data-dt-row]').count() > 0, 'Suppliers: short loads and the statement as tables');
+await p.screenshot({ path: `${out}/mgmt-suppliers-live.png`, fullPage: true });
 for (const [k, title] of Object.entries(PAGES)) {
-  if (['overview', 'plans', 'clients', 'perf'].includes(k)) continue; // rebuilt in our code (V3-10), checked above
+  if (['overview', 'plans', 'clients', 'perf', 'suppliers'].includes(k)) continue; // rebuilt in our code (V3-10), checked above
   await p.goto(`${base}#/management/${k}`); await p.waitForTimeout(2200);
   const f = p.frameLocator('iframe[title^="Management report"]');
   const h1 = (await f.locator('main h1').first().textContent().catch(() => ''))?.trim();
   ok(h1 === title, `#/management/${k} opens "${title}" (got "${h1}")`);
-  if (k === 'suppliers') {
+  if (k === 'cash') {
     const sideHidden = await f.locator('aside.side').evaluate((e) => getComputedStyle(e).display === 'none').catch(() => false);
     ok(sideHidden, `${k}: the report's own menu is hidden`);
     const w = await f.locator('main').evaluate((e) => e.getBoundingClientRect().width).catch(() => 0);

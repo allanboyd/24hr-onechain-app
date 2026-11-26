@@ -7,7 +7,7 @@
 //   empty     = there is nothing to show yet — screens then say "No data yet", never a zero (values are null, not 0).
 // Scope: `scopeSource` cuts the company-wide data down to what one person may see (roles document §7, access.ts / money.ts),
 // then `narrow` applies the dashboard filters (company, supplier, route, warehouse, product, date range).
-import { DAY, H, etaOf, featuresFor, hasFeature } from './rules';
+import { DAY, H, etaOf, featuresFor, hasFeature, fxFor } from './rules';
 import { resolvePeriod, scopeReportData, planningReport, plannedVsActual, PV_METHOD, type ReportData, type PvMeasures, type PvFlag } from './reports';
 import { performanceReport, PERFORMANCE_METHOD, type PerformanceReport } from './performance';
 import * as M from './money';
@@ -54,7 +54,7 @@ export type DashKey =
   | 'orders-analysis' | 'plan-vs-actual-report' | 'purchase-planning' | 'loading-queues' | 'shipment-analysis' | 'logistics-report'
   | 'trip-costs' | 'finance-report' | 'stock-analysis' | 'inventory-report' | 'sales-velocity' | 'sales-report' | 'quarterly-review'
   // design v3 Management pages on live data (V3-10): same data, scoping and builders as the dashboards above
-  | 'mgmt-overview' | 'mgmt-plans' | 'mgmt-clients' | 'mgmt-perf';
+  | 'mgmt-overview' | 'mgmt-plans' | 'mgmt-clients' | 'mgmt-perf' | 'mgmt-suppliers';
 export interface DashDef {
   key: DashKey; id: string; title: string; group: DashGroup; who: Who[];
   /** the business question it answers */ question: string; /** the visual */ visual: string;
@@ -66,6 +66,7 @@ export interface DashDef {
 const d = (key: DashKey, id: string, title: string, group: DashGroup, who: Who[], question: string, visual: string, link?: string, client?: boolean): DashDef => ({ key, id, title, group, who, question, visual, link, client });
 const a = (key: DashKey, title: string, group: DashGroup, who: Who[], features: FeatureKey[], question: string, visual: string, link: string): DashDef => ({ key, id: 'F-2', title, group, who, question, visual, link, client: true, analysis: true, features });
 export const DASHBOARDS: DashDef[] = [
+  { key: 'mgmt-suppliers', id: 'M-05', title: 'Supplier balances', group: 'management', who: ['dir'], features: ['reports'], question: 'How much of our money is with each supplier from short loads?', visual: 'KPIs, money with suppliers by month, by supplier, brands loaded short, short loads list, supplier statement', link: '#/management/suppliers' },
   { key: 'mgmt-perf', id: 'M-07', title: 'Warehouse performance', group: 'management', who: ['dir'], features: ['reports'], question: 'Which warehouse makes the most profit, and are we selling above the safe price?', visual: 'Warehouses side by side, headline numbers, profit waterfall, plan vs actual, margin and profit per case by month, price floor', link: '#/management/perf' },
   { key: 'mgmt-clients', id: 'M-04', title: 'Sales and clients', group: 'management', who: ['dir'], features: ['reports'], question: 'Who buys, how do they pay, and who owes us?', visual: 'KPIs, clients by frequency, how clients pay, balances within credit time vs overdue, sales records', link: '#/management/clients' },
   { key: 'mgmt-plans', id: 'M-03', title: 'Plans and orders', group: 'management', who: ['dir'], features: ['reports'], question: 'Are we ordering what we planned, by month and by brand?', visual: 'KPIs, planned vs PO issued by month, by brand', link: '#/management/plans' },
@@ -679,6 +680,60 @@ function mgmtPerf(c: Ctx): Out {
     currency: 'USD', unit: 'USD · cases', period: c.period, freshness: newest(c.usd.sales.map((s) => s.at)), empty: !T || (!T.revenue && !T.landedCost) });
 }
 
+// ---- design v3 Management · Supplier balances (V3-10 step 3c): money left with suppliers by short loads ----------------
+// A short load = cases on the order line not put on the truck at loading. Their value (PO price, USD at the month's average
+// rate) stays with the supplier. Credit notes, advance payments and pro-forma invoices are not recorded yet (V3-10 step 4).
+export interface MgmtSuppliers {
+  kpis: { held: number; addedInPeriod: number; shortLoads: number; shortCases: number; suppliers: number };
+  bySupplier: { supplierId: ID; label: string; held: number; inPeriod: number; loads: number }[];
+  byMonth: { month: string; added: number; total: number }[];
+  byBrand: { productId: ID; label: string; cases: number; value: number }[];
+  loads: { id: string; at: string; poId: ID; poRef: string; supplierId: ID; supplier: string; productId: ID; brand: string; ordered: number; loaded: number; short: number; value: number }[];
+  statement: { supplierId: ID; supplier: string; at: string; poRef: string; brand: string; added: number; balance: number }[];
+  notRecorded: ('creditNotes' | 'advances' | 'proformas' | 'uses')[];
+}
+function mgmtSuppliers(c: Ctx): Out {
+  const n = names(c.src);
+  const empty: MgmtSuppliers = { kpis: { held: 0, addedInPeriod: 0, shortLoads: 0, shortCases: 0, suppliers: 0 }, bySupplier: [], byMonth: [], byBrand: [], loads: [], statement: [], notRecorded: ['creditNotes', 'advances', 'proformas', 'uses'] };
+  if (c.src.pricesHidden) return out(empty, { definition: 'Prices are not part of your work.', currency: 'USD', unit: 'USD', period: c.period, freshness: null, empty: true });
+  const pos = new Map(c.raw.pos.map((p) => [p.id, p]));
+  const plans = new Map(c.raw.plans.map((p) => [p.id, p]));
+  const rows: MgmtSuppliers['loads'] = [];
+  for (const l of c.src.loadings) {
+    if (l.status !== 'Loaded' || !l.loadedAt) continue;
+    const po = pos.get(l.poId); if (!po) continue;
+    if (c.f.supplierId && po.supplierId !== c.f.supplierId) continue;
+    const plan = plans.get(po.planId);
+    for (const x of l.lines) {
+      const short = Math.max(0, x.orderedQty - x.loadedQty);
+      if (!short || x.alternativeFor) continue;
+      const pl = plan?.lines.find((y) => y.id === x.planLineId);
+      const price = pl?.price ?? 0;
+      const value = r2((short * price) / (po.currency === 'USD' ? 1 : fxFor(c.raw.fxRates ?? [], po.currency, l.loadedAt, 'avg')));
+      rows.push({ id: `${l.id}:${x.planLineId}`, at: l.loadedAt, poId: po.id, poRef: po.ref, supplierId: po.supplierId, supplier: n.supplier(po.supplierId), productId: x.productId, brand: n.product(x.productId), ordered: x.orderedQty, loaded: x.loadedQty, short, value });
+    }
+  }
+  rows.sort((a, b) => t(b.at) - t(a.at));
+  const inP = rows.filter((r) => inPeriod(c, r.at));
+  const sup = new Map<ID, MgmtSuppliers['bySupplier'][number]>();
+  for (const r of rows) { const x = sup.get(r.supplierId) ?? { supplierId: r.supplierId, label: r.supplier, held: 0, inPeriod: 0, loads: 0 }; x.held += r.value; x.loads++; if (inPeriod(c, r.at)) x.inPeriod += r.value; sup.set(r.supplierId, x); }
+  const brand = new Map<ID, MgmtSuppliers['byBrand'][number]>();
+  for (const r of inP) { const x = brand.get(r.productId) ?? { productId: r.productId, label: r.brand, cases: 0, value: 0 }; x.cases += r.short; x.value += r.value; brand.set(r.productId, x); }
+  let run = 0; const byMonth = months(c.now, 12).map((m) => { const added = r2(sum(rows.filter((r) => { const x = t(r.at); return x >= m.from && x < m.to; }), (r) => r.value)); run += added; return { month: m.key, added, total: r2(run) }; });
+  const before = r2(sum(rows.filter((r) => t(r.at) < months(c.now, 12)[0].from), (r) => r.value));
+  for (const m of byMonth) m.total = r2(m.total + before);
+  const bal = new Map<ID, number>();
+  const statement = [...rows].reverse().map((r) => { const b = r2((bal.get(r.supplierId) ?? 0) + r.value); bal.set(r.supplierId, b); return { supplierId: r.supplierId, supplier: r.supplier, at: r.at, poRef: r.poRef, brand: r.brand, added: r.value, balance: b }; }).reverse();
+  const data: MgmtSuppliers = {
+    kpis: { held: r2(sum(rows, (r) => r.value)), addedInPeriod: r2(sum(inP, (r) => r.value)), shortLoads: new Set(inP.map((r) => r.id.split(':')[0])).size, shortCases: sum(inP, (r) => r.short), suppliers: sup.size },
+    bySupplier: [...sup.values()].map((x) => ({ ...x, held: r2(x.held), inPeriod: r2(x.inPeriod) })).sort((a, b) => b.held - a.held),
+    byMonth, byBrand: [...brand.values()].map((x) => ({ ...x, value: r2(x.value) })).sort((a, b) => b.value - a.value),
+    loads: rows.slice(0, 1000), statement: statement.slice(0, 1000), notRecorded: ['creditNotes', 'advances', 'proformas', 'uses'],
+  };
+  return out(data, { definition: 'Short load = cases on the order line not loaded on the truck; value = short cases × the PO price (USD at the average rate of the loading month). This value stays with the supplier. Credit notes, advance payments, pro-forma invoices and the later orders that use this money are not recorded yet, so the balance only grows.',
+    currency: 'USD', unit: 'USD · cases', period: c.period, freshness: newest(rows.map((r) => r.at)), empty: !rows.length });
+}
+
 function directorToday(c: Ctx): Out {
   const n = names(c.src); const now = c.now; const d0 = new Date(now);
   const dayStart = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate());
@@ -999,6 +1054,7 @@ const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
   'mgmt-plans': mgmtPlans,
   'mgmt-clients': mgmtClients,
   'mgmt-perf': mgmtPerf,
+  'mgmt-suppliers': mgmtSuppliers,
   'warehouse-today': warehouseToday,
   'order-this-week': orderThisWeek,
   'stock-movements': stockMovements,

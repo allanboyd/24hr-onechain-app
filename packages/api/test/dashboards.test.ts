@@ -94,6 +94,18 @@ ok(mo.brands.best.length > 0 && mo.brands.best.every((b, i, a) => i === 0 || a[i
   ok(mf.floor.length > 0 && mf.floor.every((x) => x.floor === null || x.landedPerCase === null || Math.abs(x.floor - x.landedPerCase / (1 - mf.targetMargin)) < 0.05 * x.floor), 'Management Performance: price floor = landed cost ÷ (1 − target margin)', mf.floor.slice(0, 2));
   ok(mf.months.length === 12 && mf.plan.months.length >= 1, 'Management Performance: 12 months of margin / profit per case; plan vs actual by month');
 }
+// ---- Management · Supplier balances (V3-10 step 3c): short loads = ordered − loaded on loaded trucks, at the PO price ----
+{
+  const y0 = `${new Date().getUTCFullYear() - 1}-01-01T00:00:00.000Z`, y1 = new Date(Date.now() + 864e5).toISOString();
+  const ms = (await api.dashboards.get(['mgmt-suppliers'], { from: y0, to: y1 })).results['mgmt-suppliers']!.data as import('../src/dashboards').MgmtSuppliers;
+  const lds = await api.loading.list();
+  const shortLines = lds.filter((l) => l.status === 'Loaded' && l.loadedAt).flatMap((l) => l.lines.filter((x) => !x.alternativeFor && x.orderedQty > x.loadedQty));
+  ok(ms.loads.length > 0 && ms.loads.length === Math.min(1000, shortLines.length) && ms.loads.every((r) => r.short === r.ordered - r.loaded && r.short > 0 && r.value >= 0), 'Management Suppliers: one row per short line on loaded trucks (= the loadings), short = ordered − loaded', [ms.loads.length, shortLines.length]);
+  ok(Math.abs(ms.bySupplier.reduce((a, x) => a + x.held, 0) - ms.kpis.held) < 1 && Math.abs(ms.byMonth.at(-1)!.total - ms.kpis.held) < 1, 'Management Suppliers: suppliers and the running total by month add up to the money held', [ms.kpis.held, ms.byMonth.at(-1)]);
+  const lastBal = new Map<string, number>(); for (const r of [...ms.statement].reverse()) lastBal.set(r.supplierId, r.balance);
+  ok(ms.bySupplier.every((x) => Math.abs((lastBal.get(x.supplierId) ?? 0) - x.held) < 1), 'Management Suppliers: each statement ends at that supplier\'s balance');
+  ok(ms.notRecorded.includes('creditNotes') && ms.notRecorded.includes('advances') && ms.loads.every((r) => !/^p-[a-z]\d/.test(r.brand)), 'Management Suppliers: credit notes / advances flagged as not recorded; names not codes');
+}
 ok(td.cash.value! > 0 && td.cash.overdue! <= td.cash.value! && td.cash.spark?.length === 8, 'Today: cash to collect with the overdue part (never more than the total)', [td.cash.value, td.cash.overdue]);
 ok(td.owed.bands.length === 3 && td.owed.total === td.cash.value && td.owed.overdue === td.cash.overdue && td.owed.top.length > 0 && td.owed.bands.every((b) => b.value >= 0), 'Today: who-owes-us ageing bands and top customers', td.owed);
 ok(td.trucks.value !== null && td.trucks.delayed <= td.trucks.value && td.trucks.spark?.length === 14 && td.trucks.spark.at(-1) === td.trucks.value, 'Today: trucks on the road, delayed, 14-day trend ending at now', td.trucks);
