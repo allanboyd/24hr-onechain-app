@@ -1,0 +1,89 @@
+// V3-8 checks on the Purchase orders table (TanStack): search, Filters panel with counts, chips, range, address kept,
+// old links still filter, Status still reaches deleted orders, sort, CSV = the filtered rows, phone cards.
+// Run: node tests/design-v3/tables.mjs http://localhost:5173/ <outDir>   (shared stack up, demo build)
+import { chromium } from 'playwright';
+import { readFileSync } from 'node:fs';
+
+const [base, out = '.'] = process.argv.slice(2);
+let fails = 0; const ok = (c, m) => { console.log(`${c ? 'ok  ' : 'FAIL'} ${m}`); if (!c) fails++; };
+const b = await chromium.launch();
+const ctx = await b.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
+const p = await ctx.newPage();
+p.on('pageerror', (e) => console.log('pageerror', e.message));
+await p.goto(base); await p.waitForTimeout(1200);
+await p.getByRole('button', { name: 'Sign in to the web as Daniel' }).first().click();
+await p.locator('aside nav a').first().waitFor({ timeout: 20_000 });
+
+const rowsShown = async () => Number(((await p.locator('.dt-foot .caption').first().textContent()) ?? '').match(/of ([\d,]+)/)?.[1]?.replace(/,/g, '') ?? 0);
+const hash = () => decodeURIComponent(new URL(p.url()).hash);
+const col = (n) => p.locator(`.dt-table tbody tr td:nth-child(${n})`).allTextContents();
+await p.goto(`${base}#/pos?stage=all`); await p.locator('.dt-table tbody tr').first().waitFor(); await p.waitForTimeout(800);
+const all = await rowsShown();
+ok(all > 10, `all orders listed (${all})`);
+ok(await p.locator('form.filterbar, .filter-bar').count() === 0, 'the separate filter bar is gone (filters are in the table)');
+
+// search
+await p.getByPlaceholder('Search reference, title, supplier…').fill('Kampala'); await p.waitForTimeout(500);
+const nSearch = await rowsShown();
+ok(nSearch > 0 && nSearch < all, `search "Kampala" narrows ${all} → ${nSearch}`);
+ok((await col(4)).every((t) => /Kampala/.test(t)), 'every row found has a Kampala supplier');
+ok(hash().includes('q=Kampala'), 'search kept in the address (?q=)');
+await p.getByRole('button', { name: 'Clear the search' }).click(); await p.waitForTimeout(400);
+ok(await rowsShown() === all && !hash().includes('q='), 'clear search → all rows, address clean');
+
+// Filters panel: supplier pick-list with counts
+await p.getByRole('button', { name: /^Filters/ }).click(); await p.waitForTimeout(300);
+const panel = p.getByRole('dialog', { name: /Filters for orders/ });
+ok(await panel.isVisible(), 'Filters panel opens');
+const supOpts = panel.locator('fieldset', { hasText: 'Supplier' }).locator('.dt-opt');
+const first = (await supOpts.first().innerText()).split('\n');
+const [supName, supCount] = [first[0].trim(), Number(first.at(-1))];
+ok(supName.includes(',') && supCount > 0, `supplier choices with counts ("${supName}" ${supCount})`);
+await supOpts.first().locator('input').check(); await p.waitForTimeout(400);
+ok(await rowsShown() === supCount, `ticking "${supName}" shows its ${supCount} orders`);
+const supParam = hash().match(/supplier=([^&]+)/)?.[1] ?? '';
+ok(!!supParam && !supParam.includes(' '), `supplier filter kept in the address as an id (?supplier=${supParam})`);
+await p.screenshot({ path: `${out}/tables-panel.png` });
+await panel.getByRole('button', { name: 'Done' }).click(); await p.waitForTimeout(300);
+ok(await p.locator('.dt-chip', { hasText: 'Supplier:' }).count() === 1, 'a "Supplier: …" chip shows');
+await p.screenshot({ path: `${out}/tables-chips.png` });
+await p.getByRole('button', { name: 'Remove the Supplier filter' }).click(); await p.waitForTimeout(400);
+ok(await p.locator('.dt-chip', { hasText: 'Supplier:' }).count() === 0 && !hash().includes('supplier=') && await rowsShown() === all, 'removing the chip drops that filter');
+
+// range on Amount
+await p.getByRole('button', { name: /^Filters/ }).click(); await p.waitForTimeout(300);
+await panel.locator('fieldset', { hasText: 'Amount' }).getByLabel('From').fill('50000'); await panel.locator('fieldset', { hasText: 'Amount' }).getByLabel('From').press('Tab'); await p.waitForTimeout(400);
+await panel.getByRole('button', { name: 'Done' }).click(); await p.waitForTimeout(300);
+const amounts = (await col(7)).map((t) => Number(t.replace(/[^\d.]/g, '')));
+ok(amounts.length > 0 && amounts.every((a) => a >= 50000), `Amount from 50,000: ${amounts.length} rows, all ≥ 50,000`);
+ok(await p.locator('.dt-chip', { hasText: 'Amount: from 50,000' }).count() === 1 && hash().includes('amount=50000,'), 'Amount chip + ?amount=50000,');
+// CSV = filtered rows
+const [dl] = await Promise.all([p.waitForEvent('download'), p.getByRole('button', { name: 'CSV' }).click()]);
+const csv = readFileSync(await dl.path(), 'utf8').trim().split('\n');
+ok(csv.length - 1 === await rowsShown(), `CSV has the ${csv.length - 1} filtered rows`);
+// search + range together, then clear all
+await p.getByPlaceholder('Search reference, title, supplier…').fill('Nairobi'); await p.waitForTimeout(400);
+ok((await col(4)).every((t) => /Nairobi/.test(t)) && (await col(7)).every((t) => Number(t.replace(/[^\d.]/g, '')) >= 50000), 'search + range together');
+await p.locator('.dt-chips').getByRole('button', { name: 'Clear all' }).click(); await p.waitForTimeout(400);
+ok(await rowsShown() === all && !/amount=|supplier=|q=/.test(hash()), 'Clear all → every order, address clean');
+
+// sort by Amount (biggest first)
+await p.locator('th', { hasText: 'Amount' }).getByRole('button').click(); await p.waitForTimeout(400);
+const sortedA = (await col(7)).map((t) => Number(t.replace(/[^\d.]/g, ''))).filter((x) => x);
+ok(sortedA.every((x, i) => i === 0 || sortedA[i - 1] >= x), 'Amount sorts biggest first');
+
+// an old link (?supplier=<id>) still filters
+await p.goto(`${base}#/pos?stage=all&supplier=${supParam}`); await p.waitForTimeout(1500);
+ok(await p.locator('.dt-chip', { hasText: `Supplier: ${supName}` }).count() === 1 && await rowsShown() === supCount, `an old ?supplier= link opens filtered (${supCount} orders, chip "${supName}")`);
+// Status still reaches deleted orders
+await p.goto(`${base}#/pos?stage=all`); await p.waitForTimeout(1200);
+ok(await p.getByLabel('Status').locator('option', { hasText: /deleted/i }).count() === 1, 'Status in the table toolbar still offers deleted orders');
+ok(await p.getByRole('combobox', { name: 'Status' }).count() === 1, 'one Status select in the toolbar');
+
+// phone: cards + search still there
+await p.setViewportSize({ width: 390, height: 844 }); await p.reload(); await p.waitForTimeout(1500);
+ok(await p.locator('.dt-cards .dt-card').count() > 0 && await p.getByPlaceholder('Search reference, title, supplier…').isVisible(), 'phone: cards with the search box');
+await p.screenshot({ path: `${out}/tables-phone.png` });
+await b.close();
+console.log(fails ? `${fails} check(s) failed` : 'all V3-8 table checks passed');
+process.exit(fails ? 1 : 0);

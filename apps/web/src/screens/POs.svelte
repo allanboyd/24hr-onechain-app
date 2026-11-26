@@ -7,7 +7,7 @@
   import { loading, lookup, pos, ref, shipments, type Loading, type PoStage, type PurchaseOrder, type Shipment, type User } from '@btw/api';
   import { Badge, fmtDate, fmtMoney, fmtNum, router } from '@btw/ui';
   import SearchX from '@lucide/svelte/icons/search-x';
-  import { PageHeader, SummaryStrip, FilterBar, ActionInCompany, EmptyState, DataTable, queryFilters, readQuery, ts, type Column, type SummaryTile } from '../components/page';
+  import { PageHeader, SummaryStrip, ActionInCompany, EmptyState, DataTable, queryFilters, readQuery, ts, type Column, type SummaryTile, type Filters } from '../components/page';
   import { labelTone, poApprovals, revTag, STAGES, stageLabel } from '../lib/orders';
   import { poStageTiles, infoOf } from '../lib/tiles';
   import { seesPrices } from '@btw/api/access';
@@ -21,9 +21,20 @@
   async function load() { [list, loads, ships] = await Promise.all([pos.list({ all: true }), loading.list().catch(() => []), shipments.list().catch(() => [])]); }
   const w = watch(load);
 
-  const f = queryFilters({ stage: '', entity: '', supplier: '', q: '' });
-  let search = $state(f.values.q);
-  $effect(() => { if (search !== f.values.q) f.set('q', search); });
+  // V3-8: search + Company / Supplier / Amount filters live in the table (TanStack); same address names as before
+  // (?q= ?entity= ?supplier=, now one or more ids separated by commas; ?amount=from,to)
+  const f = queryFilters({ stage: '', entity: '', supplier: '', q: '', amount: '' });
+  const list_ = (v: string) => (v ? v.split(',') : []);
+  const range_ = (v: string): [number | null, number | null] => { const [a = '', b = ''] = v.split(','); return [a === '' ? null : Number(a), b === '' ? null : Number(b)]; };
+  const tableFilters = $derived<Filters>({ company: list_(f.values.entity), supplier: list_(f.values.supplier), amount: range_(f.values.amount) });
+  function setTableFilters(v: Filters) {
+    const ids = (x: unknown) => (Array.isArray(x) ? (x as string[]).join(',') : '');
+    const rg = (x: unknown) => (Array.isArray(x) && x.length === 2 && (x[0] !== null || x[1] !== null) ? `${x[0] ?? ''},${x[1] ?? ''}` : '');
+    if (ids(v.company) !== f.values.entity) f.set('entity', ids(v.company));
+    if (ids(v.supplier) !== f.values.supplier) f.set('supplier', ids(v.supplier));
+    if (rg(v.amount) !== f.values.amount) f.set('amount', rg(v.amount));
+  }
+  let shown = $state(0);
   const live = $derived((list ?? []).filter((p) => p.status !== 'Deleted'));
   // docs/18: the strip counts are the registry's "orders at a stage" (latest revision, not deleted)
   const fig = $derived(poStageTiles(list ?? []));
@@ -41,7 +52,7 @@
   $effect(() => {
     if (defaulted || !list) return;
     defaulted = true;
-    if (readQuery('stage') || readQuery('q') || readQuery('entity') || readQuery('supplier')) return;
+    if (readQuery('stage') || readQuery('q') || readQuery('entity') || readQuery('supplier') || readQuery('amount')) return;
     if (approvals && user.roles.includes('director') && fig.awaiting) auto = 'Awaiting approval';
     else if (user.roles.includes('planner') && fig.notSent) auto = 'Created';
     if (auto) f.set('stage', auto);
@@ -50,25 +61,23 @@
   const stage = $derived((f.values.stage === 'all' ? '' : f.values.stage) as PoStage | '');
   const stageNames = $derived(Object.fromEntries(STAGES().map((s) => [s, stageLabel(s)])));
   const tileKeys = $derived(tiles.map((t) => t.key));
-  const rows = $derived((stage === 'Deleted' ? list ?? [] : live).filter((p) =>
-    (!stage || (tileKeys.includes(stage) ? atStage(p, stage) : p.stage === stage)) && (!f.values.entity || p.entityId === f.values.entity) && (!f.values.supplier || p.supplierId === f.values.supplier) &&
-    (!f.values.q || `${p.ref} ${p.baseRef ?? ''} ${p.title}`.toLowerCase().includes(f.values.q.toLowerCase()))));
+  // the stage (summary strip / Status) stays here; the table applies search + filters on top
+  const rows = $derived((stage === 'Deleted' ? list ?? [] : live).filter((p) => !stage || (tileKeys.includes(stage) ? atStage(p, stage) : p.stage === stage)));
   const r = ref();
   function progress(po: PurchaseOrder) {
     const ld = loads.filter((l) => l.poId === po.id), sh = ships.filter((s) => s.poId === po.id && !s.fromWarehouseId);
     return { trucks: ld.length || po.trucks || 0, loaded: ld.filter((l) => l.status === 'Loaded').length, delivered: sh.filter((s) => s.status === 'Acknowledged').length };
   }
-  const active = $derived((f.values.entity ? 1 : 0) + (f.values.supplier ? 1 : 0) + (stage ? 1 : 0));
-  function clearAll() { f.clear(); search = ''; }
+  function clearAll() { f.clear(); }
   const supplierText = (po: PurchaseOrder) => `${lookup.supplier(po.supplierId)?.code}, ${lookup.supplier(po.supplierId)?.city}`;
   const columns = $derived<Column<PurchaseOrder>[]>([
-    { key: 'ref', label: 'Reference', sticky: true, value: (po) => po.baseRef ?? po.ref, csv: (po) => po.ref, cell: refCell },
+    { key: 'ref', label: 'Reference', sticky: true, value: (po) => po.baseRef ?? po.ref, filterValue: (po) => `${po.ref} ${po.baseRef ?? ''}`, csv: (po) => po.ref, cell: refCell },
     { key: 'title', label: 'Title', value: (po) => po.title, cell: titleCell },
-    { key: 'company', label: 'Company', value: (po) => lookup.entity(po.entityId)?.code, hideBelow: 900 },
-    { key: 'supplier', label: 'Supplier', value: supplierText, hideBelow: 760 },
+    { key: 'company', label: 'Company', value: (po) => lookup.entity(po.entityId)?.code, hideBelow: 900, filter: 'select', filterValue: (po) => po.entityId, filterLabel: (id) => lookup.entity(id)?.shortName || lookup.entity(id)?.code || id },
+    { key: 'supplier', label: 'Supplier', value: supplierText, hideBelow: 760, filter: 'select', filterValue: (po) => po.supplierId, filterLabel: (id) => { const s = lookup.supplier(id); return s ? `${s.code}, ${s.city}` : id; } },
     { key: 'trucks', label: 'Trucks', align: 'right', value: (po) => po.trucks ?? null },
     { key: 'cases', label: 'Cases', align: 'right', sortValue: (po) => po.cases ?? null, value: (po) => (po.cases !== undefined ? fmtNum(po.cases) : null), csv: (po) => po.cases ?? '' },
-    ...(money ? [{ key: 'amount', label: 'Amount', align: 'right' as const, sortValue: (po: PurchaseOrder) => po.amount ?? null, value: (po: PurchaseOrder) => (po.amount !== undefined ? fmtMoney(po.amount, po.currency) : null), csv: (po: PurchaseOrder) => (po.amount !== undefined ? `${po.currency} ${po.amount}` : '') }] : []),
+    ...(money ? [{ key: 'amount', label: 'Amount', align: 'right' as const, filter: 'range' as const, sortValue: (po: PurchaseOrder) => po.amount ?? null, value: (po: PurchaseOrder) => (po.amount !== undefined ? fmtMoney(po.amount, po.currency) : null), csv: (po: PurchaseOrder) => (po.amount !== undefined ? `${po.currency} ${po.amount}` : '') }] : []),
     { key: 'date', label: 'Created', sortValue: (po) => ts(po.date), csv: (po) => po.date?.slice(0, 10), cell: createdCell },
     { key: 'status', label: 'Status', value: (po) => stageLabel(po.stage), cell: statusCell },
     { key: 'progress', label: 'Progress', sortValue: (po) => (po.status === 'Issued' ? progress(po).loaded / Math.max(1, progress(po).trucks) : null), csv: (po) => { const pr = progress(po); return po.status === 'Issued' ? `${pr.loaded}/${pr.trucks} loaded` : ''; }, cell: progressCell, hideBelow: 1000 },
@@ -80,18 +89,18 @@
   {#snippet primary()}<ActionInCompany label="Create purchase order" what="purchase order" href="#/pos/new" when={canCreate} />{/snippet}
 </PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
-<SummaryStrip {tiles} bind:value={f.values.stage} param="stage" label="Purchase orders by stage" allValue="all" noun="orders" total={list ? live.length : null} shown={list ? rows.length : null} {auto} labels={stageNames} />
-<FilterBar bind:search placeholder="Reference or title" {active} onclear={clearAll}>
-  <label class="field"><span>Status</span><select class="select" value={stage || 'all'} onchange={(e) => f.set('stage', e.currentTarget.value)}><option value="all">All (not deleted)</option>{#each STAGES() as s}<option value={s}>{stageLabel(s)}</option>{/each}</select></label>
-  <label class="field"><span>Ordering company</span><select class="select" value={f.values.entity} onchange={(e) => f.set('entity', e.currentTarget.value)}><option value="">All companies</option>{#each r.entities as e}<option value={e.id}>{e.shortName || e.code}</option>{/each}</select></label>
-  <label class="field"><span>Supplier</span><select class="select" value={f.values.supplier} onchange={(e) => f.set('supplier', e.currentTarget.value)}><option value="">All suppliers</option>{#each r.suppliers as s}<option value={s.id}>{s.code} {s.city}</option>{/each}</select></label>
-  {#snippet end()}{#if list}<span class="caption">{rows.length} of {live.length} orders</span>{/if}{/snippet}
-</FilterBar>
+<SummaryStrip {tiles} bind:value={f.values.stage} param="stage" label="Purchase orders by stage" allValue="all" noun="orders" total={list ? live.length : null} shown={list ? shown : null} {auto} labels={stageNames} />
+
 
 <DataTable id="pos" label="Purchase orders" noun="orders" rows={list ? rows : null} {columns} rowKey={(po) => po.id} onrowclick={(po) => router.go(`/pos/${po.id}`)}
-  rowClass={(po) => (po.status === 'Deleted' ? 'deleted' : '')} initialSort={{ key: 'date', dir: 'desc' }} filename="purchase-orders" card={phoneCard}>
+  rowClass={(po) => (po.status === 'Deleted' ? 'deleted' : '')} initialSort={{ key: 'date', dir: 'desc' }} filename="purchase-orders" card={phoneCard}
+  searchable searchPlaceholder="Search reference, title, supplier…" bind:search={() => f.values.q, (v) => { if (v !== f.values.q) f.set('q', v); }}
+  bind:filters={() => tableFilters, setTableFilters} bind:shown>
+  {#snippet toolbar()}
+    <label class="pos-status"><span class="dt-sr-only">Status</span><select class="select" aria-label="Status" value={stage || 'all'} onchange={(e) => f.set('stage', e.currentTarget.value)}><option value="all">All stages</option>{#each STAGES() as s}<option value={s}>{stageLabel(s)}</option>{/each}</select></label>
+  {/snippet}
   {#snippet empty()}
-    {#if stage || f.values.q || f.values.entity || f.values.supplier}<EmptyState title="No purchase orders match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState>{:else}<EmptyState title="No purchase orders yet" hint="Create one with the button above." compact />{/if}
+    {#if stage || f.values.q || f.values.entity || f.values.supplier || f.values.amount}<EmptyState title="No purchase orders match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState>{:else}<EmptyState title="No purchase orders yet" hint="Create one with the button above." compact />{/if}
   {/snippet}
 </DataTable>
 
@@ -109,6 +118,8 @@
 {/snippet}
 
 <style>
+  .pos-status .select { height: var(--control-sm); border-radius: 999px; width: auto; }
+  .dt-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   :global(tr.deleted td) { color: var(--text-muted); }
   :global(tr.deleted .mono a) { text-decoration: line-through; }
   .grow { flex: 1; }
