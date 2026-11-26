@@ -62,7 +62,7 @@
 </script>
 
 <div class="page-head">
-  <div><div class="overline crumb">{roleText(user.roles)}{groupView ? ' · Group view (read-only)' : ''}</div>
+  <div><div class="overline crumb">{roleText(user.roles)}{groupView ? ' · Group view' : ''}</div>
     <h1>Good {hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening'}, {user.name.split(' ')[0]}</h1>
     {#if active !== 'mine'}<p class="caption">{tabs.find((t) => t.key === active)?.blurb ?? ''}</p>{/if}</div>
   <div class="head-actions">

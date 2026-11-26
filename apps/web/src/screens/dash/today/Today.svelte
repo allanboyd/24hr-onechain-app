@@ -128,7 +128,7 @@
   {#if !filtersOpen}
     <span class="chip-soft">{PERIODS.find((p) => p.key === preset)?.label ?? periodShort}{#if warehouseId} · filtered{/if}</span>
   {/if}
-  <span class="scope">{groupView ? 'Group · all companies (read-only)' : lookup.entity(company.active)?.shortName ?? ''}{#if currency.code !== 'USD' && currency.month} · {currency.code} at the {currency.month} rate{/if}</span>
+  <span class="scope">{groupView ? 'Group · all companies' : lookup.entity(company.active)?.shortName ?? ''}{#if currency.code !== 'USD' && currency.month} · {currency.code} at the {currency.month} rate{/if}</span>
 </div>
 
 <FilterPanel bind:open={filtersOpen} onClear={clearFilters}>
