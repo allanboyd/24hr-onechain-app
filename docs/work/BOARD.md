@@ -102,4 +102,5 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 LD-2 / LD-3 merged: other Live dashboard tabs use the report layout. Row in review. |
 | 26 Nov 2026 | cursor | V3-11 filter bar is two rows on every Live dashboard tab. Method text is off the charts. Merged into design-v3. |
 | 26 Nov 2026 | cursor | V3-11: chart info icons and in-chart filters removed. My dashboards is Overview. Decisions uses the primary colour. New period plan is a modal, with Plan vs actual beside it. |
+| 26 Nov 2026 | cursor | V3-11 Overview: filter bar has space between the rows, cards match Management and show the operational facts, all six decisions are colour-coded, export is an icon beside chart and table. Merged into design-v3. |
 | 26 Nov 2026 | claude | Split agreed: cursor = V3-11 then V3-9; claude = V3-10 then V3-8 batch 2 (see "Who does what"). claude starts V3-10 Supplier balances. |
