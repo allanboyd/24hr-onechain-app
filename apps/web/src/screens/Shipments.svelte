@@ -14,7 +14,7 @@
   import Clock from '@lucide/svelte/icons/clock';
   import MapIcon from '@lucide/svelte/icons/map';
   import ListIcon from '@lucide/svelte/icons/list';
-    import { PageHeader, SummaryStrip, FilterBar, DataTable, queryFilters, readQuery, ts, type Column, type SummaryTile } from '../components/page';
+    import { PageHeader, SummaryStrip, DataTable, queryFilters, readQuery, ts, tableQuery, processRows, type Column, type SummaryTile } from '../components/page';
   import { chainOf, fromLabel } from '../lib/journey';
   import { shipmentTiles, infoOf } from '../lib/tiles';
   import { can } from '../lib/features';
@@ -24,9 +24,11 @@
   let list = $state<Shipment[] | null>(null);
   async function load() { list = await shipments.list(); }
   const w = watch(load);
-  const f = queryFilters({ show: '', route: '', company: '', q: '', view: '' });
-  let search = $state(f.values.q);
-  $effect(() => { if (search !== f.values.q) f.set('q', search); });
+  const f = queryFilters({ show: '', route: '', company: '', q: '', view: '', status: '', entity: '' });
+  // V3-8: search + Status / Receiving company / Company filters in the table (same address names; ?status=, ?entity= new)
+  const tq = tableQuery(f, { search: 'q', filters: { status: 'status', recv: 'company', company: 'entity' } });
+  const searchExtra = (sh: Shipment) => `${sh.truckNo} ${lookup.poRef(sh.poId)} ${sh.legs.map((l) => `${lookup.truck(l.truckId)?.reg} ${lookup.driver(l.driverId)?.name}`).join(' ')}`;
+  let shown = $state(0);
 
   const activeLeg = (sh: Shipment): Leg => sh.legs.find((l) => l.status !== 'Acknowledged') ?? sh.legs.at(-1)!;
   const scoped = $derived((list ?? []).filter((sh) => !user.roles.includes('receiver') || user.roles.includes('director') || user.warehouseIds.includes(sh.warehouseId)));
@@ -44,17 +46,16 @@
   $effect(() => {
     if (defaulted || !list) return;
     defaulted = true;
-    if (['show', 'q', 'route', 'company'].some((k) => readQuery(k))) return;
+    if (['show', 'q', 'route', 'company', 'status', 'entity'].some((k) => readQuery(k))) return;
     const pick = can(user, 'trucks') && fig.delayed ? 'delayed' : 'road';
     if (pick === 'delayed') auto = pick; // "On the road" is the usual view, not an action list
     f.set('show', pick);
   });
+  // Show (strip) and Route (any leg on the route) stay here; the table adds search + column filters
   const rows = $derived(scoped.filter((sh) => (!f.values.show || f.values.show === 'all' || TEST[f.values.show]?.(sh))
-    && (!f.values.company || sh.receivingCompanyId === f.values.company) && (!f.values.route || sh.legs.some((l) => l.routeId === f.values.route))
-    && (!f.values.q || `${sh.ref} ${sh.truckNo} ${lookup.poRef(sh.poId)} ${sh.legs.map((l) => `${lookup.truck(l.truckId)?.reg} ${lookup.driver(l.driverId)?.name}`).join(' ')}`.toLowerCase().includes(f.values.q.toLowerCase()))));
+    && (!f.values.route || sh.legs.some((l) => l.routeId === f.values.route))));
   const map = $derived(f.values.view === 'map');
-  const active = $derived((f.values.show && f.values.show !== 'all' ? 1 : 0) + (f.values.route ? 1 : 0) + (f.values.company ? 1 : 0));
-  function clearAll() { f.clear(['show', 'route', 'company', 'q']); f.set('show', 'all'); search = ''; }
+  function clearAll() { f.clear(['show', 'route', 'company', 'q', 'status', 'entity']); f.set('show', 'all'); }
 
   function where(leg: Leg) {
     const i = leg.passes.reduce((a, p, k) => (p.arrivedAt ? k : a), -1);
@@ -73,16 +74,19 @@
   const etaOf = (sh: Shipment) => (sh.status === 'Acknowledged' ? null : ts(shipments.eta(activeLeg(sh)).eta));
   const lastAt = (sh: Shipment) => { const l = activeLeg(sh); const p = l.passes.filter((x) => x.arrivedAt).at(-1); return ts(p?.departedAt ?? p?.arrivedAt); };
   const columns = $derived<Column<Shipment>[]>([
-    ...(company.active === GROUP ? [{ key: 'company', label: 'Company', value: (sh: Shipment) => companyLabel((sh as { entityId?: string }).entityId ?? ''), cell: companyCell, hideBelow: 960 }] : []),
+    ...(company.active === GROUP ? [{ key: 'company', label: 'Company', value: (sh: Shipment) => companyLabel((sh as { entityId?: string }).entityId ?? ''), cell: companyCell, hideBelow: 960, filter: 'select' as const, filterValue: (sh: Shipment) => (sh as { entityId?: string }).entityId ?? '', filterLabel: (id: string) => companyLabel(id) }] : []),
     { key: 'ref', label: 'Shipment', sticky: true, width: '240px', value: (sh) => sh.ref, cell: refCell },
     { key: 'from', label: 'From', value: (sh) => fromLabel(sh), class: 'small', hideBelow: 1200 },
     { key: 'truck', label: 'Truck', value: (sh) => lookup.truck(activeLeg(sh).truckId)?.reg, cell: truckCell },
     { key: 'route', label: 'Route · leg', value: (sh) => lookup.route(activeLeg(sh).routeId)?.name, cell: routeCell, class: 'small', hideBelow: 960 },
     { key: 'last', label: 'Last check-in', sortValue: lastAt, csv: (sh) => where(activeLeg(sh)).cur, cell: lastCell, class: 'small' },
     { key: 'next', label: 'Next checkpoint', sortValue: (sh) => ts(where(activeLeg(sh)).nextPlanned), csv: (sh) => where(activeLeg(sh)).next, cell: nextCell, class: 'small' },
-    { key: 'status', label: 'Status', value: (sh) => sh.status, cell: statusCell },
+    { key: 'status', label: 'Status', value: (sh) => sh.status, cell: statusCell, filter: 'select' },
+    { key: 'recv', label: 'Receiving company', value: (sh) => r.receivingCompanies.find((c) => c.id === sh.receivingCompanyId)?.name, hidden: true, filter: 'select', filterValue: (sh) => sh.receivingCompanyId ?? '', filterLabel: (id) => r.receivingCompanies.find((c) => c.id === id)?.name ?? id },
     { key: 'eta', label: 'ETA', sortValue: etaOf, csv: (sh) => (sh.status === 'Acknowledged' ? 'Delivered' : shipments.eta(activeLeg(sh)).eta), cell: etaCell },
   ]);
+  // the map shows the same rows as the table would (search + filters applied)
+  const mapRows = $derived(map ? processRows({ rows, columns, rowKey: (sh) => sh.id, sort: null, search: f.values.q, filters: tq.filters.get(), searchExtra }).rows : []);
 </script>
 
 <PageHeader overline="Logistics" title="Shipments" description="Every truck from loading to signed delivery." analysis="fleet"
@@ -93,20 +97,21 @@
   {/snippet}
 </PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
-<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Shipments summary" allValue="all" noun="shipments" total={list ? scoped.length : null} shown={list ? rows.length : null} {auto} labels={{ delivered: 'Delivered' }} />
-<FilterBar bind:search placeholder="Shipment, PO, truck or driver" {active} onclear={clearAll}>
-  <label class="field"><span>Show</span><select class="select" value={f.values.show || 'all'} onchange={(e) => f.set('show', e.currentTarget.value)}>
-    <option value="road">On the road</option><option value="delayed">Delayed</option><option value="border">At a border</option><option value="noCheckin">No check-in</option><option value="delivered">Delivered</option><option value="all">All shipments</option></select></label>
-  <label class="field"><span>Route</span><select class="select" value={f.values.route} onchange={(e) => f.set('route', e.currentTarget.value)}><option value="">All routes</option>{#each r.routes as rt}<option value={rt.id}>{rt.name}</option>{/each}</select></label>
-  <label class="field"><span>Receiving company</span><select class="select" value={f.values.company} onchange={(e) => f.set('company', e.currentTarget.value)}><option value="">All</option>{#each r.receivingCompanies as c}<option value={c.id}>{c.name}</option>{/each}</select></label>
-  {#snippet end()}{#if list}<span class="caption">{rows.length} of {scoped.length} shipments</span>{/if}{/snippet}
-</FilterBar>
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Shipments summary" allValue="all" noun="shipments" total={list ? scoped.length : null} shown={list ? (map ? mapRows.length : shown) : null} {auto} labels={{ delivered: 'Delivered' }} />
+
 
 {#if map}
-  {#await import('../components/ShipmentMap.svelte') then M}<M.default items={rows} />{/await}
+  {#await import('../components/ShipmentMap.svelte') then M}<M.default items={mapRows} />{/await}
 {:else}
 <DataTable id="shipments" label="Shipments" noun="shipments" rows={list ? rows : null} {columns} rowKey={(sh) => sh.id} onrowclick={(sh) => router.go(`/shipments/${sh.id}`)}
-  initialSort={{ key: 'eta', dir: 'asc' }} filename="shipments" onclear={clearAll} card={phoneCard} />
+  initialSort={{ key: 'eta', dir: 'asc' }} filename="shipments" onclear={clearAll} card={phoneCard}
+  searchable searchPlaceholder="Shipment, PO, truck or driver" {searchExtra} bind:search={tq.search.get, tq.search.set} bind:filters={tq.filters.get, tq.filters.set} bind:shown>
+  {#snippet toolbar()}
+    <select class="select tsel" aria-label="Show" value={f.values.show || 'all'} onchange={(e) => f.set('show', e.currentTarget.value)}>
+      <option value="road">On the road</option><option value="delayed">Delayed</option><option value="border">At a border</option><option value="noCheckin">No check-in</option><option value="delivered">Delivered</option><option value="all">All shipments</option></select>
+    <select class="select tsel" aria-label="Route" value={f.values.route} onchange={(e) => f.set('route', e.currentTarget.value)}><option value="">All routes</option>{#each r.routes as rt}<option value={rt.id}>{rt.name}</option>{/each}</select>
+  {/snippet}
+</DataTable>
 {/if}
 
 {#snippet companyCell(sh: Shipment)}{@const id = (sh as { entityId?: string }).entityId}<span class="cc"><CompanyMark entityId={id ?? null} size={18} />{id ? companyLabel(id) : '—'}</span>{/snippet}

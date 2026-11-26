@@ -6,7 +6,7 @@
   import * as MX from '@btw/api/metrics';
   import type { TransportFeeRow } from '@btw/api';
   import { fmtDate, fmtNum } from '@btw/ui';
-  import { FilterBar, EmptyState, DataTable, ts, type Column } from '../page';
+  import { EmptyState, DataTable, ts, tableQuery, type Column } from '../page';
   import { StatusBadge } from '../dashboard';
   import { companyLabel } from '../../lib/companies';
   import SearchX from '@lucide/svelte/icons/search-x';
@@ -22,8 +22,8 @@
     onact: (kind: CostAct, shipmentId: string) => void;
   } = $props();
 
-  let search = $state(untrack(() => f.values.q));
-  $effect(() => { if (search !== f.values.q) f.set('q', search); });
+  // V3-8: search + Provider / Balance filters in the table; Status (has "waiting for approval") and Age stay as choices
+  const tq = untrack(() => tableQuery(f, { search: 'q', filters: { provider: 'provider', balance: ['bal', 'range'] } })); // f never changes identity
   const all = $derived(rows ?? []);
   // the strip's filters: the same registry rules as the counts on the tiles
   const SHOW: Record<string, (list: TransportFeeRow[]) => TransportFeeRow[]> = {
@@ -33,11 +33,11 @@
   const shown = $derived.by(() => {
     const v = f.values; const q = (v.q ?? '').toLowerCase();
     const base = SHOW[v.show] ? SHOW[v.show](all) : all;
-    return base.filter((r) => (!v.status || (v.status === 'pending' ? r.pendingUsd > 0 : r.status === v.status)) && (!v.flag || r.flag === v.flag) && (!v.provider || r.providerId === v.provider)
-      && (!q || [r.ref, truckReg(r.truckId), providerName(r.providerId), ...r.references].join(' ').toLowerCase().includes(q)));
+    void q;
+    return base.filter((r) => (!v.status || (v.status === 'pending' ? r.pendingUsd > 0 : r.status === v.status)) && (!v.flag || r.flag === v.flag));
   });
-  const active = $derived((f.values.status ? 1 : 0) + (f.values.flag ? 1 : 0) + (f.values.provider ? 1 : 0) + (f.values.show && f.values.show !== 'all' ? 1 : 0));
-  function clearAll() { f.clear(['show', 'q', 'status', 'flag', 'provider']); search = ''; }
+  const active = $derived((f.values.status ? 1 : 0) + (f.values.flag ? 1 : 0) + (f.values.provider ? 1 : 0) + (f.values.bal ? 1 : 0) + (f.values.show && f.values.show !== 'all' ? 1 : 0));
+  function clearAll() { f.clear(['show', 'q', 'status', 'flag', 'provider', 'bal']); }
   const agreedText = (r: TransportFeeRow) => (r.agreed ? `${r.agreed.currency} ${fmtNum(r.agreed.amount)}` : 'not recorded');
   const sumBy = (get: (r: TransportFeeRow) => number | null) => (l: TransportFeeRow[]) => fmtNum(l.reduce((a, r) => a + (get(r) ?? 0), 0));
   const columns = $derived<Column<TransportFeeRow>[]>([
@@ -47,22 +47,15 @@
     { key: 'age', label: 'Age', align: 'right', sortValue: (r) => r.ageDays, csv: (r) => r.ageDays, cell: ageCell, title: `Days since loading (amber after ${amberDays}, red after ${redDays})` },
     { key: 'agreed', label: 'Agreed', align: 'right', sortValue: (r) => r.agreedUsd, csv: agreedText, cell: agreedCell, class: 'nowrap', total: sumBy((r) => r.agreedUsd) },
     { key: 'paid', label: 'Paid (USD)', align: 'right', sortValue: (r) => r.paidUsd, csv: (r) => r.paidUsd, cell: paidCell, total: sumBy((r) => r.paidUsd) },
-    { key: 'balance', label: 'Balance (USD)', align: 'right', sortValue: (r) => r.balanceUsd, value: (r) => (r.balanceUsd === null ? null : fmtNum(r.balanceUsd)), csv: (r) => r.balanceUsd ?? '', total: sumBy((r) => r.balanceUsd) },
+    { key: 'balance', label: 'Balance (USD)', align: 'right', filter: 'range', sortValue: (r) => r.balanceUsd, value: (r) => (r.balanceUsd === null ? null : fmtNum(r.balanceUsd)), csv: (r) => r.balanceUsd ?? '', total: sumBy((r) => r.balanceUsd) },
     { key: 'status', label: 'Status', value: (r) => r.status, cell: statusCell },
+    { key: 'provider', label: 'Provider', value: (r) => providerName(r.providerId), hidden: true, filter: 'select', filterValue: (r) => r.providerId ?? '', filterLabel: (id) => providerName(id) },
     { key: 'refs', label: 'References', value: (r) => r.references.join(' · ') || null, class: 'small refs', hideBelow: 1300 },
     { key: 'act', label: '', sortable: false, csv: false, hideable: false, cell: actCell },
   ]);
 </script>
 
-<FilterBar bind:search placeholder="Shipment, truck, provider or reference" {active} onclear={clearAll}>
-  <label class="field"><span>Status</span><select class="select" value={f.values.status} onchange={(e) => f.set('status', e.currentTarget.value)}>
-    <option value="">All</option>{#each Object.keys(STATUS_TONE) as s}<option value={s}>{s}</option>{/each}<option value="pending">Waiting for approval</option></select></label>
-  <label class="field"><span>Age</span><select class="select" value={f.values.flag} onchange={(e) => f.set('flag', e.currentTarget.value)}>
-    <option value="">All</option><option value="ok">On time</option><option value="amber">Over {amberDays} days</option><option value="red">Over {redDays} days</option></select></label>
-  <label class="field"><span>Provider</span><select class="select" value={f.values.provider} onchange={(e) => f.set('provider', e.currentTarget.value)}>
-    <option value="">All providers</option>{#each providers as p}<option value={p}>{providerName(p)}</option>{/each}</select></label>
-  {#snippet end()}{#if rows}<span class="caption">{shown.length} of {all.length} trips</span>{/if}{/snippet}
-</FilterBar>
+
 
 {#snippet acts(r: TransportFeeRow)}
   {@const x = refOfFee(r)}
@@ -77,7 +70,15 @@
 {/snippet}
 
 <DataTable id="fees" label="Transport fee per trip" noun="trips" rows={rows ? shown : null} {columns} rowKey={(r) => r.shipmentId} onrowclick={(r) => onopen(r.shipmentId)}
-  maxHeight="70vh" filename="transport-fees-list" empty={emptyTable} card={phoneCard} />
+  maxHeight="70vh" filename="transport-fees-list" empty={emptyTable} card={phoneCard}
+  searchable searchPlaceholder="Shipment, truck, provider or reference" bind:search={tq.search.get, tq.search.set} bind:filters={tq.filters.get, tq.filters.set}>
+  {#snippet toolbar()}
+    <select class="select" aria-label="Status" value={f.values.status} onchange={(e) => f.set('status', e.currentTarget.value)}>
+      <option value="">All statuses</option>{#each Object.keys(STATUS_TONE) as s}<option value={s}>{s}</option>{/each}<option value="pending">Waiting for approval</option></select>
+    <select class="select" aria-label="Age" value={f.values.flag} onchange={(e) => f.set('flag', e.currentTarget.value)}>
+      <option value="">Any age</option><option value="ok">On time</option><option value="amber">Over {amberDays} days</option><option value="red">Over {redDays} days</option></select>
+  {/snippet}
+</DataTable>
 
 {#snippet emptyTable()}{@render empty(true)}{/snippet}
 {#snippet refCell(r: TransportFeeRow)}<button type="button" class="linkbtn mono nowrap" onclick={(e) => { e.stopPropagation(); onopen(r.shipmentId); }}>{r.ref}</button><div class="caption">{companyLabel(r.entityId)}{r.reexport ? ' · re-export' : ''}</div>{/snippet}

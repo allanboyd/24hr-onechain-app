@@ -7,7 +7,7 @@
   import { loading, lookup, pos, ref, shipments, type Loading, type PoStage, type PurchaseOrder, type Shipment, type User } from '@btw/api';
   import { Badge, fmtDate, fmtMoney, fmtNum, router } from '@btw/ui';
   import SearchX from '@lucide/svelte/icons/search-x';
-  import { PageHeader, SummaryStrip, ActionInCompany, EmptyState, DataTable, queryFilters, readQuery, ts, type Column, type SummaryTile, type Filters } from '../components/page';
+  import { PageHeader, SummaryStrip, ActionInCompany, EmptyState, DataTable, queryFilters, readQuery, ts, type Column, type SummaryTile, tableQuery } from '../components/page';
   import { labelTone, poApprovals, revTag, STAGES, stageLabel } from '../lib/orders';
   import { poStageTiles, infoOf } from '../lib/tiles';
   import { seesPrices } from '@btw/api/access';
@@ -24,16 +24,7 @@
   // V3-8: search + Company / Supplier / Amount filters live in the table (TanStack); same address names as before
   // (?q= ?entity= ?supplier=, now one or more ids separated by commas; ?amount=from,to)
   const f = queryFilters({ stage: '', entity: '', supplier: '', q: '', amount: '' });
-  const list_ = (v: string) => (v ? v.split(',') : []);
-  const range_ = (v: string): [number | null, number | null] => { const [a = '', b = ''] = v.split(','); return [a === '' ? null : Number(a), b === '' ? null : Number(b)]; };
-  const tableFilters = $derived<Filters>({ company: list_(f.values.entity), supplier: list_(f.values.supplier), amount: range_(f.values.amount) });
-  function setTableFilters(v: Filters) {
-    const ids = (x: unknown) => (Array.isArray(x) ? (x as string[]).join(',') : '');
-    const rg = (x: unknown) => (Array.isArray(x) && x.length === 2 && (x[0] !== null || x[1] !== null) ? `${x[0] ?? ''},${x[1] ?? ''}` : '');
-    if (ids(v.company) !== f.values.entity) f.set('entity', ids(v.company));
-    if (ids(v.supplier) !== f.values.supplier) f.set('supplier', ids(v.supplier));
-    if (rg(v.amount) !== f.values.amount) f.set('amount', rg(v.amount));
-  }
+  const tq = tableQuery(f, { search: 'q', filters: { company: 'entity', supplier: 'supplier', amount: ['amount', 'range'] } });
   let shown = $state(0);
   const live = $derived((list ?? []).filter((p) => p.status !== 'Deleted'));
   // docs/18: the strip counts are the registry's "orders at a stage" (latest revision, not deleted)
@@ -94,8 +85,8 @@
 
 <DataTable id="pos" label="Purchase orders" noun="orders" rows={list ? rows : null} {columns} rowKey={(po) => po.id} onrowclick={(po) => router.go(`/pos/${po.id}`)}
   rowClass={(po) => (po.status === 'Deleted' ? 'deleted' : '')} initialSort={{ key: 'date', dir: 'desc' }} filename="purchase-orders" card={phoneCard}
-  searchable searchPlaceholder="Search reference, title, supplier…" bind:search={() => f.values.q, (v) => { if (v !== f.values.q) f.set('q', v); }}
-  bind:filters={() => tableFilters, setTableFilters} bind:shown>
+  searchable searchPlaceholder="Search reference, title, supplier…" bind:search={tq.search.get, tq.search.set}
+  bind:filters={tq.filters.get, tq.filters.set} bind:shown>
   {#snippet toolbar()}
     <label class="pos-status"><span class="dt-sr-only">Status</span><select class="select" aria-label="Status" value={stage || 'all'} onchange={(e) => f.set('stage', e.currentTarget.value)}><option value="all">All stages</option>{#each STAGES() as s}<option value={s}>{stageLabel(s)}</option>{/each}</select></label>
   {/snippet}
@@ -118,7 +109,6 @@
 {/snippet}
 
 <style>
-  .pos-status .select { height: var(--control-sm); border-radius: 999px; width: auto; }
   .dt-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   :global(tr.deleted td) { color: var(--text-muted); }
   :global(tr.deleted .mono a) { text-decoration: line-through; }

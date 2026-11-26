@@ -5,7 +5,7 @@
   // Home · Fees & expenses.
   import * as MX from '@btw/api/metrics';
   import { Badge, fmtDate, fmtNum } from '@btw/ui';
-  import { FilterBar, EmptyState, DataTable, type Column } from '../page';
+  import { EmptyState, DataTable, tableQuery, processRows, type Column } from '../page';
   import { StatusBadge } from '../dashboard';
   import CompanyMark from '../CompanyMark.svelte';
   import { company, GROUP } from '../../lib/company.svelte';
@@ -23,8 +23,9 @@
     onact: (kind: CostAct, shipmentId: string) => void;
   } = $props();
 
-  let search = $state(untrack(() => f.values.q));
-  $effect(() => { if (search !== f.values.q) f.set('q', search); });
+  // V3-8: search + Provider / Route / Balance / Company filters in the table; Payment (has "waiting for approval") stays a choice
+  const tq = untrack(() => tableQuery(f, { search: 'q', filters: { provider: 'provider', route: 'route', balance: ['bal', 'range'], company: 'entity' } })); // f never changes identity
+  const searchExtra = (t: Trip) => [...t.payments.map((p) => p.reference), ...t.costs.map((c) => c.docRef ?? '')].join(' ');
   const all = $derived(trips ?? []);
   const full = $derived(all.some((t) => t.perCase !== undefined && t.perCase !== null));
   const provOf = (t: Trip) => providerOfTruck(t.shipment.legs[0]?.truckId);
@@ -36,42 +37,37 @@
     awaiting: (t) => MX.awaitingApproval([tripFee(t)]).length > 0,
   };
   const shown = $derived.by(() => {
-    const v = f.values; const q = (v.q ?? '').toLowerCase();
-    return all.filter((t) => (!stripFilters || !SHOW[v.show] || SHOW[v.show](t)) && (!v.provider || provOf(t) === v.provider)
-      && (!v.pay || (v.pay === 'pending' ? hasPending(t) : tripStatus(t) === v.pay))
-      && (!q || [t.shipment.ref, truckReg(t.shipment.legs[0]?.truckId), providerName(provOf(t)), ...t.payments.map((p) => p.reference), ...t.costs.map((c) => c.docRef ?? '')].join(' ').toLowerCase().includes(q)));
+    const v = f.values;
+    return all.filter((t) => (!stripFilters || !SHOW[v.show] || SHOW[v.show](t)) && (!v.pay || (v.pay === 'pending' ? hasPending(t) : tripStatus(t) === v.pay)));
   });
-  const active = $derived((f.values.provider ? 1 : 0) + (f.values.pay ? 1 : 0) + (stripFilters && f.values.show && f.values.show !== 'all' ? 1 : 0));
-  function clearAll() { f.clear(stripFilters ? ['show', 'q', 'provider', 'pay'] : ['q', 'provider', 'pay']); search = ''; }
+  const active = $derived((f.values.provider ? 1 : 0) + (f.values.pay ? 1 : 0) + (f.values.route ? 1 : 0) + (f.values.bal ? 1 : 0) + (f.values.entity ? 1 : 0) + (stripFilters && f.values.show && f.values.show !== 'all' ? 1 : 0));
+  function clearAll() { f.clear(stripFilters ? ['show', 'q', 'provider', 'pay', 'route', 'bal', 'entity'] : ['q', 'provider', 'pay', 'route', 'bal', 'entity']); }
   const followUp = (t: Trip) => { const a = tripLoadedAt(t); return a ? Date.parse(a) + FOLLOW_UP_DAYS * 864e5 : undefined; };
   const byProvider = $derived.by(() => {
     const m = new Map<string, { agreed: number; paid: number; trips: number }>();
-    for (const t of shown) { const pid = provOf(t) ?? ''; const cur = m.get(pid) ?? { agreed: 0, paid: 0, trips: 0 }; cur.agreed += t.transport; cur.paid += t.paid; cur.trips++; m.set(pid, cur); }
+    for (const t of tableRows) { const pid = provOf(t) ?? ''; const cur = m.get(pid) ?? { agreed: 0, paid: 0, trips: 0 }; cur.agreed += t.transport; cur.paid += t.paid; cur.trips++; m.set(pid, cur); }
     return [...m.entries()].sort((a, b) => (b[1].agreed - b[1].paid) - (a[1].agreed - a[1].paid));
   });
   const sum2 = (get: (t: Trip) => number) => (l: Trip[]) => fmtNum(l.reduce((a, t) => a + (get(t) || 0), 0), 2);
   const columns = $derived<Column<Trip>[]>([
-    ...(company.active === GROUP ? [{ key: 'company', label: 'Company', value: (t: Trip) => companyLabel(t.shipment.entityId), cell: companyCell, hideBelow: 1000 }] : []),
+    ...(company.active === GROUP ? [{ key: 'company', label: 'Company', value: (t: Trip) => companyLabel(t.shipment.entityId), cell: companyCell, hideBelow: 1000, filter: 'select' as const, filterValue: (t: Trip) => t.shipment.entityId ?? '', filterLabel: (id: string) => companyLabel(id) }] : []),
     { key: 'ref', label: 'Shipment', sticky: true, value: (t) => t.shipment.ref, cell: refCell },
     { key: 'truck', label: 'Truck · Provider', value: (t) => `${truckReg(t.shipment.legs[0]?.truckId)} · ${providerName(provOf(t))}`, cell: truckCell },
-    { key: 'route', label: 'Route', value: (t) => routeName(t.shipment.legs[0]?.routeId), class: 'small', hideBelow: 1100 },
+    { key: 'route', label: 'Route', value: (t) => routeName(t.shipment.legs[0]?.routeId), class: 'small', hideBelow: 1100, filter: 'select', filterValue: (t) => t.shipment.legs[0]?.routeId ?? '', filterLabel: (id) => routeName(id) },
+    { key: 'provider', label: 'Provider', value: (t) => providerName(provOf(t)), hidden: true, filter: 'select', filterValue: (t) => provOf(t) ?? '', filterLabel: (id) => providerName(id) },
     { key: 'agreed', label: 'Agreed (USD)', align: 'right', sortValue: (t) => (t.agreedRecorded === false ? null : t.transport), csv: (t) => (t.agreedRecorded === false ? '' : t.transport), cell: agreedCell, total: sum2((t) => t.transport) },
     { key: 'paid', label: 'Paid', align: 'right', sortValue: (t) => t.paid, value: (t) => fmtNum(t.paid, 2), csv: (t) => t.paid, total: sum2((t) => t.paid) },
-    { key: 'balance', label: 'Balance', align: 'right', sortValue: (t) => t.balance, csv: (t) => t.balance, cell: balanceCell, total: sum2((t) => t.balance) },
+    { key: 'balance', label: 'Balance', align: 'right', filter: 'range', sortValue: (t) => t.balance, csv: (t) => t.balance, cell: balanceCell, total: sum2((t) => t.balance) },
     { key: 'pay', label: 'Payment', value: (t) => tripStatus(t), cell: payCell },
     { key: 'due', label: 'Follow-up', sortValue: (t) => (t.balance > 0 ? followUp(t) ?? null : null), csv: (t) => { const d = t.balance > 0 ? followUp(t) : undefined; return d ? new Date(d).toISOString().slice(0, 10) : ''; }, cell: dueCell, class: 'small' },
     ...(full ? [{ key: 'perCase', label: 'Landing cost / case (USD)', align: 'right' as const, sortValue: (t: Trip) => t.perCase ?? null, value: (t: Trip) => fmtNum(t.perCase ?? 0, 2), csv: (t: Trip) => t.perCase ?? '', hideBelow: 1200 }] : []),
     { key: 'act', label: '', sortable: false, csv: false, hideable: false, cell: actCell, class: 'nowrap' },
   ]);
+  // what the table shows (search + filters), also used by the per-provider totals
+  const tableRows = $derived(processRows({ rows: shown, columns, rowKey: (t) => t.shipment.id, sort: null, search: f.values.q, filters: tq.filters.get(), searchExtra }).rows);
 </script>
 
-<FilterBar bind:search placeholder="Shipment, truck, provider or reference" {active} onclear={clearAll}>
-  <label class="field"><span>Payment</span><select class="select" value={f.values.pay} onchange={(e) => f.set('pay', e.currentTarget.value)}>
-    <option value="">All</option>{#each Object.keys(STATUS_TONE) as s}<option value={s}>{s}</option>{/each}<option value="pending">Waiting for approval</option></select></label>
-  <label class="field"><span>Provider</span><select class="select" value={f.values.provider} onchange={(e) => f.set('provider', e.currentTarget.value)}>
-    <option value="">All providers</option>{#each providers as p}<option value={p}>{providerName(p)}</option>{/each}</select></label>
-  {#snippet end()}{#if trips}<span class="caption">{shown.length} of {all.length} trips</span>{/if}{/snippet}
-</FilterBar>
+
 
 {#snippet empty(compact: boolean)}
   {#if active || f.values.q}<EmptyState title="No trips match these filters" icon={SearchX} {compact}><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState>
@@ -79,7 +75,13 @@
 {/snippet}
 
 <DataTable id="trips" label="Trips" noun="trips" rows={trips ? shown : null} {columns} rowKey={(t) => t.shipment.id} onrowclick={(t) => onopen(t.shipment.id)}
-  filename="trip-financials-list" empty={emptyTable} card={phoneCard} />
+  filename="trip-financials-list" empty={emptyTable} card={phoneCard}
+  searchable searchPlaceholder="Shipment, truck, provider or reference" {searchExtra} bind:search={tq.search.get, tq.search.set} bind:filters={tq.filters.get, tq.filters.set}>
+  {#snippet toolbar()}
+    <select class="select" aria-label="Payment" value={f.values.pay} onchange={(e) => f.set('pay', e.currentTarget.value)}>
+      <option value="">All payments</option>{#each Object.keys(STATUS_TONE) as s}<option value={s}>{s}</option>{/each}<option value="pending">Waiting for approval</option></select>
+  {/snippet}
+</DataTable>
 
 {#snippet emptyTable()}{@render empty(true)}{/snippet}
 {#snippet companyCell(t: Trip)}<span class="cc"><CompanyMark entityId={t.shipment.entityId ?? null} size={18} />{companyLabel(t.shipment.entityId)}</span>{/snippet}

@@ -24,7 +24,7 @@
     rows, columns, rowKey, onrowclick, selected = null, rowClass, initialSort, pageSize = 25, density: initialDensity = 'comfortable',
     id = '', label, caption = '', noun = 'rows', loading = false, empty, emptyTitle = '', emptyHint = '', onclear,
     filename = '', maxHeight = '', cardsBelow = 640, card, totalLabel = 'Total', tools = true, toolbar,
-    searchable = false, searchPlaceholder = 'Search', search = $bindable(''), filters = $bindable({}), shown = $bindable(0),
+    searchable = false, searchPlaceholder = 'Search', searchExtra, search = $bindable(''), filters = $bindable({}), shown = $bindable(0),
   }: {
     /** null = still loading (skeleton rows) */
     rows: T[] | null;
@@ -68,6 +68,8 @@
     /** V3-8: show the search box (matches what each searchable column shows) */
     searchable?: boolean;
     searchPlaceholder?: string;
+    /** V3-8: more text the search box matches that is not a column (e.g. truck plates, driver names) */
+    searchExtra?: (row: T) => string;
     /** V3-8: search text (bindable) */
     search?: string;
     /** V3-8: active filters by column key (bindable) */
@@ -100,7 +102,7 @@
   let sort = $state<SortState | null>(untrack(() => initialSort ?? null));
   const sortable = (c: Column<T>) => c.sortable ?? !!(c.sortValue || c.value);
   // TanStack: search + filters + sort (empty values last both ways); facets / ranges for the Filters panel
-  const processed = $derived(processRows({ rows: rows ?? [], columns, rowKey, sort, search, filters }));
+  const processed = $derived(processRows({ rows: rows ?? [], columns, rowKey, sort, search, filters, searchExtra }));
   const sorted = $derived(processed.rows);
   $effect(() => { const n = sorted.length; untrack(() => { if (shown !== n) shown = n; }); });
   function sortBy(c: Column<T>) {
@@ -409,6 +411,8 @@
   .dt-search .input { padding-left: 34px; padding-right: 30px; height: var(--control-sm); border-radius: 999px; background: var(--surface); }
   .dt-search .input::-webkit-search-cancel-button { display: none; }
   .dt-x { position: absolute; right: 6px; display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 50%; background: var(--surface-sunken); color: var(--text-muted); cursor: pointer; }
+  /* screens' own choices in the tool row (Status, Show, Route…) look like the Filters button */
+  .dt-left :global(select.select) { width: auto; max-width: 220px; height: var(--control-sm); border-radius: 999px; font-size: 14px; }
   .dt-filt { position: relative; }
   .dt-filt > .btn { border-radius: 999px; }
   .dt-badge { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--primary); color: var(--text-on-primary); font: 700 11px/1 var(--ff-body); }
