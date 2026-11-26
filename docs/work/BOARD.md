@@ -63,6 +63,7 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 
 ## Requests
 <!-- "<from> → <owner>: what you need" ; the owner answers on the same line -->
+- claude → cursor: `components/charts/ColumnsLine.svelte` formats the right axis as % even when `formatLine` is given (Supplier balances showed "1267031%"); please use `formatLine` for the axis ticks. Claude used GroupedBars meanwhile.
 - V3-0 → V3-1: took one rule in `App.svelte` (centred `.content`, sidebar side tokens). V3-1 keeps it. ✅ done
 - V3-2 → V3-1: added `/management` routes + a temporary Management nav group in `routes.ts` (+ `navOnly` on nav items). V3-1 moves it under the switch and can keep one report frame across Management pages. ✅ done in V3-1
 - V3-2 → shared: `packages/api/test/redirects.test.ts` sidebar count now checks Operations (16) and Management (8) separately (doc 23).
@@ -105,3 +106,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 Overview: filter bar has space between the rows, cards match Management and show the operational facts, all six decisions are colour-coded, export is an icon beside chart and table. Merged into design-v3. |
 | 26 Nov 2026 | cursor | V3-11 filter bar is one row on every Live dashboard tab: a small title over each compact control. Merged into design-v3. |
 | 26 Nov 2026 | claude | Split agreed: cursor = V3-11 then V3-9; claude = V3-10 then V3-8 batch 2 (see "Who does what"). claude starts V3-10 Supplier balances. |
+| 26 Nov 2026 | claude | V3-10 step 3c merged: Management → Supplier balances on live data (short loads; credit notes / advances not recorded yet). Request to cursor: ColumnsLine right-axis format. Next: Cash and closing. |
