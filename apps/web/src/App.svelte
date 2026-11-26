@@ -244,7 +244,7 @@
   .side-foot { margin-top: auto; padding: var(--space-4); color: var(--nav-text-muted); }
   .main { min-width: 0; display: flex; flex-direction: column; }
   /* SB-5 top bar */
-  .top { display: flex; align-items: center; gap: var(--space-2); height: 60px; padding: 0 var(--space-6); position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--surface) 82%, transparent); backdrop-filter: saturate(1.4) blur(12px); -webkit-backdrop-filter: saturate(1.4) blur(12px); border-bottom: 1px solid var(--border); transition: box-shadow var(--motion-base) var(--motion-easing); }
+  .top { display: flex; align-items: center; gap: var(--space-2); height: 60px; padding: 0 var(--space-6); position: sticky; top: 0; z-index: 10; background: var(--bg); border-bottom: 1px solid transparent; transition: box-shadow var(--motion-base) var(--motion-easing); }
   .top.scrolled { box-shadow: var(--elevation-2); }
   .ibtn { position: relative; display: inline-grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: 10px; background: transparent; color: var(--text-muted); cursor: pointer; text-decoration: none; transition: background var(--motion-fast) var(--motion-easing), color var(--motion-fast) var(--motion-easing); }
   .ibtn:hover { background: var(--surface-sunken); color: var(--text); text-decoration: none; }
@@ -252,7 +252,7 @@
   .crumb { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-subtle); }
   .pt { font: 700 17px/1.25 var(--ff-display); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .scope { color: var(--text-muted); max-width: 32ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bell .dotcount { position: absolute; top: 3px; right: 1px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: grid; place-items: center; background: var(--danger-solid); color: var(--text-on-danger); font: 700 10.5px/1 var(--ff-body); box-shadow: 0 0 0 2px var(--surface); }
+  .bell .dotcount { position: absolute; top: 3px; right: 1px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: grid; place-items: center; background: var(--danger-solid); color: var(--text-on-danger); font: 700 10.5px/1 var(--ff-body); box-shadow: 0 0 0 2px var(--bg); }
   .acct { display: flex; align-items: center; gap: var(--space-2); padding: 4px 10px 4px 4px; margin-left: var(--space-1); border: 1px solid var(--border); border-radius: 999px; background: var(--surface); }
   .av { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--primary-subtle); color: var(--link); font: 700 12px/1 var(--ff-body); }
   .who { display: flex; flex-direction: column; line-height: 1.15; }
