@@ -16,9 +16,10 @@ ok(await p.getByText('Not recorded yet').count() === 0, 'Supplier balances: noth
 await p.goto(`${base}#/pos`); await p.waitForTimeout(2500);
 const hrefs = await p.locator('table tbody a[href^="#/pos/"]').evaluateAll((as) => as.map((a) => a.getAttribute('href')));
 let opened = false;
-for (const h of hrefs.slice(0, 15)) {
+for (const h of hrefs.slice(0, 40)) {
   await p.goto(base + h); await p.waitForTimeout(1500);
-  if (await p.getByRole('button', { name: 'Add pro-forma' }).count()) { opened = true; break; }
+  // a PO with nothing recorded yet, so the figures below start from zero (earlier runs leave theirs on the shared database)
+  if (await p.getByRole('button', { name: 'Add pro-forma' }).count() && await p.locator('.supplier-money', { hasText: 'Nothing recorded yet' }).count()) { opened = true; break; }
 }
 ok(opened, 'an issued PO shows the Supplier money card with Add pro-forma');
 const facts = () => p.locator('.supplier-money .facts').innerText();
