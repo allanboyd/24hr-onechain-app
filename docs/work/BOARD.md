@@ -128,3 +128,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 stat cards are plain. The colour sits on the bottom line only (Behind is orange, Running is green). |
 | 26 Nov 2026 | cursor | V3-11 top bar uses the page background, so it sits flush with the rest of the screen. |
 | 26 Nov 2026 | cursor | V3-11 period plans: the first stat reads Active plan. |
+| 26 Nov 2026 | cursor | V3-11 top bar is a solid bar again. The menu control is a blue circle. |
