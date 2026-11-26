@@ -35,13 +35,15 @@
     </div>
     <div class="tools">
       {@render actions?.()}
-      {#if canToggle}
-        <div class="vt" role="group" aria-label="Chart or table">
-          <button type="button" class="vbtn" aria-pressed={!table} aria-label="Show chart" title="Show chart" onclick={() => (table = false)}><ChartIcon size={16} /></button>
-          <button type="button" class="vbtn" aria-pressed={table} aria-label="Show table" title="Show table" onclick={() => (table = true)}><TableIcon size={16} /></button>
+      {#if canToggle || (rows && !empty)}
+        <div class="vt" role="group" aria-label="Chart, table or export">
+          {#if canToggle}
+            <button type="button" class="vbtn" aria-pressed={!table} aria-label="Show chart" title="Show chart" onclick={() => (table = false)}><ChartIcon size={16} /></button>
+            <button type="button" class="vbtn" aria-pressed={table} aria-label="Show table" title="Show table" onclick={() => (table = true)}><TableIcon size={16} /></button>
+          {/if}
+          {#if rows && !empty}<ExportMenu iconOnly {name} meta={() => ({ title, subtitle: caption, definition, unit: '', period: caption, filters: '', owner: 'Directors', freshness: updatedAt === undefined ? '' : freshnessText(updatedAt) })} {rows} root={() => body} />{/if}
         </div>
       {/if}
-      {#if rows && !empty}<ExportMenu {name} meta={() => ({ title, subtitle: caption, definition, unit: '', period: caption, filters: '', owner: 'Directors', freshness: updatedAt === undefined ? '' : freshnessText(updatedAt) })} {rows} root={() => body} />{/if}
     </div>
   </header>
   <div class="body" class:flush={!table && flush} bind:this={body}>
@@ -64,11 +66,14 @@
   .tc.primary h3, .tc.primary .drill { color: var(--text-on-primary); }
   .tc.primary .vt, .tc.primary .vbtn { border-color: color-mix(in srgb, var(--text-on-primary) 28%, transparent); color: var(--text-on-primary); }
   .tc.primary .vbtn[aria-pressed='true'] { background: color-mix(in srgb, var(--text-on-primary) 16%, transparent); color: var(--text-on-primary); }
+  .tc.primary .vbtn:hover { color: var(--text-on-primary); }
   header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: 32px; }
   .ttl { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1 1 auto; }
   h3 { font-size: 16px; line-height: 1.3; font-weight: 700; margin: 0; min-width: 0; font-family: var(--font-display, inherit); }
   .tools { display: flex; align-items: center; gap: var(--space-2); flex: none; margin-left: auto; }
-  .vt { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
+  .vt { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: visible; }
+  .tc.primary :global(.ib) { color: var(--text-on-primary); border-color: color-mix(in srgb, var(--text-on-primary) 28%, transparent); }
+  .tc.primary :global(.ib:hover) { color: var(--text-on-primary); background: color-mix(in srgb, var(--text-on-primary) 16%, transparent); }
   .vbtn { display: grid; place-items: center; width: 32px; height: 30px; border: 0; background: transparent; color: var(--text-muted); cursor: pointer; }
   .vbtn + .vbtn { border-left: 1px solid var(--border); }
   .vbtn[aria-pressed='true'] { background: var(--surface-sunken); color: var(--text); }

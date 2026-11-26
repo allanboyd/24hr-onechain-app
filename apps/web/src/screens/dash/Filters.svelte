@@ -118,18 +118,18 @@
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: 10px;
-    padding: var(--space-3) var(--space-4);
-    margin-top: var(--space-3);
+    gap: 18px;
+    padding: 16px 18px;
+    margin: 16px 0 18px;
   }
   .fbar-row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-2) var(--space-3);
+    gap: 12px 28px;
   }
-  .picks { align-items: flex-end; flex-wrap: nowrap; }
-  .fbar label { flex: 1 1 0; min-width: 0; max-width: 240px; }
+  .picks { align-items: flex-end; flex-wrap: nowrap; gap: 8px 22px; }
+  .fbar label { flex: 1 1 160px; min-width: 0; max-width: 240px; }
   .fbar .select { width: 100%; min-width: 0; max-width: none; }
   .fbar .btn { align-self: flex-end; flex: none; }
   .embed {
@@ -154,10 +154,6 @@
   .embed .select {
     max-width: none;
     width: 100%;
-  }
-  .scope {
-    grid-column: 1 / -1;
-    margin-top: var(--space-1);
   }
   .fbar .sel-seg { flex-wrap: wrap; max-width: 100%; }
   @media (max-width: 720px) {
