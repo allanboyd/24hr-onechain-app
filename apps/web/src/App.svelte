@@ -11,6 +11,10 @@
   import { redirectOf } from './lib/redirects';
   import Login from './screens/Login.svelte';
   import CompanySwitcher from './components/CompanySwitcher.svelte';
+  import BottomBar from './components/phone/BottomBar.svelte';
+  import MoreSheet from './components/phone/MoreSheet.svelte';
+  import SearchSheet from './components/phone/SearchSheet.svelte';
+  import Search from '@lucide/svelte/icons/search';
   import CompanyMark from './components/CompanyMark.svelte';
   import { company, initCompany, GROUP } from './lib/company.svelte';
   import { companyBrand, allCompanies } from './lib/companies';
@@ -54,6 +58,8 @@
   });
   // V3-14: the theme lives in lib/theme (Profile → Preferences changes it too)
   let navOpen = $state(false);
+  // V3-6: phone sheets (More = the full menu, Search)
+  let moreOpen = $state(false), searchOpen = $state(false);
 
   $effect(() => { applyTheme(theme.value); });
   const refreshUnread = async () => { try { unread = (await notifications.list()).filter((n) => !n.read).length; } catch { /* badge only */ } };
@@ -109,7 +115,7 @@
   const rail = $derived(sidebar.collapsed && !isPhone);
   // Home is also every dashboard tab (#/dashboards/..., #/overview): one menu entry for the dashboards page
   const active = (href: string) => (href === '#/' ? /^\/(dashboards(\/|$)|overview$|$)/.test(router.path) : ('#' + router.path).startsWith(href));
-  $effect(() => { document.title = `${matched?.route.title ?? 'BTW'} · ${co ? co.shortName : user ? 'Group' : 'BTW'} · Supply Chain`; navOpen = false; router.path; });
+  $effect(() => { document.title = `${matched?.route.title ?? 'BTW'} · ${co ? co.shortName : user ? 'Group' : 'BTW'} · Supply Chain`; navOpen = false; moreOpen = false; router.path; });
   // Remount the screen when the company or the route changes, so its data reloads for the new scope.
   // All Management pages are one screen: it switches report pages itself and keeps its report frame loaded.
   // one screen per area: the Management pages and the Settings & alerts sections switch inside it (no remount)
@@ -182,12 +188,13 @@
       <div class="frame">
       <!-- SB-5: a card for the top bar. The sidebar control sits on its left edge. The trail under the title scrolls. -->
       <div class="bar">
-        <button class="edge" onclick={toggleNav} aria-controls="side" aria-expanded={isPhone ? navOpen : !sidebar.collapsed}
+        <button class="edge desk-only" onclick={toggleNav} aria-controls="side" aria-expanded={isPhone ? navOpen : !sidebar.collapsed}
           aria-label={toggleLabel} title="{toggleLabel} (Ctrl+B)">
           {#if isPhone ? !navOpen : sidebar.collapsed}<PanelLeftOpen size={16} />{:else}<PanelLeftClose size={16} />{/if}
         </button>
         <header class="top" class:scrolled>
-        <nav class="trail" aria-label="Breadcrumb">
+        <div class="ptitle phone-only"><CompanyMark entityId={company.active === GROUP ? null : company.active} size={26} /><span class="pt">{crumbs.at(-1)?.label ?? ''}</span></div>
+        <nav class="trail desk-only" aria-label="Breadcrumb">
           <ol>
             {#each crumbs as c, i (c.href + c.label)}
               {@const Icon = c.icon}
@@ -199,12 +206,13 @@
             {/each}
           </ol>
         </nav>
-        <div class="grow"></div>
+        <div class="grow desk-only"></div>
         {#if scope}<span class="scope small" title="Your data scope">Scope: <strong>{scope}</strong></span>{/if}
-        <button class="ibtn" onclick={toggleTheme} aria-label="Toggle theme">{#if theme.value === 'dark'}<Sun size={18} />{:else}<Moon size={18} />{/if}</button>
+        <button class="ibtn phone-only" onclick={() => (searchOpen = true)} aria-label="Search"><Search size={19} /></button>
+        <button class="ibtn desk-only" onclick={toggleTheme} aria-label="Toggle theme">{#if theme.value === 'dark'}<Sun size={18} />{:else}<Moon size={18} />{/if}</button>
         <a class="ibtn bell" href="#/system/alerts" aria-label="Alerts{unread ? `, ${unread} unread` : ''}"><Bell size={18} />{#if unread}<span class="dotcount">{bellCount}</span>{/if}</a>
         <a class="acct" href="#/system/profile" title="My profile" aria-label="My profile: {user.name}"><span class="av" aria-hidden="true">{initials}</span><span class="who"><span class="nm">{user.name}</span><span class="rl">{roleText(user.roles)}</span></span></a>
-        <button class="ibtn" onclick={logout} aria-label="Sign out" title="Sign out"><LogOut size={18} /></button>
+        <button class="ibtn desk-only" onclick={logout} aria-label="Sign out" title="Sign out"><LogOut size={18} /></button>
         </header>
       </div>
       <main class="content">
@@ -230,6 +238,11 @@
           <div class="empty"><h2>Page not found</h2><p><a href="#/">Back to dashboard</a></p></div>
         {/if}
       </main>
+      {#if isPhone}
+        <BottomBar {user} {unread} moreOpen={moreOpen} onmore={() => (moreOpen = !moreOpen)} />
+        <MoreSheet bind:open={moreOpen} {user} />
+        <SearchSheet bind:open={searchOpen} {user} />
+      {/if}
       </div>
     </div>
   </div>
@@ -305,6 +318,9 @@
   /* v3: content centred with equal margins (docs/23 §5) */
   .content { padding: var(--space-5) 0 var(--space-6); min-width: 0; }
   .scrim { display: none; }
+  .phone-only { display: none; }
+  .ptitle { display: none; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+  .pt { font: 700 17px/1.2 var(--ff-display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .scrim { position: fixed; inset: 0; z-index: 40; background: rgb(4 21 43 / .5); border: 0; }
   @media (max-width: 900px) {
     .shell { grid-template-columns: minmax(0, 1fr); }
@@ -316,7 +332,13 @@
     .acct { padding: 3px; }
     .frame { padding: var(--space-3) var(--space-3) 0; }
     .edge { left: 8px; }
-    .top { padding: 8px var(--space-3) 8px 44px; gap: 2px; }
-    .content { padding: var(--space-4) 0; }
+    /* V3-6: the slim phone top bar (company mark and page name; search, bell, avatar) and the bottom bar's room */
+    .desk-only { display: none !important; }
+    .phone-only { display: inline-grid; } .ptitle.phone-only { display: flex; }
+    .bar { top: 0; margin: 0 calc(-1 * var(--space-3)); }
+    .top { min-height: 56px; padding: 6px var(--space-3) 6px var(--space-4); gap: 2px; border-radius: 0 0 18px 18px; border-top: 0; box-shadow: none; background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(12px); }
+    .top.scrolled { box-shadow: var(--elevation-2); }
+    .frame { padding-top: 0; }
+    .content { padding: var(--space-4) 0 calc(84px + env(safe-area-inset-bottom)); }
   }
 </style>

@@ -2,6 +2,7 @@ import type { Role, User } from '@btw/api';
 import { canAny, type Feature } from './lib/features';
 import type { RouteDef } from '@btw/ui';
 import LayoutDashboard from '@lucide/svelte/icons/layout-dashboard';
+import Bell from '@lucide/svelte/icons/bell';
 import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
 import Gauge from '@lucide/svelte/icons/gauge';
 import Presentation from '@lucide/svelte/icons/presentation';
@@ -153,6 +154,22 @@ export const canSeeManagement = (u: User | null) => canAny(u, 'reports');
 const visible = (groups: NavGroup[], u: User | null) => groups.map((g) => ({ ...g, items: g.items.filter((i) => !i.feature || canAny(u, i.feature)) })).filter((g) => g.items.length);
 /** Nav groups this user may see on one side of the switch (role × feature matrix, docs/07 §E). */
 export const navFor = (u: User | null, side: Side = 'operations') => visible(side === 'management' && canSeeManagement(u) ? managementNav : nav, u);
+/** V3-6: the phone bottom bar. Five places by the kind of work (decided 26 Nov), the last one is More (the full menu).
+ *  Office: Home, Shipments, Trucks, Alerts · Warehouse (receivers): Home, Stock, Sales, Alerts · Accounts: Home, Sales,
+ *  Costs, Alerts. Places the person may not open are dropped. */
+export type BottomPlace = { href: string; label: string; icon: any; badge?: 'unread'; match: (path: string) => boolean };
+export function bottomFor(u: User | null): BottomPlace[] {
+  if (!u) return [];
+  const r = u.roles;
+  const office = r.some((x) => ['director', 'admin', 'planner', 'operations', 'fleet', 'truck_planner'].includes(x));
+  const at = (re: RegExp) => (p: string) => re.test(p);
+  const home: BottomPlace = { href: '#/', label: 'Home', icon: LayoutDashboard, match: (p) => /^\/(dashboards(\/|$)|overview$|$|\?)/.test(p) };
+  const alerts: BottomPlace = { href: '#/system/alerts', label: 'Alerts', icon: Bell, badge: 'unread', match: at(/^\/(system\/alerts|notifications)/) };
+  const places: BottomPlace[] = office ? [home, { href: '#/shipments', label: 'Shipments', icon: Truck, match: at(/^\/shipments/) }, { href: '#/trucks', label: 'Trucks', icon: Container, match: at(/^\/trucks/) }, alerts]
+    : r.includes('accounts') ? [home, { href: '#/sales', label: 'Sales', icon: ShoppingCart, match: at(/^\/sales/) }, { href: '#/trucks?tab=costs', label: 'Costs', icon: Container, match: at(/^\/trucks/) }, alerts]
+    : [home, { href: '#/stock', label: 'Stock', icon: Boxes, match: at(/^\/stock/) }, { href: '#/sales', label: 'Sales', icon: ShoppingCart, match: at(/^\/sales/) }, alerts];
+  return places.filter((x) => canOpen(x.href.slice(1).split('?')[0], u));
+}
 /** Home page: every web user starts on their own dashboards (docs/15, C-05). */
 export function homeOf(_u: User | null): string { return '/'; }
 
