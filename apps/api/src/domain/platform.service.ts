@@ -3,8 +3,8 @@ import bcrypt from 'bcryptjs';
 import { and, arrayOverlaps, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import { db, schema as t } from '../db/client';
 import { randomInt } from 'node:crypto';
-import type { AuditFilter, AuditPage, DocumentRef, DriverInput, EntityInput, ProductInput, ProviderInput, ReceivingCompanyInput, Role, RouteStop, SupplierInput, TruckInput, UserPair, WarehouseInput } from '@btw/api/types';
-import { canEditTransport, checkpointCodes, countryCode, hasFeature, normPhone as toE164, normReg, TRUCK_CASES, validateDriver, validateProvider, validateRoute, validateTruck, validateWarehouse } from '@btw/api/rules';
+import type { AuditFilter, AuditPage, MyDevice, MyProfile, DocumentRef, DriverInput, EntityInput, ProductInput, ProviderInput, ReceivingCompanyInput, Role, RouteStop, SupplierInput, TruckInput, UserPair, WarehouseInput } from '@btw/api/types';
+import { profileError, canEditTransport, checkpointCodes, countryCode, hasFeature, normPhone as toE164, normReg, TRUCK_CASES, validateDriver, validateProvider, validateRoute, validateTruck, validateWarehouse } from '@btw/api/rules';
 import { validateEntity, validateProduct, validateReceivingCompany, validateSupplier } from '@btw/api/static-data';
 import { auditNote } from '../common/audit-context';
 import { invalidateEntities } from '../auth/entity-scope';
@@ -56,6 +56,31 @@ export class PlatformService {
     await db.insert(t.devices).values({ id, userId: p.id, pushToken: input.pushToken ?? null, platform: input.platform ?? 'app', appVersion: input.appVersion ?? null })
       .onConflictDoUpdate({ target: t.devices.id, set: { pushToken: input.pushToken ?? null, platform: input.platform ?? 'app', appVersion: input.appVersion ?? null, lastSeenAt: iso() } });
     return { id };
+  }
+  // ---- V3-14: my profile ----------------------------------------------------------------------------------------------
+  async myProfile(p: Principal): Promise<MyProfile> {
+    const [u] = await db.select().from(t.users).where(eq(t.users.id, p.id));
+    if (!u) fail('Account not found', 404, 'not-found');
+    return { id: u!.id, name: u!.name, email: u!.email ?? null, phone: u!.phone, roles: u!.roles as Role[], entityIds: u!.entityIds, warehouseIds: u!.warehouseIds,
+      loadingPointIds: u!.loadingPointIds, pairs: u!.pairs ?? [], hasPassword: !!u!.passwordHash, hasPin: !!u!.pinHash, lastLoginAt: u!.lastLoginAt ? new Date(u!.lastLoginAt).toISOString() : null };
+  }
+  /** Name and email only: phone (the field sign-in), roles and scope stay with the admin. */
+  async updateMe(p: Principal, input: { name?: string; email?: string | null }) {
+    const err = profileError(input ?? {});
+    if (err) fail(err, 422);
+    const before = await this.myProfile(p);
+    const set: Partial<typeof t.users.$inferInsert> = {};
+    if (input.name !== undefined) set.name = input.name.trim();
+    if (input.email !== undefined) set.email = input.email ? input.email.trim() : null;
+    if (Object.keys(set).length) await db.update(t.users).set(set).where(eq(t.users.id, p.id));
+    this.ref.invalidate();
+    auditNote({ recordType: 'user', recordId: p.id, summary: `${p.name}: own details changed`, before: { name: before.name, email: before.email }, after: set });
+    return this.myProfile(p);
+  }
+  async myDevices(p: Principal): Promise<MyDevice[]> {
+    const rows = await db.select().from(t.devices).where(and(eq(t.devices.userId, p.id), isNull(t.devices.revokedAt)));
+    return rows.map((d) => ({ id: d.id, platform: d.platform, appVersion: d.appVersion ?? null, lastSeenAt: new Date(d.lastSeenAt).toISOString(), current: d.id === p.deviceId }))
+      .sort((a, b) => (a.lastSeenAt < b.lastSeenAt ? 1 : -1));
   }
   async devices(p: Principal, userId: string) {
     if (userId !== p.id && !has(p, 'admin', 'director')) forbidden();

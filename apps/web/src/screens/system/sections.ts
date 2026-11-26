@@ -3,6 +3,7 @@
 import type { User } from '@btw/api';
 import { canAny, type Feature } from '../../lib/features';
 import Bell from '@lucide/svelte/icons/bell';
+import UserRound from '@lucide/svelte/icons/user-round';
 import BellRing from '@lucide/svelte/icons/bell-ring';
 import ShieldCheck from '@lucide/svelte/icons/shield-check';
 import UsersIcon from '@lucide/svelte/icons/users';
@@ -11,17 +12,18 @@ import PlugZap from '@lucide/svelte/icons/plug-zap';
 import Coins from '@lucide/svelte/icons/coins';
 import Gauge from '@lucide/svelte/icons/gauge';
 
-export type SectionKey = 'alerts' | 'notifications' | 'approvals' | 'rates' | 'thresholds' | 'users' | 'audit' | 'integrations';
+export type SectionKey = 'profile' | 'alerts' | 'notifications' | 'approvals' | 'rates' | 'thresholds' | 'users' | 'audit' | 'integrations';
 export interface Section {
-  key: SectionKey; label: string; group: 'Alerts' | 'Rules' | 'People & system'; icon: any;
+  key: SectionKey; label: string; group: 'My account' | 'Alerts' | 'Rules' | 'People & system'; icon: any;
   /** who opens it: a feature, or a rule on the person; none = every signed-in person */
   feature?: Feature | Feature[]; allow?: (u: User) => boolean;
   load: () => Promise<{ default: any }>;
 }
 const dirOrAdmin = (u: User) => u.roles.includes('director') || u.roles.includes('admin');
 export const SECTIONS: Section[] = [
+  { key: 'profile', label: 'Profile', group: 'My account', icon: UserRound, load: () => import('./Profile.svelte') },
   { key: 'alerts', label: 'Alerts', group: 'Alerts', icon: Bell, load: () => import('./Alerts.svelte') },
-  { key: 'notifications', label: 'My notifications', group: 'Alerts', icon: BellRing, load: () => import('./MyNotifications.svelte') },
+  { key: 'notifications', label: 'My notifications', group: 'My account', icon: BellRing, load: () => import('./MyNotifications.svelte') },
   { key: 'approvals', label: 'Approvals', group: 'Rules', icon: ShieldCheck, allow: dirOrAdmin, load: () => import('./Approvals.svelte') },
   { key: 'rates', label: 'Exchange rates', group: 'Rules', icon: Coins, allow: (u) => u.roles.includes('director'), load: () => import('./Rates.svelte') },
   { key: 'thresholds', label: 'Thresholds', group: 'Rules', icon: Gauge, allow: (u) => u.roles.includes('director') || u.roles.includes('planner'), load: () => import('./Thresholds.svelte') },
@@ -29,7 +31,7 @@ export const SECTIONS: Section[] = [
   { key: 'audit', label: 'Audit log', group: 'People & system', icon: ScrollText, feature: 'audit', load: () => import('../Audit.svelte') },
   { key: 'integrations', label: 'Integrations', group: 'People & system', icon: PlugZap, feature: 'integrations', load: () => import('../Integrations.svelte') },
 ];
-export const GROUPS = ['Alerts', 'Rules', 'People & system'] as const;
+export const GROUPS = ['My account', 'Alerts', 'Rules', 'People & system'] as const;
 export const sectionsFor = (u: User | null) => (u ? SECTIONS.filter((s) => (!s.feature || canAny(u, s.feature)) && (!s.allow || s.allow(u))) : []);
 /** older addresses that open a section of the workspace (links in notifications, dashboards and emails keep working) */
 export const OLD_PATHS: Record<string, SectionKey> = { notifications: 'alerts', users: 'users', audit: 'audit', integrations: 'integrations' };

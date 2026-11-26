@@ -190,6 +190,15 @@ export interface PlanLineContext {
   planned: number; orderedBefore: number; thisPo: number; remaining: number;
   exception?: 'over' | 'unplanned'; reason?: string;
 }
+/** V3-14: my own account, as the Profile page shows it. */
+export interface MyProfile {
+  id: ID; name: string; email: string | null; phone: string; roles: Role[];
+  entityIds: ID[]; warehouseIds: ID[]; loadingPointIds: ID[]; pairs: UserPair[];
+  /** how this person signs in: a web password, a field-app PIN, or both */ hasPassword: boolean; hasPin: boolean;
+  lastLoginAt: ISODate | null;
+}
+export interface MyDevice { id: ID; platform: string; appVersion: string | null; lastSeenAt: ISODate; current: boolean }
+export interface MySecretInput { current: string; password?: string; pin?: string }
 /** V3-12: Management → Settings (directors and the system administrator). */
 export interface MoneySettings {
   /** Advance payments to suppliers wait for a director's approval. Off by default (26 Nov): the advance counts at once. */

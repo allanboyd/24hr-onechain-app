@@ -1,3 +1,4 @@
+import { secretError } from '@btw/api/rules';
 import { featuresFor } from '@btw/api/rules';
 import type { Role } from '@btw/api/types';
 import { Injectable } from '@nestjs/common';
@@ -116,6 +117,22 @@ export class AuthService {
   async endAllSessions(userId: string) {
     await db.update(t.users).set({ tokenVersion: sql`${t.users.tokenVersion} + 1` }).where(eq(t.users.id, userId));
     await db.update(t.refreshTokens).set({ revokedAt: iso() }).where(and(eq(t.refreshTokens.userId, userId), isNull(t.refreshTokens.revokedAt)));
+  }
+
+  /** V3-14: a person changes their own password or PIN. The current one is checked; every other session ends and this
+   *  device gets a fresh session, so the person stays signed in here. */
+  async changeOwnSecret(p: Principal, input: { current?: string; password?: string; pin?: string }) {
+    const [u] = await db.select().from(t.users).where(eq(t.users.id, p.id));
+    if (!u) fail('Account not found', 404, 'not-found');
+    const err = secretError(input ?? {});
+    if (err) fail(err, 422);
+    const hashOf = input.pin !== undefined ? u!.pinHash : u!.passwordHash;
+    if (!hashOf || !(await bcrypt.compare(String(input.current ?? ''), hashOf))) fail(input.pin !== undefined ? 'Your current PIN is not right' : 'Your current password is not right', 422);
+    const set: Partial<typeof t.users.$inferInsert> = input.pin !== undefined ? { pinHash: await bcrypt.hash(String(input.pin), 10) } : { passwordHash: await bcrypt.hash(String(input.password), 10) };
+    await db.update(t.users).set(set).where(eq(t.users.id, p.id));
+    await this.endAllSessions(p.id);
+    const [fresh] = await db.select().from(t.users).where(eq(t.users.id, p.id));
+    return this.issue(fresh!, p.deviceId ?? uid('dev'));
   }
 
   /** MA-08 remote logout of a lost device: revokes its refresh tokens and blocks its access tokens. */
