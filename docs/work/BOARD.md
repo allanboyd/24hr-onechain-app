@@ -11,7 +11,7 @@ How to use it: [`AGENTS.md`](../../AGENTS.md). Each agent edits **only its own r
 |---|---|---|---|---|---|---|---|
 | V3-0 | Look + tokens: centred content, cards, chips, buttons, tables, page header (folds in UI-0, UI-4 T-/P- issues) ([plan](plans/V3-0.md)) | 👀 review (merged into design-v3) | claude | `v3/V3-0-look` | none | `docs/design-system/tokens.json`, `packages/tokens/**`, `packages/ui/src/**`, `apps/web/src/components/page/**` | 5230 |
 | V3-1 | Shell: Operations / Management switch, process-ordered menus, Performance + Selling prices commented out (folds in UI-1) | ⬜ open | | `v3/V3-1-shell` | V3-0 | `apps/web/src/App.svelte`, `apps/web/src/routes.ts`, `components/CompanySwitcher.svelte`, `components/CompanyMark.svelte`, `apps/web/src/lib/side.svelte.ts` (new) | 5231 |
-| V3-2 | Management room: the report as is, driven by our sidebar, sample-data banner ([plan](plans/V3-2.md)) | 🔄 in progress | claude | `v3/V3-2-management` | none (menu entries via V3-1) | `apps/web/public/management/**`, `apps/web/src/screens/management/**` | 5232 |
+| V3-2 | Management room: the report as is, driven by our sidebar, sample-data banner ([plan](plans/V3-2.md)) | 👀 review (merged into design-v3) | claude | `v3/V3-2-management` | none (menu entries via V3-1) | `apps/web/public/management/**`, `apps/web/src/screens/management/**` | 5232 |
 | V3-3 | Operations · Today: KPIs, pipeline with owners, act on these first, who handles what | ⬜ open | | `v3/V3-3-today` | V3-0, V3-1 | `apps/web/src/screens/ops/**` | 5233 |
 | V3-4 | Operations pages look: POs, Truck desk, Shipments, transfers, Stock, expenses, Sales, Period plans, Admin pages, Alerts "What I receive" (folds in UI-3 forms) | ⬜ open | | `v3/V3-4-ops-pages` | V3-0 | `apps/web/src/screens/*.svelte` (not Login), `apps/web/src/components/**` except `page/**`, `dashboard/**`, `charts/**` | 5234 |
 | V3-5 | PWA: web app installable, phone "new version ready", `/install` page with QR ([plan](plans/V3-5.md)) | 🔄 in progress | claude | `v3/V3-5-pwa` | none | `apps/web/public/manifest.webmanifest`, `apps/web/public/icons/**`, `apps/web/sw.template.js`, `apps/web/vite.config.ts`, `apps/web/index.html`, `apps/web/src/pwa/**`, `apps/field/src/pwa/**`, `apps/field/sw.template.js`, `apps/field/vite.config.ts`, `apps/field/public/manifest.webmanifest` | 5235 |
@@ -47,7 +47,8 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 ## Requests
 <!-- "<from> → <owner>: what you need" ; the owner answers on the same line -->
 - V3-0 → V3-1: took one rule in `App.svelte` (centred `.content`, sidebar side tokens). V3-1 keeps it.
-- V3-2 → V3-1: added `/management` routes + a temporary Management nav group in `routes.ts`. V3-1 moves it under the switch.
+- V3-2 → V3-1: added `/management` routes + a temporary Management nav group in `routes.ts` (+ `navOnly` on nav items). V3-1 moves it under the switch and can keep one report frame across Management pages.
+- V3-2 → shared: `packages/api/test/redirects.test.ts` sidebar count now checks Operations (16) and Management (8) separately (doc 23).
 - V3-5 → shared: `qrcode-generator` added to `apps/field/package.json` (lockfile changes). `apps/web/src/main.ts` claimed for the PWA banner mount.
 
 ## Log
@@ -58,3 +59,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | claude | Branch `design-v3` created. Doc 23 + V3 rows written; UI-0…UI-4 parked into V3. Waiting for review. |
 | 26 Nov 2026 | claude | Decisions accepted + Home duplicated in Operations and Management for now. Plans V3-0, V3-2, V3-5 approved; started. |
 | 26 Nov 2026 | claude | V3-0 merged into design-v3 (look + tokens). BUG-1, BUG-2 logged (pre-existing test failures). |
+| 26 Nov 2026 | claude | V3-2 merged into design-v3: report as is under Management; `tests/design-v3/management.mjs` all pass on :5173. |
