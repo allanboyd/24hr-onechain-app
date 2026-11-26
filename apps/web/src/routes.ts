@@ -2,7 +2,6 @@ import type { Role, User } from '@btw/api';
 import { canAny, type Feature } from './lib/features';
 import type { RouteDef } from '@btw/ui';
 import LayoutDashboard from '@lucide/svelte/icons/layout-dashboard';
-import MapIcon from '@lucide/svelte/icons/map';
 import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
 import Gauge from '@lucide/svelte/icons/gauge';
 import Presentation from '@lucide/svelte/icons/presentation';
@@ -81,7 +80,6 @@ export const routes: WebRoute[] = [
 /** navOnly: the feature decides who sees this menu entry, not who may open the page (the page keeps its own rule). */
 /** match: when the entry shows as the current page (default: the address starts with href). */
 type NavItem = { href: string; label: string; icon: any; feature?: Feature | Feature[]; navOnly?: boolean; match?: (path: string) => boolean; /** a count shown on the entry */ badge?: 'unread' };
-const isMap = (path: string) => /^\/shipments\?(.*&)?view=map(&|$)/.test(path);
 type NavGroup = { label: string; items: NavItem[] };
 /** Operations (design v3, docs/23 §2): day-to-day work, groups in process order: plan and order → load and move →
  *  receive, store and sell → admin. Labels follow the design; routes are unchanged. */
@@ -95,9 +93,8 @@ export const nav: NavGroup[] = [
   ] },
   { label: 'Logistics', items: [
     { href: '#/trucks', label: 'Truck desk', icon: Container, feature: ['trucks', 'loading'] },
-    { href: '#/shipments', label: 'Shipments', icon: Truck, feature: 'logistics', match: (p) => /^\/shipments(\/|\?|$)/.test(p) && !isMap(p) },
-    // V3-1g: the shipments map on its own entry (the same page in Map view)
-    { href: '#/shipments?view=map', label: 'Shipment map', icon: MapIcon, feature: 'logistics', navOnly: true, match: isMap },
+    { href: '#/shipments', label: 'Shipments', icon: Truck, feature: 'logistics' },
+    // V3-15: the map lives on the Shipments page (Split / Map views); the separate entry is gone
     { href: '#/re-exports', label: 'Goods transfers', icon: ArrowRightLeft, feature: 're-export' },
   ] },
   { label: 'Stock & sales', items: [

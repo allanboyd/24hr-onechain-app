@@ -66,7 +66,7 @@ const hrefsIn = (from: string, to: string) => {
 // docs/23 (design v3): Operations in process order, one Home entry, Settings & alerts last (V3-13); Management = 7 report pages
 const ops = hrefsIn('export const nav', 'export const managementNav');
 const mgmt = hrefsIn('export const managementNav', 'const HIDDEN');
-const OPS = ['/', '/period-plans', '/pos', '/trucks', '/shipments', '/shipments?view=map', '/re-exports', '/stock', '/warehouse-expenses', '/sales', '/master', '/system/alerts'];
+const OPS = ['/', '/period-plans', '/pos', '/trucks', '/shipments', '/re-exports', '/stock', '/warehouse-expenses', '/sales', '/master', '/system/alerts'];
 ok(JSON.stringify(ops) === JSON.stringify(OPS), `operations sidebar = docs/23 §2 list in process order (${ops.length})`, ops);
 ok(mgmt.length === 7 && mgmt.every((h) => h.startsWith('/management/')) && mgmt.every((h) => isRoute(h)), `management: the 7 report pages, all routes (settings live in Settings & alerts) (${mgmt.length})`, mgmt);
 // pages taken out of the menu keep their access rule (HIDDEN), or anyone could open them by address

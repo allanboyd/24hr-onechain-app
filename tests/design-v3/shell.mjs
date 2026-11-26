@@ -4,7 +4,7 @@ import { chromium } from 'playwright';
 
 const [base, out = '.'] = process.argv.slice(2);
 let fails = 0; const ok = (c, m) => { console.log(`${c ? 'ok  ' : 'FAIL'} ${m}`); if (!c) fails++; };
-const OPS = ['Home', 'Period plans', 'Purchase orders', 'Truck desk', 'Shipments', 'Shipment map', 'Goods transfers', 'Stock', 'Warehouse expenses', 'Sales', 'Master data', 'Settings & alerts'];
+const OPS = ['Home', 'Period plans', 'Purchase orders', 'Truck desk', 'Shipments', 'Goods transfers', 'Stock', 'Warehouse expenses', 'Sales', 'Master data', 'Settings & alerts'];
 const MGMT = ['Overview', 'Executive report', 'Plans and orders', 'Sales and clients', 'Supplier balances', 'Cash and closing', 'Warehouse performance'];
 const b = await chromium.launch();
 async function signIn(name, width = 1440) {
@@ -42,11 +42,9 @@ for (const r of ['/performance', '/selling-prices', '/transport-costs']) {
   await p.goto(`${base}#${r}`); await p.waitForTimeout(1500);
   ok(await p.getByText('Not available for your role').count() === 0, `director still opens ${r} by link`);
 }
-// V3-1g: Shipment map on its own entry; System settings & logs = Users & access, Audit log, Settings
-await p.locator('aside nav a', { hasText: 'Shipment map' }).click(); await p.waitForTimeout(2500);
-ok(/view=map/.test(p.url()) && await p.locator('aside nav a.active', { hasText: 'Shipment map' }).count() === 1 && await p.locator('aside nav a.active', { hasText: /^Shipments$/ }).count() === 0, 'Shipment map opens the map and is the current entry (not Shipments)');
-await p.locator('aside nav a', { hasText: /^Shipments$/ }).click(); await p.waitForTimeout(1500);
-ok(!/view=map/.test(p.url()) && await p.locator('aside nav a.active', { hasText: /^Shipments$/ }).count() === 1, 'Shipments opens the list');
+// V3-15: the map is on the Shipments page; old ?view=map links open it and keep Shipments current
+await p.goto(`${base}#/shipments?view=map`); await p.waitForTimeout(2500);
+ok(await p.locator('aside nav a', { hasText: 'Shipment map' }).count() === 0 && await p.locator('aside nav a.active', { hasText: /^Shipments$/ }).count() === 1 && await p.locator('.mapcard').count() === 1, 'one Shipments entry; an old ?view=map link opens the map');
 // V3-13: Settings & alerts workspace: a left menu inside the page, one address per section; Alerts left the main sidebar
 await p.locator('aside nav a', { hasText: 'Settings & alerts' }).click(); await p.waitForTimeout(2500);
 ok(p.url().endsWith('#/system/alerts') && (await p.locator('main h1').first().textContent())?.trim() === 'Alerts' && await p.locator('aside nav a.active', { hasText: 'Settings & alerts' }).count() === 1, 'Settings & alerts opens Alerts and stays current');
