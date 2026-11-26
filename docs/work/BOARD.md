@@ -127,3 +127,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 period plans: the copy-lines menu floats over the dialog (Playwright: Escape closes the menu, Close closes the dialog). Four matching stat cards. Purchase order cards use the same wash and arrow. A truck may carry 3,500 cases (was 2,200 on an order and 2,000 on a new truck). |
 | 26 Nov 2026 | cursor | V3-11 stat cards are plain. The colour sits on the bottom line only (Behind is orange, Running is green). |
 | 26 Nov 2026 | cursor | V3-11 top bar uses the page background, so it sits flush with the rest of the screen. |
+| 26 Nov 2026 | cursor | V3-11 period plans: the first stat reads Active plan. |
