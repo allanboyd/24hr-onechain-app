@@ -1,16 +1,16 @@
 <script lang="ts">
-  // Directors' My dashboards = Today (docs/15, docs/21): KPIs first, Decisions beside graphs, Money owed split charts.
-  // Filter icon opens a modal. Chart|table on cards. No top products / distribution on the default desk.
-  import { dashboards, type DashFilter, type DashResponse, type DashResult } from '@btw/api';
+  // Directors' Overview: KPI cards, decisions, sales chart, where the trucks are, then who owes us beside what sold.
+  import { amount as lineAmount, dashboards, lookup, sales, shipments, type DashFilter, type DashResponse, type DashResult, type Sale, type Shipment } from '@btw/api';
   import type { TodayData, TodayDecision } from '@btw/api/dashboards';
+  import { termsOf } from '@btw/api/metrics';
   import { watch } from '../../../lib/load.svelte';
   import ErrorState from '../../../components/ErrorState.svelte';
   import SmoothTrend from '../../../components/charts/SmoothTrend.svelte';
-  import { BarChart } from '../../../components/charts';
   import { compact } from '../../../components/charts/scale';
   import { currency, cv, cvRow } from '../fmt.svelte';
   import '../../../components/dashboard/report.css';
   import TodayCard from './TodayCard.svelte';
+  import TruckMap from './TruckMap.svelte';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import HandCoins from '@lucide/svelte/icons/hand-coins';
   import Truck from '@lucide/svelte/icons/truck';
@@ -23,10 +23,18 @@
 
   let res = $state<DashResult<TodayData> | null>(null);
   let extra = $state<DashResponse['results']>({});
+  let trips = $state<Shipment[] | null>(null);
+  let saleList = $state<Sale[] | null>(null);
   const w = watch(async () => {
-    const r = await dashboards.get(['director-today', 'po-pipeline', 'mgmt-plans', 'warehouse-today', 'mgmt-clients'], filter);
+    const [r, list, sold] = await Promise.all([
+      dashboards.get(['director-today', 'po-pipeline', 'mgmt-plans', 'warehouse-today', 'mgmt-clients'], filter),
+      shipments.list().catch(() => [] as Shipment[]),
+      sales.list().catch(() => [] as Sale[]),
+    ]);
     res = (r.results['director-today'] as DashResult<TodayData>) ?? null;
     extra = r.results;
+    trips = list;
+    saleList = sold;
     onload?.(r.options);
   }, () => JSON.stringify(filter));
   const d = $derived(res?.data ?? null);
@@ -54,13 +62,44 @@
   const STATE: Record<TodayDecision['severity'], string> = { critical: 'Critical', high: 'High', medium: 'Watch', low: 'Clear' };
   const decRows = () => [['Decision', 'State', 'Count', `Value (${currency.code})`, 'Detail', 'Owner', 'Link'], ...(d?.decisions ?? []).map((x) => [x.label, STATE[x.severity], x.count ?? '-', cvRow(x.value), x.detail, x.owner, x.href])];
 
-  const pct = (n: number) => `${Math.round(n * 100)} %`;
-  const sold = $derived((d?.top ?? []).slice(0, 6));
-  const soldRows = () => [['Product', 'Cases', `Sales (${currency.code})`, 'Margin'], ...sold.map((x) => [x.pack ? `${x.brand} ${x.pack}` : x.brand, x.cases, cvRow(x.revenue), x.margin == null ? '-' : pct(x.margin)])];
+  const sold = $derived([...(d?.top ?? [])].sort((a, b) => b.cases - a.cases).slice(0, 5));
+  const soldRows = () => [['Product', 'Cases', `Sales (${currency.code})`], ...sold.map((x) => [x.pack ? `${x.brand} ${x.pack}` : x.brand, x.cases, cvRow(x.revenue)])];
 
   const sc = $derived(d ? change(d.sales.value, d.sales.prev) : null);
-  const ageTotal = $derived(d ? d.owed.bands.reduce((a, b) => a + b.value, 0) : 0);
-  const owedRows = () => [['Customer', `Balance (${currency.code})`], ...(d?.owed.top ?? []).map((x) => [x.customer, cvRow(x.value)])];
+  const DAY = 864e5;
+  const debtors = $derived.by(() => {
+    const map = new Map<string, { customer: string; value: number; late: number }>();
+    for (const s of saleList ?? []) {
+      if (s.status === 'Paid') continue;
+      const value = s.lines.reduce((a, l) => a + lineAmount(l.qty, l.price), 0) - s.paid;
+      if (value <= 0.5) continue;
+      const late = Math.floor((Date.now() - Date.parse(s.at)) / DAY) - termsOf(s);
+      const cur = map.get(s.customer) ?? { customer: s.customer, value: 0, late: -999 };
+      cur.value += value;
+      cur.late = Math.max(cur.late, late);
+      map.set(s.customer, cur);
+    }
+    return [...map.values()].sort((a, b) => b.value - a.value).slice(0, 5);
+  });
+  const lateLabel = (n: number) => (n < 1 ? 'On time' : n === 1 ? '1 day late' : `${n} days late`);
+  const owedRows = () => [['Customer', 'Standing', `Balance (${currency.code})`], ...debtors.map((x) => [x.customer, lateLabel(x.late), cvRow(x.value)])];
+
+  const moving = $derived((trips ?? []).filter((s) => s.status !== 'Acknowledged' && s.status !== 'Cancelled'));
+  const legOf = (sh: Shipment) => sh.legs.find((l) => l.status !== 'Acknowledged' && l.status !== 'Cancelled') ?? sh.legs.at(-1);
+  const placeOf = (sh: Shipment) => {
+    const leg = legOf(sh);
+    const hit = leg ? [...leg.passes].reverse().find((p) => p.arrivedAt) ?? leg.passes[0] : undefined;
+    return (hit ? lookup.checkpoint(hit.checkpointId)?.name : '')?.split(' (')[0] || 'On the road';
+  };
+  const onMap = $derived([...moving].sort((a, b) => {
+    const at = (sh: Shipment) => {
+      const leg = legOf(sh);
+      const times = [leg?.lastPing?.at, ...(leg?.passes.map((p) => p.arrivedAt) ?? [])].filter(Boolean) as string[];
+      return Math.max(0, ...times.map((t) => Date.parse(t)));
+    };
+    return at(b) - at(a);
+  }).slice(0, 5));
+  const truckRows = () => [['Truck', 'Where', 'Status'], ...onMap.map((sh) => [lookup.truck(legOf(sh)?.truckId ?? '')?.reg ?? '-', placeOf(sh), sh.status])];
 
   const count = (n: number | null | undefined) => (n == null ? '-' : Math.round(n).toLocaleString('en-US'));
   const moneyVal = (usd: number | null | undefined) => (usd == null ? '-' : `${currency.code} ${amount(usd)}`);
@@ -115,8 +154,8 @@
     </a>
     <a class="card kpi" href="#/shipments">
       <span class="lbl">Shipments</span>
-      <b class="val">{wh ? count((wh.sign?.count ?? 0) + (wh.arriving?.trucks ?? 0)) : '-'}</b>
-      <span class="sub">{wh ? `${count(wh.sign?.count)} to sign · ${count(wh.arriving?.trucks)} arriving` : 'To sign and arriving'}</span>
+      <b class="val">{trips ? count(moving.length) : '-'}</b>
+      <span class="sub">{wh?.sign?.count ? `${count(wh.sign.count)} waiting to be signed` : 'Still moving'}</span>
     </a>
     <a class="card kpi" href="#/dashboards/fleet">
       <span class="lbl">Trucks on the road</span>
@@ -145,7 +184,7 @@
     </a>
   </div>
 
-  <!-- Decisions | Sales | What sold -->
+  <!-- Decisions | Sales | Trucks -->
   <div class="main" class:busy={w.loading}>
     <div class="slot o-dec">
       <TodayCard title="Decisions" tone="primary" caption="Six things to clear" updatedAt={res?.freshness ?? null} rows={decRows} filename="decisions-today" viewToggle>
@@ -185,61 +224,55 @@
     </div>
 
     <div class="slot o-stock">
-      <TodayCard title="What sold" caption="Top products · margin against the {pct(d.targetMargin)} target" updatedAt={res?.freshness ?? null} rows={soldRows} filename="what-sold" empty={!sold.length} drill={{ label: 'Open sales', href: '#/sales' }} viewToggle>
-        <ul class="sold">
-          {#each sold as x (x.productId)}
+      <TodayCard title="Trucks" caption="Where they are now" updatedAt={res?.freshness ?? null} rows={truckRows} filename="trucks-now" empty={!onMap.length} emptyText="No trucks on the road" drill={{ label: 'Open shipments', href: '#/shipments' }} viewToggle>
+        {#snippet tableView()}
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Truck</th><th>Where</th><th>Status</th></tr></thead>
+            <tbody>{#each onMap as sh (sh.id)}<tr><td>{lookup.truck(legOf(sh)?.truckId ?? '')?.reg ?? '-'}</td><td>{placeOf(sh)}</td><td>{sh.status}</td></tr>{/each}</tbody>
+          </table></div>
+        {/snippet}
+        <TruckMap items={onMap} />
+      </TodayCard>
+    </div>
+  </div>
+
+  <div class="pair" class:busy={w.loading}>
+    <div>
+      <TodayCard title="Money owed" caption="Late means past that client's credit days" updatedAt={res?.freshness ?? null} rows={owedRows} filename="money-owed" empty={!debtors.length} drill={{ label: 'Open customer balances', href: '#/sales?show=owed' }} viewToggle>
+        {#snippet tableView()}
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Customer</th><th>Standing</th><th class="num">Balance</th></tr></thead>
+            <tbody>{#each debtors as x (x.customer)}<tr><td>{x.customer}</td><td>{lateLabel(x.late)}</td><td class="num">{moneyTxt(x.value)}</td></tr>{/each}</tbody>
+          </table></div>
+        {/snippet}
+        <ul class="rows">
+          {#each debtors as x (x.customer)}
             <li>
-              <span class="nm"><b>{x.brand}</b><span>{x.pack || x.warehouses[0] || '-'}</span></span>
-              <span class="cases">{count(x.cases)} cases</span>
-              <span class="mg" class:good={x.margin != null && x.margin >= d.targetMargin} class:warn={x.margin != null && x.margin < d.targetMargin}>{x.margin == null ? '-' : pct(x.margin)}</span>
+              <span class="nm"><b>{x.customer}</b><span class="late" class:on={x.late < 1} class:soon={x.late >= 1 && x.late <= 30} class:over={x.late > 30}>{lateLabel(x.late)}</span></span>
+              <span class="cases">{moneyTxt(x.value)}</span>
             </li>
           {/each}
         </ul>
       </TodayCard>
     </div>
-  </div>
-
-  <div class="owed-wrap" class:busy={w.loading}>
-    <TodayCard title="Money owed" caption="{currency.code} · {d.owed.terms}-day terms" updatedAt={res?.freshness ?? null} rows={owedRows} filename="money-owed" empty={d.owed.total == null} drill={{ label: 'Open customer balances', href: '#/sales?show=owed' }} viewToggle>
-      {#snippet tableView()}
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Customer</th><th class="num">Balance</th></tr></thead>
-          <tbody>{#each d.owed.top as x}<tr><td>{x.customer}</td><td class="num">{moneyTxt(x.value)}</td></tr>{/each}</tbody>
-        </table></div>
-      {/snippet}
-      <div class="owed-grid">
-        <div>
-          <p class="cap-line">Ageing bands</p>
-          {#if ageTotal}
-            <BarChart
-              label="Receivables by age"
-              categories={d.owed.bands.map((b) => b.name)}
-              series={[{ name: `Balance (${currency.code})`, values: d.owed.bands.map((b) => cv(b.value)), ink: 'warn' }]}
-              format={axisFmt}
-              height={200}
-            />
-          {:else}
-            <p class="caption">No open balances</p>
-          {/if}
-        </div>
-        <div>
-          <p class="cap-line">Top balances</p>
-          {#if d.owed.top.length}
-            <BarChart
-              label="Top customer balances"
-              horizontal
-              categories={d.owed.top.map((x) => x.customer)}
-              series={[{ name: `Balance (${currency.code})`, values: d.owed.top.map((x) => cv(x.value)), ink: 'warn' }]}
-              format={axisFmt}
-              height={200}
-            />
-          {:else}
-            <p class="caption">No customer balances</p>
-          {/if}
-        </div>
-      </div>
-      <p class="caption foot">{d.owed.overdue ? `${moneyTxt(d.owed.overdue)} overdue` : d.owed.total != null ? `Nothing overdue of ${moneyTxt(d.owed.total)}` : 'No open balances'}</p>
-    </TodayCard>
+    <div>
+      <TodayCard title="Most sold" caption="Top 5 products by cases" updatedAt={res?.freshness ?? null} rows={soldRows} filename="most-sold" empty={!sold.length} drill={{ label: 'Open sales', href: '#/sales' }} viewToggle>
+        {#snippet tableView()}
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Product</th><th class="num">Cases</th><th class="num">Sales</th></tr></thead>
+            <tbody>{#each sold as x (x.productId)}<tr><td>{x.brand}{x.pack ? ` ${x.pack}` : ''}</td><td class="num">{count(x.cases)}</td><td class="num">{moneyTxt(x.revenue)}</td></tr>{/each}</tbody>
+          </table></div>
+        {/snippet}
+        <ul class="rows">
+          {#each sold as x (x.productId)}
+            <li>
+              <span class="nm"><b>{x.brand}</b>{#if x.pack}<span>{x.pack}</span>{/if}</span>
+              <span class="cases">{count(x.cases)} cases</span>
+            </li>
+          {/each}
+        </ul>
+      </TodayCard>
+    </div>
   </div>
 {/if}
 
@@ -252,7 +285,6 @@
   .facts { margin-bottom: var(--space-5); }
   .sk { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(176px, 1fr)); }
   .skel { height: 118px; }
-  .cap-line { font-size: 12px; color: var(--text-muted); }
 
   .main {
     display: grid;
@@ -287,23 +319,23 @@
   .ct b { font-size: 16px; font-variant-numeric: tabular-nums; color: var(--text-on-primary); }
   .dec :global(.chev) { color: var(--text-on-primary); }
 
-  .sold { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-  .sold li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--space-3); padding: 8px 0; }
-  .sold li + li { border-top: 1px solid var(--border); }
-  .sold .nm { display: flex; flex-direction: column; min-width: 0; }
-  .sold .nm b { font-size: 13px; line-height: 1.3; }
-  .sold .nm span, .sold .cases { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sold .cases { font-variant-numeric: tabular-nums; }
-  .sold .mg { font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text-muted); }
-  .sold .mg.good { color: var(--success); }
-  .sold .mg.warn { color: var(--warning); }
+  .rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .rows li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding: 8px 0; }
+  .rows li + li { border-top: 1px solid var(--border); }
+  .rows .nm { display: flex; flex-direction: column; min-width: 0; }
+  .rows .nm b { font-size: 13px; line-height: 1.3; }
+  .rows .nm span, .rows .cases { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rows .cases { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
+  .late { font-weight: 700; }
+  .late.on { color: var(--success); }
+  .late.soon { color: var(--warning); }
+  .late.over { color: var(--danger); }
 
-  .owed-wrap { margin-bottom: var(--space-4); }
-  .owed-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); }
-  .foot { margin-top: var(--space-3); }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); align-items: stretch; margin-bottom: var(--space-4); }
+  .pair > div { display: flex; min-width: 0; }
+  .pair > div > :global(.tc) { flex: 1; width: 100%; }
 
   @media (max-width: 1100px) {
-    .main { grid-template-columns: 1fr; }
-    .owed-grid { grid-template-columns: 1fr; }
+    .main, .pair { grid-template-columns: 1fr; }
   }
 </style>
