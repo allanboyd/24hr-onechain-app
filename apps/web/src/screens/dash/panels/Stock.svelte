@@ -22,7 +22,20 @@
   const coverItems = $derived(key === 'stock-on-hand' ? (d.items ?? []).filter((x: any) => inBand(x.cover, band)).slice(0, 15).map((x: any) => ({ label: x.label, days: x.cover, min: x.min, max: x.max })) : []);
   const runningOut = $derived(key === 'stock-on-hand' ? [...(d.items ?? [])].filter((x: any) => x.cover != null && x.cover <= 14).sort((a: any, b: any) => a.cover - b.cover).slice(0, 6) : []);
   // transit timeline: by day of expected arrival
-  const days = $derived(key === 'stock-in-transit' ? [...new Set((d.rows ?? []).map((x: any) => (x.eta ?? '').slice(0, 10)))].map((k) => ({ day: k as string, rows: d.rows.filter((x: any) => (x.eta ?? '').slice(0, 10) === k) })) : []);
+  const days = $derived.by(() => {
+    if (key !== 'stock-in-transit') return [] as { day: string; rows: any[] }[];
+    const groups = [...new Set((d.rows ?? []).map((x: any) => (x.eta ?? '').slice(0, 10)))].map((k) => ({ day: k as string, rows: (d.rows as any[]).filter((x) => (x.eta ?? '').slice(0, 10) === k) }));
+    let left = 6;
+    const out: { day: string; rows: any[] }[] = [];
+    for (const g of groups) {
+      if (!left) break;
+      const rows = g.rows.slice(0, left);
+      left -= rows.length;
+      out.push({ day: g.day, rows });
+    }
+    return out;
+  });
+  const transitMore = $derived(key === 'stock-in-transit' ? Math.max(0, (d.rows ?? []).length - 6) : 0);
   // categories by total (largest first) so the columns and the donut give each category the same colour
   const ranked = $derived(key === 'warehouse-expenses' ? [...(d.byCategory ?? [])].sort((a: any, b: any) => b.total - a.total).map((x: any) => x.category as string) : []);
   const rxTone = (s: string) => (s === 'Delivered' ? 'good' : s === 'Cancelled' ? 'none' : s === 'Open' ? 'none' : 'warn');
@@ -43,27 +56,13 @@
           <ul class="att">{#each d.sign.rows as x}<li><a href="#/shipments/{x.shipmentId}">{x.truck}</a><span class="caption">{x.ref} · {x.warehouse} · {n0(x.cases)} cases</span><StatusBadge status="warn" label="Acknowledge" /></li>{/each}</ul>
         </div>
       {/if}
-      {#if d.arriving?.rows?.length}
-        <div>
-          <h4 class="overline">Arriving this week</h4>
-          <ul class="att scroll">{#each d.arriving.rows as x}<li><a href="#/shipments/{x.shipmentId}">{x.truck}</a><span class="caption">{x.warehouse} · {day(x.eta)} · {n0(x.cases)} cases</span>{#if x.late}<StatusBadge status="bad" label="late" />{/if}</li>{/each}</ul>
-        </div>
-      {/if}
-    </div>
-    {#if d.stock?.items?.length || d.reexports?.rows?.length}<div class="pair">
       {#if d.stock?.items?.length}
         <div>
           <h4 class="overline">Stock that needs a count</h4>
-          <ul class="att scroll">{#each d.stock.items as x}<li><a href="#/stock?show=attention">{x.label}</a><span class="caption">{n0(x.held)} cases · {x.cover == null ? 'no sales in 30 days' : `${x.cover} d cover`}</span><StatusBadge status={x.cover == null ? 'none' : x.cover <= 7 ? 'bad' : 'warn'} label={x.cover == null ? 'No sales' : x.cover <= 7 ? 'At risk' : 'Low'} /></li>{/each}</ul>
+          <ul class="att scroll">{#each d.stock.items.slice(0, 6) as x}<li><a href="#/stock?show=attention">{x.label}</a><span class="caption">{n0(x.held)} cases · {x.cover == null ? 'no sales in 30 days' : `${x.cover} d cover`}</span><StatusBadge status={x.cover == null ? 'none' : x.cover <= 7 ? 'bad' : 'warn'} label={x.cover == null ? 'No sales' : x.cover <= 7 ? 'At risk' : 'Low'} /></li>{/each}</ul>
         </div>
       {/if}
-      {#if d.reexports?.rows?.length}
-        <div>
-          <h4 class="overline">Open re-exports</h4>
-          <ul class="att scroll">{#each d.reexports.rows as x}<li><a href="#/re-exports">{x.ref}</a><span class="caption">{n0(x.cases)} cases{x.owner ? ` · ${x.owner}` : ''}</span><StatusBadge status={x.owner ? 'warn' : 'none'} label={x.owner ? x.status : 'Owner not assigned'} /></li>{/each}</ul>
-        </div>
-      {/if}
-    </div>{/if}
+    </div>
     {#if d.losses?.topCause}<p class="caption">Top cause of losses (30 days): {d.losses.topCause}.</p>{/if}
   </DashboardPanel>
 {:else if key === 'incoming'}
@@ -105,8 +104,8 @@
   <DashboardPanel span={span ?? 1} subtitle={band ? `band ${band.label}` : 'lowest cover first'} decision="Count or write off the lines furthest below minimum." {...fr} title="Stock cover by product" rows={() => [['Product', 'Held (cases)', 'Moved out', 'Damaged', 'Short', 'Sold 30 days', 'Days of cover', 'Minimum', 'Slow above', 'State'], ...(d.items ?? []).map((x: any) => [x.label, x.held, x.movedOut, x.damaged, x.short, x.sold30, x.cover ?? 'No data yet', x.min, x.max, coverStatus({ label: x.label, days: x.cover, min: x.min, max: x.max }).label])]} filename="stock-on-hand" empty={!coverItems.length}>
     <StockCoverBars label="Days of stock cover against minimum by product" items={coverItems} onselect={() => go('#/stock?show=attention')} />
   </DashboardPanel>
-  <DashboardPanel span={1} subtitle="last 30 days" decision="Count a line where damaged cases are high." {...fr} title="Held, moved and damaged" rows={() => [['Product', 'Held', 'Moved out', 'Damaged'], ...(d.items ?? []).slice(0, 10).map((x: any) => [x.label, x.held, x.movedOut, x.damaged])]} filename="held-moved-damaged">
-    <BarChart label="Cases held, moved out and damaged by product (30 days)" horizontal stacked categories={(d.items ?? []).slice(0, 10).map((x: any) => x.label)} series={[{ name: 'Held', values: (d.items ?? []).slice(0, 10).map((x: any) => Math.max(0, x.held)), ink: 'navy' }, { name: 'Moved out / sent on', values: (d.items ?? []).slice(0, 10).map((x: any) => x.movedOut), ink: 'teal' }, { name: 'Damaged', values: (d.items ?? []).slice(0, 10).map((x: any) => x.damaged), ink: 'bad' }]} format={(n) => n0(n)} height={220} />
+  <DashboardPanel span="full" subtitle="last 30 days" decision="Count a line where damaged cases are high." {...fr} title="Held, moved and damaged" rows={() => [['Product', 'Held', 'Moved out', 'Damaged'], ...(d.items ?? []).slice(0, 10).map((x: any) => [x.label, x.held, x.movedOut, x.damaged])]} filename="held-moved-damaged">
+    <BarChart label="Cases held, moved out and damaged by product (30 days)" horizontal stacked categories={(d.items ?? []).slice(0, 8).map((x: any) => x.label)} series={[{ name: 'Held', values: (d.items ?? []).slice(0, 8).map((x: any) => Math.max(0, x.held)), ink: 'navy' }, { name: 'Moved out / sent on', values: (d.items ?? []).slice(0, 8).map((x: any) => x.movedOut), ink: 'teal' }, { name: 'Damaged', values: (d.items ?? []).slice(0, 8).map((x: any) => x.damaged), ink: 'bad' }]} format={(n) => n0(n)} height={Math.max(240, Math.min(8, (d.items ?? []).length) * 36 + 48)} />
   </DashboardPanel>
 {:else if key === 'stock-in-transit'}
   <DashboardPanel span={span ?? 1} subtitle="expected arrivals · totals per warehouse" decision="Prepare the warehouse for the next arrivals." {...fr} title={r.title} rows={() => [['Shipment', 'Truck', 'Warehouse', 'Expected', 'Cases', 'Status'], ...(d.rows ?? []).map((x: any) => [x.ref, x.truck, x.warehouse, x.eta, x.cases, x.status])]} filename="stock-in-transit" {drill}>
@@ -117,6 +116,7 @@
           {#each g.rows as x}<a class="small tr" href="#/shipments/{x.shipmentId}">{x.truck} → {x.warehouse} · {n0(x.cases)} cases {#if x.late}<StatusBadge status="bad" label="late" />{/if}</a>{/each}</li>
       {/each}
     </ol>
+    {#if transitMore}<p class="caption">{transitMore} more on the full list.</p>{/if}
   </DashboardPanel>
 {:else if key === 'warehouse-expenses'}
   <DashboardPanel span={span ?? 1} subtitle="last 6 months" decision="Record this month’s rent, salary and utilities if they are missing." {...fr} title="Expenses by month" rows={() => [['Month', ...(d.categories ?? []).map((c: string) => `${c} (${C})`), `Total (${C})`], ...(d.byMonth ?? []).map((m: any) => [m.month, ...d.categories.map((c: string) => cvRow(m.byCategory[c])), cvRow(m.total)])]} filename="warehouse-expenses" {drill}>
@@ -133,11 +133,7 @@
       <div><span class="caption">Out</span><b class:hot={d.out > d.in}>{n0(d.out)}</b><span class="caption">sold · damaged · sent on</span></div>
       <div><span class="caption">Closing</span><b>{n0(d.closing)}</b><span class="caption">cases</span></div>
     </div>
-    <BarChart label="Cases in and out by day" categories={(d.days ?? []).map((x: any) => day(x.day))} series={[{ name: 'In', values: (d.days ?? []).map((x: any) => x.in), slot: 0 }, { name: 'Out', values: (d.days ?? []).map((x: any) => x.out), slot: 1 }]} format={(n) => n0(n)} />
-    <div class="table-wrap"><table class="table">
-      <thead><tr><th>When</th><th>Kind</th><th>Product</th><th class="hide-sm">Warehouse</th><th class="num">Cases</th></tr></thead>
-      <tbody>{#each d.log ?? [] as x}<tr><td class="small">{day(x.at)}</td><td>{x.kind}</td><td>{x.product}</td><td class="hide-sm caption">{x.warehouse}</td><td class="num">{x.dir === 'out' ? '−' : '+'}{n0(x.qty)}</td></tr>{:else}<tr><td colspan="5" class="caption">No moves in this window.</td></tr>{/each}</tbody>
-    </table></div>
+    <BarChart label="Cases in and out by day" categories={(d.days ?? []).map((x: any) => day(x.day))} series={[{ name: 'In', values: (d.days ?? []).map((x: any) => x.in), slot: 0 }, { name: 'Out', values: (d.days ?? []).map((x: any) => x.out), slot: 1 }]} format={(n) => n0(n)} height={240} />
   </DashboardPanel>
 {:else if key === 'reexports'}
   <DashboardPanel span={span ?? 1} subtitle="Rwanda → Juba" decision="Assign an owner and load every Open order." {...fr} title={r.title} rows={() => [['Order', 'Status', 'From', 'To', 'Cases', 'Truck', 'Loaded', 'Delivered', 'Follow-up'], ...(d.rows ?? []).map((x: any) => [x.ref, x.status, x.from, x.to, x.cases, x.truck ?? '', x.loadedAt ?? '', x.deliveredAt ?? '', x.owner ?? 'Owner not assigned'])]} filename="re-exports" {drill}>
@@ -166,6 +162,4 @@
   .tl li { position: relative; padding: 0 0 var(--space-3) var(--space-2); display: flex; flex-direction: column; gap: 2px; }
   .dot { position: absolute; left: -21px; top: 4px; width: 12px; height: 12px; border-radius: 50%; background: var(--viz-1); border: 2px solid var(--surface); }
   .tr { color: var(--text); }
-  .num { text-align: right; font-variant-numeric: tabular-nums; }
-  @media (max-width: 600px) { .hide-sm { display: none; } }
 </style>

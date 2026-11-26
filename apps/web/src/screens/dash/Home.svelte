@@ -29,7 +29,7 @@
     fleet: 'Where the trucks are, then delays, issues, and quiet trucks.',
     fees: 'Agreed vs actual, trip costs, payments, and unpaid ageing.',
     deliveries: 'Incoming trucks, damage and shortage, and loss causes.',
-    warehouse: 'Warehouse today, stock cover, in transit, spend, and movements.',
+    warehouse: 'What to sign, stock cover, trucks on the way, and warehouse spend.',
     sales: 'Sales mix, cash vs credit, and who still owes.',
     admin: 'Alerts to handle first, and missing documents.',
   };

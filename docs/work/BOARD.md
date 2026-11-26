@@ -153,3 +153,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 every operations tab opens with four stats, then one chart per card. |
 | 26 Nov 2026 | cursor | V3-11 Loading and Shipments open on the truck map. Tabs renamed to Purchase orders and Shipments. A short card fills the row. |
 | 26 Nov 2026 | cursor | V3-11 Shipments: map is one third, live fleet board is two thirds. Truck list stays on Loading. Purchase orders chart no longer stacks a table, and the plan card is a noun. |
+| 26 Nov 2026 | cursor | V3-11 Sales stops at cash vs credit. Warehouse today no longer stacks every arrival, and the stock report is not repeated under the cards. |

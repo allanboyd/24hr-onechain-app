@@ -21,8 +21,8 @@ export const REPORT: Partial<Record<string, DashKey[]>> = {
   fleet: ['fleet-board', 'delayed-trucks', 'truck-issues', 'driver-updates', 'border-stops', 'logistics-report'],
   fees: ['agreed-vs-actual', 'unpaid-fees', 'fee-payments', 'truck-expenses', 'landed-truck', 'trip-costs'],
   deliveries: ['incoming', 'received-damaged-short', 'delivery-losses'],
-  warehouse: ['warehouse-today', 'stock-on-hand', 'fast-slow', 'stock-in-transit', 'warehouse-expenses', 'stock-movements', 'reexports', 'inventory-report', 'stock-analysis'],
-  sales: ['sales-summary', 'customer-balances', 'cash-vs-credit', 'quarterly-review'],
+  warehouse: ['warehouse-today', 'stock-on-hand', 'fast-slow', 'stock-in-transit', 'warehouse-expenses', 'reexports', 'stock-movements'],
+  sales: ['sales-summary', 'customer-balances', 'cash-vs-credit'],
   admin: ['alerts', 'data-completeness', 'users-logins', 'audit-log'],
 };
 
@@ -35,6 +35,9 @@ const DUPLICATE = new Set<DashKey>([
   'finance-report', // landed cost on Business, trip costs on Fees
   'sales-velocity', // fast and slow
   'sales-report', // sales summary, balances, cash vs credit
+  'quarterly-review', // the same sales, balances and cash vs credit, plus a long quarter pack
+  'inventory-report', // stock on hand, cover and movements already show this
+  'stock-analysis', // the same stock positions
   'combined-performance', // the same sales, cost and profit totals as the profit bridge
 ]);
 
