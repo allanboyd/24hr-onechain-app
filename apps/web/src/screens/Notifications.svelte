@@ -15,7 +15,7 @@
 </script>
 
 <div class="page-head">
-  <div><div class="overline crumb">Admin</div><h1>Notifications</h1>
+  <div><h1>Alerts</h1>
     <p class="muted small" style="margin:var(--space-1) 0 0">In-app and email on web; push and SMS/WhatsApp on the field app where configured. Shown for: {user.roles.join(', ')}.</p></div>
   <button class="btn btn-secondary" onclick={readAll} disabled={!unread}>Mark all read</button>
 </div>

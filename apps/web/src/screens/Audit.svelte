@@ -1,5 +1,4 @@
 <script lang="ts">
-  import SystemNav from '../components/SystemNav.svelte';
   // docs/12 A-07: the audit log for the directors — who did what and when, across the whole system. Search by user,
   // feature, date and text; record edits show their before → after values. Read only.
   import { audit, ref, type AuditEntry, type AuditPage, type User } from '@btw/api';
@@ -59,9 +58,8 @@
   const spark = $derived(days.map((d, i) => `${(i / Math.max(1, days.length - 1)) * 300},${40 - (d.n / maxDay) * 36}`).join(' '));
 </script>
 
-<SystemNav {user} current="audit" />
 <div class="page-head">
-  <div><div class="overline crumb">System settings & logs</div><h1>Audit log</h1><p class="muted small">Every change is recorded: who, when, from which channel, and the values before and after a record edit. Directors only.</p></div>
+  <div><h1>Audit log</h1><p class="muted small">Every change is recorded: who, when, from which channel, and the values before and after a record edit. Directors only.</p></div>
   {#if days.length > 1}
     <figure class="spark" aria-label="Actions per day">
       <svg viewBox="-2 -2 304 44" preserveAspectRatio="none" role="img" aria-label="{fmtNum(data?.total ?? 0)} actions from {days[0].day} to {days.at(-1)!.day}"><polyline points={spark} /></svg>

@@ -39,7 +39,7 @@ await p.locator('dialog[open]').getByRole('button', { name: 'Record credit note'
 ok(await p.locator('.supplier-money tbody tr', { hasText: 'Credit note' }).count() >= 1, 'the credit note is listed on the PO');
 const poUrl = p.url();
 // approval on: the next advance waits; a director approves it on the PO
-await p.goto(`${base}#/management/settings`); await p.getByRole('switch', { name: 'Advance payments need director approval' }).click(); await p.waitForTimeout(600);
+await p.goto(`${base}#/system/approvals`); await p.getByRole('switch', { name: 'Advance payments need director approval' }).click(); await p.locator('dialog[open]').getByRole('button', { name: /^Turn (on|off)$/ }).click(); await p.waitForTimeout(600);
 await p.goto(poUrl); await p.waitForTimeout(1500);
 await p.getByRole('button', { name: 'Record advance' }).click(); await p.locator('dialog[open]').waitFor();
 await p.locator('dialog[open] input[type=number]').first().fill('500');
@@ -48,7 +48,7 @@ ok((await facts()).includes('Waiting for a director') && await p.getByRole('butt
 await p.screenshot({ path: `${out}/po-supplier-money.png`, fullPage: false });
 await p.getByRole('button', { name: 'Approve' }).click(); await p.waitForTimeout(1200);
 ok((await facts()).includes('2,500.00') && !(await facts()).includes('Waiting for a director'), 'approved: advances paid 2,500');
-await p.goto(`${base}#/management/settings`); await p.getByRole('switch', { name: 'Advance payments need director approval' }).click(); await p.waitForTimeout(600);
+await p.goto(`${base}#/system/approvals`); await p.getByRole('switch', { name: 'Advance payments need director approval' }).click(); await p.locator('dialog[open]').getByRole('button', { name: /^Turn (on|off)$/ }).click(); await p.waitForTimeout(600);
 const cn1 = await cnKpi();
 ok(cn1 >= cn0 + 149, `Management → Supplier balances: credit notes went up (${cn0} → ${cn1})`);
 ok(await p.locator('.mrep table tbody tr', { hasText: 'Credit note' }).count() >= 1, 'the statement lists the credit note');

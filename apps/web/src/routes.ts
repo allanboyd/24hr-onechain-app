@@ -2,7 +2,6 @@ import type { Role, User } from '@btw/api';
 import { canAny, type Feature } from './lib/features';
 import type { RouteDef } from '@btw/ui';
 import LayoutDashboard from '@lucide/svelte/icons/layout-dashboard';
-import SettingsIcon from '@lucide/svelte/icons/settings';
 import MapIcon from '@lucide/svelte/icons/map';
 import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
 import Gauge from '@lucide/svelte/icons/gauge';
@@ -18,7 +17,6 @@ import Boxes from '@lucide/svelte/icons/boxes';
 import ShoppingCart from '@lucide/svelte/icons/shopping-cart';
 // import Wallet from '@lucide/svelte/icons/wallet';
 import Database from '@lucide/svelte/icons/database';
-import Bell from '@lucide/svelte/icons/bell';
 // import ChartArea from '@lucide/svelte/icons/chart-area';
 import CalendarRange from '@lucide/svelte/icons/calendar-range';
 import Container from '@lucide/svelte/icons/container';
@@ -61,13 +59,13 @@ export const routes: WebRoute[] = [
   { path: '/sales', load: () => import('./screens/Sales.svelte'), title: 'Sales' },
   { path: '/transport-costs', load: () => import('./screens/TransportCosts.svelte'), title: 'Transport costs' },
   { path: '/master', load: () => import('./screens/MasterData.svelte'), title: 'Master data' },
-  { path: '/notifications', load: () => import('./screens/Notifications.svelte'), title: 'Notifications' },
-  { path: '/users', load: () => import('./screens/Users.svelte'), title: 'Users & access' },
-  { path: '/integrations', load: () => import('./screens/Integrations.svelte'), title: 'Integrations' },
-  { path: '/audit', load: () => import('./screens/Audit.svelte'), title: 'Audit log' },
-  // V3-1g: System settings & logs (Users & access, Audit log, Settings); #/system opens the first page the person may see
-  { path: '/system', load: () => import('./screens/SystemSettings.svelte'), title: 'System settings & logs' },
-  { path: '/system/:page', load: () => import('./screens/SystemSettings.svelte'), title: 'Settings' },
+  { path: '/notifications', load: () => import('./screens/system/Workspace.svelte'), title: 'Alerts' },
+  { path: '/users', load: () => import('./screens/system/Workspace.svelte'), title: 'Users & access' },
+  { path: '/integrations', load: () => import('./screens/system/Workspace.svelte'), title: 'Integrations' },
+  { path: '/audit', load: () => import('./screens/system/Workspace.svelte'), title: 'Audit log' },
+  // V3-13: Settings & alerts workspace (left menu, one address per section); older addresses above open the same screen
+  { path: '/system', load: () => import('./screens/system/Workspace.svelte'), title: 'Settings & alerts' },
+  { path: '/system/:section', load: () => import('./screens/system/Workspace.svelte'), title: 'Settings & alerts' },
   // docs/14 (workstream B): warehouse money and data
   { path: '/warehouse-expenses', load: mo('WarehouseExpenses'), title: 'Warehouse expenses' },
   { path: '/re-exports', load: mo('Reexports'), title: 'Re-export orders' },
@@ -82,7 +80,7 @@ export const routes: WebRoute[] = [
 
 /** navOnly: the feature decides who sees this menu entry, not who may open the page (the page keeps its own rule). */
 /** match: when the entry shows as the current page (default: the address starts with href). */
-type NavItem = { href: string; label: string; icon: any; feature?: Feature | Feature[]; navOnly?: boolean; match?: (path: string) => boolean };
+type NavItem = { href: string; label: string; icon: any; feature?: Feature | Feature[]; navOnly?: boolean; match?: (path: string) => boolean; /** a count shown on the entry */ badge?: 'unread' };
 const isMap = (path: string) => /^\/shipments\?(.*&)?view=map(&|$)/.test(path);
 type NavGroup = { label: string; items: NavItem[] };
 /** Operations (design v3, docs/23 §2): day-to-day work, groups in process order: plan and order → load and move →
@@ -116,9 +114,8 @@ export const nav: NavGroup[] = [
   // ] },
   { label: 'Admin', items: [
     { href: '#/master', label: 'Master data', icon: Database, feature: ['master-data', 'master-data.static', 'master-data.transport'] },
-    // V3-1g: one entry for Users & access, Audit log and Settings (tabs on those pages)
-    { href: '#/system', label: 'System settings & logs', icon: SlidersHorizontal, feature: ['users', 'audit'], navOnly: true, match: (p) => /^\/(users|audit|system)(\/|\?|$)/.test(p) },
-    { href: '#/notifications', label: 'Alerts', icon: Bell },
+    // V3-13: one entry for Settings & alerts (Alerts, My notifications, Approvals, Users & access, Audit log, Integrations)
+    { href: '#/system/alerts', label: 'Settings & alerts', icon: SlidersHorizontal, navOnly: true, badge: 'unread', match: (p) => /^\/(users|audit|system|notifications|integrations)(\/|\?|$)/.test(p) },
   ] },
 ];
 /** Management (docs/23 §3): the directors' report pages. Only for `reports`. */
@@ -137,8 +134,6 @@ export const managementNav: NavGroup[] = [
     { href: '#/management/cash', label: 'Cash and closing', icon: Banknote, feature: 'reports' },
     { href: '#/management/perf', label: 'Warehouse performance', icon: Warehouse, feature: 'reports' },
   ] },
-  // V3-12: approvals and money notifications (directors and the system administrator change them)
-  { label: 'Settings', items: [{ href: '#/management/settings', label: 'Settings', icon: SettingsIcon, feature: 'reports' }] },
 ];
 /** Pages not in the sidebar, with the feature that opens them (Integrations lives under Admin settings → Master data, docs/17 §4;
  *  Performance, Selling prices and Transport costs left the menu in design v3 but keep their rule). */
@@ -149,7 +144,8 @@ const HIDDEN: Record<string, Feature | Feature[]> = {
   'selling-prices': 'selling-prices',
   'transport-costs': ['finance', 'transport-fees'],
   // V3-1g: reached through System settings & logs
-  users: 'users', audit: 'audit', system: ['users', 'audit', 'reports'],
+  // the workspace checks each section's own rule; the screen itself is open to every web user
+  users: 'users', audit: 'audit',
 };
 
 export type Side = 'operations' | 'management';
