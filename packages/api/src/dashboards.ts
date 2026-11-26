@@ -9,7 +9,7 @@
 // then `narrow` applies the dashboard filters (company, supplier, route, warehouse, product, date range).
 import { DAY, H, etaOf, featuresFor, hasFeature } from './rules';
 import { resolvePeriod, scopeReportData, planningReport, type ReportData } from './reports';
-import { performanceReport, type PerformanceReport } from './performance';
+import { performanceReport, PERFORMANCE_METHOD, type PerformanceReport } from './performance';
 import * as M from './money';
 import * as A from './access';
 import { truckDesk, type TruckRow } from './trucks';
@@ -24,7 +24,8 @@ import type {
 // CATALOGUE — who gets which dashboard (client's dashboards document §1–§10)
 // ======================================================================================================
 /** 'home' = a curated home view (no feature-group tab of its own). */
-export type DashGroup = 'home' | 'business' | 'purchasing' | 'loading' | 'fleet' | 'fees' | 'deliveries' | 'warehouse' | 'sales' | 'admin';
+export type DashGroup = 'home' | 'business' | 'purchasing' | 'loading' | 'fleet' | 'fees' | 'deliveries' | 'warehouse' | 'sales' | 'admin'
+  /** design v3 Management pages (docs/23, V3-10): no Home tab of their own */ | 'management';
 export const DASH_GROUPS: { key: DashGroup; label: string; blurb: string }[] = [
   { key: 'business', label: 'Directors · business', blurb: 'Where the business stands, profit, landed cost and pricing' },
   { key: 'purchasing', label: 'Purchasing', blurb: 'Orders by stage, ordered vs loaded vs delivered, open orders' },
@@ -51,7 +52,9 @@ export type DashKey =
   | 'alerts' | 'users-logins' | 'audit-log' | 'data-completeness'
   // docs/17 Phase 2: analysis moved to Home from the retired Reports / Sales velocity pages and the page Overview tabs
   | 'orders-analysis' | 'plan-vs-actual-report' | 'purchase-planning' | 'loading-queues' | 'shipment-analysis' | 'logistics-report'
-  | 'trip-costs' | 'finance-report' | 'stock-analysis' | 'inventory-report' | 'sales-velocity' | 'sales-report' | 'quarterly-review';
+  | 'trip-costs' | 'finance-report' | 'stock-analysis' | 'inventory-report' | 'sales-velocity' | 'sales-report' | 'quarterly-review'
+  // design v3 Management pages on live data (V3-10): same data, scoping and builders as the dashboards above
+  | 'mgmt-overview';
 export interface DashDef {
   key: DashKey; id: string; title: string; group: DashGroup; who: Who[];
   /** the business question it answers */ question: string; /** the visual */ visual: string;
@@ -63,6 +66,7 @@ export interface DashDef {
 const d = (key: DashKey, id: string, title: string, group: DashGroup, who: Who[], question: string, visual: string, link?: string, client?: boolean): DashDef => ({ key, id, title, group, who, question, visual, link, client });
 const a = (key: DashKey, title: string, group: DashGroup, who: Who[], features: FeatureKey[], question: string, visual: string, link: string): DashDef => ({ key, id: 'F-2', title, group, who, question, visual, link, client: true, analysis: true, features });
 export const DASHBOARDS: DashDef[] = [
+  { key: 'mgmt-overview', id: 'M-01', title: 'Overview', group: 'management', who: ['dir'], features: ['reports'], question: 'How does the company make profit, and what needs action first?', visual: 'KPI cards with sparklines, profit waterfall, act-on-these-first, sales and profit by month and warehouse, where each $100 went, best and weakest brands', link: '#/management/overview' },
   d('director-today', 'C-05', 'Today', 'home', ['dir'], 'What needs a director\'s decision today, and where does the business stand?', 'KPI strip with sparklines, daily sales and profit, decision list, stock health, sales by company / warehouse, top products'),
   d('warehouse-today', 'C-05b', 'Warehouse today', 'home', ['rcv', 'dir'], 'What do I sign, what arrives this week, and what is running out?', 'Tiles: to sign, arriving, stock at risk, losses; re-exports for Asie', '#/shipments'),
   d('order-this-week', 'C-05c', 'Order this week', 'home', ['kab', 'dir'], 'What should we order this week, and by when?', 'Suggested orders by urgency with cases, supplier and order-by date', '#/pos/new'),
@@ -344,7 +348,7 @@ const out = (data: unknown, o: { definition: string; freshness: string | null; e
 
 // ---- shared facts --------------------------------------------------------------------------------------------------
 /** Performance report (landed cost v2) for a period — directors only (money). */
-function perf(c: Ctx, from: number, to: number, level: 'product' | 'company' = 'product'): PerformanceReport | null {
+function perf(c: Ctx, from: number, to: number, level: 'product' | 'company' | 'warehouse' = 'product'): PerformanceReport | null {
   if (c.src.pricesHidden || !c.src.sales.length && !c.src.costs.length) return null;
   return memo(c, `perf|${from}|${to}|${level}`, () => performanceReport({ ...c.src, expenses: c.src.expenses ?? [], sellingPrices: c.src.sellingPrices ?? [], allocation: c.raw.config?.costs?.allocation ?? 'quantity' },
     { from: iso(from), to: iso(to), entityId: c.f.entityId, warehouseId: c.f.warehouseId, productId: c.f.productId, level }));
@@ -525,6 +529,59 @@ export interface TodayData {
     bands: { name: string; value: number; tone: 'good' | 'warn' | 'bad' }[];
     top: { customer: string; value: number }[];
   };
+}
+
+// ---- design v3 Management · Overview (V3-10): the report's indicators from the same builders as the dashboards --------
+export interface MgmtKpi { value: number | null; prev: number | null; spark: (number | null)[] | null }
+export interface MgmtOverview {
+  period: DashPeriod; prev: DashPeriod; targetMargin: number;
+  kpis: { revenue: MgmtKpi; profit: MgmtKpi; margin: MgmtKpi; cases: MgmtKpi & { top: string | null }; landed: { value: number | null; warehouse: number | null }; flagged: { count: number; urgent: number } };
+  waterfall: { label: string; value: number; kind: 'total' | 'step' }[];
+  decisions: TodayData['decisions'];
+  byMonth: { month: string; sales: number; profit: number }[];
+  byWarehouse: { warehouseId: ID; label: string; sales: number; profit: number; margin: number | null }[];
+  per100: { label: string; value: number }[];
+  brands: { best: { label: string; margin: number; revenue: number }[]; weakest: { label: string; margin: number; revenue: number }[] };
+}
+function mgmtOverview(c: Ctx): Out {
+  const cur = perf(c, c.from, c.to), old = perf(c, t(c.prev.from), t(c.prev.to));
+  const ms = months(c.now, 12);
+  const byM = ms.map((m) => { const r = perf(c, m.from, m.to); return { month: m.key, sales: r2(r?.totals.revenue ?? 0), profit: r2(r?.totals.profit ?? 0), margin: r?.totals.margin ?? null, cases: r?.totals.qtySold ?? 0 }; });
+  const spark = (k: 'sales' | 'profit' | 'margin' | 'cases') => (byM.some((x) => x.sales) ? byM.slice(-6).map((x) => x[k]) : null);
+  const T = cur?.totals, P = old?.totals;
+  const topRow = (cur?.rows ?? []).filter((r) => r.qtySold > 0).sort((a, b) => b.qtySold - a.qtySold)[0];
+  const today = directorToday(c).data as TodayData;
+  const wh = perf(c, c.from, c.to, 'warehouse');
+  const rev = T?.revenue ?? 0;
+  const share = (v: number) => (rev > 0 ? r2((v / rev) * 100) : 0);
+  const otherCosts = cur?.otherCosts ?? 0;
+  const ranked = (cur?.rows ?? []).filter((r) => r.qtySold > 0 && r.margin !== null && r.revenue > 0).map((r) => ({ label: r.label, margin: r.margin!, revenue: r2(r.revenue) }));
+  const data: MgmtOverview = {
+    period: c.period, prev: c.prev, targetMargin: cur?.targetMargin ?? 0.2,
+    kpis: {
+      revenue: { value: T ? r2(T.revenue) : null, prev: P ? r2(P.revenue) : null, spark: spark('sales') },
+      profit: { value: T ? r2(T.profit) : null, prev: P ? r2(P.profit) : null, spark: spark('profit') },
+      margin: { value: T?.margin ?? null, prev: P?.margin ?? null, spark: spark('margin') },
+      cases: { value: T?.qtySold ?? null, prev: P?.qtySold ?? null, spark: spark('cases'), top: topRow?.label ?? null },
+      landed: { value: T ? r2(T.landedCost) : null, warehouse: T ? r2(T.warehouseCost) : null },
+      flagged: { count: today.decisions.reduce((a, d) => a + (d.count ?? 0), 0), urgent: today.decisions.filter((d) => d.severity === 'critical' || d.severity === 'high').reduce((a, d) => a + (d.count ?? 0), 0) },
+    },
+    waterfall: cur?.waterfall ?? [],
+    decisions: today.decisions,
+    byMonth: byM.map(({ month, sales, profit }) => ({ month, sales, profit })),
+    byWarehouse: (wh?.rows ?? []).filter((r) => r.warehouseId).map((r) => ({ warehouseId: r.warehouseId!, label: r.label, sales: r2(r.revenue), profit: r2(r.profit), margin: r.margin })).sort((a, b) => b.sales - a.sales),
+    per100: T && rev > 0 ? [
+      { label: 'Goods', value: share(T.cogsGoods) }, { label: 'Transport', value: share(T.cogsTruck) }, { label: 'Warehouse', value: share(T.cogsWarehouse) },
+      ...(otherCosts ? [{ label: 'Other costs', value: share(otherCosts) }] : []), { label: 'Profit', value: share(T.profit - otherCosts) },
+    ] : [],
+    brands: { best: [...ranked].sort((a, b) => b.margin - a.margin).slice(0, 5), weakest: [...ranked].sort((a, b) => a.margin - b.margin).slice(0, 5) },
+  };
+  return out(data, {
+    definition: `${PERFORMANCE_METHOD} Figures for ${c.period.label}, compared with ${c.prev.label}; the same builders as Live dashboards (landed cost v2, metric registry).`,
+    currency: 'USD', unit: 'USD · cases', period: c.period,
+    freshness: newest(c.usd.sales.map((s) => s.at)),
+    empty: !T || (!T.revenue && !T.landedCost),
+  });
 }
 
 function directorToday(c: Ctx): Out {
@@ -843,6 +900,7 @@ function dataCompleteness(c: Ctx): Out {
 // ======================================================================================================
 const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
   'director-today': directorToday,
+  'mgmt-overview': mgmtOverview,
   'warehouse-today': warehouseToday,
   'order-this-week': orderThisWeek,
   'stock-movements': stockMovements,

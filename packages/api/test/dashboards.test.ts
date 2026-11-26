@@ -56,6 +56,17 @@ ok(td.mtd && td.period.from.slice(8, 10) === '01' && Date.parse(td.prev.to) - Da
 const pmM = (await api.dashboards.get(['combined-performance'], { from: td.period.from, to: new Date(Date.parse(td.period.to) + 1).toISOString() })).results['combined-performance']!.data as { revenue: number };
 ok(Math.abs(td.sales.value! - pmM.revenue) < 1, 'Today: sales = the performance report revenue for the same days (landed cost v2 source)', [td.sales.value, pmM.revenue]);
 ok(td.profit.value !== null && td.profit.margin !== null && Math.abs(td.profit.margin - (td.profit.value + 0) / td.sales.value!) < 0.02, 'Today: profit and margin (landed cost based)', [td.profit.value, td.profit.margin]);
+// ---- design v3 Management · Overview (V3-10): the same numbers as the live dashboards for the same period ----
+type MO = import('../src/dashboards').MgmtOverview;
+const mo = (await api.dashboards.get(['mgmt-overview'], { from: td.period.from, to: new Date(Date.parse(td.period.to) + 1).toISOString() })).results['mgmt-overview']!.data as MO;
+ok(Math.abs(mo.kpis.revenue.value! - td.sales.value!) < 1 && Math.abs(mo.kpis.revenue.value! - pmM.revenue) < 1, 'Management Overview: revenue = Today sales = performance revenue (same period)', [mo.kpis.revenue.value, td.sales.value, pmM.revenue]);
+ok(Math.abs(mo.kpis.profit.value! - td.profit.value!) < 1 && Math.abs((mo.kpis.margin.value ?? 0) - (td.profit.margin ?? 0)) < 0.001, 'Management Overview: profit and margin = Today', [mo.kpis.profit.value, td.profit.value, mo.kpis.margin.value, td.profit.margin]);
+ok(mo.kpis.revenue.prev !== null && (mo.kpis.revenue.spark?.length ?? 0) === 6 && mo.byMonth.length === 12, 'Management Overview: previous period, 6-month sparks, 12 months of sales and profit', [mo.kpis.revenue.prev, mo.byMonth.length]);
+ok(mo.waterfall.length >= 3 && mo.waterfall[0].kind === 'total' && Math.abs(mo.waterfall[0].value - mo.kpis.revenue.value!) < 1, 'Management Overview: profit waterfall starts at revenue', mo.waterfall.slice(0, 2));
+ok(Math.abs(mo.per100.reduce((a, x) => a + x.value, 0) - 100) < 0.5, 'Management Overview: where each $100 went adds up to 100', mo.per100);
+ok(mo.decisions.length === td.decisions.length && mo.kpis.flagged.count === td.decisions.reduce((a, d) => a + (d.count ?? 0), 0), 'Management Overview: act-on-these-first = the Today decisions', [mo.kpis.flagged, td.decisions.length]);
+ok(mo.byWarehouse.length > 0 && Math.abs(mo.byWarehouse.reduce((a, w) => a + w.sales, 0) - mo.kpis.revenue.value!) < 2, 'Management Overview: sales by warehouse add up to revenue', [mo.byWarehouse.reduce((a, w) => a + w.sales, 0), mo.kpis.revenue.value]);
+ok(mo.brands.best.length > 0 && mo.brands.best.every((b, i, a) => i === 0 || a[i - 1].margin >= b.margin), 'Management Overview: best brands by margin, highest first');
 ok(td.cash.value! > 0 && td.cash.overdue! <= td.cash.value! && td.cash.spark?.length === 8, 'Today: cash to collect with the overdue part (never more than the total)', [td.cash.value, td.cash.overdue]);
 ok(td.owed.bands.length === 3 && td.owed.total === td.cash.value && td.owed.overdue === td.cash.overdue && td.owed.top.length > 0 && td.owed.bands.every((b) => b.value >= 0), 'Today: who-owes-us ageing bands and top customers', td.owed);
 ok(td.trucks.value !== null && td.trucks.delayed <= td.trucks.value && td.trucks.spark?.length === 14 && td.trucks.spark.at(-1) === td.trucks.value, 'Today: trucks on the road, delayed, 14-day trend ending at now', td.trucks);
@@ -199,5 +210,7 @@ const eT = emptyT.data as import('../src/dashboards').TodayData;
 ok(emptyT.empty && eT.sales.value === null && eT.profit.value === null && eT.cash.value === null && eT.trucks.value === null && eT.stock === null && eT.daily.every((x) => x.sales === null), 'Today with no records: null everywhere ("No data yet"), never zeros', { s: eT.sales, t: eT.trucks.value });
 ok(buildDashboards(src, { id: 'u', roles: ['planner'], loadingPointIds: [], warehouseIds: [] }, ['director-today']).results['director-today'] === undefined, 'Today is not built for a planner');
 
+await as('u-kabonge');
+await rejects(api.dashboards.get(['mgmt-overview']), /not available|403|forbidden/i, 'Management Overview: not for a planner (no reports access)');
 console.log(fails ? `\n${fails} dashboard check(s) FAILED` : '\nall dashboard checks passed');
 if (fails) process.exitCode = 1;
