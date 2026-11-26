@@ -112,7 +112,7 @@
         {/if}
       {/each}
       {#if money}<label>Currency <select class="select" value={currency.code} onchange={(e) => setCurrency(e.currentTarget.value)}>{#each CODES as c}<option>{c}</option>{/each}</select></label>{/if}
-      <button class="btn btn-secondary btn-sm end" type="button" onclick={reset} disabled={!any}>Clear</button>
+      {#if any}<button class="btn btn-ghost btn-sm" type="button" onclick={reset}>Clear</button>{/if}
     </div>
   </div>
 {/if}
@@ -125,11 +125,9 @@
   .fbar-row {
     display: flex;
     flex-wrap: nowrap;
-    align-items: center;
-    justify-content: center;
+    align-items: flex-end;
     gap: 10px 14px;
     min-width: 0;
-    padding: 0 76px;
   }
   .pick { display: flex; flex-direction: column; justify-content: space-between; gap: 2px; flex: none; min-width: 0; height: 48px; }
   .pick > span, .fbar label { font-size: 11px; font-weight: 600; color: var(--text-muted); line-height: 1.2; }
@@ -137,8 +135,7 @@
   .fbar .select { width: 100%; min-width: 0; max-width: none; height: 32px; }
   .fbar .sel-seg { flex-wrap: nowrap; max-width: none; }
   .fbar .sel-seg > button { padding: 5px 8px; font-size: 12px; }
-  .fbar .end { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); flex: none; }
-  .fbar { position: relative; }
+  .fbar .btn { align-self: flex-end; flex: none; }
   .embed {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -163,8 +160,7 @@
     width: 100%;
   }
   @media (max-width: 1100px) {
-    .fbar-row { flex-wrap: wrap; padding: 0; }
-    .fbar .end { position: static; transform: none; margin-left: auto; }
+    .fbar-row { flex-wrap: wrap; }
     .fbar label { flex: 1 1 140px; max-width: none; }
   }
   @media (max-width: 720px) {

@@ -6,7 +6,7 @@
   import { watch } from '../../../lib/load.svelte';
   import ErrorState from '../../../components/ErrorState.svelte';
   import { BarChart, Donut } from '../../../components/charts';
-  import Pyramid from '../../../components/charts/Pyramid.svelte';
+  import StackedBarH from '../../../components/charts/StackedBarH.svelte';
   import type { Ink } from '../../../components/charts/theme.svelte';
   import { compact } from '../../../components/charts/scale';
   import { currency, cv, cvRow } from '../fmt.svelte';
@@ -53,14 +53,11 @@
   });
   const chartRows = () => [['Day', `Sales (${currency.code})`, `Profit (${currency.code})`], ...chart.labels.map((l, i) => [l, chart.sales[i] == null ? '' : Math.round(chart.sales[i]! * 100) / 100, chart.profit[i] == null ? '' : Math.round(chart.profit[i]! * 100) / 100])];
   const chartTotal = $derived({ sales: chart.sales.reduce((a: number, v) => a + (v ?? 0), 0), profit: chart.profit.reduce((a: number, v) => a + (v ?? 0), 0) });
-  const dayLabel = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-  const pyramid = $derived(
-    chart.labels
-      .map((day, i) => ({ label: dayLabel(day), outer: chart.sales[i] ?? 0, inner: Math.max(0, chart.profit[i] ?? 0) }))
-      .filter((r) => r.outer > 0.5 || r.inner > 0.5)
-      .sort((a, b) => b.outer - a.outer)
-      .slice(0, 8),
-  );
+  const mix = $derived.by(() => {
+    const sales = Math.max(0, chartTotal.sales);
+    const profit = Math.max(0, Math.min(chartTotal.profit, sales));
+    return { sales, profit, costs: Math.max(0, sales - profit) };
+  });
 
   const ICON: Record<TodayDecision['key'], typeof Truck> = { approvals: HandCoins, trucks: Truck, fees: Banknote, stock: Package, acks: Inbox, prices: Tag };
   const STATE: Record<TodayDecision['severity'], string> = { critical: 'Critical', high: 'High', medium: 'Watch', low: 'Clear' };
@@ -208,8 +205,8 @@
 
   <div class="graphs">
     <div>
-      <TodayCard title="Sales and profit" caption="{currency.code} · total {compact(chartTotal.sales)} sales, {compact(chartTotal.profit)} profit" updatedAt={res?.freshness ?? null} rows={chartRows} filename="sales-and-profit" empty={!pyramid.length} viewToggle>
-        <Pyramid label="Sales and profit" rows={pyramid} format={axisFmt} height={320} />
+      <TodayCard title="Sales and profit" caption="{currency.code} · total {compact(chartTotal.sales)} sales, {compact(chartTotal.profit)} profit" updatedAt={res?.freshness ?? null} rows={chartRows} filename="sales-and-profit" empty={mix.sales <= 0.5} viewToggle>
+        <StackedBarH label="Sales and profit" categories={['This period']} parts={[{ name: 'Costs', values: [mix.costs], ink: 'navy' }, { name: 'Profit', values: [mix.profit], ink: 'teal' }]} format={(n) => `${currency.code} ${axisFmt(n)}`} height={200} />
       </TodayCard>
     </div>
     <div>

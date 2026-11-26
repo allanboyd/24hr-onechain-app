@@ -66,7 +66,9 @@
   .tc { display: flex; flex-direction: column; min-width: 0; height: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--elevation-1); padding: var(--space-5) var(--space-6); }
   .tc.primary, .tc.attention { color: var(--text-on-primary); border-color: transparent; }
   .tc.primary { background: var(--primary); }
-  .tc.attention { background: var(--attention); }
+  .tc.attention { background: var(--primary); }
+  :global([data-theme='dark']) .tc.attention { background: var(--attention); }
+  @media (prefers-color-scheme: dark) { :global(:root:not([data-theme='light'])) .tc.attention { background: var(--attention); } }
   .tc.primary h3, .tc.attention h3, .tc.primary .drill, .tc.attention .drill { color: var(--text-on-primary); }
   .tc.primary .vt, .tc.attention .vt, .tc.primary .vbtn, .tc.attention .vbtn { border-color: color-mix(in srgb, var(--text-on-primary) 28%, transparent); color: var(--text-on-primary); }
   .tc.primary .vbtn[aria-pressed='true'], .tc.attention .vbtn[aria-pressed='true'] { background: color-mix(in srgb, var(--text-on-primary) 16%, transparent); color: var(--text-on-primary); }
