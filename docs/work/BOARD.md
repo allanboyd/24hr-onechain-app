@@ -19,7 +19,7 @@ How to use it: [`AGENTS.md`](../../AGENTS.md). Each agent edits **only its own r
 | V3-5 | PWA: web app installable, phone "new version ready", `/install` page with QR ([plan](plans/V3-5.md)) | 👀 review (merged into design-v3) | claude | `v3/V3-5-pwa` | none | `apps/web/public/manifest.webmanifest`, `apps/web/public/icons/**`, `apps/web/sw.template.js`, `apps/web/vite.config.ts`, `apps/web/index.html`, `apps/web/src/pwa/**`, `apps/field/src/pwa/**`, `apps/field/sw.template.js`, `apps/field/vite.config.ts`, `apps/field/public/manifest.webmanifest` | 5235 |
 | V3-6 | Phone app look (same steps) + login web and phone (folds in UI-2) | ⬜ open | | `v3/V3-6-phone` | V3-0 | `apps/field/src/**` except `pwa/**`, `apps/web/src/screens/Login.svelte` | 5236 / 5226 |
 | V3-7 | Review + QA: mockup flows, e2e, review board, before/after gallery | ⬜ open | | `v3/V3-7-qa` | each merge | `tools/mockups/**`, `tests/**` | 5237 |
-| V3-8 | Tables: modern table library with search + filters, 68 tables / 47 files ([plan](plans/V3-8.md)) | 🔄 in progress (TanStack, approved) | claude | `v3/V3-8-tables` | V3-0 | `apps/web/src/components/page/DataTable.svelte`, `datatable.ts`, then table markup per screen (coordinate with V3-4) | 5238 |
+| V3-8 | Tables: modern table library with search + filters, 68 tables / 47 files ([plan](plans/V3-8.md)) | 👀 review: phase 1 merged (engine + POs pilot); phase 2 next | claude | `v3/V3-8-tables` | V3-0 | `apps/web/src/components/page/DataTable.svelte`, `datatable.ts`, then table markup per screen (coordinate with V3-4) | 5238 |
 | V3-9 | Selects: modern select + combobox, 125 selects / 45 files ([plan](plans/V3-9.md)) | 📝 planned (Bits UI approved, not started) | | `v3/V3-9-selects` | V3-0 | `packages/ui/src/Select*.svelte`, `Combobox*.svelte`, then select markup per screen (coordinate with V3-4) | 5239 |
 
 Start now: **V3-0, V3-2, V3-5**. Then V3-1, V3-4, V3-6 in parallel; V3-3 after V3-1.
@@ -54,6 +54,7 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 - V3-2 → V3-1: added `/management` routes + a temporary Management nav group in `routes.ts` (+ `navOnly` on nav items). V3-1 moves it under the switch and can keep one report frame across Management pages. ✅ done in V3-1
 - V3-2 → shared: `packages/api/test/redirects.test.ts` sidebar count now checks Operations (16) and Management (8) separately (doc 23).
 - V3-1b → V3-7: updated `tools/mockups/flows/a-procurement.mjs` ("Open the menu") and `h-companies.mjs` (company listbox in the sidebar); please run them.
+- V3-8 → shared: `@tanstack/table-core` + `@tanstack/svelte-table` added to `apps/web/package.json`; `apps/web/test/datatable.test.ts` added to the root `pnpm test`.
 - V3-5 → shared: `qrcode-generator` added to `apps/field/package.json` (lockfile changes). `apps/web/src/main.ts` claimed for the PWA banner mount.
 
 ## Log
@@ -71,3 +72,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | claude | Your sidebar / top bar list → V3-1b (started). Tables → V3-8 and selects → V3-9 planned; each needs a library choice. |
 | 26 Nov 2026 | claude | V3-1b merged into design-v3: sidebar logo + company select, no group titles, sliding switch, modern top bar, collapsible sidebar. `shell-polish.mjs` 19/19. |
 | 26 Nov 2026 | claude | V3-1c merged (Management menu spacing). Your choices: TanStack Table, pages of 25 + Show more (V3-8, started); Bits UI, native picker on phones (V3-9, approved). |
+| 26 Nov 2026 | claude | V3-8 phase 1 merged: DataTable on TanStack with search, Filters panel, chips; Purchase orders pilot. Engine test 25/25, tables.mjs all pass. Phase 2 (other screens) next. |
