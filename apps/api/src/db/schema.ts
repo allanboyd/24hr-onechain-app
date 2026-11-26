@@ -191,6 +191,12 @@ export const sales = pgTable('sales', {
   /** V3-12: the client record and its credit days when the sale was made (the overdue rule uses these). */
   clientId: text('client_id'), termsDays: integer('terms_days').notNull().default(14),
 }, (t) => [index('sales_wh_at_idx').on(t.warehouseId, t.at), index('sales_entity_idx').on(t.entityId, t.at), index('sales_client_idx').on(t.clientId)]);
+/** V3-12 step 2: money received from a client against a sale; `sales.paid` = the sum of its payments. */
+export const clientPayments = pgTable('client_payments', {
+  id: text('id').primaryKey(), entityId: text('entity_id').notNull(), saleId: text('sale_id').notNull(), clientId: text('client_id'), warehouseId: text('warehouse_id').notNull(),
+  amount: doublePrecision('amount').notNull(), currency: text('currency').notNull(), fxRate: doublePrecision('fx_rate').notNull().default(1), amountUsd: doublePrecision('amount_usd').notNull(),
+  at: ts('at').notNull(), method: text('method'), reference: text('reference'), byUserId: text('by_user_id'), createdAt: ts('created_at').notNull().default(now()),
+}, (t) => [index('client_payments_sale_idx').on(t.saleId), index('client_payments_entity_at_idx').on(t.entityId, t.at)]);
 /** V3-12: clients of a company, picked (or created) on the sale; credit days per client (default 14). */
 export const clients = pgTable('clients', {
   id: text('id').primaryKey(), entityId: text('entity_id').notNull(), name: text('name').notNull(), nameKey: text('name_key').notNull(),

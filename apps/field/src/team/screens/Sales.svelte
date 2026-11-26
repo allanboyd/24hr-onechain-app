@@ -14,6 +14,8 @@
   import Chips from '../components/Chips.svelte';
   import MiniBars from '../components/MiniBars.svelte';
   import NewSale from '../components/NewSale.svelte';
+  import RecordPayment from '../components/RecordPayment.svelte';
+  import type { Sale } from '@btw/api';
   import Skeleton from '../components/Skeleton.svelte';
   import Empty from '../components/Empty.svelte';
   import ErrorNote from '../components/ErrorNote.svelte';
@@ -25,6 +27,10 @@
   const total = (s: { lines: { qty: number; price: number }[] }) => s.lines.reduce((a, l) => a + l.qty * l.price, 0);
 
   let f = $state('all'), q = $state(''), creating = $state(false);
+  // V3-12 step 2: tap a sale that still owes money to record what the client paid
+  let paying = $state<Sale | null>(null);
+  const owes = (s: Sale) => s.status !== 'Paid' && total(s) - s.paid > 0.005;
+  const mayPay = $derived(can(user, 'sales'));
   const all = $derived(r.data ?? []);
   const month = new Date().toISOString().slice(0, 7);
   const thisMonth = $derived(all.filter((s) => s.at.slice(0, 7) === month));
@@ -50,15 +56,15 @@
   {#if list.length}
     <div class="t-list">
       {#each list as s (s.id)}
-        <div class="t-item">
+        <svelte:element this={mayPay && owes(s) ? 'button' : 'div'} class="t-item" class:tap={mayPay && owes(s)} onclick={mayPay && owes(s) ? () => (paying = s) : undefined} aria-label={mayPay && owes(s) ? `Record payment from ${s.customer}, ${s.ref}` : undefined} role={mayPay && owes(s) ? undefined : 'group'}>
           <span class="t-icon"><ShoppingCart size={20} /></span>
           <span class="t-main">
             <span class="t-line1">{#if co.active === null}<CompanyDot entityId={s.entityId} />{/if}<span class="t-ellipsis">{s.customer}</span></span>
             <span class="t-meta t-ellipsis">{s.ref} · {warehouseLabel(s.warehouseId)}</span>
             <span class="t-meta">{dayLabel(s.at)} · {s.kind} · {num(s.lines.reduce((a, l) => a + l.qty, 0))} cases</span>
           </span>
-          <span class="right"><span class="t-amount">{usd(total(s))}</span><Badge status={s.status} /></span>
-        </div>
+          <span class="right"><span class="t-amount">{usd(total(s))}</span><Badge status={s.status} />{#if mayPay && owes(s)}<span class="t-meta owes">owes {usd(total(s) - s.paid)}</span>{/if}</span>
+        </svelte:element>
       {/each}
     </div>
   {:else}
@@ -69,6 +75,7 @@
 {#if mayCreate}
   <button class="t-fab" onclick={() => (creating = true)}><Plus size={22} />New sale</button>
 {/if}
+{#if paying}<RecordPayment sale={paying} onclose={() => (paying = null)} ondone={() => { paying = null; r.reload(); }} />{/if}
 {#if creating}<NewSale {user} onclose={() => (creating = false)} ondone={() => { creating = false; r.reload(); }} />{/if}
 
 <style>
@@ -77,4 +84,6 @@
   .glance .owed { color: var(--warning); }
   .right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
   .t-item { cursor: default; }
+  button.t-item { cursor: pointer; width: 100%; text-align: left; font: inherit; color: inherit; border: 0; }
+  .owes { color: var(--warning); }
 </style>

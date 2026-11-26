@@ -17,7 +17,7 @@ export const DEMO_PIN = '1234';
 const TABLES = [
   'users', 'entities', 'receiving_companies', 'warehouses', 'suppliers', 'products', 'price_list', 'providers', 'trucks', 'drivers',
   'checkpoints', 'routes', 'plans', 'plan_versions', 'period_plans', 'period_plan_versions', 'pos', 'po_versions', 'waiting_entries', 'loadings', 'shipments', 'legs', 'acks', 'positions',
-  'stock_moves', 'sales', 'clients', 'trip_costs', 'trip_payments', 'notifications', 'notification_reads', 'audit_log', 'idempotency_keys',
+  'stock_moves', 'sales', 'clients', 'client_payments', 'trip_costs', 'trip_payments', 'notifications', 'notification_reads', 'audit_log', 'idempotency_keys',
   'devices', 'refresh_tokens', 'files', 'settings', 'fx_rates', 'warehouse_expenses', 'selling_prices', 'reexport_orders',
 ];
 
@@ -74,9 +74,11 @@ export async function seedDemo(db: Db) {
     if (d.acks.length) await tx.insert(t.acks).values(d.acks.map((a) => ({ ...a, signature: a.signature ?? null })));
     for (let i = 0; i < d.stockMoves.length; i += 1000) await tx.insert(t.stockMoves).values(d.stockMoves.slice(i, i + 1000));
     for (let i = 0; i < d.sales.length; i += 500) await tx.insert(t.sales).values(d.sales.slice(i, i + 500).map((x) => ({ ...x, counterpartyEntityId: x.counterpartyEntityId ?? null })));
-    // V3-12: clients from the sales' customer names, as migration 0014 does for existing data (one source for the rule)
-    const backfill = readFileSync(join(__dirname, '../../drizzle/0014_clients.sql'), 'utf8').split('-- V3-12 backfill')[1].replace(/^[^\n]*\n/, '');
-    for (const stmt of backfill.split('--> statement-breakpoint').map((x) => x.replace(/^\s*--[^\n]*$/gm, '').trim()).filter(Boolean)) await tx.execute(sql.raw(stmt));
+    // V3-12: clients and client payments from the sales, with the SQL of migrations 0014 and 0015 (one source for the rule)
+    for (const file of ['0014_clients.sql', '0015_client_payments.sql']) {
+      const backfill = readFileSync(join(__dirname, '../../drizzle', file), 'utf8').split('-- V3-12 backfill')[1].replace(/^[^\n]*\n/, '');
+      for (const stmt of backfill.split('--> statement-breakpoint').map((x) => x.replace(/^\s*--[^\n]*$/gm, '').trim()).filter(Boolean)) await tx.execute(sql.raw(stmt));
+    }
     if (d.costs.length) await tx.insert(t.tripCosts).values(d.costs.map((c) => ({ ...c, legId: c.legId ?? null, docRef: c.docRef ?? null, fxRate: c.fxRate ?? 1, amountUsd: c.amountUsd ?? (c.currency === 'USD' ? c.amount : null) })));
     if (d.payments.length) await tx.insert(t.tripPayments).values(d.payments.map((p) => ({ ...p, approvedById: p.approvedById ?? null, fxRate: p.fxRate ?? 1, amountUsd: p.amountUsd ?? p.amount })));
     // docs/12 A-07: a few weeks of audit history (same rows as the mock) so the directors' audit screen has data

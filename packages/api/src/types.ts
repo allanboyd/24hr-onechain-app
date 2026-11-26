@@ -356,12 +356,24 @@ export interface Sale {
   counterpartyEntityId?: ID;
   /** V3-12: the client record (picked or created with the sale) and its credit days when the sale was made. */
   clientId?: ID; termsDays?: number;
+  /** V3-12 step 2: how the amount paid when the sale was made came in (its first payment). */
+  payMethod?: ClientPaymentMethod;
 }
 /** V3-12: a client of one company. Picked on the sale (web and phone); a new name on a sale creates it with the default
  *  credit days. Changing the days applies to the client's next sales; each sale keeps the days it was made with. */
 export interface Client {
   id: ID; entityId: ID; name: string; phone?: string; warehouseId?: ID; termsDays: number; active: boolean; createdAt: ISODate;
 }
+/** V3-12 step 2: money received from a client against a sale. The sale writes the first one (what was paid when it was
+ *  made); later ones come from "Record payment". `sale.paid` is always the sum of its payments. */
+export type ClientPaymentMethod = 'Cash' | 'Mobile money' | 'Bank';
+export interface ClientPayment {
+  id: ID; entityId: ID; saleId: ID; saleRef: string; clientId?: ID; customer: string; warehouseId: ID;
+  amount: number; currency: Currency; /** USD at the approved month-average rate of the payment date */ amountUsd: number;
+  at: ISODate; /** null = not recorded (payments copied from sales made before V3-12) */ method: ClientPaymentMethod | null;
+  reference?: string; byUserId?: ID;
+}
+export interface ClientPaymentInput { amount: number; method: ClientPaymentMethod; reference?: string; at?: ISODate }
 /** A client with its figures over all its sales (USD): how many, the last one, what it owes and how much is overdue. */
 export type ClientRow = Client & { sales: number; lastSaleAt: ISODate | null; owed: number; overdue: number };
 export type ClientInput = { entityId?: ID; name: string; phone?: string; warehouseId?: ID | null; termsDays?: number; active?: boolean };

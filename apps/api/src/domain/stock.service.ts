@@ -2,12 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { db, schema as t, type Tx } from '../db/client';
 type Q = typeof db | Tx;
-import { amount, canSetCreditDays, cleanClientName, clientKey, validTermsDays, computeStock, computeVelocity, DAY, flagsFrom, hasFeature, saleStatus, toUsd, type StockMove, type Thresholds } from '@btw/api/rules';
+import { amount, canSetCreditDays, fxFor, paymentError, saleBalance, cleanClientName, clientKey, validTermsDays, computeStock, computeVelocity, DAY, flagsFrom, hasFeature, saleStatus, toUsd, type StockMove, type Thresholds } from '@btw/api/rules';
 import { fxRates } from './companies';
 import { canSell, seesPrices, seesShipment } from '@btw/api/access';
 import { landedCostMap } from '@btw/api/landed';
 import { casesInTransit, casesOnHand, clientFigures, fleetFigures, owedByCustomers, stockValue } from '@btw/api/metrics';
-import type { Client, ClientInput, ClientRow, Sale } from '@btw/api/types';
+import type { Client, ClientInput, ClientPayment, ClientPaymentInput, ClientRow, Sale } from '@btw/api/types';
 import { auditNote } from '../common/audit-context';
 import { fail, forbidden, notFound } from '../common/errors';
 import { iso, uid } from '../common/ids';
@@ -50,6 +50,47 @@ export class StockService {
     const rows = await db.select().from(t.sales).where(and(inArray(t.sales.entityId, p.scope), warehouseId ? eq(t.sales.warehouseId, warehouseId) : undefined)).orderBy(desc(t.sales.at)).limit(200);
     return rows.map(map.sale).filter((s) => canSeeWarehouse(p, s.warehouseId));
   }
+  // ---- Client payments (V3-12 step 2) ----------------------------------------------------------------------------------
+  private paymentOut(r: typeof t.clientPayments.$inferSelect, s: { ref: string; customer: string }): ClientPayment {
+    return { id: r.id, entityId: r.entityId, saleId: r.saleId, saleRef: s.ref, clientId: r.clientId ?? undefined, customer: s.customer, warehouseId: r.warehouseId,
+      amount: r.amount, currency: r.currency as Sale['currency'], amountUsd: r.amountUsd, at: new Date(r.at).toISOString(), method: (r.method as ClientPayment['method']) ?? null,
+      reference: r.reference ?? undefined, byUserId: r.byUserId ?? undefined };
+  }
+  private async insertPayment(q: Q, s: Pick<Sale, 'id' | 'entityId' | 'clientId' | 'warehouseId' | 'currency'>, amt: number, at: string, method: ClientPayment['method'], reference: string | undefined, byUserId: string) {
+    const rate = s.currency === 'USD' ? 1 : fxFor(await fxRates(), s.currency, at);
+    const [row] = await q.insert(t.clientPayments).values({ id: uid('cp'), entityId: s.entityId, saleId: s.id, clientId: s.clientId ?? null, warehouseId: s.warehouseId,
+      amount: Math.round(amt * 100) / 100, currency: s.currency, fxRate: rate, amountUsd: Math.round((amt / rate) * 100) / 100, at, method, reference: reference ?? null, byUserId }).returning();
+    return row;
+  }
+  /** Money received against a sale: not more than the balance, dated between the sale and now; the sale's paid amount
+   *  and status change in the same transaction, so every screen that reads `sales.paid` stays right. */
+  async recordPayment(p: Principal, saleId: string, input: ClientPaymentInput) {
+    return db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${'sale:' + saleId}))`);
+      const [r] = await tx.select().from(t.sales).where(eq(t.sales.id, saleId));
+      if (!r || !p.scope.includes(r.entityId) || !canSeeWarehouse(p, r.warehouseId)) notFound('Sale');
+      if (!canSell(p, r!.warehouseId)) forbidden('Payments are recorded by the people who sell');
+      const s = map.sale(r!);
+      const err = paymentError(saleBalance(s), input ?? {});
+      if (err) fail(err, 422);
+      const at = input.at ?? iso();
+      if (!(Date.parse(at) >= Date.parse(s.at)) || Date.parse(at) > Date.now() + 60_000) fail('The payment date must be between the sale and today', 422);
+      const row = await this.insertPayment(tx, s, Number(input.amount), at, input.method, input.reference?.trim() || undefined, p.id);
+      const paid = Math.round((s.paid + row.amount) * 100) / 100;
+      const status = saleStatus(s.lines, paid);
+      await tx.update(t.sales).set({ paid, status }).where(eq(t.sales.id, s.id));
+      auditNote({ recordType: 'sale', recordId: s.id, entityId: s.entityId, summary: `${s.ref}: received ${s.currency} ${row.amount} (${row.method})${row.reference ? ` · ${row.reference}` : ''}`, before: { paid: s.paid, status: s.status }, after: { paid, status } });
+      return { sale: { ...s, paid, status }, payment: this.paymentOut(row, s) };
+    });
+  }
+  /** Payments the caller may see (one sale, or all; newest first). */
+  async payments(p: Principal, saleId?: string): Promise<ClientPayment[]> {
+    if (!hasFeature(p.roles, 'sales')) return [];
+    const rows = await db.select({ p: t.clientPayments, ref: t.sales.ref, customer: t.sales.customer }).from(t.clientPayments).innerJoin(t.sales, eq(t.sales.id, t.clientPayments.saleId))
+      .where(and(inArray(t.clientPayments.entityId, p.scope), saleId ? eq(t.clientPayments.saleId, saleId) : undefined)).orderBy(desc(t.clientPayments.at)).limit(saleId ? 100 : 500);
+    return rows.filter((x) => canSeeWarehouse(p, x.p.warehouseId)).map((x) => this.paymentOut(x.p, x));
+  }
+
   // ---- Clients (V3-12 step 1) ------------------------------------------------------------------------------------
   private clientOut(r: typeof t.clients.$inferSelect): Client {
     return { id: r.id, entityId: r.entityId, name: r.name, phone: r.phone ?? undefined, warehouseId: r.warehouseId ?? undefined, termsDays: r.termsDays, active: r.active, createdAt: new Date(r.createdAt).toISOString() };
@@ -149,7 +190,10 @@ export class StockService {
       const n = (await tx.select({ c: sql<number>`count(*)::int` }).from(t.sales))[0].c;
       const cl = await this.clientForSale(tx, p, entityId, input);
       const sale: Sale = { ...input, customer: cl.name, clientId: cl.id, termsDays: cl.termsDays, entityId, counterpartyEntityId: cp || undefined, at: input.at ?? iso(), id: uid('sale'), ref: `SAL-${String(n + 1).padStart(5, '0')}`, salespersonId: p.id, status: saleStatus(input.lines, input.paid ?? 0), paid: input.paid ?? 0, currency: input.currency ?? 'USD' };
-      await tx.insert(t.sales).values({ ...sale, counterpartyEntityId: sale.counterpartyEntityId ?? null });
+      const { payMethod, ...row } = sale;
+      await tx.insert(t.sales).values({ ...row, counterpartyEntityId: sale.counterpartyEntityId ?? null });
+      // V3-12 step 2: what was paid when the sale was made is its first payment
+      if (sale.paid > 0) await this.insertPayment(tx, sale, sale.paid, sale.at, payMethod ?? 'Cash', undefined, p.id);
       for (const l of sale.lines) await tx.insert(t.stockMoves).values({ entityId, warehouseId: sale.warehouseId, productId: l.productId, kind: 'sold', qty: l.qty, at: sale.at, ref: sale.ref });
       // intercompany: the buying sibling receives the goods in the same warehouse (eliminated in group totals)
       if (sale.counterpartyEntityId) for (const l of sale.lines) await tx.insert(t.stockMoves).values({ entityId: sale.counterpartyEntityId, warehouseId: sale.warehouseId, productId: l.productId, kind: 'transferIn', qty: l.qty, at: sale.at, ref: sale.ref });

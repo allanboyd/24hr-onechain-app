@@ -65,6 +65,10 @@
         <h3 class="ct">How clients pay<span class="chip">Total {usd(k.sales)}</span></h3>
         {#if d.pay.length}<Donut label="Sales by payment type" data={d.pay.map((x) => ({ label: x.kind, value: x.total }))} format={(n) => `$${compact(n)}`} center={usd(k.sales)} height={240} />
         {:else}<p class="muted">No sales in this period.</p>{/if}
+        {#if d.methods?.length}
+          <h4 class="sub">Money received in the period, by how clients paid</h4>
+          <ul class="methods">{#each d.methods as x (x.method ?? '')}<li><span>{x.method ?? 'Not recorded (before payments were recorded)'}</span><span class="muted small">{x.count} {x.count === 1 ? 'payment' : 'payments'}</span><strong class="num">{usd(x.total)}</strong></li>{/each}</ul>
+        {/if}
       </div>
     </div>
 
@@ -119,4 +123,8 @@
   .rank .bar i { display: block; height: 100%; border-radius: 8px; background: var(--primary); }
   .rank .n, .rank .v { text-align: right; font-variant-numeric: tabular-nums; }
   .rank .v { color: var(--text-muted); }
+  h4.sub { margin: 14px 0 6px; font-size: 13px; color: var(--text-muted); font-weight: 600; }
+  .methods { list-style: none; margin: 0; padding: 0; }
+  .methods li { display: grid; grid-template-columns: 1fr auto 110px; gap: 10px; padding: 7px 0; border-top: 1px solid var(--border); font-size: 14px; }
+  .methods .num { text-align: right; }
 </style>

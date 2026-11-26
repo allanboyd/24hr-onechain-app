@@ -12,6 +12,7 @@ export interface DashCtx {
   current: User | null; me: () => Subject; ensure: () => void; wait: <T>(v: T) => Promise<T>; httpErr: (msg: string, code: number) => Error;
   scopeIds: () => ID[]; config: AppConfig; people: () => User[];
   fees: () => Promise<TransportFeeRow[]>; users: () => Promise<UserAdmin[]>;
+  /** V3-12 step 2: client payments (built from the sales the first time) */ clientPayments: () => import('../types').ClientPayment[];
 }
 
 /** Company-wide data of the active company scope (no role filtering — `buildDashboards` applies the person's scope). */
@@ -33,6 +34,7 @@ async function source(c: DashCtx): Promise<DashSource> {
     products: seed.products, priceList: seed.priceList, warehouses: seed.warehouses, routes: m.db.routes, checkpoints: seed.checkpoints, suppliers: seed.suppliers,
     trucks: m.db.trucks, drivers: m.db.drivers, providers: m.db.providers, entities: seed.entities,
     periodPlans: (m.db.periodPlans ?? []).filter((p) => inS(p.entityId)), pvThresholds: m.db.pvThresholds ?? R.defaultPvThresholds,
+    clientPayments: c.clientPayments().filter((p) => inS(p.entityId)),
     expenses: m.db.expenses ?? [], sellingPrices: (m.db.sellingPrices ?? []).filter((p) => inS(p.entityId)), reexports: (m.db.reexports ?? []).filter((o) => inS(o.entityId)),
     fees, users, people: c.people().map((p) => ({ id: p.id, name: p.name, roles: p.roles, warehouseIds: p.warehouseIds, loadingPointIds: p.loadingPointIds, pairs: p.pairs })),
     waiting: m.db.waiting.filter((w) => inS(w.entityId)), config: c.config,
