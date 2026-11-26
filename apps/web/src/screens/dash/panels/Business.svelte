@@ -45,7 +45,7 @@
     if (key !== 'profit-margin') return [] as { label: string; value: number }[];
     const sales = wf.find((s: { label: string; kind?: string }) => s.kind === 'total' && (s.label === 'Sales' || s.label === 'Revenue'));
     const base = sales?.value || 0;
-    if (!base) return [];
+    if (!base) return [] as { label: string; value: number; ink?: Ink }[];
     const inkOf: Record<string, Ink> = { 'Goods cost': 'navy', 'Truck cost': 'teal', 'Warehouse share': 'warn', 'Other costs': 'slate', Profit: 'good' };
     return wf.filter((s: { label: string; value: number }) => s !== sales && Math.abs(s.value) > 0).map((s: { label: string; value: number }) => ({ label: s.label, value: Math.round((Math.abs(s.value) / base) * 1000) / 10, ink: inkOf[s.label] }));
   });
@@ -82,7 +82,7 @@
   <DashboardPanel span={span ?? 1} subtitle="from sales to profit" decision="Cut the cost step that takes the most." {...fr} title="Profit bridge" rows={wfRows} filename="profit-bridge" {drill}>
     <Waterfall label="Profit bridge from sales to profit" steps={wf} format={money} height={240} onselect={() => go('#/performance')} />
   </DashboardPanel>
-  <DashboardPanel span={span ?? 1} subtitle="share of sales" decision="The largest slice is the cost to challenge." {...fr} title="Where each $100 went" rows={() => [['Step', 'Share of $100'], ...shareOf100.map((s) => [s.label, s.value])]} filename="where-each-100-went" empty={!shareOf100.length} {drill}>
+  <DashboardPanel span={span ?? 1} subtitle="share of sales" decision="The largest slice is the cost to challenge." {...fr} title="Where each $100 went" rows={() => [['Step', 'Share of $100'], ...shareOf100.map((s: { label: string; value: number }) => [s.label, s.value])]} filename="where-each-100-went" empty={!shareOf100.length} {drill}>
     <Donut label="Where each $100 of sales went" data={shareOf100} format={(n) => `$${Math.round(n)}`} center="$100" height={268} snug />
   </DashboardPanel>
   <DashboardPanel span={span ?? 1} subtitle="last 6 months" decision="Watch a month where profit falls while sales hold." {...fr} title="Sales and profit" period="Last 6 months" rows={mRows} filename="sales-and-profit-by-month" empty={!(d.months ?? []).some((m: any) => m.revenue)}>
@@ -100,7 +100,7 @@
     <BarChart label="Trip costs per truck by category" horizontal stacked categories={ltTop.map((x: any) => x.truck)} series={(d.kinds ?? []).map((k: string) => ({ name: k, values: ltTop.map((x: any) => x.byKind[k] ?? 0) }))} format={money} />
   </DashboardPanel>
 {:else if key === 'selling-price'}
-  <DashboardPanel span={span ?? 1} subtitle="{d ? `${d.below} of ${d.products} priced products are below the ${pctF(d.target, 0)} target` : ''}" decision="Raise the price, or stop selling the line." {...fr} title="Prices below target" rows={spRows} filename="prices-below-target" empty={!d?.products} drill={{ label: 'Open selling prices', href: '#/selling-prices' }}>
+  <DashboardPanel span={span ?? 1} subtitle={d ? `${d.below} of ${d.products} priced products are below the ${pctF(d.target, 0)} target` : ''} decision="Raise the price, or stop selling the line." {...fr} title="Prices below target" rows={spRows} filename="prices-below-target" empty={!d?.products} drill={{ label: 'Open selling prices', href: '#/selling-prices' }}>
     {#if d?.worst?.length}
       <ul class="prices">
         {#each d.worst as w}<li><span class="nm">{w.label}</span><b>{pctF(w.margin)}</b><span class="need">Price {money2(w.needed)}</span></li>{/each}
@@ -132,9 +132,4 @@
   .prices .need { color: var(--text-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
   @media (max-width: 720px) { .prices li { grid-template-columns: minmax(0, 1fr) auto; } .prices .need { grid-column: 1 / -1; } }
   .golink { margin-top: var(--space-3); }
-  .split { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: stretch; }
-  .split > div { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; }
-  .cap-line { margin: 0 0 var(--space-2); font-size: 12px; font-weight: 600; color: var(--text-muted); }
-  .cap-line.cost { margin-top: var(--space-4); }
-  @media (max-width: 1100px) { .split { flex-direction: column; } }
 </style>

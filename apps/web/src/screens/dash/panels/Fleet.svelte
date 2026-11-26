@@ -36,10 +36,12 @@
     { label: 'To acknowledge', value: n0((d.cards ?? []).filter((c: any) => c.statusLabel === 'To acknowledge').length), sub: 'Arrived', href: '#/shipments' },
     { label: 'Quiet', value: n0((d.cards ?? []).filter((c: any) => c.stale).length), sub: 'No recent update', href: '#/trucks' },
   ]} />
-  <TruckStage mode="shipments" />
-  <DashboardPanel span={span ?? 'full'} subtitle="by status, grouped by route · faded = no recent update" decision="Act on delayed and faded (silent) trucks first." {...fr} title={r.title} staleAfter={12 * 60} freshness="synced" rows={boardRows} filename="live-fleet" {drill}>
-    <KanbanBoard columns={d.columns} {cards} oncard={(c) => { const x = cards.find((y: any) => y.id === c.id); if (x?.shipmentId) go(`#/shipments/${x.shipmentId}`); }} />
-  </DashboardPanel>
+  <div class="board-row">
+    <TruckStage mode="map" />
+    <DashboardPanel span={1} subtitle="by status, grouped by route · faded = no recent update" decision="Act on delayed and faded (silent) trucks first." {...fr} title={r.title} staleAfter={12 * 60} freshness="synced" rows={boardRows} filename="live-fleet" {drill}>
+      <KanbanBoard columns={d.columns} {cards} fit oncard={(c) => { const x = cards.find((y: any) => y.id === c.id); if (x?.shipmentId) go(`#/shipments/${x.shipmentId}`); }} />
+    </DashboardPanel>
+  </div>
 {:else if key === 'delayed-trucks'}
   <DashboardPanel span={span ?? 1} subtitle="by days late" decision="Give every late truck an owner and a next step." {...fr} title={r.title} rows={() => [['Truck', 'Shipment', 'Route', 'Where', 'Days late', 'Reason', 'Owner', 'Severity'], ...(d.rows ?? []).map((x: any) => [x.truck, x.ref, x.route, x.where, x.daysLate, x.reason, x.owner ?? 'Not assigned', x.severity])]} filename="delayed-trucks" {drill} emptyText="No truck is late">
     <div class="table-wrap"><table class="table">
@@ -91,7 +93,6 @@
   .sev { height: 6px; background: var(--surface-sunken); border-radius: 3px; max-width: 140px; margin-bottom: 3px; }
   .sev span { display: block; height: 100%; border-radius: 3px; }
   .small :global(svg) { vertical-align: -2px; }
-  h4.overline { margin: var(--space-4) 0 var(--space-1); }
   .badges { display: flex; flex-wrap: wrap; gap: var(--space-2); }
   .tb { display: inline-flex; align-items: center; gap: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 4px 8px; color: var(--text); text-decoration: none; }
   .feed { list-style: none; margin: var(--space-3) 0 0; padding: 0; max-height: 360px; overflow-y: auto; }
@@ -99,9 +100,10 @@
   .feed li > span:nth-child(2) { flex: 1 1 auto; min-width: 0; }
   .feed .t { flex: none; }
   .feed li.issue { color: var(--danger); }
-  .split { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: stretch; }
-  .split > div { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; }
-  .cap-line { margin: 0 0 var(--space-2); font-size: 12px; font-weight: 600; color: var(--text-muted); }
-  @media (max-width: 900px) { .split { flex-direction: column; } }
+  .board-row { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: var(--space-4); align-items: stretch; height: 640px; }
+  .board-row :global(.dash-panel),
+  .board-row :global(.stage) { min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
+  .board-row :global(.dash-panel .body) { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+  @media (max-width: 900px) { .board-row { grid-template-columns: 1fr; height: auto; min-height: 480px; } }
   @media (max-width: 600px) { .hide-sm { display: none; } .feed li { flex-wrap: wrap; } }
 </style>

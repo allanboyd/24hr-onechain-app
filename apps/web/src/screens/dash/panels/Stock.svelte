@@ -158,8 +158,7 @@
   .pair > div { flex: 1 1 280px; min-width: 0; }
   .att.scroll { max-height: 280px; overflow: auto; }
   .tw { display: flex; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-3); }
-  .tw div, .tw a { display: flex; flex-direction: column; color: var(--text); text-decoration: none; min-width: 7rem; }
-  .tw a:hover { color: var(--primary); }
+  .tw div { display: flex; flex-direction: column; color: var(--text); text-decoration: none; min-width: 7rem; }
   .tw b { font: 700 20px/1.1 var(--ff-display); }
   .tw b.hot { color: var(--danger); }
   .overline { margin: var(--space-4) 0 var(--space-1); }
@@ -168,9 +167,5 @@
   .dot { position: absolute; left: -21px; top: 4px; width: 12px; height: 12px; border-radius: 50%; background: var(--viz-1); border: 2px solid var(--surface); }
   .tr { color: var(--text); }
   .num { text-align: right; font-variant-numeric: tabular-nums; }
-  .split { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: stretch; }
-  .split > div { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; }
-  .cap-line { margin: 0 0 var(--space-2); font-size: 12px; font-weight: 600; color: var(--text-muted); }
-  @media (max-width: 900px) { .split { flex-direction: column; } }
   @media (max-width: 600px) { .hide-sm { display: none; } }
 </style>

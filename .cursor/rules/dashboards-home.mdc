@@ -21,6 +21,7 @@ alwaysApply: false
 - When a chart leaves a gap beside a taller card, the next content moves up into that gap. When the row cannot reflow, the short card stretches and fills the space. A map or a truck list grows to fill its card. A long list scrolls inside the card. The chart face is the chart; the table is the icon toggle, not a second block under the chart.
 - Exception: on the overview, the truck map sits under the stats in the same row as the charts. That row stretches, and the map grows to the bottom of the charts. Do not leave an empty band under the map.
 - Every operations tab opens with four stat cards, then one chart per card. Business is sales, expenses, profit and margin. The expenses, sales and profit bars stay on the overview. Do not stack two charts in one card. A donut sits against its legend. Trip cost per truck stays on Fees. The long brand ranking stays on Management.
+- Shipments puts the live board beside the map: the map is one third, the board is two thirds. Loading keeps a truck for each standing beside its map.
 - A section that repeats a panel already on the tab stays in `hiddenReport`. Border heatmap, fast and slow, and landed cost are part of the report, not a second mode.
 
 Mockup reference: Cursor canvas `home-today-mockup.canvas.tsx`. Product narrative: `docs/21-dashboard-redesign.md`.
