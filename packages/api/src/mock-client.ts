@@ -659,7 +659,7 @@ export const queue = {
     if (!known) m.db.providers.push(provider);
     const driver = { id: m.uid('d'), name: input.driverName.trim(), phone: input.driverPhone.trim(), licence: '', providerId: provider.id, hasApp: false };
     m.db.drivers.push(driver);
-    const truck = { id: m.uid('t'), providerId: provider.id, reg, trailer: input.trailer.trim().toUpperCase(), capacityCases: input.capacityCases || 2000, defaultDriverId: driver.id };
+    const truck = { id: m.uid('t'), providerId: provider.id, reg, trailer: input.trailer.trim().toUpperCase(), capacityCases: input.capacityCases || R.TRUCK_CASES, defaultDriverId: driver.id };
     m.db.trucks.push(truck);
     const position = queueAt(loadingPointId).length + 1;
     const e = { id: m.uid('wl'), entityId, loadingPointId, truckId: truck.id, driverId: driver.id, arrivedAt: new Date().toISOString(), position, status: 'Waiting' as const };

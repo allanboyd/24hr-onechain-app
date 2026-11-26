@@ -469,6 +469,8 @@ export const missingReasons = (ctx: PlanLineContext[]) => ctx.filter((c) => c.ex
 // ---- Server config (apps/api/config.toml) ---------------------------------------------------------------
 /** Defaults when config.toml is missing or a key is absent. The mock client uses the same. */
 export const defaultConfig: AppConfig = { approvals: { purchaseOrders: false }, loading: { allowancePct: 10, allowAlternatives: true, revisionSuffix: '-rev' }, fees: { amberDays: 14, redDays: 30 }, costs: { allocation: 'quantity' } };
+/** Cases one truck may carry. Used on a purchase order and as the size of a new truck. */
+export const TRUCK_CASES = 3500;
 /** Label of an order's state for the UI. POs are not drafted: Issued (approved automatically or by a director), Awaiting
  *  approval (approvals on), Revised (a later revision replaced it) or Deleted. */
 export function planStatusLabel(p: Pick<Plan, 'status' | 'history' | 'revision' | 'supersededById'>, _cfg: AppConfig = defaultConfig): string {

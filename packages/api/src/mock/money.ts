@@ -183,7 +183,7 @@ export async function loadReexport(c: Ctx, id: ID, input: ReexportLoadInput): Pr
     const provider = m.db.providers.find((p) => p.name.toLowerCase() === name.toLowerCase()) ?? (() => { const p = { id: m.uid('pr'), name, kind: 'market' as const, regular: false, phone: '', active: true }; m.db.providers.push(p); return p; })();
     const driver = { id: m.uid('d'), name: input.market.driverName.trim(), phone: input.market.driverPhone?.trim() ?? '', licence: '', providerId: provider.id, hasApp: false };
     m.db.drivers.push(driver);
-    const truck = { id: m.uid('t'), providerId: provider.id, reg, trailer: (input.market.trailer ?? '').trim().toUpperCase(), capacityCases: input.market.capacityCases || 2000, defaultDriverId: driver.id };
+    const truck = { id: m.uid('t'), providerId: provider.id, reg, trailer: (input.market.trailer ?? '').trim().toUpperCase(), capacityCases: input.market.capacityCases || R.TRUCK_CASES, defaultDriverId: driver.id };
     m.db.trucks.push(truck); truckId = truck.id; driverId = driver.id;
   }
   if (!m.db.trucks.some((t) => t.id === truckId)) throw c.httpErr('Pick the truck', 422);

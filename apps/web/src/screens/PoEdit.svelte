@@ -6,7 +6,7 @@
   import CompanyMark from '../components/CompanyMark.svelte';
   import ProductPicker from '../components/ProductPicker.svelte';
   import { amount, lookup, plans, pos, ref, type Currency, type PlanLine, type PoDetail, type User } from '@btw/api';
-  import { diffPoLines, lineChangeText } from '@btw/api/rules';
+  import { diffPoLines, lineChangeText, TRUCK_CASES } from '@btw/api/rules';
   import { Badge, fmtDate, fmtNum, router, say } from '@btw/ui';
   import Trash from '@lucide/svelte/icons/trash-2';
   import Plus from '@lucide/svelte/icons/plus';
@@ -22,7 +22,7 @@
   let { params, user }: { params?: { id?: string }; user: User } = $props();
 
   const r = ref();
-  const TRUCK_CAP = 2200; // default until a truck is assigned at loading (§7.3 #3)
+  const TRUCK_CAP = TRUCK_CASES; // until a truck is assigned at loading (§7.3 #3)
   const INSTRUCTION = 'Kindly process and avail stock for loading.';
   const editing = untrack(() => !!params?.id);
   const approvals = poApprovals();

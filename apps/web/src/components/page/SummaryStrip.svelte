@@ -10,6 +10,8 @@
     /** the status word (defaults to the status' own word: On track / At risk / Delayed / No data) */ statusLabel?: string;
     /** false = information only, not a filter */ filter?: boolean;
     /** ⓘ explanation of how the figure is counted */ info?: string;
+    /** icon in the status line (an arrow, and so on). The status colour still comes from `status`. */
+    icon?: any;
   }
 </script>
 
@@ -61,8 +63,8 @@
     {@const m = t.status ? statusMeta(t.status, t.statusLabel) : null}
     {@const empty = t.value === null || t.value === undefined}
     {@const on = value === t.key}
-    {@const Icon = m?.icon}
-    <div class="tile" class:on class:static={t.filter === false}>
+    {@const Icon = t.icon ?? m?.icon}
+    <div class="tile" class:on class:static={t.filter === false} class:good={m?.status === 'good'} class:warn={m?.status === 'warn'} class:bad={m?.status === 'bad'}>
       {#if t.filter === false}
         <div class="face">
           <span class="lbl">{t.label}</span>
@@ -110,7 +112,10 @@
   .tile { position: relative; min-width: 0; }
   /* layout only — colours, border and the chosen state come from .sel-card (base.css) */
   .face { flex-direction: column; align-items: stretch; justify-content: center; gap: 2px; width: 100%; min-height: 72px; height: 100%; padding: var(--space-2) var(--space-4); }
-  div.face { display: flex; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+  div.face { display: flex; background: var(--surface); color: var(--text); border: 1px solid var(--card-border); border-radius: var(--radius-lg); box-shadow: var(--elevation-1); }
+  .tile.good:not(.on) .face { background: color-mix(in srgb, var(--success) 10%, var(--surface)); }
+  .tile.warn:not(.on) .face { background: color-mix(in srgb, var(--warning-solid) 12%, var(--surface)); }
+  .tile.bad:not(.on) .face { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); }
   .top { display: flex; align-items: center; gap: 6px; min-width: 0; padding-right: 22px; }
   .vrow { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
   .lbl { font: 600 var(--fs-label) / var(--lh-label) var(--ff-body); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -118,7 +123,7 @@
   .on .lbl { color: var(--sel-ink); font-weight: 700; }
   .val { font: 700 22px / 28px var(--ff-display); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
   .val.none { color: var(--text-subtle); }
-  .sub { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: var(--fs-caption); line-height: var(--lh-caption); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sub { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 16px; font-size: var(--fs-caption); line-height: var(--lh-caption); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .st { display: inline-flex; align-items: center; gap: 3px; font-weight: 600; flex: none; }
   .st :global(svg) { flex: none; }
   .dot { color: var(--text-subtle); }
