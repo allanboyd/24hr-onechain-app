@@ -38,8 +38,17 @@ await p.getByRole('group', { name: 'Period' }).getByRole('button', { name: '30 d
 await p.goto(`${base}#/management/plans?p=30`); await p.waitForTimeout(1500);
 ok(/p=30/.test(p.url()), 'Plans: a chosen period is kept (not reset to the year)');
 await p.screenshot({ path: `${out}/mgmt-plans-live.png`, fullPage: true });
+// V3-10 step 3: Sales and clients on live data
+await p.goto(`${base}#/management/clients`); await p.locator('.mrep .kpi .val').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(1000);
+ok(await p.locator('iframe[title^="Management report"]').count() === 0, 'Clients: our page, no report frame');
+ok(/^\$[\d,]+$/.test((await p.locator('.mrep .kpi .val').first().textContent())?.trim() ?? '') && await p.locator('.mrep .rank li').count() > 0, 'Clients: sales from our data, clients ranked');
+ok(await p.locator('.mrep .ct', { hasText: 'Client credit terms' }).locator('.chip', { hasText: 'Not recorded yet' }).count() === 1, 'Clients: credit terms say "Not recorded yet"');
+const recs = p.locator('.mrep .dt-table tbody tr[data-dt-row]'); const r0 = await recs.count();
+await p.locator('.mrep .dt-search input').fill('Walk-in'); await p.waitForTimeout(500);
+ok(r0 > 0 && (await p.locator('.mrep .dt-table tbody tr[data-dt-row] td:nth-child(3)').allTextContents()).every((t) => /Walk-in/i.test(t)), 'Clients: the sales records search by client');
+await p.screenshot({ path: `${out}/mgmt-clients-live.png`, fullPage: true });
 for (const [k, title] of Object.entries(PAGES)) {
-  if (k === 'overview' || k === 'plans') continue; // rebuilt in our code (V3-10), checked above
+  if (k === 'overview' || k === 'plans' || k === 'clients') continue; // rebuilt in our code (V3-10), checked above
   await p.goto(`${base}#/management/${k}`); await p.waitForTimeout(2200);
   const f = p.frameLocator('iframe[title^="Management report"]');
   const h1 = (await f.locator('main h1').first().textContent().catch(() => ''))?.trim();

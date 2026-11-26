@@ -54,7 +54,7 @@ export type DashKey =
   | 'orders-analysis' | 'plan-vs-actual-report' | 'purchase-planning' | 'loading-queues' | 'shipment-analysis' | 'logistics-report'
   | 'trip-costs' | 'finance-report' | 'stock-analysis' | 'inventory-report' | 'sales-velocity' | 'sales-report' | 'quarterly-review'
   // design v3 Management pages on live data (V3-10): same data, scoping and builders as the dashboards above
-  | 'mgmt-overview' | 'mgmt-plans';
+  | 'mgmt-overview' | 'mgmt-plans' | 'mgmt-clients';
 export interface DashDef {
   key: DashKey; id: string; title: string; group: DashGroup; who: Who[];
   /** the business question it answers */ question: string; /** the visual */ visual: string;
@@ -66,6 +66,7 @@ export interface DashDef {
 const d = (key: DashKey, id: string, title: string, group: DashGroup, who: Who[], question: string, visual: string, link?: string, client?: boolean): DashDef => ({ key, id, title, group, who, question, visual, link, client });
 const a = (key: DashKey, title: string, group: DashGroup, who: Who[], features: FeatureKey[], question: string, visual: string, link: string): DashDef => ({ key, id: 'F-2', title, group, who, question, visual, link, client: true, analysis: true, features });
 export const DASHBOARDS: DashDef[] = [
+  { key: 'mgmt-clients', id: 'M-04', title: 'Sales and clients', group: 'management', who: ['dir'], features: ['reports'], question: 'Who buys, how do they pay, and who owes us?', visual: 'KPIs, clients by frequency, how clients pay, balances within credit time vs overdue, sales records', link: '#/management/clients' },
   { key: 'mgmt-plans', id: 'M-03', title: 'Plans and orders', group: 'management', who: ['dir'], features: ['reports'], question: 'Are we ordering what we planned, by month and by brand?', visual: 'KPIs, planned vs PO issued by month, by brand', link: '#/management/plans' },
   { key: 'mgmt-overview', id: 'M-01', title: 'Overview', group: 'management', who: ['dir'], features: ['reports'], question: 'How does the company make profit, and what needs action first?', visual: 'KPI cards with sparklines, profit waterfall, act-on-these-first, sales and profit by month and warehouse, where each $100 went, best and weakest brands', link: '#/management/overview' },
   d('director-today', 'C-05', 'Today', 'home', ['dir'], 'What needs a director\'s decision today, and where does the business stand?', 'KPI strip with sparklines, daily sales and profit, decision list, stock health, sales by company / warehouse, top products'),
@@ -608,6 +609,41 @@ function mgmtPlans(c: Ctx): Out {
     empty: !pv.measures.planned && !pv.measures.ordered });
 }
 
+// ---- design v3 Management · Sales and clients (V3-10 step 3): the sales and owed figures of the Today view ------------
+export interface MgmtClients {
+  terms: number;
+  kpis: { sales: number | null; purchases: number; clients: number; owed: number | null; overdue: number | null };
+  clients: { customer: string; purchases: number; total: number; paid: number; balance: number }[];
+  pay: { kind: string; total: number; purchases: number }[];
+  balances: { within: number; overdue: number; top: { customer: string; within: number; overdue: number }[] };
+  records: { id: ID; ref: string; at: string; customer: string; warehouseId: ID; warehouse: string; kind: string; amount: number; paid: number; balance: number; status: string }[];
+}
+function mgmtClients(c: Ctx): Out {
+  const n = names(c.src); const now = c.now;
+  const sales = c.usd.sales; const val = (s: (typeof sales)[number]) => sum(s.lines, (l) => l.qty * l.price);
+  const inP = sales.filter((s) => { const x = t(s.at); return x >= c.from && x < c.to; });
+  const by = new Map<string, MgmtClients['clients'][number]>();
+  for (const s of inP) { const v = val(s); const x = by.get(s.customer) ?? { customer: s.customer, purchases: 0, total: 0, paid: 0, balance: 0 }; x.purchases++; x.total += v; x.paid += Math.min(s.paid, v); x.balance += Math.max(0, v - s.paid); by.set(s.customer, x); }
+  const kinds = new Map<string, { kind: string; total: number; purchases: number }>();
+  for (const s of inP) { const x = kinds.get(s.kind) ?? { kind: s.kind, total: 0, purchases: 0 }; x.total += val(s); x.purchases++; kinds.set(s.kind, x); }
+  // balances: every open sale up to now (not only this period), one rule for everyone: overdue after TERMS_DAYS
+  const open = MX.openSales(sales, now);
+  const bc = new Map<string, { customer: string; within: number; overdue: number }>();
+  for (const o of open) { const x = bc.get(o.s.customer) ?? { customer: o.s.customer, within: 0, overdue: 0 }; if (o.age > TERMS_DAYS) x.overdue += o.bal; else x.within += o.bal; bc.set(o.s.customer, x); }
+  const owed = sales.length ? MX.owedByCustomers(sales, now) : null, overdue = sales.length ? MX.overdueByCustomers(sales, now) : null;
+  const rd = <X extends { total: number; paid: number; balance: number }>(x: X): X => { x.total = r2(x.total); x.paid = r2(x.paid); x.balance = r2(x.balance); return x; };
+  const data: MgmtClients = {
+    terms: TERMS_DAYS,
+    kpis: { sales: inP.length || sales.length ? MX.salesValue(sales, { from: c.from, to: c.to }) : null, purchases: inP.length, clients: by.size, owed, overdue },
+    clients: [...by.values()].map(rd).sort((a, b) => b.purchases - a.purchases || b.total - a.total),
+    pay: [...kinds.values()].map((x) => ({ ...x, total: r2(x.total) })).sort((a, b) => b.total - a.total),
+    balances: { within: owed !== null && overdue !== null ? r2(owed - overdue) : 0, overdue: overdue ?? 0, top: [...bc.values()].map((x) => ({ ...x, within: r2(x.within), overdue: r2(x.overdue) })).sort((a, b) => b.within + b.overdue - a.within - a.overdue).slice(0, 15) },
+    records: inP.sort((a, b) => t(b.at) - t(a.at)).slice(0, 1000).map((s) => { const v = val(s); return { id: s.id, ref: s.ref, at: s.at, customer: s.customer, warehouseId: s.warehouseId, warehouse: n.warehouse(s.warehouseId), kind: s.kind, amount: r2(v), paid: r2(Math.min(s.paid, v)), balance: r2(Math.max(0, v - s.paid)), status: s.status }; }),
+  };
+  return out(data, { definition: `Sales = cases × price (USD at the approved month rate) in ${c.period.label}. Balances: every unpaid sale up to now; overdue after ${TERMS_DAYS} days (one rule for every client until per-client credit terms are recorded). The same figures as the Today view and Live dashboards → Sales.`,
+    currency: 'USD', unit: 'USD', period: c.period, freshness: newest(sales.map((s) => s.at)), empty: !sales.length });
+}
+
 function directorToday(c: Ctx): Out {
   const n = names(c.src); const now = c.now; const d0 = new Date(now);
   const dayStart = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate());
@@ -926,6 +962,7 @@ const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
   'director-today': directorToday,
   'mgmt-overview': mgmtOverview,
   'mgmt-plans': mgmtPlans,
+  'mgmt-clients': mgmtClients,
   'warehouse-today': warehouseToday,
   'order-this-week': orderThisWeek,
   'stock-movements': stockMovements,

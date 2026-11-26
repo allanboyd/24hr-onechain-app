@@ -76,6 +76,15 @@ ok(mo.brands.best.length > 0 && mo.brands.best.every((b, i, a) => i === 0 || a[i
   ok(Math.abs(mp.months.reduce((a, m) => a + m.planned, 0) - pv.measures.planned) <= mp.months.length && mp.byBrand.length === pv.byBrand.length, 'Management Plans: months add up to the plan; one row per brand', [mp.months.length, mp.byBrand.length]);
   ok(mp.byBrand.every((b) => !/^p-[a-z]\d+/.test(b.label)), 'Management Plans: brand names, not codes', mp.byBrand.slice(0, 2));
 }
+// ---- Management · Sales and clients (V3-10 step 3) = the Today view's sales and owed figures ----
+{
+  const mc = (await api.dashboards.get(['mgmt-clients'], { from: td.period.from, to: new Date(Date.parse(td.period.to) + 1).toISOString() })).results['mgmt-clients']!.data as import('../src/dashboards').MgmtClients;
+  ok(Math.abs(mc.kpis.sales! - td.sales.value!) < 1, 'Management Clients: sales = Today sales (same period)', [mc.kpis.sales, td.sales.value]);
+  ok(mc.kpis.owed === td.cash.value && mc.kpis.overdue === td.cash.overdue, 'Management Clients: owed and overdue = Today cash to collect', [mc.kpis.owed, td.cash.value, mc.kpis.overdue, td.cash.overdue]);
+  ok(Math.abs(mc.balances.within + mc.balances.overdue - mc.kpis.owed!) < 1, 'Management Clients: within credit time + overdue = owed');
+  ok(Math.abs(mc.clients.reduce((a, x) => a + x.total, 0) - mc.kpis.sales!) < 2 && Math.abs(mc.pay.reduce((a, x) => a + x.total, 0) - mc.kpis.sales!) < 2, 'Management Clients: clients and payment types add up to sales');
+  ok(mc.clients.every((x, i, a) => i === 0 || a[i - 1].purchases >= x.purchases) && mc.records.length === Math.min(1000, mc.kpis.purchases) && mc.terms === 14, 'Management Clients: most frequent first; a record per sale; one 14-day rule');
+}
 ok(td.cash.value! > 0 && td.cash.overdue! <= td.cash.value! && td.cash.spark?.length === 8, 'Today: cash to collect with the overdue part (never more than the total)', [td.cash.value, td.cash.overdue]);
 ok(td.owed.bands.length === 3 && td.owed.total === td.cash.value && td.owed.overdue === td.cash.overdue && td.owed.top.length > 0 && td.owed.bands.every((b) => b.value >= 0), 'Today: who-owes-us ageing bands and top customers', td.owed);
 ok(td.trucks.value !== null && td.trucks.delayed <= td.trucks.value && td.trucks.spark?.length === 14 && td.trucks.spark.at(-1) === td.trucks.value, 'Today: trucks on the road, delayed, 14-day trend ending at now', td.trucks);
