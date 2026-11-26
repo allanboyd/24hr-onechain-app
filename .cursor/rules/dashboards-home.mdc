@@ -39,6 +39,7 @@ Mockup reference: Cursor canvas `home-today-mockup.canvas.tsx`. Product narrativ
 
 - UI chrome: logo navy + orange accent (CTA only). Warning = yellow-amber, never logo orange as chart status.
 - Dark mode, on an orange surface: titles are white (`--text-on-primary`), supporting text is blue (`--text-on-primary-muted`), and icons, counts and status marks are yellow (`--on-primary-accent`). Do not put dark navy text on orange. Same roles on a navy primary surface in light mode.
+- Decisions uses `--attention`: a blue that is darker than the white cards in light mode and lighter than the dark cards in dark mode, so it reads as the thing to clear first. Do not paint it orange.
 - Chart series (control-room): navy sales, teal, amber, green profit, cost salmon. Home sales/profit lines use those series inks.
 
 ## Type

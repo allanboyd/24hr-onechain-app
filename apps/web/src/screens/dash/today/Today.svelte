@@ -6,7 +6,7 @@
   import { watch } from '../../../lib/load.svelte';
   import ErrorState from '../../../components/ErrorState.svelte';
   import { BarChart, Donut } from '../../../components/charts';
-  import BoxPlot from '../../../components/charts/BoxPlot.svelte';
+  import Pyramid from '../../../components/charts/Pyramid.svelte';
   import type { Ink } from '../../../components/charts/theme.svelte';
   import { compact } from '../../../components/charts/scale';
   import { currency, cv, cvRow } from '../fmt.svelte';
@@ -53,10 +53,14 @@
   });
   const chartRows = () => [['Day', `Sales (${currency.code})`, `Profit (${currency.code})`], ...chart.labels.map((l, i) => [l, chart.sales[i] == null ? '' : Math.round(chart.sales[i]! * 100) / 100, chart.profit[i] == null ? '' : Math.round(chart.profit[i]! * 100) / 100])];
   const chartTotal = $derived({ sales: chart.sales.reduce((a: number, v) => a + (v ?? 0), 0), profit: chart.profit.reduce((a: number, v) => a + (v ?? 0), 0) });
-  const spread = $derived([
-    { label: 'Sales', values: chart.sales.filter((v): v is number => v != null) },
-    { label: 'Profit', values: chart.profit.filter((v): v is number => v != null), slot: 1 },
-  ]);
+  const dayLabel = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const pyramid = $derived(
+    chart.labels
+      .map((day, i) => ({ label: dayLabel(day), outer: chart.sales[i] ?? 0, inner: Math.max(0, chart.profit[i] ?? 0) }))
+      .filter((r) => r.outer > 0.5 || r.inner > 0.5)
+      .sort((a, b) => b.outer - a.outer)
+      .slice(0, 8),
+  );
 
   const ICON: Record<TodayDecision['key'], typeof Truck> = { approvals: HandCoins, trucks: Truck, fees: Banknote, stock: Package, acks: Inbox, prices: Tag };
   const STATE: Record<TodayDecision['severity'], string> = { critical: 'Critical', high: 'High', medium: 'Watch', low: 'Clear' };
@@ -204,12 +208,12 @@
 
   <div class="graphs">
     <div>
-      <TodayCard title="Sales and profit" caption="{currency.code} · total {compact(chartTotal.sales)} sales, {compact(chartTotal.profit)} profit" updatedAt={res?.freshness ?? null} rows={chartRows} filename="sales-and-profit" empty={!spread.some((g) => g.values.length)} viewToggle>
-        <BoxPlot label="Sales and profit" groups={spread} unit={currency.code} format={axisFmt} height={340} note="Box is the middle half of days. The line is the median. Each dot is a day." />
+      <TodayCard title="Sales and profit" caption="{currency.code} · total {compact(chartTotal.sales)} sales, {compact(chartTotal.profit)} profit" updatedAt={res?.freshness ?? null} rows={chartRows} filename="sales-and-profit" empty={!pyramid.length} viewToggle>
+        <Pyramid label="Sales and profit" rows={pyramid} format={axisFmt} height={320} />
       </TodayCard>
     </div>
     <div>
-      <TodayCard title="Decisions" tone="primary" caption="Six things to clear" updatedAt={res?.freshness ?? null} rows={decRows} filename="decisions-today" viewToggle>
+      <TodayCard title="Decisions" tone="attention" caption="Six things to clear" updatedAt={res?.freshness ?? null} rows={decRows} filename="decisions-today" viewToggle>
         {#snippet tableView()}
           <div class="table-wrap"><table class="table">
             <thead><tr><th>Decision</th><th class="num">Count</th><th>Owner</th></tr></thead>
