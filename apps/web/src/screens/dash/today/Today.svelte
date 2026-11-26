@@ -58,6 +58,7 @@
     const profit = Math.max(0, Math.min(chartTotal.profit, revenue));
     return { revenue, cost: Math.max(0, revenue - profit), profit };
   });
+  const money = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const ICON: Record<TodayDecision['key'], typeof Truck> = { approvals: HandCoins, trucks: Truck, fees: Banknote, stock: Package, acks: Inbox, prices: Tag };
   const STATE: Record<TodayDecision['severity'], string> = { critical: 'Critical', high: 'High', medium: 'Watch', low: 'Clear' };
@@ -206,7 +207,12 @@
   <div class="graphs">
     <div>
       <TodayCard title="Revenue, sales and profit" caption="{currency.code} · revenue {compact(mix.revenue)}, cost of sales {compact(mix.cost)}, profit {compact(mix.profit)}" updatedAt={res?.freshness ?? null} rows={chartRows} filename="revenue-sales-profit" empty={mix.revenue <= 0.5 && mix.profit <= 0.5} viewToggle>
-        <BarChart label="Revenue, sales and profit" categories={['Revenue', 'Cost of sales', 'Profit']} series={[{ name: 'Revenue', values: [mix.revenue, 0, 0], ink: 'navy' }, { name: 'Cost of sales', values: [0, mix.cost, 0], ink: 'cost' }, { name: 'Profit', values: [0, 0, mix.profit], ink: 'good' }]} stacked format={(n) => `${currency.code} ${axisFmt(n)}`} height={240} />
+        <BarChart label="Revenue, sales and profit" categories={['Revenue', 'Cost of sales', 'Profit']} series={[{ name: 'Revenue', values: [mix.revenue, 0, 0], ink: 'navy' }, { name: 'Cost of sales', values: [0, mix.cost, 0], ink: 'cost' }, { name: 'Profit', values: [0, 0, mix.profit], ink: 'good' }]} stacked format={(n) => `${currency.code} ${axisFmt(n)}`} height={220} />
+        <div class="figs">
+          <b><span>{currency.code}</span>{money(mix.revenue)}</b>
+          <b><span>{currency.code}</span>{money(mix.cost)}</b>
+          <b><span>{currency.code}</span>{money(mix.profit)}</b>
+        </div>
       </TodayCard>
     </div>
     <div>
@@ -277,6 +283,9 @@
   .sk { display: grid; gap: 14px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: var(--space-4); }
   .skel { height: 118px; }
 
+  .figs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0 8px 0 32px; text-align: center; }
+  .figs b { display: flex; flex-direction: column; align-items: center; gap: 1px; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+  .figs b span { font-size: 11px; font-weight: 600; color: var(--text-muted); }
   .graphs { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); align-items: stretch; }
   .graphs > div { display: flex; min-width: 0; }
   .graphs > div > :global(.tc) { flex: 1; width: 100%; }
