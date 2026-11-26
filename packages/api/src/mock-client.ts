@@ -8,7 +8,7 @@ import * as RP from './reports';
 import * as PO from './mock/po';
 import type {
   AckLine, AppConfig, AuditFilter, AuditPage, Checkpoint, EntityInput, PriceListItem, Product, ProductInput, ReceivingCompany, ReceivingCompanyInput, Supplier, SupplierInput, UserPair, LoadingAlternative, PeriodPlanLine, PurchaseOrder, CheckpointPass, Device, DriverWork, Entity, FeatureKey, FxRate, GiverWork, ID, Leg, LegView, PeriodKind, PeriodPlan, Plan, PlanLine,
-  Client, ClientInput, ClientPayment, ClientPaymentInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PoDetail, PoInput, PoUpdateInput, PvThresholds, ReceiverWork, Role, RouteStop, Sale, Shipment, StoredFile, SyncResult, TripCost, TruckIssue, User, UserAdmin, Warehouse, WarehouseInput,
+  SupplierEntry, SupplierEntryInput, SupplierMoney, Client, ClientInput, ClientPayment, ClientPaymentInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PoDetail, PoInput, PoUpdateInput, PvThresholds, ReceiverWork, Role, RouteStop, Sale, Shipment, StoredFile, SyncResult, TripCost, TruckIssue, User, UserAdmin, Warehouse, WarehouseInput,
   Driver, DriverInput, Provider, ProviderInput, SavedDriver, Truck, TruckInput,
 } from './types';
 
@@ -418,6 +418,62 @@ export const inventory = {
   async stock() { ensure(); return wait(m.stock().filter((r) => inScope(r.entityId) && seesWh(r.warehouseId)).map(stockOut)); },
   async ledger(warehouseId: ID, productId: ID) { ensure(); if (!seesWh(warehouseId)) throw httpErr('Not available for your role', 403); return wait(m.db.stockMoves.filter((x) => inScope(x.entityId) && x.warehouseId === warehouseId && x.productId === productId).slice(-50).reverse()); },
 };
+// ---- Supplier money (V3-12 step 3) --------------------------------------------------------------------------------
+/** The PO the money belongs to: the base of its chain, so revisions share one pro-forma and its advances. */
+const basePo = (id: ID) => { const p = m.db.pos.find((x) => x.id === id); return p ? m.db.pos.find((x) => x.id === (p.revisionOf ?? p.id)) ?? p : undefined; };
+async function supplierMoneyOf(poId: ID): Promise<{ po: PurchaseOrder; money: SupplierMoney }> {
+  const M = await import('./money');
+  const po = basePo(poId);
+  if (!po || !inScope(po.entityId) || !current || !R.hasFeature(current.roles, 'purchase-orders') || !planAccess(poPlan(po)) || !A.seesPrices(me())) throw httpErr('Purchase order not found', 404);
+  const entries = (m.db.supplierEntries ?? []).filter((e) => e.entityId === po.entityId && e.supplierId === po.supplierId);
+  const shorts = M.shortLoadRows({ loadings: m.db.loadings, pos: m.db.pos, plans: m.db.plans, fxRates: m.db.fxRates ?? seed.seedFxRates() });
+  const approvalOn = !!m.db.moneySettings?.advanceApproval;
+  return { po, money: { entityId: po.entityId, supplierId: po.supplierId, currency: po.currency, po: M.poMoney(entries, po.id), held: M.supplierHeld(shorts, entries, po.entityId, po.supplierId),
+    entries: entries.filter((e) => e.poId === po.id || e.kind === 'credit-note' || e.kind === 'use').sort((a, b) => (a.at < b.at ? 1 : -1)),
+    canRecord: M.canRecordSupplierMoney(current, po.entityId, po.supplierId), canDecide: current.roles.includes('director'), approvalOn } };
+}
+export const supplierMoney = {
+  async forPo(poId: ID): Promise<SupplierMoney> { ensure(); return wait((await supplierMoneyOf(poId)).money); },
+  async record(poId: ID, input: SupplierEntryInput): Promise<SupplierEntry[]> {
+    ensure();
+    const M = await import('./money');
+    const { po, money } = await supplierMoneyOf(poId);
+    if (!money.canRecord) throw forbid('Supplier money is recorded by the directors, accounts and the planner of this supplier');
+    if (po.status === 'Deleted' || po.status === 'Awaiting approval') throw Object.assign(new Error('Record supplier money on an issued purchase order'), { status: 422 });
+    const date = input.date ?? new Date().toISOString().slice(0, 10);
+    const rate = po.currency === 'USD' ? 1 : R.fxFor(m.db.fxRates ?? seed.seedFxRates(), po.currency, `${date}T12:00:00Z`);
+    const usd = (x: number) => Math.round((x / rate) * 100) / 100;
+    const err = M.supplierEntryError(input, money.po, money.held.available, usd);
+    if (err) throw Object.assign(new Error(err), { status: 422 });
+    const status = input.kind === 'advance' && money.approvalOn ? 'Pending approval' as const : 'Recorded' as const;
+    const doc = input.documentFileId ? { id: input.documentFileId, kind: 'invoice' as const, name: input.documentName ?? 'Document', url: input.documentUrl ?? undefined } : null;
+    const base = { entityId: po.entityId, supplierId: po.supplierId, poId: po.id, poRef: po.ref, currency: po.currency, fxRate: rate, date, reference: input.reference?.trim() || undefined, note: input.note?.trim() || undefined, document: doc, status, byUserId: current!.id, at: new Date().toISOString() };
+    const out: SupplierEntry[] = [];
+    const amt = Number(input.amount ?? 0), use = Number(input.useHeld ?? 0);
+    if (input.kind !== 'advance' || amt > 0) out.push({ ...base, id: m.uid('se'), kind: input.kind, amount: amt, amountUsd: usd(amt) });
+    if (input.kind === 'advance' && use > 0) out.push({ ...base, id: m.uid('se'), kind: 'use', amount: use, amountUsd: usd(use), linkedId: out[0]?.id, document: null });
+    if (out.length === 2) out[0].linkedId = out[1].id;
+    (m.db.supplierEntries ??= []).push(...out);
+    const what = input.kind === 'proforma' ? 'Pro-forma' : input.kind === 'credit-note' ? 'Credit note' : 'Advance payment';
+    const total = out.reduce((a, e) => a + e.amount, 0);
+    log('POST', `/pos/${po.id}/supplier-money`, { recordType: 'po', recordId: po.id, entityId: po.entityId, summary: `${po.ref}: ${what.toLowerCase()} ${po.currency} ${total}${use ? ` (${po.currency} ${use} from money the supplier holds)` : ''}${status === 'Pending approval' ? ' · waiting for a director' : ''}`, after: out });
+    if (input.kind !== 'proforma') m.notify(status === 'Pending approval' ? `${what} to approve` : `${what} recorded`, `${po.ref} · ${lookup.supplier(po.supplierId)?.code ?? ''}: ${po.currency} ${total.toLocaleString('en-US')} by ${current!.name}${use ? ` (${po.currency} ${use.toLocaleString('en-US')} from money the supplier holds)` : ''}`, `#/pos/${po.id}`, ['director'], po.entityId);
+    return commit(out);
+  },
+  async decide(entryId: ID, approve: boolean): Promise<SupplierEntry[]> {
+    ensure();
+    if (!current?.roles.includes('director')) throw forbid('A director approves advance payments');
+    const e = (m.db.supplierEntries ?? []).find((x) => x.id === entryId && inScope(x.entityId));
+    if (!e) throw httpErr('Not found', 404);
+    if (e.status !== 'Pending approval') throw Object.assign(new Error('Already decided'), { status: 409 });
+    const both = (m.db.supplierEntries ?? []).filter((x) => x.id === e.id || x.id === e.linkedId || x.linkedId === e.id);
+    for (const x of both) { x.status = approve ? 'Recorded' : 'Rejected'; x.decidedById = current.id; x.decidedAt = new Date().toISOString(); }
+    log('POST', `/supplier-entries/${e.id}/decision`, { recordType: 'po', recordId: e.poId ?? e.id, entityId: e.entityId, summary: `${e.poRef ?? ''}: advance ${approve ? 'approved' : 'rejected'}` });
+    return commit(both);
+  },
+  async list(): Promise<SupplierEntry[]> { ensure(); if (!current || !A.seesPrices(me())) return wait([]); return wait((m.db.supplierEntries ?? []).filter((e) => inScope(e.entityId)).sort((a, b) => (a.at < b.at ? 1 : -1))); },
+};
+
 // ---- Clients (V3-12 step 1) ------------------------------------------------------------------------------------
 const DEFAULT_TERMS = 14; // = metrics.TERMS_DAYS (kept out of the entry chunk)
 /** The company's clients. The first time, one client per customer name already on a sale (same as migration 0014). */

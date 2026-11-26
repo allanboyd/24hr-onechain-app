@@ -364,6 +364,30 @@ export interface Sale {
 export interface Client {
   id: ID; entityId: ID; name: string; phone?: string; warehouseId?: ID; termsDays: number; active: boolean; createdAt: ISODate;
 }
+/** V3-12 step 3: supplier money, recorded on the purchase order. A pro-forma is the supplier's bill for the PO; an advance is
+ *  paid against it (part of it may come from money the supplier already holds: a `use`); a credit note (promotion) adds to
+ *  what the supplier holds. Short loads are not stored: they come from the loadings (`money.shortLoadRows`). */
+export type SupplierEntryKind = 'proforma' | 'advance' | 'credit-note' | 'use';
+export type SupplierEntryStatus = 'Recorded' | 'Pending approval' | 'Rejected';
+export interface SupplierEntry {
+  id: ID; entityId: ID; supplierId: ID; poId?: ID; poRef?: string; kind: SupplierEntryKind;
+  amount: number; currency: Currency; fxRate: number; amountUsd: number; date: string;
+  reference?: string; note?: string; document?: DocumentRef | null; status: SupplierEntryStatus;
+  /** the advance a `use` belongs to (they are approved or rejected together) */ linkedId?: ID;
+  byUserId: ID; at: ISODate; decidedById?: ID; decidedAt?: ISODate;
+}
+export interface SupplierEntryInput {
+  kind: 'proforma' | 'advance' | 'credit-note'; amount: number; date?: string; reference?: string; note?: string;
+  /** advance only: the part paid from money the supplier already holds (PO currency) */ useHeld?: number;
+  documentFileId?: ID | null; documentName?: string | null; documentUrl?: string | null;
+}
+/** Supplier money for one PO: its pro-formas and advances, and what the supplier holds for the company (USD). */
+export interface SupplierMoney {
+  entityId: ID; supplierId: ID; currency: Currency;
+  po: { proforma: number; advances: number; pending: number; open: number };
+  held: { shortLoads: number; creditNotes: number; used: number; pendingUse: number; balance: number; available: number };
+  entries: SupplierEntry[]; canRecord: boolean; canDecide: boolean; approvalOn: boolean;
+}
 /** V3-12 step 2: money received from a client against a sale. The sale writes the first one (what was paid when it was
  *  made); later ones come from "Record payment". `sale.paid` is always the sum of its payments. */
 export type ClientPaymentMethod = 'Cash' | 'Mobile money' | 'Bank';

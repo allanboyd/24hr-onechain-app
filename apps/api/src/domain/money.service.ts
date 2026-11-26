@@ -7,14 +7,15 @@ import { db, schema as t, type Tx } from '../db/client';
 import * as M from '@btw/api/money';
 import { performanceReport, type PerfFilter } from '@btw/api/performance';
 import { hasFeature, normReg, TRUCK_CASES, type StockMove } from '@btw/api/rules';
-import { seesShipment } from '@btw/api/access';
-import type { ExpenseFilter, FeatureKey, ReexportInput, ReexportLoadInput, ReexportOrder, SellingPrice, SellingPriceInput, StockAdjustInput, StockAdjustment, WarehouseExpense, WarehouseExpenseInput } from '@btw/api/types';
+import { orderAccess, seesPrices, seesShipment } from '@btw/api/access';
+import { defaultMoneySettings, fxFor } from '@btw/api/rules';
+import type { MoneySettings, SupplierEntry, SupplierEntryInput, SupplierMoney, ExpenseFilter, FeatureKey, ReexportInput, ReexportLoadInput, ReexportOrder, SellingPrice, SellingPriceInput, StockAdjustInput, StockAdjustment, WarehouseExpense, WarehouseExpenseInput } from '@btw/api/types';
 import { auditNote } from '../common/audit-context';
 import { fail, forbidden, notFound } from '../common/errors';
 import { iso, uid } from '../common/ids';
 import { canSeeEntity, isGlobal, writeEntity, type Principal } from '../auth/principal';
 import { appConfig } from '../config/app-config';
-import { saneAmount, usdOf } from './companies';
+import { fxRates, saneAmount, usdOf } from './companies';
 import { unusualNote } from '@btw/api/amounts';
 import { LogisticsService } from './logistics.service';
 import { NotifyService } from './notify.service';
@@ -323,4 +324,97 @@ export class MoneyService {
     const [expenses, prices] = await Promise.all([db.select().from(t.warehouseExpenses).orderBy(asc(t.warehouseExpenses.date)), db.select().from(t.sellingPrices).where(inArray(t.sellingPrices.entityId, p.scope))]);
     return performanceReport({ ...data, expenses: expenses.map(toExpense), sellingPrices: prices.map(toPrice), allocation: appConfig.costs?.allocation ?? 'quantity' }, f);
   }
+
+  // ---- Supplier money (V3-12 step 3) ---------------------------------------------------------------------------------
+  private entryOut(r: typeof t.supplierEntries.$inferSelect): SupplierEntry {
+    return { id: r.id, entityId: r.entityId, supplierId: r.supplierId, poId: r.poId ?? undefined, poRef: r.poRef ?? undefined, kind: r.kind as SupplierEntry['kind'],
+      amount: r.amount, currency: r.currency as SupplierEntry['currency'], fxRate: r.fxRate, amountUsd: r.amountUsd, date: r.date, reference: r.reference ?? undefined, note: r.note ?? undefined,
+      document: r.document ?? null, status: r.status as SupplierEntry['status'], linkedId: r.linkedId ?? undefined, byUserId: r.byUserId, at: new Date(r.at).toISOString(), decidedById: r.decidedById ?? undefined, decidedAt: r.decidedAt ? new Date(r.decidedAt).toISOString() : undefined };
+  }
+  /** The base PO of the chain (revisions share one pro-forma), after the same access check as the PO page; prices only. */
+  private async supplierPo(p: Principal, poId: string) {
+    const [r] = await db.select().from(t.pos).where(eq(t.pos.id, poId));
+    const [b] = r?.revisionOf ? await db.select().from(t.pos).where(eq(t.pos.id, r.revisionOf)) : [r];
+    if (!b || !canSeeEntity(p, b.entityId) || !hasFeature(p.roles, 'purchase-orders') || !seesPrices(p)) notFound('Purchase order');
+    const [plan] = await db.select().from(t.plans).where(eq(t.plans.id, b!.planId));
+    const { bundle } = await this.ref.get();
+    const rc = [...new Set(bundle.warehouses.filter((w) => p.warehouseIds.includes(w.id)).map((w) => w.receivingCompanyId))];
+    if (!orderAccess(p, { entityId: b!.entityId, supplierId: b!.supplierId, lines: plan ? map.plan(plan).lines : [] }, rc)) notFound('Purchase order');
+    return map.po(b!);
+  }
+  private async moneySettings(): Promise<MoneySettings> {
+    const [r] = await db.select().from(t.settings).where(eq(t.settings.key, 'money'));
+    return { ...defaultMoneySettings, ...(r?.value as Partial<MoneySettings> | undefined) };
+  }
+  private async supplierMoneyOf(p: Principal, poId: string, q: Q = db): Promise<{ po: Awaited<ReturnType<MoneyService['supplierPo']>>; money: SupplierMoney }> {
+    const po = await this.supplierPo(p, poId);
+    const pair = and(eq(t.supplierEntries.entityId, po.entityId), eq(t.supplierEntries.supplierId, po.supplierId));
+    const [rows, pos, loadings, rates, st] = await Promise.all([
+      q.select().from(t.supplierEntries).where(pair),
+      q.select().from(t.pos).where(and(eq(t.pos.entityId, po.entityId), eq(t.pos.supplierId, po.supplierId))),
+      q.select().from(t.loadings).where(eq(t.loadings.entityId, po.entityId)),
+      fxRates(), this.moneySettings(),
+    ]);
+    const poList = pos.map(map.po);
+    const plans = poList.length ? (await q.select().from(t.plans).where(inArray(t.plans.id, [...new Set(poList.map((x) => x.planId))]))).map(map.plan) : [];
+    const entries = rows.map((r) => this.entryOut(r));
+    const shorts = M.shortLoadRows({ loadings: loadings.map(map.loading).filter((l) => poList.some((x) => x.id === l.poId)), pos: poList, plans, fxRates: rates });
+    return { po, money: { entityId: po.entityId, supplierId: po.supplierId, currency: po.currency, po: M.poMoney(entries, po.id), held: M.supplierHeld(shorts, entries, po.entityId, po.supplierId),
+      entries: entries.filter((e) => e.poId === po.id || e.kind === 'credit-note' || e.kind === 'use').sort((a, b) => (a.at < b.at ? 1 : -1)),
+      canRecord: M.canRecordSupplierMoney(p, po.entityId, po.supplierId), canDecide: p.roles.includes('director'), approvalOn: st.advanceApproval } };
+  }
+  async supplierMoney(p: Principal, poId: string) { return (await this.supplierMoneyOf(p, poId)).money; }
+  /** Pro-forma, advance (with any part from money the supplier holds) or credit note, on the PO. Advances wait for a director
+   *  when Management → Settings says so. Advances and credit notes tell the directors (in-app; email / SMS as they chose). */
+  async recordSupplierMoney(p: Principal, poId: string, input: SupplierEntryInput) {
+    const out = await db.transaction(async (tx) => {
+      const base = await this.supplierPo(p, poId);
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${'supplier:' + base.entityId + ':' + base.supplierId}))`);
+      const { po, money } = await this.supplierMoneyOf(p, poId, tx);
+      if (!money.canRecord) forbidden('Supplier money is recorded by the directors, accounts and the planner of this supplier');
+      if (po.status === 'Deleted' || po.status === 'Awaiting approval') fail('Record supplier money on an issued purchase order', 422);
+      const date = input?.date ?? iso().slice(0, 10);
+      const rate = po.currency === 'USD' ? 1 : fxFor(await fxRates(), po.currency, `${date}T12:00:00Z`);
+      const usd = (x: number) => Math.round((x / rate) * 100) / 100;
+      const err = M.supplierEntryError(input ?? {}, money.po, money.held.available, usd);
+      if (err) fail(err, 422);
+      const status = input.kind === 'advance' && money.approvalOn ? 'Pending approval' : 'Recorded';
+      const doc = input.documentFileId ? { id: input.documentFileId, kind: 'invoice' as const, name: input.documentName ?? 'Document', url: input.documentUrl ?? undefined } : null;
+      const common = { entityId: po.entityId, supplierId: po.supplierId, poId: po.id, poRef: po.ref, currency: po.currency, fxRate: rate, date, reference: input.reference?.trim() || null, note: input.note?.trim() || null, status, byUserId: p.id };
+      const amt = Number(input.amount ?? 0), use = Number(input.useHeld ?? 0);
+      const ids = { main: uid('se'), use: uid('se') };
+      const rows: (typeof t.supplierEntries.$inferInsert)[] = [];
+      if (input.kind !== 'advance' || amt > 0) rows.push({ ...common, id: ids.main, kind: input.kind, amount: amt, amountUsd: usd(amt), document: doc, linkedId: input.kind === 'advance' && use > 0 ? ids.use : null });
+      if (input.kind === 'advance' && use > 0) rows.push({ ...common, id: ids.use, kind: 'use', amount: use, amountUsd: usd(use), document: null, linkedId: amt > 0 ? ids.main : null });
+      const saved = (await tx.insert(t.supplierEntries).values(rows).returning()).map((r) => this.entryOut(r));
+      const what = input.kind === 'proforma' ? 'Pro-forma' : input.kind === 'credit-note' ? 'Credit note' : 'Advance payment';
+      const total = amt + use;
+      auditNote({ recordType: 'po', recordId: po.id, entityId: po.entityId, summary: `${po.ref}: ${what.toLowerCase()} ${po.currency} ${total}${use ? ` (${po.currency} ${use} from money the supplier holds)` : ''}${status === 'Pending approval' ? ' · waiting for a director' : ''}`, after: saved });
+      if (input.kind !== 'proforma') {
+        const sup = (await this.ref.get()).bundle.suppliers.find((x) => x.id === po.supplierId)?.code ?? '';
+        await this.notify.notifyMoney(tx, status === 'Pending approval' ? `${what} to approve` : `${what} recorded`,
+          `${po.ref} · ${sup}: ${po.currency} ${total.toLocaleString('en-US')} by ${p.name}${use ? ` (${po.currency} ${use.toLocaleString('en-US')} from money the supplier holds)` : ''}`, `#/pos/${po.id}`, po.entityId);
+      }
+      return saved;
+    });
+    return out;
+  }
+  /** A director approves or rejects a waiting advance (and the held money it uses). */
+  async decideSupplierEntry(p: Principal, id: string, approve: boolean) {
+    if (!p.roles.includes('director')) forbidden('A director approves advance payments');
+    return db.transaction(async (tx) => {
+      const [e] = await tx.select().from(t.supplierEntries).where(eq(t.supplierEntries.id, id));
+      if (!e || !canSeeEntity(p, e.entityId)) notFound('Advance');
+      if (e!.status !== 'Pending approval') fail('Already decided', 409, 'conflict');
+      const ids = [e!.id, e!.linkedId].filter((x): x is string => !!x);
+      const rows = await tx.update(t.supplierEntries).set({ status: approve ? 'Recorded' : 'Rejected', decidedById: p.id, decidedAt: iso() }).where(inArray(t.supplierEntries.id, ids)).returning();
+      auditNote({ recordType: 'po', recordId: e!.poId ?? e!.id, entityId: e!.entityId, summary: `${e!.poRef ?? ''}: advance ${approve ? 'approved' : 'rejected'}` });
+      return rows.map((r) => this.entryOut(r));
+    });
+  }
+  async supplierEntries(p: Principal) {
+    if (!seesPrices(p) || !hasFeature(p.roles, 'purchase-orders')) return [];
+    return (await db.select().from(t.supplierEntries).where(inArray(t.supplierEntries.entityId, p.scope)).orderBy(desc(t.supplierEntries.at)).limit(1000)).map((r) => this.entryOut(r));
+  }
+
 }
