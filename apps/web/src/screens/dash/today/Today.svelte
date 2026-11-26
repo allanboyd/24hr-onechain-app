@@ -6,7 +6,6 @@
   import { watch } from '../../../lib/load.svelte';
   import ErrorState from '../../../components/ErrorState.svelte';
   import { BarChart, Donut } from '../../../components/charts';
-  import StackedBarH from '../../../components/charts/StackedBarH.svelte';
   import type { Ink } from '../../../components/charts/theme.svelte';
   import { compact } from '../../../components/charts/scale';
   import { currency, cv, cvRow } from '../fmt.svelte';
@@ -53,10 +52,11 @@
   });
   const chartRows = () => [['Day', `Sales (${currency.code})`, `Profit (${currency.code})`], ...chart.labels.map((l, i) => [l, chart.sales[i] == null ? '' : Math.round(chart.sales[i]! * 100) / 100, chart.profit[i] == null ? '' : Math.round(chart.profit[i]! * 100) / 100])];
   const chartTotal = $derived({ sales: chart.sales.reduce((a: number, v) => a + (v ?? 0), 0), profit: chart.profit.reduce((a: number, v) => a + (v ?? 0), 0) });
+  // Revenue is the money taken. Cost of sales is what those sales cost. Profit is what remains.
   const mix = $derived.by(() => {
-    const sales = Math.max(0, chartTotal.sales);
-    const profit = Math.max(0, Math.min(chartTotal.profit, sales));
-    return { sales, profit, costs: Math.max(0, sales - profit) };
+    const revenue = Math.max(0, chartTotal.sales);
+    const profit = Math.max(0, Math.min(chartTotal.profit, revenue));
+    return { revenue, cost: Math.max(0, revenue - profit), profit };
   });
 
   const ICON: Record<TodayDecision['key'], typeof Truck> = { approvals: HandCoins, trucks: Truck, fees: Banknote, stock: Package, acks: Inbox, prices: Tag };
@@ -205,8 +205,8 @@
 
   <div class="graphs">
     <div>
-      <TodayCard title="Sales and profit" caption="{currency.code} · total {compact(chartTotal.sales)} sales, {compact(chartTotal.profit)} profit" updatedAt={res?.freshness ?? null} rows={chartRows} filename="sales-and-profit" empty={mix.sales <= 0.5} viewToggle>
-        <StackedBarH label="Sales and profit" categories={['This period']} parts={[{ name: 'Costs', values: [mix.costs], ink: 'navy' }, { name: 'Profit', values: [mix.profit], ink: 'teal' }]} format={(n) => `${currency.code} ${axisFmt(n)}`} height={200} />
+      <TodayCard title="Revenue, sales and profit" caption="{currency.code} · revenue {compact(mix.revenue)}, cost of sales {compact(mix.cost)}, profit {compact(mix.profit)}" updatedAt={res?.freshness ?? null} rows={chartRows} filename="revenue-sales-profit" empty={mix.revenue <= 0.5 && mix.profit <= 0.5} viewToggle>
+        <BarChart label="Revenue, sales and profit" categories={['Revenue', 'Cost of sales', 'Profit']} series={[{ name: 'Revenue', values: [mix.revenue, 0, 0], ink: 'navy' }, { name: 'Cost of sales', values: [0, mix.cost, 0], ink: 'cost' }, { name: 'Profit', values: [0, 0, mix.profit], ink: 'good' }]} stacked format={(n) => `${currency.code} ${axisFmt(n)}`} height={240} />
       </TodayCard>
     </div>
     <div>
@@ -288,8 +288,31 @@
   .dec li:first-child { border-top: 0; }
   .dec a { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto auto 14px; align-items: center; gap: var(--space-2); padding: 8px 0; color: var(--text-on-primary); text-decoration: none; }
   .dec a:hover b { text-decoration: underline; }
-  .dec .ic, .st, .ct b, .dec :global(.chev) { color: var(--on-primary-accent); }
-  .dec .ic { display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-md); background: transparent; }
+  .dec :global(.chev) { color: var(--text-on-primary-muted); }
+  .dec .ic { display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-md); background: color-mix(in srgb, currentColor 18%, transparent); }
+  /* Urgency, read on the navy card in light mode and the blue card in dark mode. */
+  .dec .sev-critical .ic, .dec .sev-critical .st, .dec .sev-critical .ct b { color: color-mix(in srgb, var(--danger) 62%, white); }
+  .dec .sev-high .ic, .dec .sev-high .st, .dec .sev-high .ct b { color: var(--warning-solid); }
+  .dec .sev-medium .ic, .dec .sev-medium .st, .dec .sev-medium .ct b { color: color-mix(in srgb, var(--warning-solid) 68%, white); }
+  .dec .sev-low .ic, .dec .sev-low .st, .dec .sev-low .ct b { color: color-mix(in srgb, var(--success) 52%, white); }
+  :global([data-theme='dark']) .dec .sev-critical .ic, :global([data-theme='dark']) .dec .sev-critical .st, :global([data-theme='dark']) .dec .sev-critical .ct b { color: var(--danger); }
+  :global([data-theme='dark']) .dec .sev-high .ic, :global([data-theme='dark']) .dec .sev-high .st, :global([data-theme='dark']) .dec .sev-high .ct b { color: var(--warning-solid); }
+  :global([data-theme='dark']) .dec .sev-medium .ic, :global([data-theme='dark']) .dec .sev-medium .st, :global([data-theme='dark']) .dec .sev-medium .ct b { color: var(--on-primary-accent); }
+  :global([data-theme='dark']) .dec .sev-low .ic, :global([data-theme='dark']) .dec .sev-low .st, :global([data-theme='dark']) .dec .sev-low .ct b { color: var(--success); }
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme='light'])) .dec .sev-critical .ic,
+    :global(:root:not([data-theme='light'])) .dec .sev-critical .st,
+    :global(:root:not([data-theme='light'])) .dec .sev-critical .ct b { color: var(--danger); }
+    :global(:root:not([data-theme='light'])) .dec .sev-high .ic,
+    :global(:root:not([data-theme='light'])) .dec .sev-high .st,
+    :global(:root:not([data-theme='light'])) .dec .sev-high .ct b { color: var(--warning-solid); }
+    :global(:root:not([data-theme='light'])) .dec .sev-medium .ic,
+    :global(:root:not([data-theme='light'])) .dec .sev-medium .st,
+    :global(:root:not([data-theme='light'])) .dec .sev-medium .ct b { color: var(--on-primary-accent); }
+    :global(:root:not([data-theme='light'])) .dec .sev-low .ic,
+    :global(:root:not([data-theme='light'])) .dec .sev-low .st,
+    :global(:root:not([data-theme='light'])) .dec .sev-low .ct b { color: var(--success); }
+  }
   .tx { display: flex; flex-direction: column; min-width: 0; font-size: 11px; color: var(--text-on-primary-muted); }
   .tx b { font-size: 13px; font-weight: 600; color: var(--text-on-primary); line-height: 1.3; }
   .tx > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
