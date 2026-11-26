@@ -64,8 +64,10 @@
 <div class="page-head">
   <div><div class="overline crumb">{roleText(user.roles)}{groupView ? ' · Group view (read-only)' : ''}</div>
     <h1>Good {hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening'}, {user.name.split(' ')[0]}</h1>
-    <p class="caption">{tabs.find((t) => t.key === active)?.blurb ?? ''}</p></div>
+    {#if active !== 'mine'}<p class="caption">{tabs.find((t) => t.key === active)?.blurb ?? ''}</p>{/if}</div>
   <div class="head-actions">
+    <!-- V3-11a: My dashboards puts its filter toolbar here, at the right of the greeting (lib/portal.ts) -->
+    <div id="home-head-tools" class="head-tools"></div>
     {#if showFilterBar}
       <button type="button" class="btn btn-secondary btn-sm icon-only" aria-expanded={filterOpen} aria-label="Filters" onclick={() => (filterOpen = true)}>
         <SlidersHorizontal size={16} aria-hidden="true" />
@@ -103,6 +105,7 @@
 
 <style>
   .head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .head-tools { display: contents; }
   .fchip { font-size: 12px; font-weight: 600; color: var(--text-muted); padding: 2px 10px; border-radius: var(--radius-full); border: 1px solid var(--border); background: var(--surface-sunken); }
   .icon-only { gap: 0; padding-inline: var(--space-2); }
 </style>

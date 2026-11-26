@@ -14,6 +14,7 @@
   import { CODES, currency, setCurrency, cv, cvRow, pctF } from '../fmt.svelte';
   import { DEFAULT_PERIOD, PERIODS, datesOf, type PeriodKey } from '../period';
   import FilterPanel from '../FilterPanel.svelte';
+  import { portal } from '../../../lib/portal';
   import TodayCard from './TodayCard.svelte';
   import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
   import ArrowDownRight from '@lucide/svelte/icons/arrow-down-right';
@@ -119,7 +120,7 @@
   }
 </script>
 
-<div class="toolbar">
+<div class="toolbar" use:portal={'home-head-tools'}>
   <button type="button" class="btn btn-ghost btn-sm filt" class:on={filtersOpen || filtersActive} aria-expanded={filtersOpen} aria-haspopup="dialog" onclick={() => (filtersOpen = true)} title="Filters">
     <SlidersHorizontal size={16} aria-hidden="true" />
     <span class="sr">Filters</span>
@@ -304,7 +305,8 @@
   @media (prefers-color-scheme: dark) { :global(:root:not([data-theme='light'])) { --t-sales: #9bb6d6; --t-profit: #3dbe8a; } }
   :global(:root[data-theme='dark']) { --t-sales: #9bb6d6; --t-profit: #3dbe8a; }
 
-  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin: 0 0 var(--space-5); }
+  /* V3-11a: shown at the right of the greeting (portal into Home's header) */
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2) var(--space-3); margin: 0; }
   .filt { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); }
   .filt.on { border-color: var(--border-strong); background: var(--surface-sunken); }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
