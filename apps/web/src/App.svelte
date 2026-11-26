@@ -164,7 +164,7 @@
     <div class="main">
       <!-- SB-5: modern top bar: toggle + page title on the left; theme, alerts, account on the right -->
       <header class="top" class:scrolled>
-        <button class="ibtn" onclick={toggleNav} aria-controls="side" aria-expanded={isPhone ? navOpen : !sidebar.collapsed}
+        <button class="ibtn menu" onclick={toggleNav} aria-controls="side" aria-expanded={isPhone ? navOpen : !sidebar.collapsed}
           aria-label={toggleLabel} title="{toggleLabel} (Ctrl+B)">
           {#if isPhone ? !navOpen : sidebar.collapsed}<PanelLeftOpen size={20} />{:else}<PanelLeftClose size={20} />{/if}
         </button>
@@ -243,16 +243,18 @@
   .rail .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .side-foot { margin-top: auto; padding: var(--space-4); color: var(--nav-text-muted); }
   .main { min-width: 0; display: flex; flex-direction: column; }
-  /* SB-5 top bar */
-  .top { display: flex; align-items: center; gap: var(--space-2); height: 60px; padding: 0 var(--space-6); position: sticky; top: 0; z-index: 10; background: var(--bg); border-bottom: 1px solid transparent; transition: box-shadow var(--motion-base) var(--motion-easing); }
+  /* SB-5 top bar: a solid bar on the page grey, with the menu control as a blue circle */
+  .top { display: flex; align-items: center; gap: var(--space-3); height: 64px; padding: 0 var(--space-6); position: sticky; top: 0; z-index: 10; background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: var(--elevation-1); }
   .top.scrolled { box-shadow: var(--elevation-2); }
   .ibtn { position: relative; display: inline-grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: 10px; background: transparent; color: var(--text-muted); cursor: pointer; text-decoration: none; transition: background var(--motion-fast) var(--motion-easing), color var(--motion-fast) var(--motion-easing); }
   .ibtn:hover { background: var(--surface-sunken); color: var(--text); text-decoration: none; }
+  .ibtn.menu { width: 36px; height: 36px; border-radius: 50%; background: var(--nav); color: var(--nav-strong); }
+  .ibtn.menu:hover { background: var(--nav-hover); color: var(--nav-strong); }
   .ttl { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; margin-left: var(--space-1); }
   .crumb { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-subtle); }
   .pt { font: 700 17px/1.25 var(--ff-display); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .scope { color: var(--text-muted); max-width: 32ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bell .dotcount { position: absolute; top: 3px; right: 1px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: grid; place-items: center; background: var(--danger-solid); color: var(--text-on-danger); font: 700 10.5px/1 var(--ff-body); box-shadow: 0 0 0 2px var(--bg); }
+  .bell .dotcount { position: absolute; top: 3px; right: 1px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: grid; place-items: center; background: var(--danger-solid); color: var(--text-on-danger); font: 700 10.5px/1 var(--ff-body); box-shadow: 0 0 0 2px var(--surface); }
   .acct { display: flex; align-items: center; gap: var(--space-2); padding: 4px 10px 4px 4px; margin-left: var(--space-1); border: 1px solid var(--border); border-radius: 999px; background: var(--surface); }
   .av { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--primary-subtle); color: var(--link); font: 700 12px/1 var(--ff-body); }
   .who { display: flex; flex-direction: column; line-height: 1.15; }
