@@ -176,15 +176,16 @@
   nav { display: flex; flex-direction: column; padding: 0 var(--space-2) var(--space-4); }
   .group { color: var(--nav-text-muted); padding: var(--space-4) var(--space-3) var(--space-1); }
   nav a { display: flex; align-items: center; gap: var(--space-3); color: var(--nav-text); padding: 9px var(--space-3); border-radius: var(--radius-md); border-left: 3px solid transparent; font-weight: 500; text-decoration: none; }
-  nav a:hover { background: var(--nav-active-bg); }
-  nav a.active { background: var(--nav-active-bg); border-left-color: var(--nav-indicator); }
+  nav a:hover { background: var(--nav-hover); color: var(--nav-strong); }
+  nav a.active { background: var(--nav-active-bg); color: var(--nav-strong); font-weight: 600; border-left-color: var(--nav-indicator); }
   .side-foot { margin-top: auto; padding: var(--space-4); color: var(--nav-text-muted); }
   .main { min-width: 0; display: flex; flex-direction: column; }
   .top { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-6); background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
   .who { text-align: right; line-height: 1.2; padding: 0 var(--space-2); }
   .bell { position: relative; }
   .dotcount { position: absolute; top: 2px; right: 2px; background: var(--accent); color: var(--text-on-accent); border-radius: 9px; font-size: 10px; min-width: 16px; height: 16px; display: grid; place-items: center; padding: 0 4px; }
-  .content { padding: var(--space-6); max-width: 1440px; width: 100%; }
+  /* v3: content centred with equal margins (docs/23 §5) */
+  .content { padding: var(--space-6); max-width: 1320px; width: 100%; margin-inline: auto; }
   .burger, .scrim { display: none; }
   .scrim { position: fixed; inset: 0; z-index: 40; background: rgb(4 21 43 / .5); border: 0; }
   @media (max-width: 900px) {
