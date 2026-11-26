@@ -4,39 +4,34 @@
   import ExportMenu from '../../../components/dashboard/ExportMenu.svelte';
   import type { Rows } from '../../../components/dashboard/export/meta';
   import { freshnessText } from '../../../components/dashboard/Freshness.svelte';
-  import InfoTip from '../../../components/page/InfoTip.svelte';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import CircleDashed from '@lucide/svelte/icons/circle-dashed';
   import ChartIcon from '@lucide/svelte/icons/chart-column';
   import TableIcon from '@lucide/svelte/icons/table-2';
   let {
     title, definition = '', caption = '', decision = '', updatedAt, rows, filename, drill, empty = false, emptyText = 'No data yet',
-    actions, children, tableView, flush = false, viewToggle = false,
+    actions, children, tableView, flush = false, viewToggle = false, tone = 'default',
   }: {
     title: string; definition?: string; caption?: string; decision?: string; updatedAt?: string | null;
     rows?: () => Rows; filename?: string; drill?: { label: string; href: string };
     empty?: boolean; emptyText?: string; actions?: Snippet; children: Snippet; tableView?: Snippet;
     flush?: boolean; /** show chart | table icon pair when rows + tableView exist */ viewToggle?: boolean;
+    tone?: 'default' | 'primary';
   } = $props();
   const uid = `tc-${Math.random().toString(36).slice(2, 8)}`;
   let table = $state(false);
   let body = $state<HTMLDivElement>();
-  let now = $state(Date.now());
-  $effect(() => { const id = setInterval(() => (now = Date.now()), 30_000); return () => clearInterval(id); });
   const name = $derived(filename ?? title.toLowerCase().replace(/\W+/g, '-').replace(/^-|-$/g, ''));
-  const stale = $derived(updatedAt != null && now - +new Date(updatedAt) > 30 * 24 * 60 * 60000);
-  const infoLines = $derived([caption, definition, updatedAt !== undefined ? freshnessText(updatedAt, 'updated', now) : ''].filter((x): x is string => !!x));
   const canToggle = $derived(viewToggle && !!rows && !!tableView && !empty);
   const data = $derived(rows ? rows() : []);
   const isNum = (v: unknown) => typeof v === 'number';
+  $effect(() => { decision; });
 </script>
 
-<section class="tc" aria-labelledby="{uid}-t">
+<section class="tc" class:primary={tone === 'primary'} aria-labelledby="{uid}-t">
   <header>
     <div class="ttl">
       <h3 id="{uid}-t">{title}</h3>
-      {#if infoLines.length}<InfoTip lines={infoLines} label="About {title}" mark={stale} size={15} />{/if}
-      {#if decision}<InfoTip kind="alert" text={decision} label="Recommendation" size={15} />{/if}
     </div>
     <div class="tools">
       {@render actions?.()}
@@ -64,7 +59,11 @@
 </section>
 
 <style>
-  .tc { display: flex; flex-direction: column; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--elevation-1); padding: var(--space-5) var(--space-6); }
+  .tc { display: flex; flex-direction: column; min-width: 0; height: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--elevation-1); padding: var(--space-5) var(--space-6); }
+  .tc.primary { background: var(--primary); color: var(--text-on-primary); border-color: transparent; }
+  .tc.primary h3, .tc.primary .drill { color: var(--text-on-primary); }
+  .tc.primary .vt, .tc.primary .vbtn { border-color: color-mix(in srgb, var(--text-on-primary) 28%, transparent); color: var(--text-on-primary); }
+  .tc.primary .vbtn[aria-pressed='true'] { background: color-mix(in srgb, var(--text-on-primary) 16%, transparent); color: var(--text-on-primary); }
   header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: 32px; }
   .ttl { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1 1 auto; }
   h3 { font-size: 16px; line-height: 1.3; font-weight: 700; margin: 0; min-width: 0; font-family: var(--font-display, inherit); }

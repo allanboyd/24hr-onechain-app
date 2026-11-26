@@ -236,7 +236,8 @@
   .grp { display: flex; flex-direction: column; gap: 2px; }
   nav a { position: relative; display: flex; align-items: center; gap: var(--space-3); color: var(--nav-text); padding: 9px var(--space-3); border-radius: 10px; font-weight: 500; text-decoration: none; white-space: nowrap; transition: background var(--motion-fast) var(--motion-easing), color var(--motion-fast) var(--motion-easing); }
   nav a:hover { background: var(--nav-hover); color: var(--nav-strong); text-decoration: none; }
-  nav a.active { background: var(--nav-active-bg); color: var(--nav-strong); font-weight: 600; box-shadow: inset 3px 0 0 var(--nav-indicator); }
+  nav a.active { background: var(--nav-active-bg); color: var(--nav-strong); font-weight: 600; }
+  nav a.active::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; background: var(--nav-indicator); }
   nav a :global(svg) { flex: none; }
   .rail nav a { justify-content: center; padding: 10px 0; }
   .rail .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

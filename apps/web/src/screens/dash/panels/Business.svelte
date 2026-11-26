@@ -40,17 +40,6 @@
     const inkOf: Record<string, Ink> = { 'Goods cost': 'navy', 'Truck cost': 'teal', 'Warehouse share': 'warn', 'Other costs': 'slate', Profit: 'good' };
     return wf.filter((s: { label: string; value: number }) => s !== sales && Math.abs(s.value) > 0).map((s: { label: string; value: number }) => ({ label: s.label, value: Math.round((Math.abs(s.value) / base) * 1000) / 10, ink: inkOf[s.label] }));
   });
-  const why = $derived.by(() => {
-    if (key !== 'profit-margin') return '';
-    const ms = (d?.months ?? []).filter((m: { revenue: number }) => m.revenue);
-    const a = ms.at(-1) as { month: string; profit: number; revenue: number } | undefined;
-    const b = ms.at(-2) as { month: string; profit: number } | undefined;
-    if (!a || !b) return '';
-    const diff = a.profit - b.profit;
-    const recent = ms.slice(-3) as { revenue: number }[];
-    const avg = recent.reduce((s, m) => s + m.revenue, 0) / recent.length;
-    return `Profit in ${monthLabel(a.month)} is ${money(a.profit)}, ${diff >= 0 ? 'up' : 'down'} ${money(Math.abs(diff))} from ${monthLabel(b.month)}. If the last ${recent.length} months hold, sales next month are near ${money(avg)}.`;
-  });
   const mRows = () => [['Month', `Sales (${currency.code})`, `Goods cost (${currency.code})`, `Truck + warehouse + other (${currency.code})`, `Profit (${currency.code})`, 'Margin'], ...(d.months ?? []).map((m: any) => [m.month, cvRow(m.revenue), cvRow(m.goods), cvRow(m.expenses), cvRow(m.profit), m.margin == null ? '' : pctF(m.margin)])];
   // ── landed cost ──
   const lpRows = () => [['Product', 'Cases received', `Goods (${currency.code}/case)`, `Truck (${currency.code}/case)`, `Warehouse (${currency.code}/case)`, `Landed (${currency.code}/case)`], ...(d.rows ?? []).map((x: any) => [x.label, x.qty, cvRow(x.goods), cvRow(x.truck), cvRow(x.warehouse), cvRow(x.total)])];
@@ -131,8 +120,6 @@
         {/if}
       </div>
     </div>
-    {#if why}<p class="caption">{why}</p>{/if}
-    {#if d.estimated}<p class="caption">Part of the cost of units sold is estimated (products with no landed cost yet).</p>{/if}
   </DashboardPanel>
   <DashboardPanel span={span ?? 1} subtitle="sales in navy, profit in green" decision="Protect the months where profit is falling." {...fr} title="Sales and profit by month" period="Last 6 months" rows={mRows} filename="sales-and-profit-by-month" empty={!(d.months ?? []).some((m: any) => m.revenue)}>
     <BarChart label="Sales and profit by month" categories={(d.months ?? []).map((m: any) => monthLabel(m.month))} series={[{ name: 'Sales', values: d.months.map((m: any) => m.revenue), ink: 'navy' }, { name: 'Profit', values: d.months.map((m: any) => Math.max(0, m.profit)), ink: 'good' }]} format={money} labels={false} />
@@ -148,7 +135,6 @@
 {:else if key === 'landed-truck'}
   <DashboardPanel span={span ?? 1} subtitle="all trip costs by category" decision="Open every trip flagged above average." {...fr} title={r.title} rows={ltRows} filename="landed-cost-per-truck" {drill}>
     <BarChart label="Trip costs per truck by category" horizontal stacked categories={ltTop.map((x: any) => x.truck)} series={(d.kinds ?? []).map((k: string) => ({ name: k, values: ltTop.map((x: any) => x.byKind[k] ?? 0) }))} format={money} />
-    <p class="caption">Average {money2(d.avgPerCase)} per case.</p>
   </DashboardPanel>
 {:else if key === 'selling-price'}
   <DashboardPanel span={span ?? 1} subtitle="margin at today's prices against the target" decision="Raise prices, or stop selling, on lines below target." {...fr} title={r.title} rows={spRows} filename="selling-price-margin" drill={{ label: 'Open the target-margin calculator', href: '#/selling-prices' }}>
@@ -165,7 +151,6 @@
     <QuadrantScatter label="Products by sales speed and days of stock" points={d.points ?? []} {groups} xLabel="Sales speed (cases/day)" yLabel="Days of stock" xThreshold={d.xThreshold ?? undefined} yThreshold={d.yThreshold}
       quadrants={{ topLeft: { label: 'Slow & overstocked', status: 'bad' }, topRight: { label: 'Fast, well stocked', status: 'good' }, bottomLeft: { label: 'Slow, little stock', status: 'none' }, bottomRight: { label: 'Fast & running low', status: 'warn' } }}
       formatX={(n) => `${n}/day`} formatY={(n) => `${n} d`} sizeLabel="Stock value {currency.code}" onselect={() => go('#/stock')} />
-    {#if d.noSales?.length}<p class="caption">{d.noSales.length} product{d.noSales.length === 1 ? '' : 's'} with stock and no sales in the period (not plotted): {d.noSales.slice(0, 4).map((x: any) => x.label).join(', ')}{d.noSales.length > 4 ? '…' : ''}</p>{/if}
   </DashboardPanel>
 {/if}
 

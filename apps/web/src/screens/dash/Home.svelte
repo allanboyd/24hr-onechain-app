@@ -35,7 +35,7 @@
   };
   const placed = (k: string) => HOME_TAB[k as keyof typeof HOME_TAB] ?? dashDef(k)?.group ?? '';
   const tabs = $derived<Tab[]>([
-    { key: 'mine', label: 'My dashboards', blurb: home.includes('director-today') ? 'What needs a decision, and where the business stands.' : home.includes('warehouse-today') ? 'Today at the warehouse: what to sign, what arrives this week, what is running out.' : home.includes('order-this-week') ? 'What to order this week, then the pipeline and open orders.' : 'Your own set: only the companies, suppliers, routes and warehouses you work on.' },
+    { key: 'mine', label: 'Overview', blurb: '' },
     ...DASH_GROUPS.filter((g) => mine.some((d) => placed(d.key) === g.key)).map((g) => ({ key: g.key as string, label: SHORT[g.key] ?? g.label, blurb: ROOM_BLURB[g.key] ?? `${g.label}: ${g.blurb}` })),
     ...(director && groupView ? [{ key: 'companies', label: 'Companies', blurb: 'BTW, Nihna and Kivu compared on the same measures.' }] : []),
   ]);
@@ -47,18 +47,14 @@
   const hrefOf = (k: string) => (k === 'mine' ? '#/' : `#/dashboards/${k}`);
   let filter = $state<DashFilter>(datesOf(DEFAULT_PERIOD));
   let options = $state<DashResponse['options'] | null>(null);
-  const showFilterBar = $derived.by(() => {
-    if (active === 'companies') return false;
-    if (active === 'mine' && home.includes('director-today')) return false;
-    return panelKeys.length > 0 || analysisKeys.length > 0;
-  });
+  const showFilterBar = $derived(active !== 'companies' && (panelKeys.length > 0 || analysisKeys.length > 0 || (active === 'mine' && home.includes('director-today'))));
   const hour = new Date().getHours();
 </script>
 
 <div class="page-head">
   <div><div class="overline crumb">{roleText(user.roles)}{groupView ? ' · Group view' : ''}</div>
     <h1>Good {hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening'}, {user.name.split(' ')[0]}</h1>
-    {#if active !== 'mine'}<p class="caption">{tabs.find((t) => t.key === active)?.blurb ?? ''}</p>{/if}</div>
+    </div>
     <div class="head-actions">
     <!-- V3-11a: My dashboards puts its filter toolbar here, at the right of the greeting (lib/portal.ts) -->
     <div id="home-head-tools" class="head-tools"></div>
@@ -75,7 +71,8 @@
 {#if active === 'companies'}
   {#await import('../../components/group/GroupDashboard.svelte') then m}<m.default {user} embedded />{/await}
 {:else if active === 'mine' && home.includes('director-today')}
-  {#await import('./today/Today.svelte') then m}<m.default />{/await}
+  <Filters bind:filter {options} money={director} />
+  {#await import('./today/Today.svelte') then m}<m.default {filter} onload={(o) => (options = o)} />{/await}
 {:else if !panelKeys.length && !analysisKeys.length}
   <div class="card empty"><h2>No dashboards for your role yet</h2><p class="small">Use the menu to open your work.</p></div>
 {:else}
