@@ -4,8 +4,9 @@ const out = process.argv[2];
 const w = (s, ms = 900) => s.page.waitForTimeout(ms);
 /** Switch the active company the way a user does (top-bar switcher). */
 async function company(s, word) {
-  const v = await s.page.$$eval('select[aria-label="Company"] option', (os, x) => os.find((o) => o.textContent.includes(x))?.value, word);
-  await s.page.selectOption('select[aria-label="Company"]', v); await w(s, 1800);
+  // V3-1b: the company select is a listbox in the sidebar (button "Company: …" → option)
+  await s.page.getByRole('button', { name: /^Company:/ }).click();
+  await s.page.getByRole('option', { name: new RegExp(word) }).first().click(); await w(s, 1800);
 }
 async function firstPo(s) { await s.go('/pos', 1200); await s.page.locator('a[href^="#/pos/"]').first().click(); await w(s, 1800); }
 
