@@ -47,8 +47,15 @@ const recs = p.locator('.mrep .dt-table tbody tr[data-dt-row]'); const r0 = awai
 await p.locator('.mrep .dt-search input').fill('Walk-in'); await p.waitForTimeout(500);
 ok(r0 > 0 && (await p.locator('.mrep .dt-table tbody tr[data-dt-row] td:nth-child(3)').allTextContents()).every((t) => /Walk-in/i.test(t)), 'Clients: the sales records search by client');
 await p.screenshot({ path: `${out}/mgmt-clients-live.png`, fullPage: true });
+// V3-10 step 3b: Warehouse performance on live data
+await p.goto(`${base}#/management/perf`); await p.locator('.mrep .kpi .val').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(1000);
+ok(await p.locator('iframe[title^="Management report"]').count() === 0 && await p.locator('.mrep .wh').count() >= 2, 'Performance: our page, warehouses side by side');
+const profits = await p.locator('.mrep .wh').evaluateAll((ws) => ws.map((w) => Number((w.querySelectorAll('.row2')[1]?.lastElementChild?.textContent ?? '').replace(/[^\d-]/g, ''))));
+ok(profits.every((x, i, a) => i === 0 || a[i - 1] >= x), `Performance: most profitable first (${profits.join(', ')})`);
+ok(await p.locator('.mrep .dt-table tbody tr[data-dt-row]').count() > 0 && !(await p.locator('.mrep').innerText()).match(/\bp-[a-z]\d{3}\b|\bw-[a-z]+\b/), 'Performance: price floor rows, names not codes');
+await p.screenshot({ path: `${out}/mgmt-perf-live.png`, fullPage: true });
 for (const [k, title] of Object.entries(PAGES)) {
-  if (k === 'overview' || k === 'plans' || k === 'clients') continue; // rebuilt in our code (V3-10), checked above
+  if (['overview', 'plans', 'clients', 'perf'].includes(k)) continue; // rebuilt in our code (V3-10), checked above
   await p.goto(`${base}#/management/${k}`); await p.waitForTimeout(2200);
   const f = p.frameLocator('iframe[title^="Management report"]');
   const h1 = (await f.locator('main h1').first().textContent().catch(() => ''))?.trim();

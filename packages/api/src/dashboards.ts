@@ -54,7 +54,7 @@ export type DashKey =
   | 'orders-analysis' | 'plan-vs-actual-report' | 'purchase-planning' | 'loading-queues' | 'shipment-analysis' | 'logistics-report'
   | 'trip-costs' | 'finance-report' | 'stock-analysis' | 'inventory-report' | 'sales-velocity' | 'sales-report' | 'quarterly-review'
   // design v3 Management pages on live data (V3-10): same data, scoping and builders as the dashboards above
-  | 'mgmt-overview' | 'mgmt-plans' | 'mgmt-clients';
+  | 'mgmt-overview' | 'mgmt-plans' | 'mgmt-clients' | 'mgmt-perf';
 export interface DashDef {
   key: DashKey; id: string; title: string; group: DashGroup; who: Who[];
   /** the business question it answers */ question: string; /** the visual */ visual: string;
@@ -66,6 +66,7 @@ export interface DashDef {
 const d = (key: DashKey, id: string, title: string, group: DashGroup, who: Who[], question: string, visual: string, link?: string, client?: boolean): DashDef => ({ key, id, title, group, who, question, visual, link, client });
 const a = (key: DashKey, title: string, group: DashGroup, who: Who[], features: FeatureKey[], question: string, visual: string, link: string): DashDef => ({ key, id: 'F-2', title, group, who, question, visual, link, client: true, analysis: true, features });
 export const DASHBOARDS: DashDef[] = [
+  { key: 'mgmt-perf', id: 'M-07', title: 'Warehouse performance', group: 'management', who: ['dir'], features: ['reports'], question: 'Which warehouse makes the most profit, and are we selling above the safe price?', visual: 'Warehouses side by side, headline numbers, profit waterfall, plan vs actual, margin and profit per case by month, price floor', link: '#/management/perf' },
   { key: 'mgmt-clients', id: 'M-04', title: 'Sales and clients', group: 'management', who: ['dir'], features: ['reports'], question: 'Who buys, how do they pay, and who owes us?', visual: 'KPIs, clients by frequency, how clients pay, balances within credit time vs overdue, sales records', link: '#/management/clients' },
   { key: 'mgmt-plans', id: 'M-03', title: 'Plans and orders', group: 'management', who: ['dir'], features: ['reports'], question: 'Are we ordering what we planned, by month and by brand?', visual: 'KPIs, planned vs PO issued by month, by brand', link: '#/management/plans' },
   { key: 'mgmt-overview', id: 'M-01', title: 'Overview', group: 'management', who: ['dir'], features: ['reports'], question: 'How does the company make profit, and what needs action first?', visual: 'KPI cards with sparklines, profit waterfall, act-on-these-first, sales and profit by month and warehouse, where each $100 went, best and weakest brands', link: '#/management/overview' },
@@ -644,6 +645,40 @@ function mgmtClients(c: Ctx): Out {
     currency: 'USD', unit: 'USD', period: c.period, freshness: newest(sales.map((s) => s.at)), empty: !sales.length });
 }
 
+// ---- design v3 Management · Warehouse performance (V3-10 step 3b): performance report by warehouse + plans ------------
+export interface MgmtPerf {
+  targetMargin: number;
+  headline: { revenue: number | null; profit: number | null; margin: number | null; cases: number | null; profitPerCase: number | null; landedPerCase: number | null };
+  warehouses: { warehouseId: ID; label: string; revenue: number; profit: number; margin: number | null; cases: number; profitPerCase: number | null }[];
+  waterfall: { label: string; value: number; kind: 'total' | 'step' }[];
+  plan: { planned: number; ordered: number; months: { month: string; planned: number; ordered: number }[] };
+  months: { month: string; profit: number; margin: number | null; profitPerCase: number | null }[];
+  floor: { productId: ID; label: string; landedPerCase: number | null; floor: number | null; avgPrice: number | null; sellingPrice: number | null; below: boolean }[];
+}
+function mgmtPerf(c: Ctx): Out {
+  const n = names(c.src);
+  const whLabel = (id: ID) => { const w = c.src.warehouses.find((x) => x.id === id) as { country?: string; town?: string } | undefined; return w?.country && w?.town ? `${w.country} – ${w.town}` : n.warehouse(id); };
+  const cur = perf(c, c.from, c.to), wh = perf(c, c.from, c.to, 'warehouse');
+  const T = cur?.totals;
+  const ppc = (profit: number, cases: number) => (cases > 0 ? r2(profit / cases) : null);
+  const pv = plannedVsActual({ ...c.src, periodPlans: c.src.periodPlans ?? [], pvThresholds: c.raw.pvThresholds } as unknown as ReportData,
+    { from: iso(c.from), to: iso(c.to), entityId: c.f.entityId, warehouseId: c.f.warehouseId } as Parameters<typeof plannedVsActual>[1]);
+  const data: MgmtPerf = {
+    targetMargin: cur?.targetMargin ?? 0.2,
+    headline: { revenue: T ? r2(T.revenue) : null, profit: T ? r2(T.profit) : null, margin: T?.margin ?? null, cases: T?.qtySold ?? null, profitPerCase: T ? ppc(T.profit, T.qtySold) : null, landedPerCase: T?.landedPerUnit ?? null },
+    warehouses: (wh?.rows ?? []).filter((r) => r.warehouseId).map((r) => ({ warehouseId: r.warehouseId!, label: whLabel(r.warehouseId!), revenue: r2(r.revenue), profit: r2(r.profit), margin: r.margin, cases: r.qtySold, profitPerCase: ppc(r.profit, r.qtySold) })).sort((a, b) => b.profit - a.profit),
+    waterfall: cur?.waterfall ?? [],
+    plan: { planned: pv.measures.planned, ordered: pv.measures.ordered, months: pv.months.map((m) => ({ month: m.month, planned: Math.round(m.planned), ordered: Math.round(m.ordered) })) },
+    months: months(c.now, 12).map((m) => { const r = perf(c, m.from, m.to)?.totals; return { month: m.key, profit: r2(r?.profit ?? 0), margin: r?.margin ?? null, profitPerCase: r ? ppc(r.profit, r.qtySold) : null }; }),
+    floor: (cur?.rows ?? []).filter((r) => r.productId && (r.qtySold > 0 || r.stockOnHand > 0)).map((r) => ({
+      productId: r.productId!, label: n.product(r.productId!), landedPerCase: r.landedPerUnit, floor: r.priceForTarget, avgPrice: r.avgSalePrice, sellingPrice: r.sellingPrice,
+      below: r.priceForTarget !== null && (r.sellingPrice ?? r.avgSalePrice) !== null && (r.sellingPrice ?? r.avgSalePrice)! < r.priceForTarget,
+    })).sort((a, b) => Number(b.below) - Number(a.below) || a.label.localeCompare(b.label)),
+  };
+  return out(data, { definition: `${PERFORMANCE_METHOD} Price floor = the price per case that keeps the target margin of ${Math.round(data.targetMargin * 100)}% over the landed cost (the same helper as Selling prices). Plan vs actual = the planned-vs-actual report.`,
+    currency: 'USD', unit: 'USD · cases', period: c.period, freshness: newest(c.usd.sales.map((s) => s.at)), empty: !T || (!T.revenue && !T.landedCost) });
+}
+
 function directorToday(c: Ctx): Out {
   const n = names(c.src); const now = c.now; const d0 = new Date(now);
   const dayStart = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate());
@@ -963,6 +998,7 @@ const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
   'mgmt-overview': mgmtOverview,
   'mgmt-plans': mgmtPlans,
   'mgmt-clients': mgmtClients,
+  'mgmt-perf': mgmtPerf,
   'warehouse-today': warehouseToday,
   'order-this-week': orderThisWeek,
   'stock-movements': stockMovements,
