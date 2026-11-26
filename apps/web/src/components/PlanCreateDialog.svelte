@@ -1,15 +1,14 @@
 <script lang="ts">
-  // New period plan, opened over the list. Three steps: company, the start month and length, then the name.
+  // New period plan, one form over the list. Month and year, then the length.
   // The end date is the start month plus the length (a quarter from January 2027 ends 31 March 2027).
   import type { User } from '@btw/api';
   import { router, say } from '@btw/ui';
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
-  import CompanyMark from './CompanyMark.svelte';
   import FormSelect from './FormSelect.svelte';
   import ReplaceDialog from './ReplaceDialog.svelte';
   import { company, GROUP, allowedIds } from '../lib/company.svelte';
-  import { allCompanies, companyBrand, companyLabel } from '../lib/companies';
-  import { canEditPeriodPlans, KIND_LABEL, monthsOf, periodLabel, periodPlans, planTotals, withReplace, type PeriodKind, type PeriodPlan } from '../lib/planning';
+  import { allCompanies, companyLabel } from '../lib/companies';
+  import { canEditPeriodPlans, monthsOf, periodLabel, periodPlans, withReplace, type PeriodKind, type PeriodPlan } from '../lib/planning';
 
   let { user, open = $bindable(false) }: { user: User; open?: boolean } = $props();
   const group = $derived(company.active === GROUP);
@@ -27,7 +26,6 @@
   ];
 
   let dlg = $state<HTMLDialogElement>();
-  let step = $state<1 | 2 | 3>(1);
   let picked = $state('');
   let kind = $state<PeriodKind>('quarter');
   let startM = $state(nextMonth.slice(5, 7));
@@ -43,7 +41,6 @@
 
   const entityId = $derived(lockedId || picked);
   const startMonth = $derived(`${startY}-${startM}`);
-  const co = $derived(entityId ? companyBrand(entityId) : null);
   function spanOf(k: PeriodKind, ym: string) {
     if (k === 'custom') return { from: customFrom, to: customTo };
     const y = +ym.slice(0, 4), m = +ym.slice(5, 7);
@@ -63,7 +60,7 @@
     if (open && !dlg.open) {
       const ym = nextMonth;
       const end = spanOf('quarter', ym).to;
-      step = 1; picked = lockedId; kind = 'quarter'; startY = ym.slice(0, 4); startM = ym.slice(5, 7);
+      picked = lockedId; kind = 'quarter'; startY = ym.slice(0, 4); startM = ym.slice(5, 7);
       customFrom = `${ym}-01`; customTo = end; title = ''; copyFrom = '';
       dlg.showModal();
     } else if (!open && dlg.open) dlg.close();
@@ -90,130 +87,80 @@
   }
 </script>
 
-{#snippet clash()}
-  <div class="clash" role="alert">
-    <TriangleAlert size={18} />
-    <div>
-      <strong>This period overlaps {overlaps.length} existing plan{overlaps.length === 1 ? '' : 's'}</strong>
-      <p>Change the month, the year, or the length.</p>
-      <ul>{#each overlaps as o (o.id)}<li>{o.ref} · {periodLabel(o)} · {planTotals(o).cases.toLocaleString()} cases</li>{/each}</ul>
-    </div>
-  </div>
-{/snippet}
-
 <dialog class="sheet plan" bind:this={dlg} onclose={close} aria-labelledby="plan-new-title">
   <form class="body" onsubmit={create}>
     <header class="top">
-      <div>
-        <p class="eyebrow">New period plan</p>
-        <h2 id="plan-new-title">{step === 1 ? 'Which company' : step === 2 ? 'When it runs' : 'Name the plan'}</h2>
-      </div>
+      <h2 id="plan-new-title">New period plan</h2>
       <button type="button" class="btn btn-ghost btn-sm" onclick={close}>Close</button>
     </header>
-    <ol class="steps" aria-label="Steps">
-      <li class:on={step === 1} class:done={step > 1}>1. Company</li>
-      <li class:on={step === 2} class:done={step > 2}>2. Period</li>
-      <li class:on={step === 3}>3. Name</li>
-    </ol>
-
-    {#if step === 1}
-      <p class="lead">{group ? 'Group view keeps every company. Choose which one this plan belongs to.' : 'This plan is recorded for the company you are in.'}</p>
+    <div class="grid2">
       {#if group}
         <label class="field"><span>Company</span>
           <FormSelect label="Company" bind:value={picked} placeholder="Choose a company" options={companies.map((c) => ({ value: c.id, label: `${companyLabel(c.id)} · ${c.name}` }))} />
         </label>
-      {:else if co}
-        <div class="co card"><CompanyMark entityId={entityId} size={32} /><div><strong>{co.name}</strong><span>{companyLabel(entityId)}</span></div></div>
       {/if}
-      <div class="row end">
-        <button type="button" class="btn btn-primary" disabled={!entityId} onclick={() => (step = 2)}>Continue</button>
-      </div>
-    {:else if step === 2}
-      <p class="lead">Pick the month and the year, then how long the plan runs. The end date is worked out from that.</p>
-      <div class="pair">
-        <label class="field"><span>Month</span>
-          <FormSelect label="Month" bind:value={startM} options={MONTHS} />
-        </label>
-        <label class="field"><span>Year</span>
-          <FormSelect label="Year" bind:value={startY} options={YEARS} />
-        </label>
-      </div>
-      <div class="field"><span>Length</span>
-        <div class="lengths" role="radiogroup" aria-label="Length">
-          {#each LENGTH as x (x.k)}
-            <button type="button" role="radio" aria-checked={kind === x.k} class:on={kind === x.k} onclick={() => (kind = x.k)}>
-              <span>{x.label}</span>
-              <small>{x.hint}</small>
-            </button>
-          {/each}
-        </div>
-      </div>
-      {#if kind === 'custom'}
-        <div class="form-grid">
-          <label class="field"><span>From</span><input class="input" type="date" bind:value={customFrom} /></label>
-          <label class="field"><span>To</span><input class="input" type="date" bind:value={customTo} /></label>
-        </div>
-      {/if}
-      <p class="when">
-        <strong>{valid ? label : 'Choose a valid period'}</strong>
-        <span>{valid ? `${day(period.from)} to ${day(period.to)}` : '-'} · {monthCount} {monthCount === 1 ? 'month' : 'months'}</span>
-        {#if kind !== 'custom' && valid}<span>Ends {day(period.to)}</span>{/if}
-      </p>
-      {#if overlaps.length}
-        {@render clash()}
-      {/if}
-      <div class="row end">
-        <button type="button" class="btn btn-ghost" onclick={() => (step = 1)}>Back</button>
-        <button type="button" class="btn btn-primary" disabled={!valid || overlaps.length > 0} onclick={() => (step = 3)}>Continue</button>
-      </div>
-    {:else}
-      <p class="when"><strong>{label}</strong><span>{companyLabel(entityId)} · {day(period.from)} to {day(period.to)} · {KIND_LABEL[kind]}</span></p>
-      <label class="field"><span>Title</span><input class="input" bind:value={title} placeholder={`${companyLabel(entityId)} ${label}`} /></label>
-      <label class="field"><span>Copy lines</span>
-        <FormSelect label="Copy lines" bind:value={copyFrom} options={[{ value: '', label: 'No lines yet' }, ...earlier.map((p) => ({ value: p.id, label: `${p.ref} · ${periodLabel(p)} · ${p.lines.length} lines` }))]} />
-        <span class="hint">No lines yet means you add the products on the next screen. Pick an earlier plan only when you want its lines copied.</span>
+      <label class="field" class:wide={!group}><span>Title</span><input class="input" bind:value={title} placeholder={entityId ? `${companyLabel(entityId)} ${label}` : 'Plan title'} /></label>
+    </div>
+    <div class="pair">
+      <label class="field"><span>Month</span>
+        <FormSelect label="Month" bind:value={startM} options={MONTHS} />
       </label>
-      {#if overlaps.length}
-        {@render clash()}
-      {/if}
-      {#if !canCreate}<p class="error">Only planners, directors and admins create period plans.</p>{/if}
-      <div class="row end">
-        <button type="button" class="btn btn-ghost" onclick={() => (step = 2)}>Back</button>
-        <button class="btn btn-primary" disabled={busy || !canCreate || !entityId || !valid || overlaps.length > 0}>{busy ? 'Saving' : copyFrom ? 'Copy into a new plan' : 'Create plan'}</button>
+      <label class="field"><span>Year</span>
+        <FormSelect label="Year" bind:value={startY} options={YEARS} />
+      </label>
+    </div>
+    <div class="field"><span>Length</span>
+      <div class="lengths" role="radiogroup" aria-label="Length">
+        {#each LENGTH as x (x.k)}
+          <button type="button" role="radio" aria-checked={kind === x.k} class:on={kind === x.k} onclick={() => (kind = x.k)}>
+            <span>{x.label}</span><small>{x.hint}</small>
+          </button>
+        {/each}
+      </div>
+    </div>
+    {#if kind === 'custom'}
+      <div class="pair">
+        <label class="field"><span>From</span><input class="input" type="date" bind:value={customFrom} /></label>
+        <label class="field"><span>To</span><input class="input" type="date" bind:value={customTo} /></label>
       </div>
     {/if}
+    <p class="when">{valid ? `${day(period.from)} to ${day(period.to)} · ${monthCount} ${monthCount === 1 ? 'month' : 'months'}` : 'Choose a valid period'}</p>
+    {#if overlaps.length}
+      <div class="clash" role="alert">
+        <span class="ico"><TriangleAlert size={16} /></span>
+        <span>Overlaps {overlaps.map((o) => o.ref).join(', ')}. Change the month, the year, or the length.</span>
+      </div>
+    {/if}
+    <label class="field"><span>Copy lines</span>
+      <FormSelect label="Copy lines" bind:value={copyFrom} options={[{ value: '', label: 'No lines yet' }, ...earlier.map((p) => ({ value: p.id, label: `${p.ref} · ${periodLabel(p)} · ${p.lines.length} lines` }))]} />
+      <span class="hint">No lines yet means you add the products on the next screen.</span>
+    </label>
+    {#if !canCreate}<p class="error">Only planners, directors and admins create period plans.</p>{/if}
+    <div class="row end">
+      <button class="btn btn-primary" disabled={busy || !canCreate || !entityId || !valid || overlaps.length > 0}>{busy ? 'Saving' : copyFrom ? 'Copy into a new plan' : 'Create plan'}</button>
+    </div>
   </form>
 </dialog>
 <ReplaceDialog bind:this={replaceDialog} />
 
 <style>
-  dialog.plan { width: min(720px, calc(100vw - 32px)); }
-  .body { display: flex; flex-direction: column; gap: 22px; }
-  .top { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
-  .eyebrow { margin: 0 0 4px; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); }
-  h2 { margin: 0; font-size: 24px; }
-  .lead { margin: 0; color: var(--text-muted); font-size: 14px; }
-  .steps { display: flex; gap: 8px; margin: 0; padding: 0; list-style: none; }
-  .steps li { flex: 1; padding: 8px 12px; border-radius: var(--radius-md); background: var(--surface-sunken); font-size: 13px; font-weight: 600; color: var(--text-muted); }
-  .steps li.on { background: var(--primary); color: var(--text-on-primary); }
-  .steps li.done { background: var(--primary-subtle); color: var(--primary); }
-  .co { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4); }
-  .co div { display: flex; flex-direction: column; }
-  .co span { color: var(--text-muted); font-size: 13px; }
-  .lengths { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
-  .lengths button { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-height: 58px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font: 600 13px/1.2 var(--ff-body); text-align: left; cursor: pointer; }
-  .lengths button small { font-weight: 500; font-size: 11px; color: var(--text-muted); }
+  dialog.plan { width: min(640px, calc(100vw - 32px)); }
+  .body { display: flex; flex-direction: column; gap: 14px; }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+  h2 { margin: 0; font-size: 20px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .grid2 .wide { grid-column: 1 / -1; }
+  .lengths { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+  .lengths button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font: 600 12px/1.2 var(--ff-body); text-align: left; cursor: pointer; }
+  .lengths button small { font-weight: 500; font-size: 10px; color: var(--text-muted); }
   .lengths button:hover:not(.on) { background: var(--surface-sunken); }
   .lengths button.on { background: var(--primary); border-color: var(--primary); color: var(--text-on-primary); }
   .lengths button.on small { color: color-mix(in srgb, var(--text-on-primary) 78%, transparent); }
-  @media (max-width: 640px) { .lengths { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .pair { display: grid; grid-template-columns: 1fr 140px; gap: 12px; }
-  .hint { color: var(--text-muted); font-size: 13px; font-weight: 500; }
-  .when { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: var(--space-4); background: var(--surface-sunken); border-radius: var(--radius-md); }
-  .when span { color: var(--text-muted); font-size: 13px; }
-  .end { justify-content: flex-end; gap: var(--space-2); }
-  .clash { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--warning-solid) 12%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warning-solid) 28%, transparent); box-shadow: none; }
-  .clash svg { flex: none; margin-top: 1px; color: var(--warning); }
-  .clash p { margin: 4px 0 0; } .clash ul { margin: 8px 0 0; padding-left: 18px; }
-  .field { display: flex; flex-direction: column; gap: 8px; }
+  .hint { color: var(--text-muted); font-size: 12px; font-weight: 500; }
+  .when { margin: 0; padding: 6px 10px; background: var(--surface-sunken); border-radius: var(--radius-sm); font-size: 12px; color: var(--text-muted); }
+  .end { justify-content: flex-end; }
+  .clash { display: flex; gap: 8px; align-items: center; margin: 0; padding: 6px 10px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--warning-solid) 12%, var(--surface)); font-size: 12px; }
+  .ico { display: flex; flex: none; color: var(--warning); }
+  .field { display: flex; flex-direction: column; gap: 6px; }
 </style>

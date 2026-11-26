@@ -6,7 +6,6 @@
   import { Badge, fmtDate, fmtDateTime, fmtMoney, fmtNum, router, say } from '@btw/ui';
   import Plus from '@lucide/svelte/icons/plus';
   import Trash from '@lucide/svelte/icons/trash-2';
-  import CalendarDays from '@lucide/svelte/icons/calendar-days';
   import CircleAlert from '@lucide/svelte/icons/circle-alert';
   import Copy from '@lucide/svelte/icons/copy';
   import RecordFor from '../components/RecordFor.svelte';
@@ -88,7 +87,7 @@
     <div>
       <div class="overline crumb"><a href="#/period-plans">Period plans</a> / {companyLabel(plan.entityId)}</div>
       <h1 class="row"><span class="mono">{plan.ref}</span> <Badge status={plan.status} />{#if plan.version > 1}<Badge tone="neutral">v{plan.version}</Badge>{/if}</h1>
-      <p class="muted small row" style="gap:6px"><CompanyMark entityId={plan.entityId} size={18} />{plan.title} · <CalendarDays size={14} /> {periodLabel(plan)} ({fmtDate(plan.from)} – {fmtDate(plan.to)})</p>
+      <p class="muted small row" style="gap:6px"><CompanyMark entityId={plan.entityId} size={18} />{plan.title || 'Untitled'} · {periodLabel(plan)} · {fmtDate(plan.from)} to {fmtDate(plan.to)}</p>
     </div>
     <div class="row">
       {#if editable}
@@ -101,36 +100,29 @@
   </div>
 
   {#if plan.status === 'Replaced'}
-    <div class="card flag-warning note small" role="status">
-      <strong>Replaced</strong> — kept for history; it no longer counts.
+    <div class="note warn" role="status">
+      <strong>Replaced.</strong> Kept for history. It no longer counts.
       {#if plan.replacedById}Replaced by <a class="mono" href="#/period-plans/{plan.replacedById}">{replacedBy?.ref ?? 'the newer plan'}</a>{#if replacedBy} ({periodLabel(replacedBy)}){/if}.{/if}
     </div>
   {:else}
-    <div class="card flag-info note small">Period plans are suggestions: saving makes the change at once (no approval). Purchase orders show it for information and are never blocked by it.</div>
+    <p class="note info">A period plan is a suggestion. Saving applies at once, with no approval. Orders can show it, and it never blocks an order.</p>
   {/if}
   {#if tried && problems.length}
-    <div class="card flag-warning note" role="alert"><div class="row" style="gap:var(--space-2)"><CircleAlert size={18} /><strong>Lines to check</strong></div><ul>{#each problems as p}<li>{p}</li>{/each}</ul></div>
+    <div class="note warn" role="alert"><div class="row" style="gap:var(--space-2)"><span class="ico"><CircleAlert size={16} /></span><strong>Lines to check</strong></div><ul>{#each problems as p}<li>{p}</li>{/each}</ul></div>
   {/if}
 
-  <div class="top-grid">
-    <section class="card">
-      <div class="form-grid">
-        <label class="field"><span>Title</span>{#if editable}<input class="input" bind:value={plan.title} oninput={() => (dirty = true)} />{:else}<div class="ro">{plan.title}</div>{/if}</label>
-        <div class="field"><span>Period</span><div class="ro">{KIND_LABEL[plan.periodKind]} · {periodLabel(plan)}</div></div>
-        <div class="field"><span>From</span><div class="ro">{fmtDate(plan.from)}</div></div>
-        <div class="field"><span>To</span><div class="ro">{fmtDate(plan.to)}</div></div>
-      </div>
-      {#if plan.copiedFromId}<p class="caption">Started from a copy of an earlier plan.</p>{/if}
-    </section>
-    <section class="card stack-sm">
-      <div class="overline">Summary</div>
-      <div class="row between"><span class="muted">Lines</span><strong class="num">{plan.lines.length}</strong></div>
-      <div class="row between"><span class="muted">Planned cases</span><strong class="num">{fmtNum(totals.cases)}</strong></div>
-      <div class="row between"><span class="muted">Planned value</span><strong class="num">{fmtMoney(totals.value, 'USD')}</strong></div>
-      <div class="row between"><span class="muted">Months</span><span>{months.length}</span></div>
-      {#if plan.status === 'Active'}<a class="small" href="#/dashboards/purchasing">Planned vs actual →</a>{/if}
-    </section>
-  </div>
+  <section class="card sheet">
+    <label class="field title"><span>Title</span>{#if editable}<input class="input" bind:value={plan.title} oninput={() => (dirty = true)} />{:else}<div class="ro">{plan.title || '-'}</div>{/if}</label>
+    <dl class="facts">
+      <div><dt>Period</dt><dd>{KIND_LABEL[plan.periodKind]} · {periodLabel(plan)}</dd></div>
+      <div><dt>From</dt><dd>{fmtDate(plan.from)}</dd></div>
+      <div><dt>To</dt><dd>{fmtDate(plan.to)}</dd></div>
+      <div><dt>Lines</dt><dd>{plan.lines.length}</dd></div>
+      <div><dt>Cases</dt><dd>{fmtNum(totals.cases)}</dd></div>
+      <div><dt>Value</dt><dd>{fmtMoney(totals.value, 'USD')}</dd></div>
+    </dl>
+    {#if plan.copiedFromId}<p class="caption">Started from a copy of an earlier plan.</p>{/if}
+  </section>
 
   <section class="card flush" style="margin-top:var(--space-4)">
     <header>
@@ -196,11 +188,19 @@
 {/if}
 
 <style>
-  .top-grid { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: var(--space-4); align-items: start; }
-  @media (max-width: 900px) { .top-grid { grid-template-columns: minmax(0, 1fr); } }
+  .note { margin: 0 0 var(--space-4); padding: 8px 12px; border-radius: var(--radius-md); font-size: 13px; }
+  .note.info { background: color-mix(in srgb, var(--info) 10%, var(--surface)); }
+  .note.warn { background: color-mix(in srgb, var(--warning-solid) 12%, var(--surface)); }
+  .note ul { margin: 6px 0 0; padding-left: 18px; }
+  .ico { display: flex; color: var(--warning); }
+  .sheet { display: flex; flex-direction: column; gap: 12px; }
+  .title { max-width: 420px; }
+  .facts { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin: 0; }
+  .facts div { min-width: 0; }
+  .facts dt { margin: 0; font-size: 11px; font-weight: 600; color: var(--text-muted); }
+  .facts dd { margin: 2px 0 0; font-weight: 650; }
+  @media (max-width: 900px) { .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
   .ro { min-height: var(--control-md); display: flex; align-items: center; }
-  .note { margin-bottom: var(--space-4); padding: var(--space-3) var(--space-5); }
-  .note ul { margin: var(--space-2) 0 0; padding-left: var(--space-4); }
   .qty { width: 110px; }
   .split td { background: var(--surface-sunken); }
   .months { display: flex; flex-wrap: wrap; gap: var(--space-2); }
