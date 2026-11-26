@@ -7,6 +7,7 @@
   import ErrorState from '../../../components/ErrorState.svelte';
   import SmoothTrend from '../../../components/charts/SmoothTrend.svelte';
   import { BarChart, Donut } from '../../../components/charts';
+  import type { Ink } from '../../../components/charts/theme.svelte';
   import { compact } from '../../../components/charts/scale';
   import { currency, cv, cvRow } from '../fmt.svelte';
   import '../../../components/dashboard/report.css';
@@ -119,9 +120,12 @@
   });
   const plan = $derived((extra['mgmt-plans']?.data as { measures?: { planned?: number; ordered?: number } } | undefined)?.measures);
   const wh = $derived(extra['warehouse-today']?.data as { sign?: { count: number }; arriving?: { trucks: number } } | undefined);
+  const PO_INK: Record<string, Ink> = { 'Awaiting approval': 'warn', Created: 'slate', 'Sent to supplier': 'navy', Loading: 'teal', 'On the road': 'good', Delivered: 'planned' };
   const poStatus = $derived(stages.filter((s) => s.count > 0));
   const poRows = () => [['Stage', 'Orders'], ...poStatus.map((s) => [s.label, s.count])];
+  const poSeries = $derived(poStatus.map((s) => ({ name: s.label, values: poStatus.map((o) => (o.label === s.label ? s.count : 0)), ink: PO_INK[s.label] ?? 'navy' })));
   const SHIP_LABEL: Record<string, string> = { Acknowledged: 'Signed for' };
+  const SHIP_INK: Record<string, Ink> = { Planned: 'slate', Loaded: 'navy', Dispatched: 'planned', 'In transit': 'teal', 'At border': 'cost', Delayed: 'warn', Arrived: 'allowed', 'Signed for': 'good' };
   const SHIP_ORDER = ['Planned', 'Loaded', 'Dispatched', 'In transit', 'At border', 'Delayed', 'Arrived', 'Acknowledged'];
   const shipStatus = $derived.by(() => {
     const counts = new Map<string, number>();
@@ -131,6 +135,8 @@
     }
     return SHIP_ORDER.filter((k) => counts.has(k)).map((k) => ({ label: SHIP_LABEL[k] ?? k, count: counts.get(k)! }));
   });
+  const shipPie = $derived(shipStatus.map((s) => ({ label: s.label, value: s.count, ink: SHIP_INK[s.label] ?? 'teal' })));
+  const shipTotal = $derived(shipStatus.reduce((a, s) => a + s.count, 0));
   const shipRows = () => [['State', 'Shipments'], ...shipStatus.map((s) => [s.label, s.count])];
   const buyers = $derived((extra['mgmt-clients']?.data as { kpis?: { clients?: number } } | undefined)?.kpis);
 </script>
@@ -232,12 +238,12 @@
     </div>
     <div>
       <TodayCard title="Purchase orders" caption="Orders at each stage" updatedAt={res?.freshness ?? null} rows={poRows} filename="purchase-order-status" empty={!poStatus.length} drill={{ label: 'Open purchase orders', href: '#/pos' }} viewToggle>
-        <BarChart horizontal label="Purchase order status" categories={poStatus.map((s) => s.label)} series={[{ name: 'Orders', values: poStatus.map((s) => s.count), ink: 'navy' }]} format={(n) => Math.round(n).toLocaleString('en-US')} height={220} />
+        <BarChart stacked label="Purchase order status" categories={poStatus.map((s) => s.label)} series={poSeries} format={(n) => Math.round(n).toLocaleString('en-US')} height={220} />
       </TodayCard>
     </div>
     <div>
       <TodayCard title="Shipments" caption="Current state, including signed for" updatedAt={res?.freshness ?? null} rows={shipRows} filename="shipment-state" empty={!shipStatus.length} drill={{ label: 'Open shipments', href: '#/shipments' }} viewToggle>
-        <BarChart horizontal label="Shipment state" categories={shipStatus.map((s) => s.label)} series={[{ name: 'Shipments', values: shipStatus.map((s) => s.count), ink: 'teal' }]} format={(n) => Math.round(n).toLocaleString('en-US')} height={220} />
+        <Donut label="Shipment state" data={shipPie} format={(n) => Math.round(n).toLocaleString('en-US')} height={220} center={String(shipTotal)} />
       </TodayCard>
     </div>
   </div>
