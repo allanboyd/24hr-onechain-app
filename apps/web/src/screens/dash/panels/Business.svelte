@@ -14,27 +14,27 @@
   const fr = $derived(frame(r));
   const go = (h: string) => (location.hash = h.replace(/^#/, ''));
 
-  // ── executive overview: the same three bars as the overview chart. ──
-  const mix = $derived.by(() => {
-    if (key !== 'exec-overview') return { expenses: 0, sales: 0, profit: 0 };
-    const by = new Map(((d?.kpis ?? []) as any[]).map((k) => [k.key, k]));
-    const sales = Math.max(0, cv(by.get('sales')?.value ?? 0));
-    const profit = Math.max(0, Math.min(cv(by.get('profit')?.value ?? 0), sales));
-    return { expenses: Math.max(0, sales - profit), sales, profit };
-  });
-  const fig = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const kpiRows = () => {
+  // ── four figures. The bar chart of the same three money totals stays on the overview. ──
+  const vs = (value: number | null, prev: number | null, kind: 'pct' | 'pp') => {
+    if (value == null || prev == null) return 'No previous period';
+    const delta = kind === 'pp' ? (value - prev) * 100 : prev ? (value - prev) / Math.abs(prev) : null;
+    if (delta == null || Math.abs(delta) < 0.0005) return 'Same as the previous period';
+    const words = kind === 'pp' ? `${Math.abs(delta).toFixed(1)} pp` : `${(Math.abs(delta) * 100).toFixed(1)}%`;
+    return `${delta > 0 ? 'Up' : 'Down'} ${words} vs previous period`;
+  };
+  const stats = $derived.by(() => {
+    if (key !== 'exec-overview') return [] as { label: string; value: string | null; sub: string }[];
     const by = new Map(((d?.kpis ?? []) as any[]).map((k) => [k.key, k]));
     const sales = by.get('sales'); const profit = by.get('profit'); const margin = by.get('margin');
     const exp = sales?.value != null && profit?.value != null ? Math.max(0, sales.value - profit.value) : null;
     const expPrev = sales?.prev != null && profit?.prev != null ? Math.max(0, sales.prev - profit.prev) : null;
-    const cell = (v: number | null | undefined, usd: boolean) => v == null ? '' : usd ? cvRow(v) : pctF(v);
-    return [['Measure', 'Value', 'Previous period', 'Unit'],
-      ['Sales', cell(sales?.value, true), cell(sales?.prev, true), currency.code],
-      ['Expenses', cell(exp, true), cell(expPrev, true), currency.code],
-      ['Profit', cell(profit?.value, true), cell(profit?.prev, true), currency.code],
-      ['Margin', cell(margin?.value, false), cell(margin?.prev, false), 'pct']];
-  };
+    return [
+      { label: `Sales (${currency.code})`, value: sales?.value == null ? null : compact(cv(sales.value)), sub: vs(sales?.value ?? null, sales?.prev ?? null, 'pct') },
+      { label: `Expenses (${currency.code})`, value: exp == null ? null : compact(cv(exp)), sub: vs(exp, expPrev, 'pct') },
+      { label: `Profit (${currency.code})`, value: profit?.value == null ? null : compact(cv(profit.value)), sub: vs(profit?.value ?? null, profit?.prev ?? null, 'pct') },
+      { label: 'Margin', value: margin?.value == null ? null : pctF(margin.value), sub: vs(margin?.value ?? null, margin?.prev ?? null, 'pp') },
+    ];
+  });
   const marginTone = $derived(d?.margin == null || d?.targetMargin == null ? 'accent' : d.margin >= d.targetMargin ? 'success' : d.margin >= d.targetMargin * 0.8 ? 'warning' : 'danger');
 
   // ── profit ──
@@ -61,14 +61,15 @@
 </script>
 
 {#if key === 'exec-overview'}
-  <DashboardPanel span="full" subtitle="{currency.code} · expenses {compact(mix.expenses)}, sales {compact(mix.sales)}, profit {compact(mix.profit)}" decision="Open performance for the full product, warehouse and company breakdown." {...fr} title="Expenses, sales and profit" rows={kpiRows} filename="expenses-sales-profit" owner="Directors" empty={mix.sales <= 0.5 && mix.profit <= 0.5} drill={{ label: 'Open performance', href: '#/performance' }}>
-    <BarChart label="Expenses, sales and profit" categories={['Expenses', 'Sales', 'Profit']} series={[{ name: 'Expenses', values: [mix.expenses, 0, 0], ink: 'cost' }, { name: 'Sales', values: [0, mix.sales, 0], ink: 'navy' }, { name: 'Profit', values: [0, 0, mix.profit], ink: 'good' }]} stacked format={(n) => `${currency.code} ${compact(n)}`} height={220} />
-    <div class="figs">
-      <b><span>{currency.code}</span>{fig(mix.expenses)}</b>
-      <b><span>{currency.code}</span>{fig(mix.sales)}</b>
-      <b><span>{currency.code}</span>{fig(mix.profit)}</b>
-    </div>
-  </DashboardPanel>
+  <div class="dash-kpis biz-stats" role="list" aria-label="Sales, expenses, profit and margin">
+    {#each stats as s (s.label)}
+      <a class="card kpi" role="listitem" href="#/performance">
+        <span class="lbl">{s.label}</span>
+        {#if s.value == null}<b class="val none">-</b>{:else}<b class="val">{s.value}</b>{/if}
+        <span class="sub">{s.sub}</span>
+      </a>
+    {/each}
+  </div>
 {:else if key === 'combined-performance'}
   <DashboardPanel span={span ?? 1} subtitle="totals · open the report to switch level" decision="Open the full report to change product, warehouse or company." {...fr} title={r.title} rows={() => (d ? [['Measure', 'Value'], ['Sales', cvRow(d.revenue)], ['Profit', cvRow(d.profit)], ['Margin', pctF(d.margin)], ['Cases received', d.qtyReceived], ['Landed cost', cvRow(d.landedCost)]] : [['Measure', 'Value']])} filename="combined-performance" drill={{ label: 'Open combined performance', href: '#/performance' }}>
     {#if d}
@@ -86,10 +87,10 @@
   </DashboardPanel>
 {:else if key === 'profit-margin'}
   <DashboardPanel span={span ?? 1} subtitle="from sales to profit" decision="Cut the cost step that takes the most." {...fr} title="Profit bridge" rows={wfRows} filename="profit-bridge" {drill}>
-    <Waterfall label="Profit bridge from sales to profit" steps={wf} format={money} height={220} onselect={() => go('#/performance')} />
+    <Waterfall label="Profit bridge from sales to profit" steps={wf} format={money} height={240} onselect={() => go('#/performance')} />
   </DashboardPanel>
   <DashboardPanel span={span ?? 1} subtitle="share of sales" decision="The largest slice is the cost to challenge." {...fr} title="Where each $100 went" rows={() => [['Step', 'Share of $100'], ...shareOf100.map((s) => [s.label, s.value])]} filename="where-each-100-went" empty={!shareOf100.length} {drill}>
-    <Donut label="Where each $100 of sales went" data={shareOf100} format={(n) => `$${Math.round(n)}`} center="$100" height={200} />
+    <Donut label="Where each $100 of sales went" data={shareOf100} format={(n) => `$${Math.round(n)}`} center="$100" height={268} snug />
   </DashboardPanel>
   <DashboardPanel span={span ?? 1} subtitle="last 6 months" decision="Watch a month where profit falls while sales hold." {...fr} title="Sales and profit" period="Last 6 months" rows={mRows} filename="sales-and-profit-by-month" empty={!(d.months ?? []).some((m: any) => m.revenue)}>
     <BarChart label="Sales and profit by month" categories={(d.months ?? []).map((m: any) => monthLabel(m.month))} series={[{ name: 'Sales', values: d.months.map((m: any) => m.revenue), ink: 'navy' }, { name: 'Profit', values: d.months.map((m: any) => Math.max(0, m.profit)), ink: 'good' }]} format={money} labels={false} height={200} />
@@ -130,9 +131,9 @@
   .fill.sales { width: 100%; background: var(--viz-1); }
   .fill.costs { background: var(--viz-2); }
   .fill.profit { background: var(--viz-3); }
-  .figs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0 8px 0 32px; text-align: center; }
-  .figs b { display: flex; flex-direction: column; align-items: center; gap: 1px; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
-  .figs b span { font-size: 11px; font-weight: 600; color: var(--text-muted); }
+  .biz-stats { grid-column: 1 / -1; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); margin: 0; }
+  @media (max-width: 1100px) { .biz-stats { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 720px) { .biz-stats { grid-template-columns: 1fr; } }
   .prices { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
   .prices li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--border); }
   .prices li:first-child { border-top: 0; }

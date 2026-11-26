@@ -156,3 +156,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 Business graphs return in short cards: profit bridge, where each $100 went, sales and profit, expenses. Overview chart is expenses, sales and profit. |
 | 26 Nov 2026 | cursor | V3-11 Business lead card is the expenses, sales and profit chart, matching the overview. The stat tiles are gone. |
 | 26 Nov 2026 | claude | V3-13 merged: Settings & alerts workspace (left menu: Alerts, My notifications, Approvals, Exchange rates, Thresholds, Users & access, Audit log, Integrations). Alerts left the main sidebar; old addresses still open the right section. Management → Settings moved here. |
+| 26 Nov 2026 | cursor | V3-11 Business opens with four stats. The bar chart stays on the overview. The $100 card no longer has a gap beside the ring. |
