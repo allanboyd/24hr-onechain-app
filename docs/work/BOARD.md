@@ -112,6 +112,7 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 period plans: three-step create (company select in Group view, start month, length, calculated end date) and a Report action on each row. Merged into design-v3. |
 | 26 Nov 2026 | cursor | V3-11 plan form: month and year dropdowns, overlap shown as soon as the period is chosen, status cards are a pale wash with a coloured icon. Rule added to AGENTS.md. |
 | 26 Nov 2026 | cursor | V3-11 plan form: length is five equal boxes, and the overlap note is a pale wash with no left bar. |
+| 26 Nov 2026 | cursor | V3-11 period plans: list matches purchase orders (search, filters, View beside Report), the detail page is one set of facts, and a new plan is a single smaller form. |
 | 26 Nov 2026 | claude | Split agreed: cursor = V3-11 then V3-9; claude = V3-10 then V3-8 batch 2 (see "Who does what"). claude starts V3-10 Supplier balances. |
 | 26 Nov 2026 | claude | V3-10 step 3c merged: Management → Supplier balances on live data (short loads; credit notes / advances not recorded yet). Request to cursor: ColumnsLine right-axis format. Next: Cash and closing. |
 | 26 Nov 2026 | claude | V3-10 step 3d merged: Management → Cash and closing on live data. New rule (human): on Management pages the title and description come first, then the filter bar (applied to all six pages; `.cursor/rules/management-pages.mdc`). claude owns `screens/management/**`. |
