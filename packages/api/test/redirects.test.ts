@@ -1,5 +1,5 @@
 // docs/17 Phase 2–3: every old web route redirects to the right new page / tab with its filters; every redirect target and
-// every hash link in the shared code (dashboards, notifications, reports) is a route of the web app; the sidebar has 16
+// every hash link in the shared code (dashboards, notifications, reports) is a route of the web app; the sidebar follows docs/23 (was 16
 // entries; the Home tabs hold the moved analysis with the old access rules; the phone maps the new links.
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -59,15 +59,22 @@ for (const d of DASHBOARDS) if (d.link) ok(isRoute(d.link), `dashboard ${d.key} 
 
 // ---- sidebar: 22 → 15 entries ------------------------------------------------------------------------------------------
 const nav = read('apps/web/src/routes.ts');
-const navBlock = nav.slice(nav.indexOf('export const nav'), nav.indexOf('const HIDDEN'));
-const hrefs = [...navBlock.matchAll(/href: '#([^']*)'/g)].map((m) => m[1]);
-// docs/23 (design v3): the Management group (report pages + live dashboards) is counted on its own; Operations keeps 16
-const mgmt = hrefs.filter((h) => h.startsWith('/management/') || h === '/dashboards');
-const ops = hrefs.filter((h) => !mgmt.includes(h));
-ok(ops.length === 16, `operations sidebar has 16 entries — docs/17 §4 list (its '15' miscounts the Admin group) (${ops.length})`, ops);
-ok(mgmt.length === 8 && mgmt.filter((h) => h.startsWith('/management/')).every((h) => isRoute(h)), `management group: 7 report pages + live dashboards, all routes (${mgmt.length})`, mgmt);
-for (const r of RETIRED.concat(['/integrations'])) ok(!hrefs.includes(r), `sidebar has no ${r}`);
-for (const h of hrefs) ok(isRoute(h), `sidebar ${h} is a route`);
+const hrefsIn = (from: string, to: string) => {
+  const block = nav.slice(nav.indexOf(from), nav.indexOf(to)).split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  return [...block.matchAll(/href: '#([^']*)'/g)].map((m) => m[1]);
+};
+// docs/23 (design v3): Operations in process order; Management = 7 report pages + live dashboards (behind the switch)
+const ops = hrefsIn('export const nav', 'export const managementNav');
+const mgmt = hrefsIn('export const managementNav', 'const HIDDEN');
+const OPS = ['/', '/period-plans', '/pos', '/trucks', '/shipments', '/re-exports', '/stock', '/warehouse-expenses', '/sales', '/master', '/users', '/audit', '/notifications'];
+ok(JSON.stringify(ops) === JSON.stringify(OPS), `operations sidebar = docs/23 §2 list in process order (${ops.length})`, ops);
+ok(mgmt.length === 8 && mgmt.filter((h) => h.startsWith('/management/')).length === 7 && mgmt.every((h) => isRoute(h)), `management: 7 report pages + live dashboards, all routes (${mgmt.length})`, mgmt);
+// pages taken out of the menu keep their access rule (HIDDEN), or anyone could open them by address
+const hidden = nav.slice(nav.indexOf('const HIDDEN'), nav.indexOf('export type Side'));
+for (const [seg, rule] of [['performance', "'performance'"], ['selling-prices', "'selling-prices'"], ['transport-costs', "['finance', 'transport-fees']"]])
+  ok(hidden.includes(`${seg.includes('-') ? `'${seg}'` : seg}: ${rule}`) && !ops.includes(`/${seg}`) && isRoute(`/${seg}`), `${seg}: off the menu, still a route, access rule kept`);
+for (const r of RETIRED.concat(['/integrations'])) ok(![...ops, ...mgmt].includes(r), `sidebar has no ${r}`);
+for (const h of [...ops, ...mgmt]) ok(isRoute(h), `sidebar ${h} is a route`);
 
 // ---- Home tabs: the moved analysis keeps the old access rules ----------------------------------------------------------
 const u = (...roles: Role[]) => ({ roles });

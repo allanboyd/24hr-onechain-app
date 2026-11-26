@@ -7,7 +7,7 @@
   import { brand } from './lib/brand';
   import { API_MODE } from './lib/mode';
   import { roleText } from './lib/roles';
-  import { routes, navFor, canOpen, isFieldOnly, homeOf, type WebRoute } from './routes';
+  import { routes, navFor, canOpen, isFieldOnly, homeOf, sideOf, canSeeManagement, type WebRoute } from './routes';
   import { redirectOf } from './lib/redirects';
   import Login from './screens/Login.svelte';
   import CompanySwitcher from './components/CompanySwitcher.svelte';
@@ -67,11 +67,19 @@
     ].filter(Boolean);
     return parts.join(' · ');
   });
-  const visibleNav = $derived(navFor(user));
+  // Operations | Management switch (docs/23 §2): the side follows the address; the switch shows only with report access
+  const side = $derived(sideOf(router.path));
+  const showSwitch = $derived(canSeeManagement(user));
+  const visibleNav = $derived(navFor(user, side));
+  const bellCount = $derived(unread > 99 ? '99+' : String(unread));
   const active = (href: string) => (href === '#/' ? router.path === '/' : ('#' + router.path).startsWith(href));
   $effect(() => { document.title = `${matched?.route.title ?? 'BTW'} · ${co ? co.shortName : user ? 'Group' : 'BTW'} · Supply Chain`; navOpen = false; router.path; });
   // Remount the screen when the company or the route changes, so its data reloads for the new scope.
-  const screenKey = $derived(`${company.active}|${router.path}`);
+  // All Management pages are one screen: it switches report pages itself and keeps its report frame loaded.
+  const screenKey = $derived(`${company.active}|${router.path.startsWith('/management') ? '/management' : router.path}`);
+  // One import per screen module: the same promise for the same load function, so a kept screen is not re-created.
+  const loads = new Map<() => Promise<{ default: any }>, Promise<{ default: any }>>();
+  const loadOf = (r: WebRoute) => { if (!loads.has(r.load!)) loads.set(r.load!, r.load!()); return loads.get(r.load!)!; };
 
   function toggleTheme() {
     const dark = theme === 'dark' || (!theme && matchMedia('(prefers-color-scheme: dark)').matches);
@@ -102,12 +110,18 @@
         {#if co}
           {#if co.logoOnDark}<img class="bare" src={co.logoOnDark} alt={co.name} />
           {:else if co.logo}<img src={co.logo} alt={co.name} />
-          {:else}<div class="wordmark" style:color="#fff"><strong>{co.shortName}</strong><span>{co.tagline}</span></div>{/if}
+          {:else}<div class="wordmark"><strong>{co.shortName}</strong></div>{/if}
         {:else}
-          <div class="groupmark"><div class="marks">{#each allCompanies() as c (c.id)}<CompanyMark entityId={c.id} size={34} />{/each}</div><strong>Group</strong><span>BTW · NUD · Kivu</span></div>
+          <div class="groupmark"><div class="marks">{#each allCompanies() as c (c.id)}<CompanyMark entityId={c.id} size={24} />{/each}</div><strong>Group</strong></div>
         {/if}
       </div>
-      <nav>
+      {#if showSwitch}
+        <div class="seg" role="group" aria-label="Operations or management">
+          <a href="#{homeOf(user)}" class:on={side === 'operations'} aria-current={side === 'operations' ? 'true' : undefined}>Operations</a>
+          <a href="#/management/overview" class:on={side === 'management'} aria-current={side === 'management' ? 'true' : undefined}>Management</a>
+        </div>
+      {/if}
+      <nav aria-label={side === 'management' ? 'Management' : 'Operations'}>
         {#each visibleNav as g}
           <div class="group overline">{g.label}</div>
           {#each g.items as it}
@@ -126,7 +140,7 @@
         <CompanySwitcher {user} />
         <div class="grow scope small muted">{#if scope}Scope: <strong>{scope}</strong>{/if}</div>
         <button class="btn btn-ghost btn-sm" onclick={toggleTheme} aria-label="Toggle theme">{#if theme === 'dark'}<Sun size={18} />{:else}<Moon size={18} />{/if}</button>
-        <a class="btn btn-ghost btn-sm bell" href="#/notifications" aria-label="Notifications"><Bell size={18} />{#if unread}<span class="dotcount">{unread}</span>{/if}</a>
+        <a class="btn btn-ghost btn-sm bell" href="#/notifications" aria-label="Notifications"><Bell size={18} />{#if unread}<span class="dotcount">{bellCount}</span>{/if}</a>
         <div class="who"><div class="small" style="font-weight:600">{user.name}</div><div class="caption">{roleText(user.roles)}</div></div>
         <button class="btn btn-ghost btn-sm" onclick={logout} aria-label="Sign out"><LogOut size={18} /></button>
       </header>
@@ -138,7 +152,7 @@
         {:else if matched}
           {#key screenKey}
             {#if matched.route.load}
-              {#await matched.route.load()}
+              {#await loadOf(matched.route)}
                 <div class="stack"><div class="skeleton" style="height:36px;width:35%"></div><div class="skeleton" style="height:180px"></div></div>
               {:then mod}
                 <mod.default params={matched.params} {user} />
@@ -164,18 +178,23 @@
   .shell { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; }
   .side-col { background: var(--nav); }
   .side { background: var(--nav); color: var(--nav-text); display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
-  .brand { padding: var(--space-4); }
-  .brand img { display: block; width: 100%; max-width: 180px; background: var(--logo-tile); border-radius: var(--radius-md); padding: 6px 10px; }
+  .brand { padding: var(--space-4) var(--space-4) var(--space-3); }
+  .brand img { display: block; width: 100%; max-width: 120px; background: var(--logo-tile); border-radius: var(--radius-sm); padding: 4px 8px; }
   .brand img.bare { background: none; padding: 0; border-radius: 0; }
   .brand { border-bottom: 3px solid var(--co-accent, transparent); }
   .wordmark, .groupmark { display: flex; flex-direction: column; gap: 2px; color: var(--nav-text); }
-  .wordmark strong, .groupmark strong { font: 800 20px/1.1 var(--ff-display); }
-  .wordmark span, .groupmark span { font-size: 11px; color: var(--nav-text-muted); }
-  .groupmark .marks { display: flex; gap: 6px; margin-bottom: 6px; }
+  .wordmark strong, .groupmark strong { font: 800 16px/1.1 var(--ff-display); color: var(--nav-strong); }
+  .groupmark { flex-direction: row; align-items: center; gap: var(--space-2); }
+  .groupmark .marks { display: flex; gap: 4px; }
+  /* Operations | Management switch (values from docs/design-v3/reference) */
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0 var(--space-3) var(--space-2); padding: 4px; border: 1px solid var(--nav-line); border-radius: 14px; background: var(--nav-raised); }
+  .seg a { display: grid; place-items: center; padding: 8px 6px; border-radius: 11px; color: var(--nav-text); font-weight: 600; font-size: 13.5px; text-decoration: none; }
+  .seg a:hover { color: var(--nav-strong); }
+  .seg a.on { background: var(--nav-strong); color: var(--nav); box-shadow: var(--elevation-2); }
   .boot { min-height: 100vh; display: grid; place-items: center; }
   nav { display: flex; flex-direction: column; padding: 0 var(--space-2) var(--space-4); }
-  .group { color: var(--nav-text-muted); padding: var(--space-4) var(--space-3) var(--space-1); }
-  nav a { display: flex; align-items: center; gap: var(--space-3); color: var(--nav-text); padding: 9px var(--space-3); border-radius: var(--radius-md); border-left: 3px solid transparent; font-weight: 500; text-decoration: none; }
+  .group { color: var(--nav-text-muted); padding: var(--space-3) var(--space-3) var(--space-1); }
+  nav a { display: flex; align-items: center; gap: var(--space-3); color: var(--nav-text); padding: 8px var(--space-3); margin: 1px 0; border-radius: var(--radius-md); border-left: 3px solid transparent; font-weight: 500; text-decoration: none; }
   nav a:hover { background: var(--nav-hover); color: var(--nav-strong); }
   nav a.active { background: var(--nav-active-bg); color: var(--nav-strong); font-weight: 600; border-left-color: var(--nav-indicator); }
   .side-foot { margin-top: auto; padding: var(--space-4); color: var(--nav-text-muted); }
