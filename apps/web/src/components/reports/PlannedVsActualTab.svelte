@@ -11,7 +11,7 @@
   import { isGroup } from '../../lib/company.svelte';
   import { companyLabel } from '../../lib/companies';
   import { destinationLabel, flagTone, monthLabel, onPlanningChange, periodFor, plannedVsActual, setPvThresholds, type PlannedVsActual, type PvFlag } from '../../lib/planning';
-  let { user }: { user: User } = $props();
+  let { user, focus }: { user: User; /** one plan: same report, limited to that plan's company and dates */ focus?: { id: string; ref: string; title: string; from: string; to: string; entityId: string } } = $props();
 
   const r = ref();
   const today = new Date().toISOString().slice(0, 10);
@@ -25,11 +25,11 @@
   let flagFilter = $state<PvFlag | ''>('');
   let behindPct = $state(85), overPct = $state(105), editTh = $state(false);
 
-  const range = $derived(preset === 'current' ? { from: undefined, to: undefined } : preset === 'custom' ? { from, to } : periodFor(preset, today));
+  const range = $derived(focus ? { from: focus.from, to: focus.to, entityId: focus.entityId, planId: focus.id } : preset === 'current' ? { from: undefined, to: undefined } : preset === 'custom' ? { from, to } : periodFor(preset, today));
   const w = watch(async () => {
-    data = await plannedVsActual({ from: range.from, to: range.to, supplierId: supplierId || undefined, productId: productId || undefined });
+    data = await plannedVsActual({ from: range.from, to: range.to, entityId: 'entityId' in range ? range.entityId : undefined, planId: 'planId' in range ? range.planId : undefined, supplierId: supplierId || undefined, productId: productId || undefined });
     behindPct = Math.round(data.thresholds.behind * 100); overPct = Math.round(data.thresholds.over * 100);
-  }, () => [range.from, range.to, supplierId, productId]);
+  }, () => [range.from, range.to, 'planId' in range ? range.planId : '', supplierId, productId]);
   $effect(() => onPlanningChange(() => w.retry()));
 
   const FLAGS: PvFlag[] = ['Behind plan', 'On track', 'Over plan', 'Unplanned'];
@@ -72,11 +72,14 @@
 </script>
 
 <div class="fbar">
+  {#if focus}<p class="caption focus">{focus.ref}{focus.title ? ` · ${focus.title}` : ''} · this plan only</p>
+  {:else}
   <label class="field"><span>Period</span>
     <select class="select" bind:value={preset}><option value="current">Plans running today</option><option value="quarter">This quarter</option><option value="half">This half year</option><option value="year">This year</option><option value="custom">Custom</option></select></label>
   {#if preset === 'custom'}
     <label class="field"><span>From</span><input class="input" type="date" bind:value={from} /></label>
     <label class="field"><span>To</span><input class="input" type="date" bind:value={to} /></label>
+  {/if}
   {/if}
   <label class="field"><span>Supplier</span><select class="select" bind:value={supplierId} onchange={() => (productId = '')}><option value="">All suppliers</option>{#each r.suppliers as s}<option value={s.id}>{s.code} — {s.city}</option>{/each}</select></label>
   <label class="field"><span>Brand</span><select class="select" bind:value={productId}><option value="">All brands</option>{#each products as p}<option value={p.id}>{p.brand} · {p.pack}</option>{/each}</select></label>
@@ -87,7 +90,7 @@
 {#if !data || !m}
   <div class="tiles">{#each Array(6) as _}<div class="card"><div class="skeleton" style="height:56px"></div></div>{/each}</div>
 {:else}
-  <p class="caption">{fmtDate(data.range.from)} – {fmtDate(data.range.to)} · ordered = cases on approved purchase orders · expected to date follows the monthly split (or evenly when none) · {isGroup() ? 'all companies' : companyLabel(data.lines[0]?.entityId)}</p>
+  <p class="caption">{fmtDate(data.range.from)} – {fmtDate(data.range.to)} · ordered = cases on approved purchase orders · expected to date follows the monthly split (or evenly when none) · {focus ? companyLabel(focus.entityId) : isGroup() ? 'all companies' : companyLabel(data.lines[0]?.entityId)}</p>
   <div class="tiles six">
     <StatTile label="Planned" value={fmtNum(m.planned)} hint="cases in period plans" />
     <StatTile label="Ordered" value={fmtNum(m.ordered)} hint="cases on approved POs" />

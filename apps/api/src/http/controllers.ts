@@ -295,8 +295,8 @@ export class ReportsController {
   /** Directors: the three companies side by side + consolidated total (Σ companies − intercompany), all in USD. */
   @Get('group') async group(@Me() p: Principal, @Query() q: RQ) { return RP.groupReport(await this.reports.data(p, { group: true }), filter(q)); }
   /** PV-01…07: planned vs actual ordered per plan line, flags, monthly running totals, plan used per brand. */
-  @Get('planned-vs-actual') async plannedVsActual(@Me() p: Principal, @Query() q: RQ & { supplierId?: string }) {
-    return RP.plannedVsActual(await this.reports.data(p, filter(q, 'planned-vs-actual')), { ...filter(q), supplierId: q?.supplierId || undefined });
+  @Get('planned-vs-actual') async plannedVsActual(@Me() p: Principal, @Query() q: RQ & { supplierId?: string; planId?: string }) {
+    return RP.plannedVsActual(await this.reports.data(p, filter(q, 'planned-vs-actual')), { ...filter(q), supplierId: q?.supplierId || undefined, planId: q?.planId || undefined });
   }
   @Get('capture-check') async captureCheck(@Me() p: Principal, @Query() q: RQ) { return RP.captureCheck(await this.reports.data(p, filter(q, 'capture-check')), filter(q)); }
 }
