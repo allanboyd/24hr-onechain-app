@@ -91,15 +91,19 @@
 {:else}
   <div class="fbar card" role="group" aria-label="Dashboard filters">
     <div class="fbar-row">
-      <div class="sel-seg" role="group" aria-label="Warehouse">
-        <button type="button" aria-pressed={!filter.warehouseId} onclick={() => set('warehouseId', '')}>Combined</button>
-        {#each sorted('warehouses') as id (id)}<button type="button" aria-pressed={filter.warehouseId === id} onclick={() => set('warehouseId', id)}>{name.warehouses(id)}</button>{/each}
+      <div class="pick">
+        <span>Warehouse</span>
+        <div class="sel-seg" role="group" aria-label="Warehouse">
+          <button type="button" aria-pressed={!filter.warehouseId} onclick={() => set('warehouseId', '')}>Combined</button>
+          {#each sorted('warehouses') as id (id)}<button type="button" aria-pressed={filter.warehouseId === id} onclick={() => set('warehouseId', id)}>{name.warehouses(id)}</button>{/each}
+        </div>
       </div>
-      <div class="sel-seg" role="group" aria-label="Period">
-        {#each BAR as c (c.key)}<button type="button" aria-pressed={preset === c.key} onclick={() => setPreset(c.key)}>{c.label}</button>{/each}
+      <div class="pick">
+        <span>Period</span>
+        <div class="sel-seg" role="group" aria-label="Period">
+          {#each BAR as c (c.key)}<button type="button" aria-pressed={preset === c.key} onclick={() => setPreset(c.key)}>{c.label}</button>{/each}
+        </div>
       </div>
-    </div>
-    <div class="fbar-row picks">
       {#each extra as f (f.k)}
         {#if (options?.[f.o]?.length ?? 0) > 1 || filter[f.k]}
           <label>{f.label}
@@ -115,22 +119,22 @@
 
 <style>
   .fbar {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 18px;
-    padding: 16px 18px;
+    padding: 10px 14px;
     margin: 16px 0 18px;
   }
   .fbar-row {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 12px 28px;
+    flex-wrap: nowrap;
+    align-items: flex-end;
+    gap: 10px 14px;
+    min-width: 0;
   }
-  .picks { align-items: flex-end; flex-wrap: nowrap; gap: 8px 22px; }
-  .fbar label { flex: 1 1 160px; min-width: 0; max-width: 240px; }
-  .fbar .select { width: 100%; min-width: 0; max-width: none; }
+  .pick { display: flex; flex-direction: column; justify-content: space-between; gap: 2px; flex: none; min-width: 0; height: 48px; }
+  .pick > span, .fbar label { font-size: 11px; font-weight: 600; color: var(--text-muted); line-height: 1.2; }
+  .fbar label { flex: 0 1 148px; min-width: 112px; max-width: 160px; height: 48px; justify-content: space-between; }
+  .fbar .select { width: 100%; min-width: 0; max-width: none; height: 32px; }
+  .fbar .sel-seg { flex-wrap: nowrap; max-width: none; }
+  .fbar .sel-seg > button { padding: 5px 8px; font-size: 12px; }
   .fbar .btn { align-self: flex-end; flex: none; }
   .embed {
     display: grid;
@@ -155,14 +159,17 @@
     max-width: none;
     width: 100%;
   }
-  .fbar .sel-seg { flex-wrap: wrap; max-width: 100%; }
+  @media (max-width: 1100px) {
+    .fbar-row { flex-wrap: wrap; }
+    .fbar label { flex: 1 1 140px; max-width: none; }
+  }
   @media (max-width: 720px) {
     .select {
       min-width: 0;
       width: 100%;
       max-width: none;
     }
-    .picks { flex-wrap: wrap; }
+    .fbar-row { flex-wrap: wrap; }
     .fbar label { flex: 1 1 45%; max-width: none; }
     .embed {
       grid-template-columns: 1fr;
