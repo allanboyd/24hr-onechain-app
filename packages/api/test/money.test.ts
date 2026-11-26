@@ -338,5 +338,65 @@ for (const who of ['u-kabonge', 'u-testfie', 'u-asie', 'u-yonas']) { await as(wh
   await as('u-daniel');
 }
 
+// ---- V3-12 step 3: supplier money on the purchase order ----------------------------------------------------------------
+{
+  const M3 = await import('../src/money');
+  const mdb = (await import('../src/mock/db')).db;
+  await as('u-daniel'); api.entities.setActive(null);
+  const per = { from: new Date(Date.now() - 30 * DAY).toISOString(), to: new Date(Date.now() + DAY).toISOString() };
+  const sup0 = (await api.dashboards.get(['mgmt-suppliers'], per)).results['mgmt-suppliers']!.data as import('../src/dashboards').MgmtSuppliers;
+  const shorts = M3.shortLoadRows({ loadings: mdb.loadings, pos: mdb.pos, plans: mdb.plans, fxRates: mdb.fxRates });
+  ok(Math.abs(sup0.kpis.held - shorts.reduce((a, x) => a + x.value, 0)) < 0.05 && sup0.notRecorded.length === 0, 'Supplier balances: before any entry, what suppliers hold = the short loads (one source with the PO page)', [sup0.kpis.held]);
+
+  // an issued USD purchase order of BTW
+  const po = mdb.pos.find((x) => x.entityId === 'e-btw' && x.currency === 'USD' && x.status === 'Issued' && !x.revisionOf && !x.supersededById)!;
+  const m0 = await api.supplierMoney.forPo(po.id);
+  ok(m0.po.proforma === 0 && m0.canRecord && m0.canDecide && !m0.approvalOn, 'a new PO has no pro-forma; a director may record and decide; approval is off');
+  await rejects(api.supplierMoney.record(po.id, { kind: 'advance', amount: 100 }), /pro-forma first/, 'an advance needs the supplier\'s pro-forma first');
+  const n0 = mdb.notifications.length;
+  await api.supplierMoney.record(po.id, { kind: 'proforma', amount: 10000, reference: 'PF-1' });
+  await api.supplierMoney.record(po.id, { kind: 'advance', amount: 4000, reference: 'TT-1' });
+  const m1 = await api.supplierMoney.forPo(po.id);
+  ok(m1.po.proforma === 10000 && m1.po.advances === 4000 && m1.po.open === 6000, 'pro-forma 10,000, advance 4,000 counted at once (approval off): 6,000 open', m1.po);
+  ok(mdb.notifications.length === n0 + 1 && /Advance payment recorded/.test(mdb.notifications[0].title) && mdb.notifications[0].forRoles.includes('director'), 'the advance tells the directors (who recorded it is in the message)');
+  await rejects(api.supplierMoney.record(po.id, { kind: 'advance', amount: 6000.5 }), /more than the open pro-forma/, 'an advance cannot be more than the open pro-forma');
+
+  const held0 = m1.held.balance;
+  await api.supplierMoney.record(po.id, { kind: 'credit-note', amount: 500, reference: 'CN-9', note: 'Promotion' });
+  const m2 = await api.supplierMoney.forPo(po.id);
+  ok(Math.abs(m2.held.balance - held0 - 500) < 0.01 && m2.held.creditNotes >= 500, 'a credit note of 500 adds to what the supplier holds', [held0, m2.held.balance]);
+  await rejects(api.supplierMoney.record(po.id, { kind: 'advance', amount: 0, useHeld: m2.held.available + 50 }), /holds USD/, 'money used from the supplier cannot be more than it holds');
+  await api.supplierMoney.record(po.id, { kind: 'advance', amount: 1000, useHeld: 300 });
+  const m3 = await api.supplierMoney.forPo(po.id);
+  ok(m3.po.advances === 5300 && m3.po.open === 4700 && Math.abs(m3.held.balance - (m2.held.balance - 300)) < 0.01, 'an advance of 1,000 paid + 300 from what the supplier holds: 4,700 open, the supplier holds 300 less');
+
+  // approval on: the advance waits for a director and sets its money aside
+  await api.settings.setMoney({ advanceApproval: true });
+  await api.supplierMoney.record(po.id, { kind: 'advance', amount: 700, useHeld: 100 });
+  const m4 = await api.supplierMoney.forPo(po.id);
+  const pend = m4.entries.find((e) => e.kind === 'advance' && e.status === 'Pending approval')!;
+  ok(m4.po.pending === 800 && m4.po.advances === 5300 && m4.po.open === 3900 && m4.held.pendingUse === 100 && m4.held.balance === m3.held.balance, 'approval on: 800 waits (700 + 100 held), set aside from the open pro-forma and the held money');
+  ok(/to approve/.test(mdb.notifications[0].title), 'the directors are told an advance is waiting');
+  const supP = (await api.dashboards.get(['mgmt-suppliers'], per)).results['mgmt-suppliers']!.data as import('../src/dashboards').MgmtSuppliers;
+  ok(supP.pendingAdvances.some((x) => x.id === pend.id && Math.abs(x.amountUsd - 800) < 0.01), 'Management → Supplier balances lists the advance waiting for a director');
+  await as('u-kabonge');
+  await rejects(api.supplierMoney.decide(pend.id, true), /director/, 'a planner cannot approve an advance');
+  await as('u-daniel');
+  await api.supplierMoney.decide(pend.id, false);
+  const m5 = await api.supplierMoney.forPo(po.id);
+  ok(m5.po.pending === 0 && m5.po.open === 4700 && m5.held.pendingUse === 0, 'rejected: the 800 is free again');
+  await api.supplierMoney.record(po.id, { kind: 'advance', amount: 200 });
+  await api.supplierMoney.decide(m5.entries.length ? (await api.supplierMoney.forPo(po.id)).entries.find((e) => e.status === 'Pending approval')!.id : '', true);
+  ok((await api.supplierMoney.forPo(po.id)).po.advances === 5500, 'approved: the 200 counts');
+  await api.settings.setMoney({ advanceApproval: false });
+
+  const sup1 = (await api.dashboards.get(['mgmt-suppliers'], per)).results['mgmt-suppliers']!.data as import('../src/dashboards').MgmtSuppliers;
+  ok(Math.abs(sup1.kpis.held - (sup0.kpis.held + 500 - 300)) < 0.05 && Math.abs(sup1.kpis.creditNotes - 500) < 0.01 && Math.abs(sup1.kpis.advancesPaid - 5500) < 0.01, 'Supplier balances: held + 500 credit note − 300 used; advances paid 5,500 in the period', sup1.kpis);
+  ok(Math.abs(sup1.bySupplier.reduce((a, x) => a + x.held, 0) - sup1.kpis.held) < 0.05 && sup1.statement.some((x) => x.kind === 'credit-note') && sup1.statement.some((x) => x.kind === 'use' && x.added === -300), 'by supplier adds up; the statement shows the credit note and the money used');
+  await as('u-yonas');
+  await rejects(api.supplierMoney.forPo(po.id), /not found|404/, 'a warehouse user does not see supplier money');
+  await as('u-daniel');
+}
+
 console.log(fails ? `\n${fails} money check(s) FAILED` : '\nall money checks passed');
 if (fails) process.exitCode = 1;

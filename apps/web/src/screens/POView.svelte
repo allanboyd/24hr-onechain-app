@@ -2,6 +2,7 @@
   // docs/09 §4: one purchase order — the letter of the version asked for, its Versions panel (original vs each revision,
   // office updates and revisions at loading, who / when / why, a PDF per version), and Update / Delete / Approve.
   import RecordFor from '../components/RecordFor.svelte';
+  import SupplierMoneyCard from '../components/SupplierMoneyCard.svelte';
   import { amount, lookup, pos, type PlanLine, type PoDetail, type PoVersion, type User } from '@btw/api';
   import { approvalText, lineChangeText } from '@btw/api/rules';
   import { Badge, SignaturePad, fmtDate, fmtDateTime, fmtNum, router, say } from '@btw/ui';
@@ -155,6 +156,9 @@
   {#if !isLatest && latest}
     <div class="card flag-warning note no-print" role="status">This is an earlier version. The purchase order in force is <a class="mono" href="#/pos/{latest.id}">{latest.ref}</a>.</div>
   {/if}
+
+  <!-- V3-12 step 3: the supplier's pro-forma, advances and credit notes (prices only; Management reads these) -->
+  {#if !noPrice && !deleted}<SupplierMoneyCard poId={data.po.id} issued={!awaiting} />{/if}
 
   <section class="card versions no-print" aria-labelledby="ver-h">
     <header class="row between"><h3 id="ver-h" class="row"><History size={18} />Versions</h3><span class="caption">{versions.length === 1 ? 'Original only — an update or a difference at loading adds a revision' : `${versions.length - 1} revision${versions.length > 2 ? 's' : ''} · one counter for office updates and loading`}</span></header>

@@ -6,7 +6,7 @@ import type { Principal } from '../auth/principal';
 import { once } from '../common/idempotency';
 import { MoneyService } from '../domain/money.service';
 import type { PerfFilter, PerfLevel } from '@btw/api/performance';
-import type { ReexportInput, ReexportLoadInput, SellingPriceInput, StockAdjustInput, WarehouseExpenseInput } from '@btw/api/types';
+import type { ReexportInput, ReexportLoadInput, SellingPriceInput, StockAdjustInput, SupplierEntryInput, WarehouseExpenseInput } from '@btw/api/types';
 
 type Idem = string | undefined;
 const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
@@ -37,6 +37,11 @@ export class ReexportsController {
 @Controller()
 export class MoneyController {
   constructor(private money: MoneyService) {}
+  /** V3-12 step 3: supplier money on a PO (pro-forma, advance, credit note) and a director's decision on a waiting advance. */
+  @Get('pos/:id/supplier-money') supplierMoney(@Me() p: Principal, @Param('id') id: string) { return this.money.supplierMoney(p, id); }
+  @Post('pos/:id/supplier-money') @HttpCode(200) recordSupplierMoney(@Me() p: Principal, @Param('id') id: string, @Body() b: SupplierEntryInput, @Headers('idempotency-key') k: Idem) { return once(k, p.id, 'supplier.money', () => this.money.recordSupplierMoney(p, id, b ?? ({} as SupplierEntryInput))).then((r) => r.result); }
+  @Post('supplier-entries/:id/decision') @HttpCode(200) decideSupplierEntry(@Me() p: Principal, @Param('id') id: string, @Body() b: { approve?: boolean }) { return this.money.decideSupplierEntry(p, id, b?.approve === true); }
+  @Get('supplier-entries') supplierEntries(@Me() p: Principal) { return this.money.supplierEntries(p); }
   @Get('selling-prices') prices(@Me() p: Principal) { return this.money.prices(p); }
   @Post('selling-prices') setPrice(@Me() p: Principal, @Body() b: SellingPriceInput) { return this.money.setPrice(p, b ?? ({} as SellingPriceInput)); }
   @Get('finance/fees') fees(@Me() p: Principal) { return this.money.fees(p); }

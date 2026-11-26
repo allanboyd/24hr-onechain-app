@@ -60,7 +60,8 @@ await p.screenshot({ path: `${out}/mgmt-perf-live.png`, fullPage: true });
 await p.goto(`${base}#/management/suppliers?p=ytd`); await p.locator('.mrep .kpi .val').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(1000);
 ok(await p.locator('iframe[title^="Management report"]').count() === 0, 'Suppliers: our page, no report frame');
 ok(n(await p.locator('.mrep .kpi .val').first().textContent()) > 0 && await p.locator('.mrep .rank li').count() > 0, 'Suppliers: money held from our short loads, per supplier');
-ok(await p.locator('.mrep .kpi', { hasText: 'Credit notes' }).getByText('Not recorded yet').count() === 1 && await p.locator('.mrep .ct', { hasText: 'Advance payments' }).locator('.chip', { hasText: 'Not recorded yet' }).count() === 1, 'Suppliers: credit notes / advances say "Not recorded yet"');
+// V3-12 step 3: credit notes, advances and pro-formas are recorded on the PO page now
+ok(await p.locator('.mrep').getByText('Not recorded yet').count() === 0 && await p.locator('.mrep .ct', { hasText: 'Advance payments' }).locator('.chip', { hasText: 'Recorded on the purchase orders' }).count() === 1, 'Suppliers: credit notes and advances come from the purchase orders (nothing "Not recorded yet")');
 ok(await p.locator('.mrep .dt-table').count() === 2 && await p.locator('.mrep .dt-table').first().locator('tbody tr[data-dt-row]').count() > 0, 'Suppliers: short loads and the statement as tables');
 await p.screenshot({ path: `${out}/mgmt-suppliers-live.png`, fullPage: true });
 // V3-10 step 3d: Cash and closing on live data

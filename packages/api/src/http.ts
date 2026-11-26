@@ -5,7 +5,7 @@ import * as R from './rules';
 import * as RP from './reports';
 import type {
   AckLine, Acknowledgement, CheckpointPass, Device, DriverWork, Entity, Flag, FxRate, GiverWork, ID, JourneyStep, Leg, Loading, Notification, PeriodKind, PeriodPlan, Plan, PlanLine, PoDetail, PoInput, PoUpdateInput,
-  Client, ClientInput, ClientPayment, ClientPaymentInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PvThresholds,
+  SupplierEntry, SupplierEntryInput, SupplierMoney, Client, ClientInput, ClientPayment, ClientPaymentInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PvThresholds,
   PurchaseOrder, ReceiverWork, Role, RouteStop, Sale, Shipment, StockRow, StoredFile, SyncResult, TripCost, TripPayment,
   Route, TruckIssue, User, UserAdmin, VelocityRow, WaitingEntry, Warehouse, WarehouseInput,
   DriverInput, Provider, ProviderInput, SavedDriver, Truck, TruckInput,
@@ -415,6 +415,13 @@ export const entities = {
   /** Active company id, or null for Group / all allowed companies. */
   active: (): ID | null => activeEntity,
   setActive: (id: ID | null) => configure({ entityId: id }),
+};
+/** V3-12 step 3: supplier money on a purchase order (pro-forma, advance, credit note) and a director's decision. */
+export const supplierMoney = {
+  forPo: (poId: ID) => get<SupplierMoney>(`/pos/${poId}/supplier-money`),
+  record: (poId: ID, input: SupplierEntryInput) => mutate(post<SupplierEntry[]>(`/pos/${poId}/supplier-money`, input, key())),
+  decide: (entryId: ID, approve: boolean) => mutate(post<SupplierEntry[]>(`/supplier-entries/${entryId}/decision`, { approve })),
+  list: () => get<SupplierEntry[]>('/supplier-entries'),
 };
 /** V3-12: clients of the company (picked on the sale; credit days). */
 export const clients = {

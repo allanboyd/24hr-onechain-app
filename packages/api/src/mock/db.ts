@@ -34,7 +34,9 @@ export interface DB {
   /** V3-12: clients (built from the sales' customer names the first time they are needed). */
   clients?: import('../types').Client[];
   /** V3-12 step 2: client payments (built from the sales' paid amounts the first time they are needed). */
-  clientPayments?: import('../types').ClientPayment[]; notifyPrefs?: Record<ID, import('../types').NotifyPrefs>;
+  clientPayments?: import('../types').ClientPayment[];
+  /** V3-12 step 3: pro-formas, advances, credit notes and uses recorded on the POs. */
+  supplierEntries?: import('../types').SupplierEntry[]; notifyPrefs?: Record<ID, import('../types').NotifyPrefs>;
   trucks: typeof seed.trucks; routes: typeof seed.routes;
   /** Transport master data, editable by truck planners / fleet / planners (docs/10). */
   providers: typeof seed.providers; drivers: typeof seed.drivers;

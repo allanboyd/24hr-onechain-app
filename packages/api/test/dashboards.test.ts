@@ -104,7 +104,7 @@ ok(mo.brands.best.length > 0 && mo.brands.best.every((b, i, a) => i === 0 || a[i
   ok(Math.abs(ms.bySupplier.reduce((a, x) => a + x.held, 0) - ms.kpis.held) < 1 && Math.abs(ms.byMonth.at(-1)!.total - ms.kpis.held) < 1, 'Management Suppliers: suppliers and the running total by month add up to the money held', [ms.kpis.held, ms.byMonth.at(-1)]);
   const lastBal = new Map<string, number>(); for (const r of [...ms.statement].reverse()) lastBal.set(r.supplierId, r.balance);
   ok(ms.bySupplier.every((x) => Math.abs((lastBal.get(x.supplierId) ?? 0) - x.held) < 1), 'Management Suppliers: each statement ends at that supplier\'s balance');
-  ok(ms.notRecorded.includes('creditNotes') && ms.notRecorded.includes('advances') && ms.loads.every((r) => !/^p-[a-z]\d/.test(r.brand)), 'Management Suppliers: credit notes / advances flagged as not recorded; names not codes');
+  ok(ms.notRecorded.length === 0 && ms.loads.every((r) => !/^p-[a-z]\d/.test(r.brand)), 'Management Suppliers: credit notes, advances and pro-formas are recorded on the PO now (none flagged); names not codes');
 }
 // ---- Management · Cash and closing (V3-10 step 3d): money in / out and opening → closing from what we record ----
 {
