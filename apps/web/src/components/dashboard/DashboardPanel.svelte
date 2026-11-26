@@ -92,7 +92,6 @@
     {:else}
       {@render children()}
     {/if}
-    {#if ready && !isEmpty && definition}<p class="dash-method">{definition}</p>{/if}
   </div>
 
   {#if drill && ready && !isEmpty}
