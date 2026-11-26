@@ -5,7 +5,6 @@
   import type { TodayData, TodayDecision } from '@btw/api/dashboards';
   import { watch } from '../../../lib/load.svelte';
   import ErrorState from '../../../components/ErrorState.svelte';
-  import SparkArea from '../../../components/charts/SparkArea.svelte';
   import SmoothTrend from '../../../components/charts/SmoothTrend.svelte';
   import RingDonut from '../../../components/charts/RingDonut.svelte';
   import { BarChart } from '../../../components/charts';
@@ -94,8 +93,7 @@
     <a class="card kpi" href="#/dashboards/sales">
       <span class="lbl">Sales</span>
       <b class="val">{moneyVal(d.sales.value)}</b>
-      <span class="sub">{#if salesChip}<span class="dash-chip" class:good={salesChip.up} class:bad={!salesChip.up}>{salesChip.up ? '▲' : '▼'} {salesChip.text}</span>{/if} {d.mtd ? 'vs same days last month' : 'vs previous period'}</span>
-      {#if d.sales.spark}<div class="spark"><SparkArea values={d.sales.spark} height={30} /></div>{/if}
+      <span class="sub">{#if salesChip}<span class="dash-chip" class:good={salesChip.up} class:bad={!salesChip.up}>{salesChip.up ? '▲' : '▼'} {salesChip.text}</span>{/if} {d.mtd ? 'vs same days last month' : 'Past period'}</span>
     </a>
     <a class="card kpi" href="#/sales?show=owed">
       <span class="lbl">Cash to collect</span>
