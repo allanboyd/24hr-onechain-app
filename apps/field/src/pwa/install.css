@@ -1,0 +1,17 @@
+/* Install page only (install.html). Tokens from @btw/ui/base.css. */
+body.install-page { min-height: 100vh; padding: var(--space-6) var(--space-4); }
+.install-page #install { width: min(560px, 100%); margin-inline: auto; }
+.install-page .inst { display: flex; flex-direction: column; gap: var(--space-4); text-align: center; }
+.install-page .inst .logo { margin: 0 auto; border-radius: var(--radius-lg); }
+.install-page .inst h1 { font-size: 26px; line-height: 32px; }
+.install-page .inst .done { padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--success-subtle); color: var(--success); font-weight: 600; }
+.install-page .qr { margin: 0 auto; width: min(260px, 70vw); }
+.install-page .qr svg { width: 100%; height: auto; display: block; background: var(--logo-tile); border-radius: var(--radius-md); }
+.install-page .qr figcaption { margin-top: var(--space-2); font-size: var(--fs-body-sm); color: var(--text-muted); }
+.install-page .actions { display: flex; flex-direction: column; gap: var(--space-2); }
+.install-page .steps { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); text-align: left; }
+.install-page .steps section { padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--surface-sunken); }
+.install-page .steps section.mine { background: var(--primary-subtle); box-shadow: inset 3px 0 0 var(--primary); }
+.install-page .steps h2 { font-size: 15px; line-height: 22px; margin-bottom: var(--space-1); }
+.install-page .steps ol { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; font-size: var(--fs-body-sm); }
+.install-page .link { color: var(--text-muted); word-break: break-all; }
