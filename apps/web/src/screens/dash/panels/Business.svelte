@@ -6,7 +6,6 @@
   import '../../../components/dashboard/report.css';
   import { BarChart, Donut, Meter } from '../../../components/charts';
   import type { Ink } from '../../../components/charts/theme.svelte';
-  import ColumnsLine from '../../../components/charts/ColumnsLine.svelte';
   import { compact } from '../../../components/charts/scale';
   import { frame, cv, money, money2, cvRow, n0, pctF, monthLabel, currency } from '../fmt.svelte';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
@@ -15,14 +14,33 @@
   const fr = $derived(frame(r));
   const go = (h: string) => (location.hash = h.replace(/^#/, ''));
 
-  // ── executive overview: the three commercial figures. Trucks, orders and alerts stay on Home. ──
-  const PERIOD = new Set(['sales', 'profit', 'margin']);
-  const kpis = $derived.by((): Kpi[] => (key !== 'exec-overview' ? [] : d.kpis.filter((k: any) => PERIOD.has(k.key)).map((k: any) => {
+  // ── executive overview: sales, expenses, profit, margin. Trucks, orders and alerts stay on Home. ──
+  const asKpi = (k: any, upIsGood = k.upIsGood ?? true): Kpi => {
     const fmt = k.unit === 'usd' ? (n: number) => compact(cv(n)) : k.unit === 'pct' ? (n: number) => pctF(n) : (n: number) => n0(n);
-    const change = k.value != null && k.prev != null && k.changeKind ? { value: k.changeKind === 'pp' ? (k.value - k.prev) * 100 : k.prev ? (k.value - k.prev) / Math.abs(k.prev) : null, kind: k.changeKind, upIsGood: k.upIsGood ?? true, label: 'vs previous period' } : undefined;
-    return { label: k.unit === 'usd' ? `${k.label} (${currency.code})` : k.label, value: k.value, format: fmt, change, trend: k.trend ?? undefined, note: k.note, status: k.status, href: k.href };
-  })));
-  const kpiRows = () => [['Measure', 'Value', 'Previous period', 'Unit'], ...(d.kpis ?? []).filter((k: any) => PERIOD.has(k.key)).map((k: any) => [k.label, k.value == null ? 'No data yet' : k.unit === 'usd' ? cvRow(k.value) : k.value, k.prev == null ? '' : k.unit === 'usd' ? cvRow(k.prev) : k.prev, k.unit === 'usd' ? currency.code : k.unit])];
+    const change = k.value != null && k.prev != null && k.changeKind ? { value: k.changeKind === 'pp' ? (k.value - k.prev) * 100 : k.prev ? (k.value - k.prev) / Math.abs(k.prev) : null, kind: k.changeKind, upIsGood, label: 'vs previous period' } : undefined;
+    return { label: k.unit === 'usd' ? `${k.label} (${currency.code})` : k.label, value: k.value, format: fmt, change, note: k.note, status: k.status, href: k.href };
+  };
+  const kpis = $derived.by((): Kpi[] => {
+    if (key !== 'exec-overview') return [];
+    const by = new Map(((d?.kpis ?? []) as any[]).map((k) => [k.key, k]));
+    const sales = by.get('sales'); const profit = by.get('profit'); const margin = by.get('margin');
+    const exp = sales && profit && sales.value != null && profit.value != null ? Math.max(0, sales.value - profit.value) : null;
+    const expPrev = sales?.prev != null && profit?.prev != null ? Math.max(0, sales.prev - profit.prev) : null;
+    const expenses = { key: 'expenses', label: 'Expenses', value: exp, prev: expPrev, unit: 'usd', changeKind: exp != null && expPrev != null ? 'pct' : undefined, upIsGood: false };
+    return [sales, expenses, profit, margin].filter(Boolean).map((k) => asKpi(k, k.upIsGood ?? true));
+  });
+  const kpiRows = () => {
+    const by = new Map(((d?.kpis ?? []) as any[]).map((k) => [k.key, k]));
+    const sales = by.get('sales'); const profit = by.get('profit'); const margin = by.get('margin');
+    const exp = sales?.value != null && profit?.value != null ? Math.max(0, sales.value - profit.value) : null;
+    const expPrev = sales?.prev != null && profit?.prev != null ? Math.max(0, sales.prev - profit.prev) : null;
+    const cell = (v: number | null | undefined, usd: boolean) => v == null ? '' : usd ? cvRow(v) : pctF(v);
+    return [['Measure', 'Value', 'Previous period', 'Unit'],
+      ['Sales', cell(sales?.value, true), cell(sales?.prev, true), currency.code],
+      ['Expenses', cell(exp, true), cell(expPrev, true), currency.code],
+      ['Profit', cell(profit?.value, true), cell(profit?.prev, true), currency.code],
+      ['Margin', cell(margin?.value, false), cell(margin?.prev, false), 'pct']];
+  };
   const marginTone = $derived(d?.margin == null || d?.targetMargin == null ? 'accent' : d.margin >= d.targetMargin ? 'success' : d.margin >= d.targetMargin * 0.8 ? 'warning' : 'danger');
 
   // ── profit ──
@@ -49,9 +67,9 @@
 </script>
 
 {#if key === 'exec-overview'}
-  <DashboardPanel span="full" subtitle="against the previous period" decision="Open performance for the full product, warehouse and company breakdown." {...fr} title="Sales, profit and margin" rows={kpiRows} filename="sales-profit-margin" owner="Directors" drill={{ label: 'Open performance', href: '#/performance' }}>
+  <DashboardPanel span="full" subtitle="against the previous period" decision="Open performance for the full product, warehouse and company breakdown." {...fr} title="Sales, expenses and profit" rows={kpiRows} filename="sales-expenses-profit" owner="Directors" drill={{ label: 'Open performance', href: '#/performance' }}>
     <div class="biz-kpis">
-      <div class="dash-kpis" role="list" aria-label="Sales, profit and margin">
+      <div class="dash-kpis" role="list" aria-label="Sales, expenses and profit">
         {#each kpis as k (k.label)}
           {@const c = k.change}
           {@const dir = c?.value == null ? 0 : Math.sign(c.value)}
@@ -81,26 +99,17 @@
     {/if}
   </DashboardPanel>
 {:else if key === 'profit-margin'}
-  <DashboardPanel span={span ?? 1} subtitle="the cost steps from sales to profit" decision="Cut the cost step that eats the most margin." {...fr} title={r.title} rows={wfRows} filename="profit-bridge" {drill}>
-    <div class="split">
-      <div>
-        <p class="cap-line">Profit bridge</p>
-        <Waterfall label="Profit bridge from sales to profit" steps={wf} format={money} onselect={() => go('#/performance')} />
-      </div>
-      <div>
-        {#if shareOf100.length}
-          <p class="cap-line">Where each $100 went</p>
-          <Donut label="Where each $100 of sales went" data={shareOf100} format={(n) => `$${Math.round(n)}`} center="$100" height={220} />
-        {/if}
-      </div>
-    </div>
+  <DashboardPanel span={span ?? 1} subtitle="from sales to profit" decision="Cut the cost step that takes the most." {...fr} title="Profit bridge" rows={wfRows} filename="profit-bridge" {drill}>
+    <Waterfall label="Profit bridge from sales to profit" steps={wf} format={money} height={220} onselect={() => go('#/performance')} />
   </DashboardPanel>
-  <DashboardPanel span={span ?? 1} subtitle="sales in navy, profit in green" decision="Protect the months where profit is falling." {...fr} title="Sales and profit by month" period="Last 6 months" rows={mRows} filename="sales-and-profit-by-month" empty={!(d.months ?? []).some((m: any) => m.revenue)}>
-    <BarChart label="Sales and profit by month" categories={(d.months ?? []).map((m: any) => monthLabel(m.month))} series={[{ name: 'Sales', values: d.months.map((m: any) => m.revenue), ink: 'navy' }, { name: 'Profit', values: d.months.map((m: any) => Math.max(0, m.profit)), ink: 'good' }]} format={money} labels={false} />
-    <p class="cap-line cost">Cost and margin</p>
-    <ColumnsLine label="Goods, truck and warehouse against profit" categories={(d.months ?? []).map((m: any) => monthLabel(m.month))}
-      parts={[{ name: 'Goods cost', values: d.months.map((m: any) => m.goods), ink: 'navy' }, { name: 'Truck, warehouse, other', values: d.months.map((m: any) => m.expenses), ink: 'teal' }, { name: 'Profit', values: d.months.map((m: any) => m.profit), ink: 'good' }]}
-      line={{ name: 'Margin', values: d.months.map((m: any) => m.margin) }} format={money} />
+  <DashboardPanel span={span ?? 1} subtitle="share of sales" decision="The largest slice is the cost to challenge." {...fr} title="Where each $100 went" rows={() => [['Step', 'Share of $100'], ...shareOf100.map((s) => [s.label, s.value])]} filename="where-each-100-went" empty={!shareOf100.length} {drill}>
+    <Donut label="Where each $100 of sales went" data={shareOf100} format={(n) => `$${Math.round(n)}`} center="$100" height={200} />
+  </DashboardPanel>
+  <DashboardPanel span={span ?? 1} subtitle="last 6 months" decision="Watch a month where profit falls while sales hold." {...fr} title="Sales and profit" period="Last 6 months" rows={mRows} filename="sales-and-profit-by-month" empty={!(d.months ?? []).some((m: any) => m.revenue)}>
+    <BarChart label="Sales and profit by month" categories={(d.months ?? []).map((m: any) => monthLabel(m.month))} series={[{ name: 'Sales', values: d.months.map((m: any) => m.revenue), ink: 'navy' }, { name: 'Profit', values: d.months.map((m: any) => Math.max(0, m.profit)), ink: 'good' }]} format={money} labels={false} height={200} />
+  </DashboardPanel>
+  <DashboardPanel span={span ?? 1} subtitle="last 6 months" decision="Goods, then truck, warehouse and other costs." {...fr} title="Expenses" period="Last 6 months" rows={mRows} filename="expenses-by-month" empty={!(d.months ?? []).some((m: any) => m.goods || m.expenses)}>
+    <BarChart stacked label="Expenses by month" categories={(d.months ?? []).map((m: any) => monthLabel(m.month))} series={[{ name: 'Goods', values: d.months.map((m: any) => m.goods), ink: 'navy' }, { name: 'Truck, warehouse, other', values: d.months.map((m: any) => m.expenses), ink: 'cost' }]} format={money} labels={false} height={200} />
   </DashboardPanel>
 {:else if key === 'landed-product'}
   <DashboardPanel span={span ?? 1} subtitle="goods + truck + warehouse, share of each" decision="Challenge the truck or warehouse share that is out of line." {...fr} title={r.title} unit="{currency.code} per case" rows={lpRows} filename="landed-cost-per-product" {drill}>
@@ -135,13 +144,14 @@
   .fill.sales { width: 100%; background: var(--viz-1); }
   .fill.costs { background: var(--viz-2); }
   .fill.profit { background: var(--viz-3); }
-  .biz-kpis :global(.dash-kpis) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .biz-kpis :global(.dash-kpis) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .prices { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
   .prices li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--border); }
   .prices li:first-child { border-top: 0; }
   .prices .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .prices b { font-variant-numeric: tabular-nums; }
   .prices .need { color: var(--text-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  @media (max-width: 1100px) { .biz-kpis :global(.dash-kpis) { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 720px) { .biz-kpis :global(.dash-kpis) { grid-template-columns: 1fr; } .prices li { grid-template-columns: minmax(0, 1fr) auto; } .prices .need { grid-column: 1 / -1; } }
   .golink { margin-top: var(--space-3); }
   .split { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: stretch; }

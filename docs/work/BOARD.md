@@ -152,3 +152,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | claude | V3-1g merged: System settings & logs (Users & access, Audit log, Settings) and Shipment map in the Operations sidebar. V3-8 batch 2b merged: Users, Audit log and Master data tables (Suppliers, Companies, Receiving companies, Drivers, Warehouses) on DataTable. Next: Truck desk tables. |
 | 26 Nov 2026 | claude | Your note → V3-13 planned: one Settings & alerts workspace with a left menu; Alerts moves in. Waiting for approval. |
 | 26 Nov 2026 | cursor | V3-11 Business: sales, profit and margin, prices below target, and landed cost per product. The longer study stays on Management. Trip cost per truck is on Fees. |
+| 26 Nov 2026 | cursor | V3-11 Business graphs return in short cards: profit bridge, where each $100 went, sales and profit, expenses. Overview chart is expenses, sales and profit. |
