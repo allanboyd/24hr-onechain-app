@@ -28,8 +28,18 @@ const revOne = (await p.locator('.ov .kpi .val').first().textContent())?.trim();
 const n = (x) => Number((x ?? '').replace(/[^\d]/g, ''));
 ok(n(revOne) < n(revAll) && /wh=/.test(p.url()), `Overview: one warehouse shows less than combined (${revOne} < ${revAll}), kept in the address`);
 await p.screenshot({ path: `${out}/mgmt-overview-live.png` });
+// V3-10 step 2: Plans and orders on live data
+await p.goto(`${base}#/management/plans`); await p.locator('.pl .kpi .val').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(800);
+ok(await p.locator('iframe[title^="Management report"]').count() === 0 && /p=ytd/.test(p.url()), 'Plans: our page, opens on the year to date');
+const planned = n(await p.locator('.pl .kpi .val').first().textContent());
+ok(planned > 0 && await p.locator('.pl .dt-table tbody tr').count() > 0, `Plans: planned ${planned} cases, a row per brand`);
+ok(!(await p.locator('.pl').innerText()).match(/\bp-[a-z]\d{3}\b/), 'Plans: brand names, not codes');
+await p.getByRole('group', { name: 'Period' }).getByRole('button', { name: '30 days' }).click(); await p.waitForTimeout(2000);
+await p.goto(`${base}#/management/plans?p=30`); await p.waitForTimeout(1500);
+ok(/p=30/.test(p.url()), 'Plans: a chosen period is kept (not reset to the year)');
+await p.screenshot({ path: `${out}/mgmt-plans-live.png`, fullPage: true });
 for (const [k, title] of Object.entries(PAGES)) {
-  if (k === 'overview') continue; // rebuilt above
+  if (k === 'overview' || k === 'plans') continue; // rebuilt in our code (V3-10), checked above
   await p.goto(`${base}#/management/${k}`); await p.waitForTimeout(2200);
   const f = p.frameLocator('iframe[title^="Management report"]');
   const h1 = (await f.locator('main h1').first().textContent().catch(() => ''))?.trim();

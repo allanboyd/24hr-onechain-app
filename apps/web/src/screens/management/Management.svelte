@@ -22,8 +22,9 @@
   import Info from '@lucide/svelte/icons/info';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import Overview from './Overview.svelte';
+  import Plans from './Plans.svelte';
   /** pages rebuilt in our code on live data (V3-10); the others still show the report as is */
-  const LIVE: ReportPage[] = ['overview'];
+  const LIVE: ReportPage[] = ['overview', 'plans'];
 
   let { params = {} }: { params?: Record<string, string> } = $props();
   const page = $derived<ReportPage>(params.page && params.page in REPORT_PAGES ? (params.page as ReportPage) : 'overview');
@@ -64,7 +65,7 @@
 </script>
 
 {#if LIVE.includes(page)}
-  <Overview />
+  {#if page === 'plans'}<Plans />{:else}<Overview />{/if}
 {:else}
 <div class="mgmt">
   <div class="note" role="note">

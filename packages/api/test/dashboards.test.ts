@@ -67,6 +67,15 @@ ok(Math.abs(mo.per100.reduce((a, x) => a + x.value, 0) - 100) < 0.5, 'Management
 ok(mo.decisions.length === td.decisions.length && mo.kpis.flagged.count === td.decisions.reduce((a, d) => a + (d.count ?? 0), 0), 'Management Overview: act-on-these-first = the Today decisions', [mo.kpis.flagged, td.decisions.length]);
 ok(mo.byWarehouse.length > 0 && Math.abs(mo.byWarehouse.reduce((a, w) => a + w.sales, 0) - mo.kpis.revenue.value!) < 2, 'Management Overview: sales by warehouse add up to revenue', [mo.byWarehouse.reduce((a, w) => a + w.sales, 0), mo.kpis.revenue.value]);
 ok(mo.brands.best.length > 0 && mo.brands.best.every((b, i, a) => i === 0 || a[i - 1].margin >= b.margin), 'Management Overview: best brands by margin, highest first');
+// ---- Management · Plans and orders (V3-10 step 2) = the planned-vs-actual report for the same dates ----
+{
+  const y0 = `${new Date().getUTCFullYear()}-01-01T00:00:00.000Z`, y1 = new Date(Date.now() + 864e5).toISOString();
+  const mp = (await api.dashboards.get(['mgmt-plans'], { from: y0, to: y1 })).results['mgmt-plans']!.data as import('../src/dashboards').MgmtPlans;
+  const pv = await api.reports.plannedVsActual({ from: y0, to: y1 });
+  ok(mp.measures.planned === pv.measures.planned && mp.measures.ordered === pv.measures.ordered && mp.measures.usedPct === pv.measures.usedPct, 'Management Plans: planned / ordered / used = the planned-vs-actual report (same dates)', [mp.measures, pv.measures]);
+  ok(Math.abs(mp.months.reduce((a, m) => a + m.planned, 0) - pv.measures.planned) <= mp.months.length && mp.byBrand.length === pv.byBrand.length, 'Management Plans: months add up to the plan; one row per brand', [mp.months.length, mp.byBrand.length]);
+  ok(mp.byBrand.every((b) => !/^p-[a-z]\d+/.test(b.label)), 'Management Plans: brand names, not codes', mp.byBrand.slice(0, 2));
+}
 ok(td.cash.value! > 0 && td.cash.overdue! <= td.cash.value! && td.cash.spark?.length === 8, 'Today: cash to collect with the overdue part (never more than the total)', [td.cash.value, td.cash.overdue]);
 ok(td.owed.bands.length === 3 && td.owed.total === td.cash.value && td.owed.overdue === td.cash.overdue && td.owed.top.length > 0 && td.owed.bands.every((b) => b.value >= 0), 'Today: who-owes-us ageing bands and top customers', td.owed);
 ok(td.trucks.value !== null && td.trucks.delayed <= td.trucks.value && td.trucks.spark?.length === 14 && td.trucks.spark.at(-1) === td.trucks.value, 'Today: trucks on the road, delayed, 14-day trend ending at now', td.trucks);

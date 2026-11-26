@@ -8,7 +8,7 @@
 // Scope: `scopeSource` cuts the company-wide data down to what one person may see (roles document §7, access.ts / money.ts),
 // then `narrow` applies the dashboard filters (company, supplier, route, warehouse, product, date range).
 import { DAY, H, etaOf, featuresFor, hasFeature } from './rules';
-import { resolvePeriod, scopeReportData, planningReport, type ReportData } from './reports';
+import { resolvePeriod, scopeReportData, planningReport, plannedVsActual, PV_METHOD, type ReportData, type PvMeasures, type PvFlag } from './reports';
 import { performanceReport, PERFORMANCE_METHOD, type PerformanceReport } from './performance';
 import * as M from './money';
 import * as A from './access';
@@ -54,7 +54,7 @@ export type DashKey =
   | 'orders-analysis' | 'plan-vs-actual-report' | 'purchase-planning' | 'loading-queues' | 'shipment-analysis' | 'logistics-report'
   | 'trip-costs' | 'finance-report' | 'stock-analysis' | 'inventory-report' | 'sales-velocity' | 'sales-report' | 'quarterly-review'
   // design v3 Management pages on live data (V3-10): same data, scoping and builders as the dashboards above
-  | 'mgmt-overview';
+  | 'mgmt-overview' | 'mgmt-plans';
 export interface DashDef {
   key: DashKey; id: string; title: string; group: DashGroup; who: Who[];
   /** the business question it answers */ question: string; /** the visual */ visual: string;
@@ -66,6 +66,7 @@ export interface DashDef {
 const d = (key: DashKey, id: string, title: string, group: DashGroup, who: Who[], question: string, visual: string, link?: string, client?: boolean): DashDef => ({ key, id, title, group, who, question, visual, link, client });
 const a = (key: DashKey, title: string, group: DashGroup, who: Who[], features: FeatureKey[], question: string, visual: string, link: string): DashDef => ({ key, id: 'F-2', title, group, who, question, visual, link, client: true, analysis: true, features });
 export const DASHBOARDS: DashDef[] = [
+  { key: 'mgmt-plans', id: 'M-03', title: 'Plans and orders', group: 'management', who: ['dir'], features: ['reports'], question: 'Are we ordering what we planned, by month and by brand?', visual: 'KPIs, planned vs PO issued by month, by brand', link: '#/management/plans' },
   { key: 'mgmt-overview', id: 'M-01', title: 'Overview', group: 'management', who: ['dir'], features: ['reports'], question: 'How does the company make profit, and what needs action first?', visual: 'KPI cards with sparklines, profit waterfall, act-on-these-first, sales and profit by month and warehouse, where each $100 went, best and weakest brands', link: '#/management/overview' },
   d('director-today', 'C-05', 'Today', 'home', ['dir'], 'What needs a director\'s decision today, and where does the business stand?', 'KPI strip with sparklines, daily sales and profit, decision list, stock health, sales by company / warehouse, top products'),
   d('warehouse-today', 'C-05b', 'Warehouse today', 'home', ['rcv', 'dir'], 'What do I sign, what arrives this week, and what is running out?', 'Tiles: to sign, arriving, stock at risk, losses; re-exports for Asie', '#/shipments'),
@@ -587,6 +588,26 @@ function mgmtOverview(c: Ctx): Out {
   });
 }
 
+// ---- design v3 Management · Plans and orders (V3-10 step 2): the planned-vs-actual report, as on Live dashboards --------
+export interface MgmtPlans {
+  range: { from: string; to: string; label: string }; measures: PvMeasures;
+  months: { month: string; planned: number; ordered: number }[];
+  byBrand: { productId: ID; label: string; planned: number; ordered: number; usedPct: number; flag: PvFlag }[];
+}
+function mgmtPlans(c: Ctx): Out {
+  const n = names(c.src);
+  const pv = plannedVsActual({ ...c.src, periodPlans: c.src.periodPlans ?? [], pvThresholds: c.raw.pvThresholds } as unknown as ReportData,
+    { from: iso(c.from), to: iso(c.to), entityId: c.f.entityId, warehouseId: c.f.warehouseId, supplierId: c.f.supplierId } as Parameters<typeof plannedVsActual>[1]);
+  const data: MgmtPlans = {
+    range: pv.range, measures: pv.measures,
+    months: pv.months.map((m) => ({ month: m.month, planned: Math.round(m.planned), ordered: Math.round(m.ordered) })),
+    byBrand: pv.byBrand.map((b) => ({ ...b, label: n.product(b.productId) })).sort((a, b) => b.planned - a.planned),
+  };
+  return out(data, { definition: `${PV_METHOD} Cases; planned = period plans, PO issued = purchase orders. The same report as Live dashboards → Purchasing.`, unit: 'cases', currency: null, period: c.period,
+    freshness: newest((c.src.periodPlans ?? []).map((p) => (p as { updatedAt?: string }).updatedAt ?? null), c.src.pos.map((p) => (p as { date?: string }).date ?? null)),
+    empty: !pv.measures.planned && !pv.measures.ordered });
+}
+
 function directorToday(c: Ctx): Out {
   const n = names(c.src); const now = c.now; const d0 = new Date(now);
   const dayStart = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate());
@@ -904,6 +925,7 @@ function dataCompleteness(c: Ctx): Out {
 const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
   'director-today': directorToday,
   'mgmt-overview': mgmtOverview,
+  'mgmt-plans': mgmtPlans,
   'warehouse-today': warehouseToday,
   'order-this-week': orderThisWeek,
   'stock-movements': stockMovements,
