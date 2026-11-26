@@ -1,0 +1,25 @@
+// V3-11 LD-1: the Fleet tab fits the screen; each section scrolls inside itself. Run: node tests/design-v3/live-dashboards.mjs <base> <outDir>
+import { chromium } from 'playwright';
+const [base, out = '.'] = process.argv.slice(2);
+let fails = 0; const ok = (c, m) => { console.log(`${c ? 'ok  ' : 'FAIL'} ${m}`); if (!c) fails++; };
+const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
+const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+await p.goto(base); await p.waitForTimeout(1200);
+await p.getByRole('button', { name: 'Sign in to the web as Daniel' }).first().click(); await p.locator('aside nav a').first().waitFor();
+await p.goto(`${base}#/dashboards/fleet`); await p.locator('.fit .cell').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(2500);
+const box = await p.locator('.fit').boundingBox();
+ok(!!box && box.y + box.height <= 900 + 1, `Fleet board fits the screen (bottom at ${Math.round((box?.y ?? 0) + (box?.height ?? 0))} of 900 px)`);
+const cells = await p.locator('.fit .cell').evaluateAll((cs) => cs.map((c) => { const b = c.querySelector('.dash-panel .body'); const s = b ? getComputedStyle(b) : null; return { area: c.style.gridArea, overflow: s?.overflowY, scrolls: b ? b.scrollHeight > b.clientHeight + 2 : false, h: Math.round(c.getBoundingClientRect().height) }; }));
+console.log('     cells:', JSON.stringify(cells));
+ok(cells.length === 5 && cells.every((c) => c.overflow === 'auto'), 'five sections, each scrolls on its own (overflow auto)');
+ok(cells.some((c) => c.scrolls), 'at least one section has more than fits and scrolls inside');
+const body = p.locator('.fit .cell').first().locator('.dash-panel .body');
+const hdrBefore = await p.locator('.fit .cell').first().locator('.dash-panel > header').boundingBox();
+await body.evaluate((e) => e.scrollTo(0, 300)); await p.waitForTimeout(200);
+const hdrAfter = await p.locator('.fit .cell').first().locator('.dash-panel > header').boundingBox();
+ok(hdrBefore?.y === hdrAfter?.y && await p.evaluate(() => scrollY) === 0, 'scrolling a section moves only that section (header and page stay)');
+await p.screenshot({ path: `${out}/fleet-fit.png` });
+await p.setViewportSize({ width: 390, height: 844 }); await p.waitForTimeout(800);
+ok(await p.locator('.fit .cell').count() === 5, 'phone: sections stacked');
+ok(!errs.length, `no page errors ${errs.join(' | ')}`);
+await b.close(); console.log(fails ? `${fails} check(s) failed` : 'all live-dashboard checks passed'); process.exit(fails ? 1 : 0);
