@@ -6,6 +6,8 @@ import type { DashKey } from '@btw/api';
 export const HOME_TAB: Partial<Record<DashKey, string>> = {
   'order-this-week': 'purchasing',
   'warehouse-today': 'warehouse',
+  // Trip cost per truck stays on Fees. Management does not draw it, and Business no longer repeats it.
+  'landed-truck': 'fees',
 };
 
 /**
@@ -13,11 +15,11 @@ export const HOME_TAB: Partial<Record<DashKey, string>> = {
  * Anything they may see that is not listed here, and not hidden, still appears after these.
  */
 export const REPORT: Partial<Record<string, DashKey[]>> = {
-  business: ['exec-overview', 'profit-margin', 'combined-performance', 'landed-product', 'selling-price', 'landed-truck'],
+  business: ['exec-overview', 'selling-price', 'landed-product'],
   purchasing: ['order-this-week', 'po-pipeline', 'open-orders', 'ordered-loaded-delivered', 'plan-vs-actual'],
   loading: ['loading-list', 'loading-status', 'dispatched-today', 'loading-queues'],
   fleet: ['fleet-board', 'delayed-trucks', 'truck-issues', 'driver-updates', 'border-stops', 'logistics-report'],
-  fees: ['agreed-vs-actual', 'unpaid-fees', 'fee-payments', 'truck-expenses', 'trip-costs'],
+  fees: ['agreed-vs-actual', 'unpaid-fees', 'fee-payments', 'truck-expenses', 'landed-truck', 'trip-costs'],
   deliveries: ['incoming', 'received-damaged-short', 'delivery-losses'],
   warehouse: ['warehouse-today', 'stock-on-hand', 'fast-slow', 'stock-in-transit', 'warehouse-expenses', 'stock-movements', 'reexports', 'inventory-report', 'stock-analysis'],
   sales: ['sales-summary', 'customer-balances', 'cash-vs-credit', 'quarterly-review'],
@@ -33,6 +35,8 @@ const DUPLICATE = new Set<DashKey>([
   'finance-report', // landed cost on Business, trip costs on Fees
   'sales-velocity', // fast and slow
   'sales-report', // sales summary, balances, cash vs credit
+  'profit-margin', // Management overview: bridge, where each $100 went, sales and profit by month
+  'combined-performance', // the same sales, cost and profit totals
 ]);
 
 /** Directors get the valued stock report (FIFO age). Warehouse staff get stock positions. Never both. */

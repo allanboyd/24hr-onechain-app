@@ -2,10 +2,9 @@
   // Directors · business (docs/15): executive overview ★1, combined performance (link), profit and margin ★2, landed cost per
   // product and per truck, selling price & target margin (link + gauge), fast / slow products ★3.
   import type { DashKey, DashResult } from '@btw/api';
-  import { DashboardPanel, ExceptionList, Waterfall, StackedBarH, QuadrantScatter, type Kpi } from '../../../components/dashboard';
+  import { DashboardPanel, Waterfall, StackedBarH, QuadrantScatter, type Kpi } from '../../../components/dashboard';
   import '../../../components/dashboard/report.css';
-  import { BarChart, Donut, Gauge, Meter } from '../../../components/charts';
-  import SparkArea from '../../../components/charts/SparkArea.svelte';
+  import { BarChart, Donut, Meter } from '../../../components/charts';
   import type { Ink } from '../../../components/charts/theme.svelte';
   import ColumnsLine from '../../../components/charts/ColumnsLine.svelte';
   import { compact } from '../../../components/charts/scale';
@@ -16,17 +15,14 @@
   const fr = $derived(frame(r));
   const go = (h: string) => (location.hash = h.replace(/^#/, ''));
 
-  // ── executive overview ──
-  const kpis = $derived.by((): Kpi[] => (key !== 'exec-overview' ? [] : d.kpis.map((k: any) => {
+  // ── executive overview: the three commercial figures. Trucks, orders and alerts stay on Home. ──
+  const PERIOD = new Set(['sales', 'profit', 'margin']);
+  const kpis = $derived.by((): Kpi[] => (key !== 'exec-overview' ? [] : d.kpis.filter((k: any) => PERIOD.has(k.key)).map((k: any) => {
     const fmt = k.unit === 'usd' ? (n: number) => compact(cv(n)) : k.unit === 'pct' ? (n: number) => pctF(n) : (n: number) => n0(n);
     const change = k.value != null && k.prev != null && k.changeKind ? { value: k.changeKind === 'pp' ? (k.value - k.prev) * 100 : k.prev ? (k.value - k.prev) / Math.abs(k.prev) : null, kind: k.changeKind, upIsGood: k.upIsGood ?? true, label: 'vs previous period' } : undefined;
     return { label: k.unit === 'usd' ? `${k.label} (${currency.code})` : k.label, value: k.value, format: fmt, change, trend: k.trend ?? undefined, note: k.note, status: k.status, href: k.href };
   })));
-  const kpiRows = () => [['Measure', 'Value', 'Previous period', 'Unit'], ...(d.kpis ?? []).map((k: any) => [k.label, k.value == null ? 'No data yet' : k.unit === 'usd' ? cvRow(k.value) : k.value, k.prev == null ? '' : k.unit === 'usd' ? cvRow(k.prev) : k.prev, k.unit === 'usd' ? currency.code : k.unit])];
-  const excRows = () => [['Severity', 'Exception', 'Detail', 'Owner', 'Due', 'Status'], ...(d.exceptions ?? []).map((e: any) => [e.severity, e.title, e.detail, e.owner ?? 'Not assigned', e.due ?? '', e.status])];
-  const bulletTone = (s: string) => (s === 'good' ? 'success' : s === 'warn' ? 'warning' : s === 'bad' ? 'danger' : 'accent') as 'success' | 'warning' | 'danger' | 'accent';
-  const bulletFmt = (b: { unit: string }) => (b.unit === 'pct' ? (n: number) => pctF(n) : (n: number) => `${Math.round(n)} d`);
-  const bulletRows = () => [['Measure', 'Value', 'Target', 'Status'], ...(d.bullets ?? []).map((b: any) => [b.label, b.value == null ? 'No data yet' : b.unit === 'pct' ? pctF(b.value) : `${Math.round(b.value)} d`, b.unit === 'pct' ? pctF(b.target) : `${b.target} d`, b.status])];
+  const kpiRows = () => [['Measure', 'Value', 'Previous period', 'Unit'], ...(d.kpis ?? []).filter((k: any) => PERIOD.has(k.key)).map((k: any) => [k.label, k.value == null ? 'No data yet' : k.unit === 'usd' ? cvRow(k.value) : k.value, k.prev == null ? '' : k.unit === 'usd' ? cvRow(k.prev) : k.prev, k.unit === 'usd' ? currency.code : k.unit])];
   const marginTone = $derived(d?.margin == null || d?.targetMargin == null ? 'accent' : d.margin >= d.targetMargin ? 'success' : d.margin >= d.targetMargin * 0.8 ? 'warning' : 'danger');
 
   // ── profit ──
@@ -53,42 +49,20 @@
 </script>
 
 {#if key === 'exec-overview'}
-  <DashboardPanel span="full" subtitle="tap a figure to open its list" decision="Unblock delayed trucks and high-priority alerts first; then prices and stock that miss target." {...fr} title={r.title} rows={() => [...kpiRows(), ...bulletRows().slice(1), ...excRows().slice(1)]} filename="executive-overview" owner="Directors">
-    <div class="exec">
-      <div class="exec-main">
-        <div class="dash-kpis" role="list" aria-label="Executive overview">
-          {#each kpis as k (k.label)}
-            {@const c = k.change}
-            {@const dir = c?.value == null ? 0 : Math.sign(c.value)}
-            {@const good = dir === 0 ? null : (dir > 0) === (c?.upIsGood ?? true)}
-            <svelte:element this={k.href ? 'a' : 'div'} role="listitem" class="card kpi" href={k.href || undefined}>
-              <span class="lbl">{k.label}</span>
-              {#if k.value == null}<b class="val none">No data yet</b>{:else}<b class="val">{(k.format ?? ((n: number) => String(n)))(k.value)}</b>{/if}
-              <span class="sub">{#if c && c.value != null}<span class="dash-chip" class:good={good === true} class:bad={good === false}>{dir > 0 ? '▲' : dir < 0 ? '▼' : '0'} {c.kind === 'pp' ? `${Math.abs(c.value).toFixed(1)} pp` : c.kind === 'abs' ? (k.format ?? ((n: number) => String(n)))(Math.abs(c.value)) : `${(Math.abs(c.value) * 100).toFixed(1)}%`}</span>{/if} {c?.label ?? ''}</span>
-              {#if k.trend}<div class="spark"><SparkArea values={k.trend} height={30} /></div>{/if}
-            </svelte:element>
-          {/each}
-        </div>
-        {#if d.bullets?.length}
-          <div class="bullets">
-            {#each d.bullets as b}
-              {#if b.value != null}
-                <Meter label={b.label} value={b.value} max={b.max} target={b.target} tone={bulletTone(b.status)} format={bulletFmt(b)} note={b.note} />
-              {:else}
-                <p class="caption">{b.label}: no data yet</p>
-              {/if}
-            {/each}
-          </div>
-        {/if}
+  <DashboardPanel span="full" subtitle="against the previous period" decision="Open performance for the full product, warehouse and company breakdown." {...fr} title="Sales, profit and margin" rows={kpiRows} filename="sales-profit-margin" owner="Directors" drill={{ label: 'Open performance', href: '#/performance' }}>
+    <div class="biz-kpis">
+      <div class="dash-kpis" role="list" aria-label="Sales, profit and margin">
+        {#each kpis as k (k.label)}
+          {@const c = k.change}
+          {@const dir = c?.value == null ? 0 : Math.sign(c.value)}
+          {@const good = dir === 0 ? null : (dir > 0) === (c?.upIsGood ?? true)}
+          <svelte:element this={k.href ? 'a' : 'div'} role="listitem" class="card kpi" href={k.href || undefined}>
+            <span class="lbl">{k.label}</span>
+            {#if k.value == null}<b class="val none">No data yet</b>{:else}<b class="val">{(k.format ?? ((n: number) => String(n)))(k.value)}</b>{/if}
+            <span class="sub">{#if c && c.value != null}<span class="dash-chip" class:good={good === true} class:bad={good === false}>{dir > 0 ? '▲' : dir < 0 ? '▼' : '0'} {c.kind === 'pp' ? `${Math.abs(c.value).toFixed(1)} pp` : c.kind === 'abs' ? (k.format ?? ((n: number) => String(n)))(Math.abs(c.value)) : `${(Math.abs(c.value) * 100).toFixed(1)}%`}</span>{/if} {c?.label ?? (k.note ?? '')}</span>
+          </svelte:element>
+        {/each}
       </div>
-      <aside class="exec-side" aria-label="Exceptions">
-        <div class="side-head">
-          <h4>Exceptions</h4>
-        </div>
-        <ExceptionList items={d.exceptions} max={5} moreHref="#/dashboards/admin" label="Delayed trucks and high-priority alerts" />
-        {#if !d.exceptions?.length}<p class="caption">Nothing urgent right now.</p>{/if}
-        <a class="btn btn-ghost btn-sm golink" href="#/dashboards/admin">Open the alerts centre <ArrowRight size={14} /></a>
-      </aside>
     </div>
   </DashboardPanel>
 {:else if key === 'combined-performance'}
@@ -137,13 +111,13 @@
     <BarChart label="Trip costs per truck by category" horizontal stacked categories={ltTop.map((x: any) => x.truck)} series={(d.kinds ?? []).map((k: string) => ({ name: k, values: ltTop.map((x: any) => x.byKind[k] ?? 0) }))} format={money} />
   </DashboardPanel>
 {:else if key === 'selling-price'}
-  <DashboardPanel span={span ?? 1} subtitle="margin at today's prices against the target" decision="Raise prices, or stop selling, on lines below target." {...fr} title={r.title} rows={spRows} filename="selling-price-margin" drill={{ label: 'Open the target-margin calculator', href: '#/selling-prices' }}>
-    {#if d}
-      <div class="gauge-row">
-        <Gauge label="Average margin at today's prices" value={Math.max(0, d.avgMargin ?? 0)} max={Math.max(0.4, d.target * 1.5)} target={d.target} tone={(d.avgMargin ?? 0) >= d.target ? 'success' : 'warning'} format={(n) => pctF(n)} />
-        <div class="small"><p><b>{d.below}</b> of {d.products} priced products below the {pctF(d.target, 0)} target.</p>
-          {#if d.worst?.length}<ul class="plain">{#each d.worst as w}<li>{w.label}: {pctF(w.margin)} → price {money2(w.needed)}</li>{/each}</ul>{/if}</div>
-      </div>
+  <DashboardPanel span={span ?? 1} subtitle="{d ? `${d.below} of ${d.products} priced products are below the ${pctF(d.target, 0)} target` : ''}" decision="Raise the price, or stop selling the line." {...fr} title="Prices below target" rows={spRows} filename="prices-below-target" empty={!d?.products} drill={{ label: 'Open selling prices', href: '#/selling-prices' }}>
+    {#if d?.worst?.length}
+      <ul class="prices">
+        {#each d.worst as w}<li><span class="nm">{w.label}</span><b>{pctF(w.margin)}</b><span class="need">Price {money2(w.needed)}</span></li>{/each}
+      </ul>
+    {:else if d?.products}
+      <p class="caption">Every priced product meets the target.</p>
     {/if}
   </DashboardPanel>
 {:else if key === 'fast-slow'}
@@ -161,19 +135,18 @@
   .fill.sales { width: 100%; background: var(--viz-1); }
   .fill.costs { background: var(--viz-2); }
   .fill.profit { background: var(--viz-3); }
-  .bullets { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-4); margin-top: var(--space-5); }
+  .biz-kpis :global(.dash-kpis) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .prices { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .prices li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--border); }
+  .prices li:first-child { border-top: 0; }
+  .prices .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prices b { font-variant-numeric: tabular-nums; }
+  .prices .need { color: var(--text-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  @media (max-width: 720px) { .biz-kpis :global(.dash-kpis) { grid-template-columns: 1fr; } .prices li { grid-template-columns: minmax(0, 1fr) auto; } .prices .need { grid-column: 1 / -1; } }
   .golink { margin-top: var(--space-3); }
-  .gauge-row { display: flex; gap: var(--space-4); align-items: center; flex-wrap: wrap; }
-  .plain { margin: var(--space-2) 0 0; padding-left: 18px; }
-  .exec { display: flex; flex-wrap: wrap; gap: var(--space-5); align-items: start; }
-  .exec-main { flex: 1.6 1 420px; min-width: 0; display: flex; flex-direction: column; }
-  @media (min-width: 720px) { .exec-main :global(.dash-kpis) { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-  .exec-side { flex: 1 1 300px; min-width: 0; max-height: 560px; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-4); background: var(--surface-sunken); }
-  .exec-side :global(.exc) { overflow: auto; min-height: 0; }
-  .side-head h4 { margin: 0 0 4px; font-size: 15px; }
   .split { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: stretch; }
   .split > div { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; }
   .cap-line { margin: 0 0 var(--space-2); font-size: 12px; font-weight: 600; color: var(--text-muted); }
   .cap-line.cost { margin-top: var(--space-4); }
-  @media (max-width: 1100px) { .exec, .split { flex-direction: column; } }
+  @media (max-width: 1100px) { .split { flex-direction: column; } }
 </style>

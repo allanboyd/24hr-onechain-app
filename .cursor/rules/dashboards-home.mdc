@@ -20,7 +20,7 @@ alwaysApply: false
 - Prefer **paired charts** (ageing | top list, bridge | donut, month | share) over one full-width stretched series.
 - A card is only as tall as its content. Do not stretch a short card up to a longer neighbour. A long list scrolls inside the card. The chart face is the chart; the table is the icon toggle, not a second block under the chart.
 - Exception: on the overview, the truck map sits under the stats in the same row as the charts. That row stretches, and the map grows to the bottom of the charts. Do not leave an empty band under the map.
-- Executive overview: KPIs + exceptions in one composition (side panel), not two disconnected full-width stacks.
+- Business is the operations glance: sales, profit and margin, prices below target, and landed cost per product. The profit bridge, monthly trend and brand ranking stay on Management. Trip cost per truck stays on Fees.
 - A section that repeats a panel already on the tab stays in `hiddenReport`. Border heatmap, fast and slow, and landed cost are part of the report, not a second mode.
 
 Mockup reference: Cursor canvas `home-today-mockup.canvas.tsx`. Product narrative: `docs/21-dashboard-redesign.md`.
