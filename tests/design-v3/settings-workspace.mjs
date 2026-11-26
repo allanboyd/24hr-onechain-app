@@ -11,7 +11,19 @@ async function signIn(name) {
 }
 const rows = (p) => p.locator('section.dt table tbody tr');
 const p = await signIn('Daniel');
-await p.goto(`${base}#/system/alerts`); await rows(p).first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(800);
+// V3-15: exceptions open as cards grouped by severity, each with an Open button; type chips narrow them
+await p.goto(`${base}#/system/alerts`); await p.locator('.xc').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(600);
+const groupsSev = (await p.locator('.sevgrp .gh .sev').allTextContents()).map((x) => x.trim());
+ok(groupsSev.length > 0 && groupsSev[0] === 'Critical' && await p.locator('.xc').first().getByRole('link', { name: /Open/ }).count() === 1, `Open exceptions as cards by severity (${groupsSev.join(', ')}), each with Open`);
+const xc0 = await p.locator('.xc').count();
+const firstKind = (await p.locator('.chips button').nth(1).textContent())?.trim() ?? '';
+await p.locator('.chips button').nth(1).click(); await p.waitForTimeout(400);
+const kinds = await p.locator('.xc .tag').allTextContents();
+ok(kinds.length > 0 && kinds.length <= xc0 && kinds.every((k) => k.trim() === firstKind) && /kind=/.test(p.url()), `a type chip narrows the cards to ${firstKind} (${xc0} → ${kinds.length})`);
+await p.screenshot({ path: `${out}/ws-exception-cards.png` });
+// the table is one click away
+await p.locator('.chips button').first().click(); await p.getByRole('button', { name: 'Table' }).click(); await rows(p).first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(800);
+ok(/layout=table/.test(p.url()), 'Table keeps the choice in the address');
 ok(await p.getByRole('tab', { name: /Open exceptions/ }).count() + await p.locator('.tabs a, .tabs button', { hasText: 'Open exceptions' }).count() > 0, 'Alerts: Open exceptions and Inbox views for a director');
 const total = await rows(p).count();
 const sevs = await p.locator('.sevs .sev').allTextContents();
@@ -30,13 +42,20 @@ await p.screenshot({ path: `${out}/ws-exceptions.png` });
 await rows(p).first().click(); await p.waitForTimeout(1500);
 ok(!/#\/system/.test(p.url()), `an exception opens its record (${p.url().split('#')[1]})`);
 // inbox
-await p.goto(`${base}#/system/alerts?view=inbox`); await rows(p).first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(600);
-const unread0 = await p.locator('section.dt tr.unread').count();
+await p.goto(`${base}#/system/alerts?view=inbox`); await p.reload(); await p.locator('.feed li').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(600);
+const dayGroups = (await p.locator('.day .gh').allTextContents()).map((x) => x.replace(/\d+$/, '').trim());
+ok(dayGroups.length > 0 && dayGroups.every((g) => ['Today', 'Yesterday', 'This week', 'Older'].includes(g)), `Inbox as activity, grouped by day (${dayGroups.join(', ')})`);
+const unread0 = await p.locator('.feed li.unread').count();
+await p.locator('.feed li.unread').first().getByRole('button', { name: /Mark .* as read/ }).click(); await p.waitForTimeout(500);
+ok(await p.locator('.feed li.unread').count() === unread0 - 1, 'Mark read on one item');
+await p.getByRole('button', { name: 'Unread only' }).click(); await p.waitForTimeout(300);
+ok(await p.locator('.feed li').count() === unread0 - 1 && /unread=1/.test(p.url()), 'Unread only shows the unread ones');
+await p.getByRole('button', { name: 'Unread only' }).click(); await p.waitForTimeout(300);
 ok(unread0 > 0 && await p.getByRole('button', { name: 'Mark all read' }).isEnabled(), `Inbox: unread alerts highlighted (${unread0})`);
 await p.locator('select', { has: p.locator('option[value="today"]') }).first().selectOption('30'); await p.waitForTimeout(400);
 ok(/since=30/.test(p.url()), 'the date filter is kept in the address');
 await p.getByRole('button', { name: 'Mark all read' }).click(); await p.waitForTimeout(800);
-ok(await p.locator('section.dt tr.unread').count() === 0, 'Mark all read clears the highlight');
+ok(await p.locator('.feed li.unread').count() === 0, 'Mark all read clears the highlight');
 await p.screenshot({ path: `${out}/ws-inbox.png` });
 // Approvals: the business rules, read-only
 await p.goto(`${base}#/system/approvals`); await p.locator('.rules dl div').first().waitFor({ timeout: 15_000 });
