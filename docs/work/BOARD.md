@@ -134,3 +134,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 Decisions keep a quiet colour on the word and icon. Stock cover is now What sold. The top bar is a rounded card with a scrollable trail. |
 | 26 Nov 2026 | claude | V3-1f merged: one Home entry in Operations (the dashboard tabs keep it selected). V3-12 step 3 merged: supplier money on the PO page (pro-forma, advance, credit note, use of held money; approval per Settings; directors notified); Supplier balances reads it. Migration 0016 applied. |
 | 26 Nov 2026 | cursor | V3-11 top bar is the breadcrumb only, with circular ends and a primary menu button. Hover text on that bar is white. BUG-4 fixed: New sale in Group view opens the form. |
+| 26 Nov 2026 | cursor | V3-11 Overview: Shipments is the number still moving. A map shows five trucks. Money owed sits beside the top 5 products, with on time or days late instead of ageing bands. |
