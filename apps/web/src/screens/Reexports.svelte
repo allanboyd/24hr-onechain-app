@@ -12,7 +12,7 @@
   import { attempt, watch } from '../lib/load.svelte';
   import { companyLabel } from '../lib/companies';
   import ErrorState from '../components/ErrorState.svelte';
-  import { PageHeader, SummaryStrip, FilterBar, EmptyState, queryFilters, readQuery, type SummaryTile } from '../components/page';
+  import { PageHeader, SummaryStrip, EmptyState, DataTable, queryFilters, readQuery, tableQuery, ts, type Column, type SummaryTile } from '../components/page';
   import { reexportTiles, infoOf } from '../lib/tiles';
   import Plus from '@lucide/svelte/icons/plus';
   import SearchX from '@lucide/svelte/icons/search-x';
@@ -26,9 +26,11 @@
     orders = await reexports.list();
     if (raiser) stock = (await warehouse.stock({ warehouseId: fromWhs[0].id })).filter((r) => r.held > 0);
   });
-  const f = queryFilters({ show: '', q: '' });
-  let search = $state(f.values.q);
-  $effect(() => { if (search !== f.values.q) f.set('q', search); });
+  const f = queryFilters({ show: '', q: '', route: '', company: '' });
+  // V3-8: search + From → to / Company filters in the table; Status = the strip (and its choice in the toolbar)
+  const tq = tableQuery(f, { search: 'q', filters: { route: 'route', company: 'company' } });
+  const searchExtra = (o: ReexportOrder) => `${o.note ?? ''} ${o.lines.map((l) => lookup.product(l.productId)?.brand).join(' ')} ${o.truckId ? lookup.truck(o.truckId)?.reg ?? '' : ''} ${o.driverId ? lookup.driver(o.driverId)?.name ?? '' : ''}`;
+  let shown = $state(0);
   const fig = $derived(reexportTiles(orders ?? []));
   const KEY: Record<string, ReexportOrder['status']> = { open: 'Open', loaded: 'Loaded', transit: 'In transit', delivered: 'Delivered', cancelled: 'Cancelled' };
   const tiles = $derived<SummaryTile[]>([
@@ -40,10 +42,24 @@
   let defaulted = false;
   let auto = $state('');
   $effect(() => { if (defaulted || !orders) return; defaulted = true; if (!readQuery('show') && !readQuery('q') && raiser && fig.open) { auto = 'open'; f.set('show', 'open'); } });
-  const shown = $derived((orders ?? []).filter((o) => (!f.values.show || f.values.show === 'all' || o.status === KEY[f.values.show]) && (!f.values.q || `${o.ref} ${o.note ?? ''} ${o.lines.map((l) => lookup.product(l.productId)?.brand).join(' ')}`.toLowerCase().includes(f.values.q.toLowerCase()))));
-  function clearAll() { f.clear(); search = ''; }
+  const listed = $derived((orders ?? []).filter((o) => !f.values.show || f.values.show === 'all' || o.status === KEY[f.values.show]));
+  function clearAll() { f.clear(); }
   const STATUS: Record<ReexportOrder['status'], string> = { Open: 'none', Loaded: 'warn', 'In transit': 'warn', Delivered: 'good', Cancelled: 'none' };
   const cases = (o: ReexportOrder) => o.lines.reduce((a, l) => a + (l.loadedQty ?? l.qty), 0);
+  const whName = (id: string) => lookup.warehouse(id)?.name ?? id;
+  const routeOf = (o: ReexportOrder) => `${o.fromWarehouseId}>${o.toWarehouseId}`;
+  const routeLabel = (k: string) => { const [a, b] = k.split('>'); return `${whName(a)} → ${whName(b)}`; };
+  const columns: Column<ReexportOrder>[] = [
+    { key: 'ref', label: 'Order', sticky: true, value: (o) => o.ref, cell: refCell, mobile: 'title' },
+    { key: 'status', label: 'Status', value: (o) => o.status, cell: statusCell, mobile: 'aside' },
+    { key: 'route', label: 'From → to', value: (o) => routeLabel(routeOf(o)), class: 'small', filter: 'select', filterValue: routeOf, filterLabel: routeLabel },
+    { key: 'company', label: 'Company', value: (o) => companyLabel(o.entityId), class: 'small', filter: 'select', filterValue: (o) => o.entityId, filterLabel: (id) => companyLabel(id), hideBelow: 900 },
+    { key: 'goods', label: 'Goods', sortable: false, csv: (o) => o.lines.map((l) => `${lookup.product(l.productId)?.brand} x ${l.loadedQty ?? l.qty}`).join('; '), cell: goodsCell, class: 'small', hideBelow: 1000 },
+    { key: 'cases', label: 'Cases', align: 'right', sortValue: cases, value: (o) => fmtNum(cases(o)), csv: cases, total: (l) => fmtNum(l.reduce((a, o) => a + cases(o), 0)) },
+    { key: 'truck', label: 'Truck', value: (o) => (o.truckId ? lookup.truck(o.truckId)?.reg ?? null : null), cell: truckCell, class: 'small', hideBelow: 1100 },
+    { key: 'raised', label: 'Raised', sortValue: (o) => ts(o.createdAt), csv: (o) => o.createdAt, cell: raisedCell, class: 'small' },
+    { key: 'act', label: '', sortable: false, csv: false, hideable: false, searchable: false, cell: actCell, class: 'nowrap', mobile: 'actions' },
+  ];
   const pname = (id: string) => `${lookup.product(id)?.brand ?? id} · ${lookup.product(id)?.pack ?? ''}`;
 
   // raise
@@ -79,7 +95,7 @@
   {#snippet primary()}{#if raiser}<button class="btn btn-primary" onclick={newDraft} disabled={!stock.length}><Plus size={16} aria-hidden="true" />New re-export order</button>{/if}{/snippet}
 </PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
-<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Re-export orders summary" allValue="all" noun="orders" total={orders ? orders.length : null} shown={orders ? shown.length : null} {auto} labels={KEY} />
+<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Re-export orders summary" allValue="all" noun="orders" total={orders ? orders.length : null} shown={orders ? shown : null} {auto} labels={KEY} />
 
 {#if draft}
   <section class="card form-card" aria-label="New re-export order">
@@ -122,40 +138,26 @@
   </section>
 {/if}
 
-<FilterBar bind:search placeholder="Order, note or product" active={f.values.show && f.values.show !== 'all' ? 1 : 0} onclear={clearAll}>
-  <label class="field"><span>Status</span><select class="select" value={f.values.show || 'all'} onchange={(e) => f.set('show', e.currentTarget.value)}><option value="all">All</option>{#each Object.entries(KEY) as [k, v]}<option value={k}>{v}</option>{/each}</select></label>
-  {#snippet end()}{#if orders}<span class="caption">{shown.length} of {orders.length} orders</span>{/if}{/snippet}
-</FilterBar>
-<div class="card flush table-wrap">
-  <table class="table">
-    <thead><tr><th>Order</th><th>Status</th><th>From → to</th><th>Company</th><th>Goods</th><th class="num">Cases</th><th>Truck</th><th>Raised</th><th></th></tr></thead>
-    <tbody>
-      {#if !orders}{#each Array(3) as _}<tr><td colspan="9"><div class="skeleton"></div></td></tr>{/each}{/if}
-      {#each shown as o (o.id)}
-        <tr>
-          <td><strong>{o.ref}</strong>{#if o.note}<div class="caption">{o.note}</div>{/if}</td>
-          <td><StatusBadge status={STATUS[o.status]} label={o.status} size={12} /></td>
-          <td class="small">{lookup.warehouse(o.fromWarehouseId)?.name} → {lookup.warehouse(o.toWarehouseId)?.name}</td>
-          <td class="small">{companyLabel(o.entityId)}</td>
-          <td class="small">{#each o.lines as l (l.productId)}<div>{lookup.product(l.productId)?.brand} × {fmtNum(l.loadedQty ?? l.qty)}</div>{/each}</td>
-          <td class="num">{fmtNum(cases(o))}</td>
-          <td class="small">{o.truckId ? lookup.truck(o.truckId)?.reg ?? '—' : '—'}{#if o.driverId}<div class="caption">{lookup.driver(o.driverId)?.name}</div>{/if}</td>
-          <td class="small">{fmtDateTime(o.createdAt)}<div class="caption">by {lookup.user(o.createdById)?.name ?? o.createdById}</div></td>
-          <td class="nowrap">
-            {#if o.shipmentId}<a class="btn btn-ghost btn-sm" href="#/shipments/{o.shipmentId}">Shipment</a>{/if}
-            {#if o.status === 'Open' && canRaiseReexport(user, o.fromWarehouseId)}<button class="btn btn-primary btn-sm" onclick={() => startLoad(o)}>Load</button><button class="btn btn-ghost btn-sm" onclick={() => cancel(o)}>Cancel</button>{/if}
-          </td>
-        </tr>
-      {/each}
-      {#if orders && !shown.length}<tr><td colspan="9">{#if orders.length}<EmptyState title="No re-export orders match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState>{:else}<EmptyState title="No re-export orders yet" compact />{/if}</td></tr>{/if}
-    </tbody>
-  </table>
-</div>
+
+<DataTable id="reexports" label="Re-export orders" noun="orders" rows={orders ? listed : null} {columns} rowKey={(o) => o.id} initialSort={{ key: 'raised', dir: 'desc' }} filename="re-export-orders"
+  searchable searchPlaceholder="Order, note, product, truck…" {searchExtra} bind:search={tq.search.get, tq.search.set} bind:filters={tq.filters.get, tq.filters.set} bind:shown>
+  {#snippet toolbar()}<select class="select" aria-label="Status" value={f.values.show || 'all'} onchange={(e) => f.set('show', e.currentTarget.value)}><option value="all">All statuses</option>{#each Object.entries(KEY) as [k, v]}<option value={k}>{v}</option>{/each}</select>{/snippet}
+  {#snippet empty()}{#if orders?.length}<EmptyState title="No re-export orders match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState>{:else}<EmptyState title="No re-export orders yet" compact />{/if}{/snippet}
+</DataTable>
+
+{#snippet refCell(o: ReexportOrder)}<strong>{o.ref}</strong>{#if o.note}<div class="caption">{o.note}</div>{/if}{/snippet}
+{#snippet statusCell(o: ReexportOrder)}<StatusBadge status={STATUS[o.status]} label={o.status} size={12} />{/snippet}
+{#snippet goodsCell(o: ReexportOrder)}{#each o.lines as l (l.productId)}<div>{lookup.product(l.productId)?.brand} × {fmtNum(l.loadedQty ?? l.qty)}</div>{/each}{/snippet}
+{#snippet truckCell(o: ReexportOrder)}{o.truckId ? lookup.truck(o.truckId)?.reg ?? '-' : '-'}{#if o.driverId}<div class="caption">{lookup.driver(o.driverId)?.name}</div>{/if}{/snippet}
+{#snippet raisedCell(o: ReexportOrder)}{fmtDateTime(o.createdAt)}<div class="caption">by {lookup.user(o.createdById)?.name ?? o.createdById}</div>{/snippet}
+{#snippet actCell(o: ReexportOrder)}
+  {#if o.shipmentId}<a class="btn btn-ghost btn-sm" href="#/shipments/{o.shipmentId}">Shipment</a>{/if}
+  {#if o.status === 'Open' && canRaiseReexport(user, o.fromWarehouseId)}<button class="btn btn-primary btn-sm" onclick={() => startLoad(o)}>Load</button><button class="btn btn-ghost btn-sm" onclick={() => cancel(o)}>Cancel</button>{/if}
+{/snippet}
 
 <style>
   .form-card { margin-bottom: var(--space-4); display: grid; gap: var(--space-3); }
   .line { display: flex; gap: var(--space-3); align-items: flex-end; flex-wrap: wrap; }
   .kinds { display: flex; flex-wrap: wrap; gap: var(--space-2); }
   .error { color: var(--danger); }
-  .nowrap { white-space: nowrap; }
 </style>

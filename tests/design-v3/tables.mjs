@@ -108,6 +108,15 @@ await screen('/sales', 'a', 'Warehouse', 'Warehouse', 'wh');
 await screen('/transport-costs', 'SSD', 'Provider', 'Provider', 'provider');
 await screen('/transport-costs?tab=trips', 'SSD', 'Route', 'Route', 'route');
 await screen('/stock?show=all', 'Gin', 'Level', 'Level', 'level');
+// batch 2: hand-written tables moved to DataTable
+await screen('/warehouse-expenses?show=all&from=2026-01-01', 'Offloading', 'Category', 'Category', 'cat');
+await screen('/re-exports?show=all', 'ASIE', 'From → to', 'From → to', 'route');
+// sidebar: every item the same distance apart (V3-1d)
+{
+  const tops = await p.locator('aside nav a').evaluateAll((as) => as.map((a) => a.getBoundingClientRect().top));
+  const gaps = tops.slice(1).map((t, i) => Math.round(t - tops[i]));
+  ok(gaps.length > 5 && Math.max(...gaps) - Math.min(...gaps) <= 1, `sidebar items evenly spaced (${[...new Set(gaps)].join(', ')} px)`);
+}
 // BUG-3: Stock's table follows its filters (it used to list every line)
 await p.goto(`${base}#/stock?show=all`); await p.waitForTimeout(2000);
 const allLines = await rowsShown();
