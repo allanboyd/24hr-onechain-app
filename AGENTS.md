@@ -65,7 +65,9 @@ Steps (≈ 2 minutes, do them before anything else):
 - `pnpm check:text && pnpm check && pnpm test && pnpm build && pnpm size` pass in your worktree.
 - Before/after screenshots of every changed screen are listed in your plan file (light + dark; 390 px wide for shell and login).
 - Every issue ID in your plan is fixed, or moved with a reason, and has a row in the Fix log.
-- Rebase on your base branch, then set your row to `👀 review` with the branch name. The human reviews on the running app and merges. Only then does the row become `✅ done`.
+- Rebase on your base branch, then set your row to `👀 review` with the branch name.
+  - Base `main`: the human reviews and merges.
+  - Base is a feature line (e.g. `design-v3`): once the checks pass, the agent merges the row into the line (`--no-ff`), so it shows on the shared stack the human reviews. The human then sets `✅ done` or asks for changes, and only the human merges the line into `main`.
 - Clean up: `git worktree remove ../btw-gd-<ID>` after the merge.
 
 ## 8. Report back in one line

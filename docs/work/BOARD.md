@@ -9,7 +9,7 @@ How to use it: [`AGENTS.md`](../../AGENTS.md). Each agent edits **only its own r
 
 | ID | Title | Status | Agent | Branch | Depends | Owns | Port |
 |---|---|---|---|---|---|---|---|
-| V3-0 | Look + tokens: centred content, cards, chips, buttons, tables, page header (folds in UI-0, UI-4 T-/P- issues) ([plan](plans/V3-0.md)) | 🔄 in progress | claude | `v3/V3-0-look` | none | `docs/design-system/tokens.json`, `packages/tokens/**`, `packages/ui/src/**`, `apps/web/src/components/page/**` | 5230 |
+| V3-0 | Look + tokens: centred content, cards, chips, buttons, tables, page header (folds in UI-0, UI-4 T-/P- issues) ([plan](plans/V3-0.md)) | 👀 review (merged into design-v3) | claude | `v3/V3-0-look` | none | `docs/design-system/tokens.json`, `packages/tokens/**`, `packages/ui/src/**`, `apps/web/src/components/page/**` | 5230 |
 | V3-1 | Shell: Operations / Management switch, process-ordered menus, Performance + Selling prices commented out (folds in UI-1) | ⬜ open | | `v3/V3-1-shell` | V3-0 | `apps/web/src/App.svelte`, `apps/web/src/routes.ts`, `components/CompanySwitcher.svelte`, `components/CompanyMark.svelte`, `apps/web/src/lib/side.svelte.ts` (new) | 5231 |
 | V3-2 | Management room: the report as is, driven by our sidebar, sample-data banner ([plan](plans/V3-2.md)) | 🔄 in progress | claude | `v3/V3-2-management` | none (menu entries via V3-1) | `apps/web/public/management/**`, `apps/web/src/screens/management/**` | 5232 |
 | V3-3 | Operations · Today: KPIs, pipeline with owners, act on these first, who handles what | ⬜ open | | `v3/V3-3-today` | V3-0, V3-1 | `apps/web/src/screens/ops/**` | 5233 |
@@ -41,6 +41,8 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 
 ## Bugs found
 <!-- BUG-<n> · where · steps · screenshot · found by <agent> (gets its own row once triaged) -->
+- **BUG-1** · `packages/api/test/plans.test.ts` lines 110, 141, 142 fail on unchanged `design-v3` (and `main`): over-plan mark / Kivu plan link / over-plan PO issued. Likely date-driven (the demo plan period vs today, 26 Nov). Run: `npx tsx packages/api/test/plans.test.ts`. Found by claude (V3-0).
+- **BUG-2** · `packages/api/test/metrics.test.ts`: "Group (Daniel) · needs attention: Inventory page 8 = stock report 9" fails on unchanged `design-v3`. The two pages count stock needing attention differently (probably also date-driven). Found by claude (V3-0).
 
 ## Requests
 <!-- "<from> → <owner>: what you need" ; the owner answers on the same line -->
@@ -55,3 +57,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 25 Nov 2026 | claude | Added tests / fix log / handover rules (AGENTS.md §5–6). Plans for UI-0 and UI-5 written, waiting for approval. |
 | 26 Nov 2026 | claude | Branch `design-v3` created. Doc 23 + V3 rows written; UI-0…UI-4 parked into V3. Waiting for review. |
 | 26 Nov 2026 | claude | Decisions accepted + Home duplicated in Operations and Management for now. Plans V3-0, V3-2, V3-5 approved; started. |
+| 26 Nov 2026 | claude | V3-0 merged into design-v3 (look + tokens). BUG-1, BUG-2 logged (pre-existing test failures). |
