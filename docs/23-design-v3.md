@@ -1,7 +1,7 @@
 # 23 · Design v3: Operations and Management
 
 **Branch:** `design-v3` (rows branch from it and merge back into it; `main` gets it when you accept the whole design)
-**Status:** plan written 26 Nov 2026 · **waiting for your review** (§8) · rows on [`work/BOARD.md`](work/BOARD.md#design-v3)
+**Status:** approved 26 Nov 2026 with the proposals in §8, plus: **Home (dashboards) is duplicated for now**: it stays in Operations as well as under Management. Started: V3-0, V3-2, V3-5. · rows on [`work/BOARD.md`](work/BOARD.md#design-v3)
 
 **Sources (in the repo, open them in a browser):**
 - [`design-v3/reference/operations-and-management.html`](design-v3/reference/operations-and-management.html): the new design for the whole platform (Operations + Management)
@@ -22,7 +22,8 @@
 ### Operations (ordered by the process)
 | Group | Item | Today | Change |
 |---|---|---|---|
-| Overview | **Today** | Home (dashboards) | New Operations home: what needs action now and who handles it (see §4). Dashboards move to Management. |
+| Overview | **Today** | (new) | New Operations home: what needs action now and who handles it (see §4). |
+| | Home | Home (dashboards) | **Kept for now** (your decision 26 Nov): the same dashboards are also under Management → Live dashboards. Remove from Operations later. |
 | 1 · Plan and order | Period plans | same | look only |
 | | Purchase orders | same | look only |
 | 2 · Load and move | Truck desk | same | look only (Board · Loading queues · Providers & trucks · Haulage & costs) |
@@ -99,7 +100,7 @@ The design uses emoji as icons. We keep **Lucide** icons, because emoji show as 
 - Changes to process steps, rules or the API.
 - New reports beyond the 7 report pages.
 
-## 8. Decisions for you (proposals in bold)
+## 8. Decisions (answered 26 Nov 2026: all proposals accepted)
 1. **Live dashboards:** keep our current dashboards under Management as "Live dashboards" while the report shows sample data? **Yes.**
 2. **Renames** in the menu (Re-export orders → Goods transfers, Users & devices → Users & access, Notifications → Alerts)? **Yes, menu labels only.**
 3. **Transport costs** off the sidebar, reached from the Truck desk tab? **Yes.**
