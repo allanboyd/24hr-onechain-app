@@ -15,9 +15,10 @@ Small fixes (one file, under ~20 lines, no new behaviour) can skip steps 2 and 4
 
 ## 2. Work in your own worktree and branch
 ```bash
-git worktree add ../btw-gd-<ID> -b ui/<ID>-<slug> main   # e.g. ../btw-gd-UI-3  ui/UI-3-forms
+git worktree add ../btw-gd-<ID> -b <prefix>/<ID>-<slug> <base>   # e.g. ../btw-gd-V3-2  v3/V3-2-management design-v3
 cd ../btw-gd-<ID> && pnpm install
 ```
+- `<base>` is the **base branch named in your board section** (`design-v3` for V3 rows, `main` for UI rows). Claim, rebase and merge against that branch, not `main`.
 - Never work on `main` directly, and never in another agent's worktree.
 - **The main checkout runs the shared stack** (`pnpm work`: API :3101, web :5173, field :5174). Don't stop it.
 - To see your branch, run its web app on **your own port** against the shared API (the `/v1` proxy goes to :3101):
@@ -64,7 +65,7 @@ Steps (≈ 2 minutes, do them before anything else):
 - `pnpm check:text && pnpm check && pnpm test && pnpm build && pnpm size` pass in your worktree.
 - Before/after screenshots of every changed screen are listed in your plan file (light + dark; 390 px wide for shell and login).
 - Every issue ID in your plan is fixed, or moved with a reason, and has a row in the Fix log.
-- Rebase on `main`, then set your row to `👀 review` with the branch name. The human reviews on the running app and merges. Only then does the row become `✅ done`.
+- Rebase on your base branch, then set your row to `👀 review` with the branch name. The human reviews on the running app and merges. Only then does the row become `✅ done`.
 - Clean up: `git worktree remove ../btw-gd-<ID>` after the merge.
 
 ## 8. Report back in one line
