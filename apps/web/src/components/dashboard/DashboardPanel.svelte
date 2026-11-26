@@ -52,7 +52,7 @@
 <section class="card dash-panel span-{span}" aria-labelledby="{uid}-t" aria-busy={loading}>
   <header>
     <div class="title-row">
-      <h3 id="{uid}-t">{title}</h3>
+      <h3 id="{uid}-t" title={title}>{title}</h3>
       {#if infoLines.length}<InfoTip lines={infoLines} label="About {title}" mark={stale} size={15} />{/if}
       {#if decision}<InfoTip kind="alert" text={decision} label="Recommendation" size={15} />{/if}
     </div>
@@ -95,11 +95,17 @@
 </section>
 
 <style>
-  .dash-panel { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; width: 100%; height: auto; align-self: start; padding: var(--space-4) var(--space-5); }
-  .dash-panel > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin: 0; min-height: 32px; }
+  .dash-panel { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; width: 100%; height: auto; align-self: start; padding: var(--space-4) var(--space-5); container-type: inline-size; container-name: dash-panel; }
+  .dash-panel > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); margin: 0; min-height: 32px; }
   .title-row { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1 1 auto; }
-  .dash-panel h3 { margin: 0; min-width: 0; font-size: var(--fs-h4); line-height: var(--lh-h4); }
+  .dash-panel h3 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-h4); line-height: var(--lh-h4); }
   .tools { display: flex; align-items: center; gap: var(--space-1); flex: none; margin-left: auto; }
+  /* Narrow cards: the title stays one line beside the info icons; chart, table and export drop to the next row. */
+  @container dash-panel (max-width: 460px) {
+    .dash-panel > header { flex-wrap: wrap; align-items: center; }
+    .title-row { flex: 1 1 100%; }
+    .tools { margin-left: 0; }
+  }
   .view-toggle { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-sunken); }
   .view-toggle .ibtn[aria-pressed='true'] { color: var(--text); background: var(--surface-raised); box-shadow: var(--elevation-1); }
   .ibtn { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--radius-full); border: 0; background: none; color: var(--text-subtle); cursor: pointer; }
