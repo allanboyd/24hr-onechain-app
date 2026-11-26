@@ -22,8 +22,9 @@
   .pill { position: relative; width: 60px; height: 32px; border-radius: 16px; display: grid; place-items: center; transition: background var(--motion-base) var(--motion-easing), transform var(--motion-fast); }
   .tab:active .pill { transform: scale(.92); }
   .lbl { font: 600 12px/14px var(--ff-body); letter-spacing: .01em; }
-  .on { color: var(--text); }
-  .on .pill { background: color-mix(in srgb, var(--t-accent) 18%, transparent); color: var(--text); }
+  /* V3-6: the same active look as the web app's bottom bar */
+  .on { color: var(--primary); }
+  .on .pill { background: var(--primary-subtle); color: var(--primary); }
   .on .lbl { font-weight: 800; }
   .badge { position: absolute; top: -2px; right: 8px; min-width: 18px; height: 18px; border-radius: 9px; background: var(--danger-solid); color: var(--text-on-danger); font: 700 11px/18px var(--ff-body); padding: 0 5px; box-shadow: 0 0 0 2px var(--surface); }
   @media (min-width: 720px) { .nav { left: 50%; right: auto; transform: translateX(-50%); width: 560px; bottom: 12px; border-radius: 24px; border: 1px solid var(--t-line); padding-bottom: 6px; } }
