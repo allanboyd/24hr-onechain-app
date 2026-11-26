@@ -90,7 +90,7 @@
 </section>
 
 <style>
-  .dash-panel { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; width: 100%; height: auto; align-self: start; padding: var(--space-4) var(--space-5); container-type: inline-size; container-name: dash-panel; }
+  .dash-panel { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; width: 100%; height: 100%; align-self: stretch; padding: var(--space-4) var(--space-5); container-type: inline-size; container-name: dash-panel; }
   .dash-panel > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); margin: 0; min-height: 32px; }
   .title-row { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1 1 auto; }
   .dash-panel h3 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-h4); line-height: var(--lh-h4); }
@@ -105,7 +105,7 @@
   .view-toggle .ibtn[aria-pressed='true'] { color: var(--text); background: var(--surface-raised); box-shadow: var(--elevation-1); }
   .ibtn { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--radius-full); border: 0; background: none; color: var(--text-subtle); cursor: pointer; }
   .ibtn:hover, .ibtn[aria-pressed='true'] { color: var(--text); background: var(--surface-sunken); }
-  .body { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+  .body { min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; gap: var(--space-2); }
   .nodata { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-1); min-height: 180px; text-align: center; color: var(--text-muted); background: var(--surface-sunken); border-radius: var(--radius-md); padding: var(--space-6); }
   footer { display: flex; justify-content: flex-end; }
   footer :global(.btn) { gap: 4px; }

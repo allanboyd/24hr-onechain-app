@@ -6,7 +6,7 @@
     /** Home tab key (DashGroup: business · purchasing · loading · fleet · fees · deliveries · warehouse · sales · admin) */ group: string;
     /** tab name override (defaults to the Home tab's short name) */ label?: string;
   } = $props();
-  const SHORT: Record<string, string> = { business: 'Business', fees: 'Fees & expenses', admin: 'Alerts & admin' };
+  const SHORT: Record<string, string> = { business: 'Business', purchasing: 'Purchase orders', fleet: 'Shipments', fees: 'Fees & expenses', admin: 'Alerts & admin' };
   const name = $derived(label ?? SHORT[group] ?? DASH_GROUPS.find((g) => g.key === group)?.label ?? group);
 </script>
 <a class="al" href="#/dashboards/{group}">See the analysis <ArrowRight size={14} aria-hidden="true" /> <span class="where">Home · {name}</span></a>

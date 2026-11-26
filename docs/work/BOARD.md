@@ -151,3 +151,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 Business lead card is the expenses, sales and profit chart, matching the overview. The stat tiles are gone. |
 | 26 Nov 2026 | cursor | V3-11 Business opens with four stats. The bar chart stays on the overview. The $100 card no longer has a gap beside the ring. |
 | 26 Nov 2026 | cursor | V3-11 every operations tab opens with four stats, then one chart per card. |
+| 26 Nov 2026 | cursor | V3-11 Loading and Shipments open on the truck map. Tabs renamed to Purchase orders and Shipments. A short card fills the row. |

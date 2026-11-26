@@ -21,12 +21,12 @@
   const home = $derived(homeFor(user));
   type Tab = { key: string; label: string; blurb: string };
   // Short tab names so every tab fits on one row (the group's full name stays in the page caption)
-  const SHORT: Record<string, string> = { business: 'Business', fees: 'Fees & expenses', admin: 'Alerts & admin' };
+  const SHORT: Record<string, string> = { business: 'Business', purchasing: 'Purchase orders', fleet: 'Shipments', fees: 'Fees & expenses', admin: 'Alerts & admin' };
   const ROOM_BLURB: Record<string, string> = {
     business: 'Sales, expenses and profit, then prices and landed cost.',
     purchasing: 'What to order, the pipeline, open orders, and plan vs actual.',
     loading: 'Today’s loading list, how far each order is loaded, and where trucks wait.',
-    fleet: 'Live board, delays, open issues, and quiet trucks.',
+    fleet: 'Where the trucks are, then delays, issues, and quiet trucks.',
     fees: 'Agreed vs actual, trip costs, payments, and unpaid ageing.',
     deliveries: 'Incoming trucks, damage and shortage, and loss causes.',
     warehouse: 'Warehouse today, stock cover, in transit, spend, and movements.',
