@@ -39,7 +39,8 @@
   let overlaps = $state<PeriodPlan[]>([]);
   let replaceDialog = $state<ReturnType<typeof ReplaceDialog>>();
 
-  const entityId = $derived(lockedId || picked);
+  const forAll = $derived(group && picked === 'all');
+  const entityId = $derived(forAll ? '' : (lockedId || picked));
   const startMonth = $derived(`${startY}-${startM}`);
   function spanOf(k: PeriodKind, ym: string) {
     if (k === 'custom') return { from: customFrom, to: customTo };
@@ -60,7 +61,7 @@
     if (open && !dlg.open) {
       const ym = nextMonth;
       const end = spanOf('quarter', ym).to;
-      picked = lockedId; kind = 'quarter'; startY = ym.slice(0, 4); startM = ym.slice(5, 7);
+      picked = lockedId || 'all'; kind = 'quarter'; startY = ym.slice(0, 4); startM = ym.slice(5, 7);
       customFrom = `${ym}-01`; customTo = end; title = ''; copyFrom = '';
       dlg.showModal();
     } else if (!open && dlg.open) dlg.close();
@@ -74,9 +75,24 @@
   function close() { open = false; }
   async function create(e: Event) {
     e.preventDefault();
-    if (!valid || !entityId) return say('Choose a company and a valid period');
+    if (!valid || (!entityId && !forAll)) return say('Choose a company and a valid period');
     busy = true;
     try {
+      if (forAll) {
+        const made: string[] = [];
+        const skipped: string[] = [];
+        for (const c of companies) {
+          const hit = await periodPlans.overlaps({ id: '', entityId: c.id, from: period.from, to: period.to });
+          if (hit.length) { skipped.push(companyLabel(c.id)); continue; }
+          const t = title.trim() || `${companyLabel(c.id)} ${label}`.trim();
+          const p = await periodPlans.create({ entityId: c.id, periodKind: kind, ...period, title: t });
+          made.push(p.ref);
+        }
+        open = false;
+        say(made.length ? `Created ${made.length} ${made.length === 1 ? 'plan' : 'plans'}${skipped.length ? `. Skipped ${skipped.join(', ')} because a plan already covers that period.` : '.'}` : `No new plans. ${skipped.join(', ')} already cover that period.`);
+        busy = false;
+        return;
+      }
       const t = title.trim() || `${companyLabel(entityId)} ${label}`.trim();
       let p = await withReplace((replace) => copyFrom ? periodPlans.copy(copyFrom, { ...period, title: t, replace }) : periodPlans.create({ entityId, periodKind: kind, ...period, title: t, replace }), (c) => replaceDialog!.ask(c));
       if (!p) { busy = false; return; }
@@ -96,10 +112,10 @@
     <div class="grid2">
       {#if group}
         <label class="field"><span>Company</span>
-          <FormSelect label="Company" bind:value={picked} placeholder="Choose a company" options={companies.map((c) => ({ value: c.id, label: `${companyLabel(c.id)} · ${c.name}` }))} />
+          <FormSelect label="Company" bind:value={picked} placeholder="Choose a company" options={[{ value: 'all', label: 'All companies' }, ...companies.map((c) => ({ value: c.id, label: `${companyLabel(c.id)} · ${c.name}` }))]} />
         </label>
       {/if}
-      <label class="field" class:wide={!group}><span>Title</span><input class="input" bind:value={title} placeholder={entityId ? `${companyLabel(entityId)} ${label}` : 'Plan title'} /></label>
+      <label class="field" class:wide={!group}><span>Title</span><input class="input" bind:value={title} placeholder={forAll ? `Each company, ${label}` : entityId ? `${companyLabel(entityId)} ${label}` : 'Plan title'} /></label>
     </div>
     <div class="pair">
       <label class="field"><span>Month</span>
@@ -125,19 +141,22 @@
       </div>
     {/if}
     <p class="when">{valid ? `${day(period.from)} to ${day(period.to)} · ${monthCount} ${monthCount === 1 ? 'month' : 'months'}` : 'Choose a valid period'}</p>
-    {#if overlaps.length}
+    {#if forAll}<p class="hint">One plan is written for each company. A company that already has a plan for these dates is skipped.</p>{/if}
+    {#if overlaps.length && !forAll}
       <div class="clash" role="alert">
         <span class="ico"><TriangleAlert size={16} /></span>
         <span>Overlaps {overlaps.map((o) => o.ref).join(', ')}. Change the month, the year, or the length.</span>
       </div>
     {/if}
+    {#if !forAll}
     <label class="field"><span>Copy lines</span>
       <FormSelect label="Copy lines" bind:value={copyFrom} options={[{ value: '', label: 'No lines yet' }, ...earlier.map((p) => ({ value: p.id, label: `${p.ref} · ${periodLabel(p)} · ${p.lines.length} lines` }))]} />
       <span class="hint">No lines yet means you add the products on the next screen.</span>
     </label>
+    {/if}
     {#if !canCreate}<p class="error">Only planners, directors and admins create period plans.</p>{/if}
     <div class="row end">
-      <button class="btn btn-primary" disabled={busy || !canCreate || !entityId || !valid || overlaps.length > 0}>{busy ? 'Saving' : copyFrom ? 'Copy into a new plan' : 'Create plan'}</button>
+      <button class="btn btn-primary" disabled={busy || !canCreate || (!entityId && !forAll) || !valid || (overlaps.length > 0 && !forAll)}>{busy ? 'Saving' : forAll ? 'Create a plan for each company' : copyFrom ? 'Copy into a new plan' : 'Create plan'}</button>
     </div>
   </form>
 </dialog>

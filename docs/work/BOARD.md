@@ -176,3 +176,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | claude | V3-15 step 5 merged: Truck desk in the left-menu layout; Board as lanes by state with flags, and lanes + live map on one screen. Next: V3-6 (phone). |
 | 26 Nov 2026 | claude | Your note: Truck desk menu as cards; Costs and Queues lists as tabs (one table at a time). Next: V3-6. |
 | 26 Nov 2026 | claude | V3-6 step 1 merged: the web app on phones has a bottom bar per role, More (full menu, switch, company, theme, sign-out), search, and a slim top bar. |
+| 26 Nov 2026 | cursor | V3-11 Period plans: a year of month tiles, one colour per company. All companies writes three plans. Check the year and Plan vs actual open in the panel beside the year. |
