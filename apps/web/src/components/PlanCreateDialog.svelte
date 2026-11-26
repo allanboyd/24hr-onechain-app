@@ -91,10 +91,13 @@
 </script>
 
 {#snippet clash()}
-  <div class="card flag-warning warn" role="alert">
-    <div class="row"><TriangleAlert size={18} /><strong>This period overlaps {overlaps.length} existing plan{overlaps.length === 1 ? '' : 's'}</strong></div>
-    <p>Change the month, the year, or the length.</p>
-    <ul>{#each overlaps as o (o.id)}<li>{o.ref} · {periodLabel(o)} · {planTotals(o).cases.toLocaleString()} cases</li>{/each}</ul>
+  <div class="clash" role="alert">
+    <TriangleAlert size={18} />
+    <div>
+      <strong>This period overlaps {overlaps.length} existing plan{overlaps.length === 1 ? '' : 's'}</strong>
+      <p>Change the month, the year, or the length.</p>
+      <ul>{#each overlaps as o (o.id)}<li>{o.ref} · {periodLabel(o)} · {planTotals(o).cases.toLocaleString()} cases</li>{/each}</ul>
+    </div>
   </div>
 {/snippet}
 
@@ -136,9 +139,12 @@
         </label>
       </div>
       <div class="field"><span>Length</span>
-        <div class="kinds" role="group" aria-label="Length">
+        <div class="lengths" role="radiogroup" aria-label="Length">
           {#each LENGTH as x (x.k)}
-            <button type="button" class="sel-chip" aria-pressed={kind === x.k} onclick={() => (kind = x.k)}>{x.label}<small>{x.hint}</small></button>
+            <button type="button" role="radio" aria-checked={kind === x.k} class:on={kind === x.k} onclick={() => (kind = x.k)}>
+              <span>{x.label}</span>
+              <small>{x.hint}</small>
+            </button>
           {/each}
         </div>
       </div>
@@ -194,14 +200,20 @@
   .co { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4); }
   .co div { display: flex; flex-direction: column; }
   .co span { color: var(--text-muted); font-size: 13px; }
-  .kinds { display: flex; flex-wrap: wrap; gap: 8px; }
-  .kinds .sel-chip { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 108px; padding: 10px 12px; }
-  .kinds small { font-weight: 500; font-size: 11px; opacity: 0.8; }
+  .lengths { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+  .lengths button { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-height: 58px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--surface); color: var(--text); font: 600 13px/1.2 var(--ff-body); text-align: left; cursor: pointer; }
+  .lengths button small { font-weight: 500; font-size: 11px; color: var(--text-muted); }
+  .lengths button:hover:not(.on) { background: var(--surface-sunken); }
+  .lengths button.on { background: var(--primary); border-color: var(--primary); color: var(--text-on-primary); }
+  .lengths button.on small { color: color-mix(in srgb, var(--text-on-primary) 78%, transparent); }
+  @media (max-width: 640px) { .lengths { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .pair { display: grid; grid-template-columns: 1fr 140px; gap: 12px; }
   .hint { color: var(--text-muted); font-size: 13px; font-weight: 500; }
   .when { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: var(--space-4); background: var(--surface-sunken); border-radius: var(--radius-md); }
   .when span { color: var(--text-muted); font-size: 13px; }
   .end { justify-content: flex-end; gap: var(--space-2); }
-  .warn { padding: var(--space-4); } .warn p { margin: 6px 0 0; } .warn ul { margin: var(--space-2) 0 0; padding-left: var(--space-4); }
+  .clash { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--warning-solid) 12%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warning-solid) 28%, transparent); box-shadow: none; }
+  .clash svg { flex: none; margin-top: 1px; color: var(--warning); }
+  .clash p { margin: 4px 0 0; } .clash ul { margin: 8px 0 0; padding-left: 18px; }
   .field { display: flex; flex-direction: column; gap: 8px; }
 </style>
