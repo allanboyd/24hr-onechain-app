@@ -2,7 +2,6 @@ import type { Role, User } from '@btw/api';
 import { canAny, type Feature } from './lib/features';
 import type { RouteDef } from '@btw/ui';
 import LayoutDashboard from '@lucide/svelte/icons/layout-dashboard';
-import Activity from '@lucide/svelte/icons/activity';
 import SettingsIcon from '@lucide/svelte/icons/settings';
 import Gauge from '@lucide/svelte/icons/gauge';
 import Presentation from '@lucide/svelte/icons/presentation';
@@ -84,12 +83,9 @@ type NavGroup = { label: string; items: NavItem[] };
 /** Operations (design v3, docs/23 §2): day-to-day work, groups in process order: plan and order → load and move →
  *  receive, store and sell → admin. Labels follow the design; routes are unchanged. */
 export const nav: NavGroup[] = [
-  // Live dashboards moved here from Management (26 Nov): everyone uses them; each tab shows only the dashboards the person's
-  // role may see (dashboardsFor), so the entry needs no feature of its own.
-  { label: 'Overview', items: [
-    { href: '#/', label: 'Home', icon: LayoutDashboard },
-    { href: '#/dashboards', label: 'Live dashboards', icon: Activity, navOnly: true },
-  ] },
+  // One entry (26 Nov): Home is the dashboards page; its tabs (Overview, Business, Fleet, ...) are the live dashboards,
+  // each shown only to the roles that may see it. #/dashboards/... keeps Home selected (App.svelte `active`).
+  { label: 'Overview', items: [{ href: '#/', label: 'Home', icon: LayoutDashboard }] },
   { label: 'Procurement', items: [
     { href: '#/period-plans', label: 'Period plans', icon: CalendarRange, feature: 'period-plans' },
     { href: '#/pos', label: 'Purchase orders', icon: FileText, feature: 'purchase-orders' },
