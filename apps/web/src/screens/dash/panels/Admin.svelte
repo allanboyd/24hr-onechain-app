@@ -5,6 +5,7 @@
   import { DashboardPanel, TriageMatrix, ExceptionList, TrendLine, StatusBadge } from '../../../components/dashboard';
   import { frame, dayTime } from '../fmt.svelte';
   import { ROLE_LABEL } from '../../../lib/roles';
+  import StatRow from '../StatRow.svelte';
   let { key, r, link, span }: { key: DashKey; r?: DashResult; link?: string; span?: 1 | 2 | 'full' } = $props();
   const d = $derived((r?.data ?? {}) as any);
   const fr = $derived(frame(r));
@@ -21,6 +22,12 @@
 </script>
 
 {#if key === 'alerts'}
+  <StatRow label="Alerts to handle" items={[
+    { label: 'Open', value: String((d.items ?? []).length), sub: 'Still to clear', href: '#/notifications' },
+    { label: 'High impact', value: String((d.items ?? []).filter((a: any) => a.impact === 'High').length), sub: 'Money or customers', href: '#/notifications' },
+    { label: 'High severity', value: String((d.items ?? []).filter((a: any) => a.sevCol === 'High' || a.severity === 'High').length), sub: 'Handle first', href: '#/notifications' },
+    { label: 'No owner', value: String((d.items ?? []).filter((a: any) => !a.owner).length), sub: 'Needs a name', href: '#/notifications' },
+  ]} />
   <DashboardPanel span={span ?? 'full'} subtitle="severity × business impact · click a cell or a kind to filter the list · {shown.length} of {(d.items ?? []).length}" decision="Work High impact × High severity first." {...fr} title={r?.title ?? ''} rows={alertRows} filename="alerts" filterText={[cell ? `${cell.row} impact · ${cell.col} severity` : '', kind].filter(Boolean).join(' · ')} drill={{ label: 'Open notifications', href: '#/notifications' }}>
     {#snippet actions()}{#if cell || kind}<button class="btn btn-ghost btn-sm" onclick={() => { cell = null; kind = ''; }}>Clear filter</button>{/if}{/snippet}
     <div class="kinds">{#each d.kinds ?? [] as k}<button type="button" class="sel-chip" aria-pressed={kind === k.kind} onclick={() => (kind = kind === k.kind ? '' : k.kind)}><b>{k.n}</b> {k.kind}</button>{/each}</div>

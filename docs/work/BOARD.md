@@ -150,3 +150,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 Business graphs return in short cards: profit bridge, where each $100 went, sales and profit, expenses. Overview chart is expenses, sales and profit. |
 | 26 Nov 2026 | cursor | V3-11 Business lead card is the expenses, sales and profit chart, matching the overview. The stat tiles are gone. |
 | 26 Nov 2026 | cursor | V3-11 Business opens with four stats. The bar chart stays on the overview. The $100 card no longer has a gap beside the ring. |
+| 26 Nov 2026 | cursor | V3-11 every operations tab opens with four stats, then one chart per card. |

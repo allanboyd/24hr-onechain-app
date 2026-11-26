@@ -7,6 +7,7 @@
   import { frame, money, cvRow, n0, pctF, day, dayTime, currency } from '../fmt.svelte';
   import FileText from '@lucide/svelte/icons/file-text';
   import Camera from '@lucide/svelte/icons/camera';
+  import StatRow from '../StatRow.svelte';
   let { key, r, link, span }: { key: DashKey; r?: DashResult; link?: string; span?: 1 | 2 | 'full' } = $props();
   const d = $derived((r?.data ?? {}) as any);
   const fr = $derived(frame(r));
@@ -30,12 +31,13 @@
 </script>
 
 {#if key === 'order-this-week'}
+  <StatRow label="What to order" items={[
+    { label: 'Overdue', value: n0(d.overdue), sub: 'Order today', href: '#/pos/new' },
+    { label: 'This week', value: n0(d.thisWeek), sub: 'Order this week', href: '#/pos/new' },
+    { label: 'Soon', value: n0(d.soon), sub: 'Can wait', href: '#/pos/new' },
+    { label: 'Cases', value: n0((d.rows ?? []).reduce((a: number, x: any) => a + (x.cases ?? 0), 0)), sub: 'Suggested on this list', href: '#/pos/new' },
+  ]} />
   <DashboardPanel span={span ?? 'full'} subtitle="suggested trucks so stock does not run out" decision="Raise the overdue lines today; hold anything already on the road." {...fr} title={r?.title ?? ''} rows={() => [['Urgency', 'Warehouse', 'Product', 'Supplier', 'Cases', 'Trucks', 'Order by', 'Arrive by', 'Stock-out', ...(hidden ? [] : [`Est. value (${currency.code})`])], ...(d.rows ?? []).map((x: any) => [x.urgency, x.warehouse, x.product, x.supplier, x.cases, x.trucks, x.orderBy, x.arriveBy, x.stockOutDate ?? '', ...(hidden ? [] : [cvRow(x.estValue)])])]} filename="order-this-week" drill={{ label: 'Raise a purchase order', href: '#/pos/new' }} emptyText="No suggested order this week">
-    <div class="tiles2">
-      <div><b class:hot={d.overdue}>{n0(d.overdue)}</b><span class="caption">overdue</span></div>
-      <div><b>{n0(d.thisWeek)}</b><span class="caption">this week</span></div>
-      <div><b>{n0(d.soon)}</b><span class="caption">soon</span></div>
-    </div>
     <div class="table-wrap"><table class="table">
       <thead><tr><th>Product</th><th class="hide-sm">Warehouse</th><th>Order by</th><th class="num">Cases</th></tr></thead>
       <tbody>
@@ -76,6 +78,12 @@
 {:else if key === 'plan-vs-actual'}
   <PlanUsedTile />
 {:else if key === 'loading-list'}
+  <StatRow label="Today's loading" items={[
+    { label: 'Ready to load', value: n0((d.rows ?? []).filter((x: any) => x.status === 'Ready to load').length), sub: 'Truck assigned', href: '#/trucks?tab=queues' },
+    { label: 'Waiting', value: n0((d.rows ?? []).filter((x: any) => x.status === 'Waiting for a truck').length), sub: 'No truck yet', href: '#/trucks?tab=queues' },
+    { label: 'Loaded today', value: n0((d.rows ?? []).filter((x: any) => x.status === 'Loaded').length), sub: 'Left the queue', href: '#/trucks?tab=queues' },
+    { label: 'In the queue', value: n0((d.queue ?? []).length), sub: 'Trucks waiting', href: '#/trucks?tab=queues' },
+  ]} />
   <DashboardPanel span={span ?? 1} subtitle="ready · waiting for a truck · loaded today, quantities only" decision="Load the ready trucks; find a truck for the waiting ones." {...fr} title={r?.title ?? ''} rows={() => [['Order', 'Loading point', 'Truck', 'Driver', 'Ordered (cases)', 'Loaded (cases)', 'Status'], ...(d.rows ?? []).map((x: any) => [x.poRef, x.loadingPoint, x.truck, x.driver, x.ordered, x.loaded ?? '', x.status])]} filename="loading-list" drill={{ label: 'Open the queues', href: '#/trucks?tab=queues' }} empty={!(d.rows ?? []).length && !(d.queue ?? []).length} emptyText="Nothing to load today">
     <ul class="cards">
       {#each d.rows ?? [] as x}
@@ -99,7 +107,6 @@
   </DashboardPanel>
 {:else if key === 'dispatched-today'}
   <DashboardPanel span={span ?? 1} subtitle="left the loading point today" decision="Call any truck that left without a next update." {...fr} title={r?.title ?? ''} rows={() => [['Shipment', 'Truck', 'From', 'To', 'Left at', 'Cases'], ...(d.rows ?? []).map((x: any) => [x.ref, x.truck, x.from, x.to, x.at, x.cases])]} filename="dispatched-today" drill={{ label: 'Open shipments', href: '#/shipments' }} emptyText="No truck left in the last 24 hours">
-    <div class="tiles2"><div><b>{(d.rows ?? []).length}</b><span class="caption">trucks</span></div><div><b>{n0((d.rows ?? []).reduce((a: number, x: any) => a + x.cases, 0))}</b><span class="caption">cases</span></div></div>
     {#each groupsOf(d.rows ?? []) as g}
       <h4 class="overline">{g.from}</h4>
       <ul class="list">{#each g.rows as x}<li><a href="#/shipments/{x.id}"><b>{x.truck}</b></a><span class="caption">{x.ref} → {x.to}</span><span class="small">{dayTime(x.at)}</span></li>{/each}</ul>
