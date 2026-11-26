@@ -36,6 +36,7 @@ async function source(c: DashCtx): Promise<DashSource> {
     periodPlans: (m.db.periodPlans ?? []).filter((p) => inS(p.entityId)), pvThresholds: m.db.pvThresholds ?? R.defaultPvThresholds,
     clientPayments: c.clientPayments().filter((p) => inS(p.entityId)),
     supplierEntries: (m.db.supplierEntries ?? []).filter((e) => inS(e.entityId)),
+    cashEntries: m.db.cashEntries ?? [],
     expenses: m.db.expenses ?? [], sellingPrices: (m.db.sellingPrices ?? []).filter((p) => inS(p.entityId)), reexports: (m.db.reexports ?? []).filter((o) => inS(o.entityId)),
     fees, users, people: c.people().map((p) => ({ id: p.id, name: p.name, roles: p.roles, warehouseIds: p.warehouseIds, loadingPointIds: p.loadingPointIds, pairs: p.pairs })),
     waiting: m.db.waiting.filter((w) => inS(w.entityId)), config: c.config,

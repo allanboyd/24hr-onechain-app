@@ -398,5 +398,59 @@ for (const who of ['u-kabonge', 'u-testfie', 'u-asie', 'u-yonas']) { await as(wh
   await as('u-daniel');
 }
 
+// ---- V3-12 step 4: warehouse cash -------------------------------------------------------------------------------------
+{
+  const mdb = (await import('../src/mock/db')).db;
+  await as('u-daniel'); api.entities.setActive(null);
+  const DAYS = (n: number) => new Date(Date.now() - n * DAY).toISOString().slice(0, 10);
+  const per = { from: new Date(Date.now() - 10 * DAY).toISOString(), to: new Date(Date.now() + DAY).toISOString() };
+  const cash0 = (await api.dashboards.get(['mgmt-cash'], per)).results['mgmt-cash']!.data as import('../src/dashboards').MgmtCash;
+  ok(cash0.cash.atStart === null && cash0.statement[0].kind === 'missing' && !cash0.notRecorded.includes('transfers'), 'before any cash at start: no cash in hand yet, transfers are recorded');
+  const o0 = await api.cash.overview();
+  const rc = o0.companies.find((x) => x.warehouses.length >= 2)!;
+  const [w1, w2] = rc.warehouses;
+  ok(o0.canSetOpening && o0.canSend.includes(w1.warehouseId) && rc.opening === null, 'a director sets cash at start and sends cash from any warehouse');
+
+  await api.cash.setOpening({ receivingCompanyId: rc.receivingCompanyId, amount: 10000, currency: 'USD', date: DAYS(20) });
+  await api.cash.setOpening({ receivingCompanyId: rc.receivingCompanyId, warehouseId: w1.warehouseId, amount: 6000, currency: 'KES', date: DAYS(1) });
+  const o1 = await api.cash.overview();
+  const c1 = o1.companies.find((x) => x.receivingCompanyId === rc.receivingCompanyId)!;
+  const p1 = c1.warehouses.find((x) => x.warehouseId === w1.warehouseId)!.opening!;
+  ok(p1.currency === 'USD' && p1.date === DAYS(20) && c1.notSplit === 4000, 'a warehouse takes its company\'s date and currency; 4,000 is not split by warehouse');
+  await rejects(api.cash.setOpening({ receivingCompanyId: rc.receivingCompanyId, warehouseId: w2.warehouseId, amount: 4000.5 }), /more than the company/, 'the warehouse parts cannot add up to more than the company amount');
+  await rejects(api.cash.setOpening({ receivingCompanyId: rc.receivingCompanyId, amount: 5000 }), /can't be lower/, 'the company amount cannot go below its warehouse parts');
+
+  const n0 = mdb.notifications.length;
+  await rejects(api.cash.send({ warehouseId: w1.warehouseId, amount: 100, currency: 'USD', date: DAYS(-2) }), /after today/, 'cash cannot be sent on a date after today');
+  await api.cash.send({ warehouseId: w1.warehouseId, amount: 1500, currency: 'USD', date: DAYS(2), reference: 'SLIP-1' });
+  ok(mdb.notifications.length === n0 + 1 && /Cash sent to the company account/.test(mdb.notifications[0].title) && mdb.notifications[0].forRoles.includes('director'), 'sending cash tells the directors');
+  ok((await api.cash.overview()).transfers.some((e) => e.reference === 'SLIP-1' && e.amountUsd === 1500), 'the transfer is listed on the warehouse cash');
+
+  const cash1 = (await api.dashboards.get(['mgmt-cash'], per)).results['mgmt-cash']!.data as import('../src/dashboards').MgmtCash;
+  const st = (label: RegExp) => cash1.statement.find((x) => label.test(x.label))!;
+  const sum6 = cash1.statement.slice(1, 5).reduce((a, x) => a + (x.value ?? 0), 0);
+  ok(cash1.cash.withOpening >= 1 && cash1.cash.atStart !== null && Math.abs(st(/Sent to the company/).value! + 1500) < 0.01, 'Cash and closing: cash at start is set; 1,500 sent to the company in the period', cash1.cash);
+  ok(Math.abs((cash1.cash.inHand ?? 0) - ((cash1.cash.atStart ?? 0) + sum6)) < 0.05 && st(/Cash in hand at the end/).value === cash1.cash.inHand, 'cash in hand = cash at start + received − bills − sent');
+  ok(cash1.transfers.some((x) => x.reference === 'SLIP-1') && cash1.notRecorded.length === 0, 'Management lists the transfer; nothing is "not recorded" any more');
+  // at the start of the period = 10,000 + what moved at this company's warehouses from its date (20 days ago) to the period start (10 days ago)
+  const whs = rc.warehouses.map((x) => x.warehouseId);
+  const from = Date.parse(`${DAYS(20)}T00:00:00Z`), to = Date.parse(per.from);
+  const inWin = (at: string | number) => { const x = typeof at === 'number' ? at : Date.parse(at); return x >= from && x < to; };
+  const ids = new Set(mdb.sales.filter((x) => !x.counterpartyEntityId).map((x) => x.id));
+  const recv = (mdb.clientPayments ?? []).filter((x) => ids.has(x.saleId) && whs.includes(x.warehouseId) && inWin(x.at)).reduce((a, x) => a + x.amountUsd, 0);
+  const wexp = (mdb.expenses ?? []).filter((x) => whs.includes(x.warehouseId) && inWin(Date.parse(`${x.date}T00:00:00Z`))).reduce((a, x) => a + x.amountUsd, 0);
+  const shipWh = new Map(mdb.shipments.map((x) => [x.id, x.warehouseId]));
+  const trn = mdb.payments.filter((x) => x.status !== 'Pending approval' && whs.includes(shipWh.get(x.shipmentId) ?? '') && inWin(x.at)).reduce((a, x) => a + ((x as { amountUsd?: number }).amountUsd ?? x.amount), 0);
+  const only = (await api.dashboards.get(['mgmt-cash'], { ...per })).results['mgmt-cash']!.data as import('../src/dashboards').MgmtCash;
+  ok(only.cash.withOpening === 1 && Math.abs((only.cash.atStart ?? 0) - (10000 + recv - wexp - trn)) < 1, 'cash at the start of the period = 10,000 + received − bills from the cash-at-start date', [only.cash.atStart, 10000 + recv - wexp - trn]);
+
+  await as('u-yonas');
+  const oy = await api.cash.overview();
+  ok(!oy.canSetOpening && oy.canSend.every((w) => w === 'w-juba') && oy.companies.every((c) => c.warehouses.every((w) => w.warehouseId === 'w-juba')), 'a receiver sees and sends from their own warehouse only, and cannot set cash at start');
+  await rejects(api.cash.setOpening({ receivingCompanyId: rc.receivingCompanyId, amount: 1 }), /directors or accounts/, 'a receiver cannot set cash at start');
+  await rejects(api.cash.send({ warehouseId: w1.warehouseId === 'w-juba' ? w2.warehouseId : w1.warehouseId, amount: 1, currency: 'USD' }), /receiver or a director/, 'a receiver cannot send cash from another warehouse');
+  await as('u-daniel');
+}
+
 console.log(fails ? `\n${fails} money check(s) FAILED` : '\nall money checks passed');
 if (fails) process.exitCode = 1;

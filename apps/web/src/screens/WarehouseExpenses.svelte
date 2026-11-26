@@ -8,8 +8,9 @@
   import { auth, ref, lookup, warehouse, type Currency, type User, type WarehouseExpense, type WarehouseExpenseCategory } from '@btw/api';
   import { fmtDate, fmtNum, say } from '@btw/ui';
   import { CURRENCIES, WAREHOUSE_EXPENSE_CATEGORIES, canEditExpense, validateExpense } from '@btw/api/money';
-  import { PageHeader, SummaryStrip, EmptyState, DataTable, queryFilters, readQuery, tableQuery, processRows, ts, type Column, type SummaryTile } from '../components/page';
+  import { PageHeader, SummaryStrip, EmptyState, DataTable, Tabs, queryFilters, readQuery, tableQuery, processRows, ts, type Column, type SummaryTile } from '../components/page';
   import { expenseTiles, infoOf } from '../lib/tiles';
+  import WarehouseCashTab from '../components/WarehouseCashTab.svelte';
   import ExportMenu from '../components/ExportMenu.svelte';
   import Plus from '@lucide/svelte/icons/plus';
   import SearchX from '@lucide/svelte/icons/search-x';
@@ -24,6 +25,9 @@
   // filters in the address; the list opens on this month (show=month) unless a filter is given
   const hadFilter = ['show', 'wh', 'cat', 'from', 'to', 'q', 'by', 'usd'].some((k) => readQuery(k));
   const f = queryFilters({ show: '', wh: '', cat: '', from: '', to: '', q: '', by: '', usd: '' });
+  // V3-12 step 4: Expenses | Cash (cash at start, cash sent to the company account)
+  const view = queryFilters({ view: '' });
+  const VIEWS = [{ key: 'expenses', label: 'Expenses' }, { key: 'cash', label: 'Cash' }] as const;
   // V3-8: search + Warehouse / Category / By / USD filters in the table; From / To stay (they choose the period loaded)
   const tq = tableQuery(f, { search: 'q', filters: { wh: 'wh', cat: 'cat', by: 'by', usd: ['usd', 'range'] } });
   const one = (v: string) => (v && !v.includes(',') ? v : undefined); // the server takes one warehouse / category
@@ -97,10 +101,14 @@
 
 <PageHeader overline="Stock & sales" title="Warehouse expenses" description="Offloading, storage, salaries, rent, utilities and damaged goods of {mine.length === 1 ? mine[0].name : 'our warehouses'}." analysis="warehouse"
   info="Amounts in local currency are converted to USD at the approved rate of the month. Each month's expenses are spread over the goods received that month in the landed cost.">
-  {#snippet secondary()}<ExportMenu name="warehouse-expenses" rows={listRows} />{/snippet}
-  {#snippet primary()}{#if mine.length}<button class="btn btn-primary" onclick={() => { form = blank(); err = ''; }}><Plus size={16} aria-hidden="true" />Record an expense</button>{/if}{/snippet}
+  {#snippet secondary()}{#if view.values.view !== 'cash'}<ExportMenu name="warehouse-expenses" rows={listRows} />{/if}{/snippet}
+  {#snippet primary()}{#if mine.length && view.values.view !== 'cash'}<button class="btn btn-primary" onclick={() => { form = blank(); err = ''; }}><Plus size={16} aria-hidden="true" />Record an expense</button>{/if}{/snippet}
 </PageHeader>
 
+<Tabs label="Warehouse expenses" tabs={VIEWS} value={view.values.view === 'cash' ? 'cash' : 'expenses'} onselect={(k) => view.set('view', k === 'expenses' ? '' : k)} />
+{#if view.values.view === 'cash'}
+  <WarehouseCashTab />
+{:else}
 {#if form}
   <section class="card form-card" aria-label={form.id ? 'Edit expense' : 'New expense'}>
     <h2 class="h4">{form.id ? 'Edit expense' : 'New expense'}</h2>
@@ -131,6 +139,8 @@
   {/snippet}
   {#snippet empty()}<EmptyState title={active ? 'No expenses match these filters' : 'No expenses recorded yet'} icon={SearchX} compact>{#if active}<button class="btn btn-secondary btn-sm" onclick={() => f.clear()}>Clear filters</button>{/if}</EmptyState>{/snippet}
 </DataTable>
+
+{/if}
 
 {#snippet dateCell(x: WarehouseExpense)}{fmtDate(x.date)}{/snippet}
 {#snippet refCell(x: WarehouseExpense)}{x.reference ?? ''}{#if x.note}<div class="caption">{x.note}</div>{/if}{/snippet}
