@@ -130,3 +130,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 period plans: the first stat reads Active plan. |
 | 26 Nov 2026 | cursor | V3-11 top bar is a solid bar again. The menu control is a blue circle. |
 | 26 Nov 2026 | claude | V3-12 step 2 merged: client payments. A sale records its first payment and how it was paid; Record payment on web Sales and the phone; Cash and closing counts money on the day it came in; Sales and clients shows money by how clients paid. Migration 0015 applied (existing paid amounts copied as payments dated at the sale). |
+| 26 Nov 2026 | cursor | V3-11 Decisions keep a quiet colour on the word and icon. Stock cover is now What sold. The top bar is a rounded card with a scrollable trail. |
