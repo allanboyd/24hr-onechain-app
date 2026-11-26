@@ -64,22 +64,22 @@
 
     <div class="card">
       <h3 class="ct">By warehouse</h3>
-      <table class="table">
+      <div class="table-wrap"><table class="table">
         <thead><tr><th>Warehouse</th><th class="num">Received</th><th class="num">Bills</th><th class="num">Net</th></tr></thead>
         <tbody>
           {#each d.byWarehouse as x (x.warehouseId)}<tr><td>{x.label}</td><td class="num">{usd(x.received)}</td><td class="num">{usd(x.bills)}</td><td class="num" class:neg={x.net < 0}>{usd(x.net)}</td></tr>
           {:else}<tr><td colspan="4" class="muted">Nothing in this period.</td></tr>{/each}
         </tbody>
-      </table>
+      </table></div>
     </div>
 
     <div class="card">
       <h3 class="ct">Cash sent to the company account<span class="chip">{usd(d.cash.transfers)} this period</span></h3>
       {#if d.transfers.length}
-        <table class="table">
+        <div class="table-wrap"><table class="table">
           <thead><tr><th>Date</th><th>Warehouse</th><th>Bank slip</th><th>By</th><th class="num">USD</th></tr></thead>
           <tbody>{#each d.transfers as x (x.id)}<tr><td>{x.date}</td><td>{x.warehouse}</td><td>{x.reference}</td><td>{x.by}</td><td class="num">{usd(x.amountUsd)}</td></tr>{/each}</tbody>
-        </table>
+        </table></div>
       {:else}<p class="muted">No cash sent to the company account in this period. Warehouses record it on Warehouse expenses → Cash.</p>{/if}
     </div>
     <p class="caption">{res?.definition}</p>

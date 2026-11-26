@@ -336,9 +336,9 @@
     .desk-only { display: none !important; }
     .phone-only { display: inline-grid; } .ptitle.phone-only { display: flex; }
     .bar { top: 0; margin: 0 calc(-1 * var(--space-3)); }
-    .top { min-height: 56px; padding: 6px var(--space-3) 6px var(--space-4); gap: 2px; border-radius: 0 0 18px 18px; border-top: 0; box-shadow: none; background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(12px); }
+    .top { min-height: 56px; padding: 6px var(--space-3) 6px var(--space-4); gap: 2px; border-radius: 0 0 18px 18px; border-top: 0; box-shadow: none; background: var(--surface); }
     .top.scrolled { box-shadow: var(--elevation-2); }
     .frame { padding-top: 0; }
-    .content { padding: var(--space-4) 0 calc(84px + env(safe-area-inset-bottom)); }
+    .content { padding: var(--space-4) 0 calc(84px + env(safe-area-inset-bottom)); min-width: 0; overflow-x: clip; }
   }
 </style>

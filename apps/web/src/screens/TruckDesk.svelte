@@ -165,6 +165,8 @@
 <style>
   .desk { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: var(--space-5); align-items: start; }
   .desk.solo { grid-template-columns: minmax(0, 1fr); }
+  /* V3-6: Safari let the column grow to the widest table; keep it to the screen */
+  .desk > :global(*) { min-width: 0; }
   .content { min-width: 0; }
   .side { position: sticky; top: var(--space-4); display: flex; flex-direction: column; gap: 10px; }
   .mc { display: flex; align-items: center; gap: 12px; padding: 14px 14px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text); text-decoration: none; transition: border-color .15s, box-shadow .15s, transform .15s; }

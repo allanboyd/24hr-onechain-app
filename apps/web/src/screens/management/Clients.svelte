@@ -82,9 +82,9 @@
         <h3 class="ct">Client credit terms<a class="small" href="#/sales?view=clients">Set on Sales → Clients</a></h3>
         <p class="muted small">Each client has its own credit days ({d.terms} unless set). A sale is overdue after the days it was made with.</p>
         {#if d.termsMix.length}
-          <table class="table"><thead><tr><th>Credit days</th><th class="num">Clients owing</th><th class="num">Owed</th><th class="num">Overdue</th></tr></thead>
+          <div class="table-wrap"><table class="table"><thead><tr><th>Credit days</th><th class="num">Clients owing</th><th class="num">Owed</th><th class="num">Overdue</th></tr></thead>
             <tbody>{#each d.termsMix as x (x.days)}<tr><td>{x.days === 0 ? 'Pay at once' : `${x.days} days`}</td><td class="num">{x.clients}</td><td class="num">{usd(x.owed)}</td><td class="num" class:bad={x.overdue > 0}>{usd(x.overdue)}</td></tr>{/each}</tbody>
-          </table>
+          </table></div>
         {:else}<p class="muted">No client owes anything.</p>{/if}
       </div>
     </div>

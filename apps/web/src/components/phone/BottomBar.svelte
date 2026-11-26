@@ -28,7 +28,7 @@
 </nav>
 
 <style>
-  .bb { position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(12px); border-top: 1px solid var(--border); box-shadow: 0 -4px 16px rgb(0 0 0 / .06); transition: transform .2s var(--motion-easing, ease); }
+  .bb { position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); background: var(--surface); backdrop-filter: blur(12px); border-top: 1px solid var(--border); box-shadow: 0 -4px 16px rgb(0 0 0 / .06); transition: transform .2s var(--motion-easing, ease); }
   .bb.typing { transform: translateY(110%); }
   a, button { all: unset; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; border-radius: 12px; color: var(--text-muted); cursor: pointer; -webkit-tap-highlight-color: transparent; }
   .ic { position: relative; display: grid; place-items: center; width: 52px; height: 30px; border-radius: 99px; transition: background .15s; }

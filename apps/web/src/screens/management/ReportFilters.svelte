@@ -29,4 +29,9 @@
 
 <style>
   .ctl { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); align-items: center; padding: var(--space-3); position: sticky; top: 68px; z-index: 5; }
+  /* V3-6: on a narrow screen each row scrolls inside itself, the page never gets wider than the phone */
+  .ctl > .sel-seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .ctl > .sel-seg::-webkit-scrollbar { display: none; }
+  .ctl > .sel-seg > :global(*) { flex: none; }
+  @media (max-width: 900px) { .ctl { top: 60px; } }
 </style>
