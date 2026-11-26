@@ -36,6 +36,9 @@ export const users = pgTable('users', {
   createdAt: ts('created_at').notNull().default(now()),
   /** docs/12 A-08: last successful sign-in. */
   lastLoginAt: ts('last_login_at'),
+  /** V3-12: money notifications by email / SMS (in-app is always on); off until the person turns them on. */
+  notifyEmail: boolean('notify_email').notNull().default(false),
+  notifySms: boolean('notify_sms').notNull().default(false),
 });
 
 /** The three sibling companies (tenants). Legal/contact fields are the source for letterheads; brand assets live in

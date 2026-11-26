@@ -3,6 +3,7 @@ import { canAny, type Feature } from './lib/features';
 import type { RouteDef } from '@btw/ui';
 import LayoutDashboard from '@lucide/svelte/icons/layout-dashboard';
 import Activity from '@lucide/svelte/icons/activity';
+import SettingsIcon from '@lucide/svelte/icons/settings';
 import Gauge from '@lucide/svelte/icons/gauge';
 import Presentation from '@lucide/svelte/icons/presentation';
 import ClipboardList from '@lucide/svelte/icons/clipboard-list';
@@ -133,6 +134,8 @@ export const managementNav: NavGroup[] = [
     { href: '#/management/cash', label: 'Cash and closing', icon: Banknote, feature: 'reports' },
     { href: '#/management/perf', label: 'Warehouse performance', icon: Warehouse, feature: 'reports' },
   ] },
+  // V3-12: approvals and money notifications (directors and the system administrator change them)
+  { label: 'Settings', items: [{ href: '#/management/settings', label: 'Settings', icon: SettingsIcon, feature: 'reports' }] },
 ];
 /** Pages not in the sidebar, with the feature that opens them (Integrations lives under Admin settings → Master data, docs/17 §4;
  *  Performance, Selling prices and Transport costs left the menu in design v3 but keep their rule). */

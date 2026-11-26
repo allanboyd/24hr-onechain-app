@@ -190,6 +190,13 @@ export interface PlanLineContext {
   planned: number; orderedBefore: number; thisPo: number; remaining: number;
   exception?: 'over' | 'unplanned'; reason?: string;
 }
+/** V3-12: Management → Settings (directors and the system administrator). */
+export interface MoneySettings {
+  /** Advance payments to suppliers wait for a director's approval. Off by default (26 Nov): the advance counts at once. */
+  advanceApproval: boolean;
+}
+/** V3-12: how a director hears about money records. In-app always; email and SMS when they turn them on. */
+export interface NotifyPrefs { email: boolean; sms: boolean }
 export interface PvThresholds { /** behind when ordered-to-date < behind × expected */ behind: number; /** over when ordered > over × planned */ over: number }
 
 /** Lifecycle of a PO (stored): created as Issued (approved automatically) or Awaiting approval (approvals on); soft-deleted

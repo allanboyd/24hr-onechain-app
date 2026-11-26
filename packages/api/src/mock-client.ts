@@ -8,7 +8,7 @@ import * as RP from './reports';
 import * as PO from './mock/po';
 import type {
   AckLine, AppConfig, AuditFilter, AuditPage, Checkpoint, EntityInput, PriceListItem, Product, ProductInput, ReceivingCompany, ReceivingCompanyInput, Supplier, SupplierInput, UserPair, LoadingAlternative, PeriodPlanLine, PurchaseOrder, CheckpointPass, Device, DriverWork, Entity, FeatureKey, FxRate, GiverWork, ID, Leg, LegView, PeriodKind, PeriodPlan, Plan, PlanLine,
-  PlanLineContext, PoDetail, PoInput, PoUpdateInput, PvThresholds, ReceiverWork, Role, RouteStop, Sale, Shipment, StoredFile, SyncResult, TripCost, TruckIssue, User, UserAdmin, Warehouse, WarehouseInput,
+  MoneySettings, NotifyPrefs, PlanLineContext, PoDetail, PoInput, PoUpdateInput, PvThresholds, ReceiverWork, Role, RouteStop, Sale, Shipment, StoredFile, SyncResult, TripCost, TruckIssue, User, UserAdmin, Warehouse, WarehouseInput,
   Driver, DriverInput, Provider, ProviderInput, SavedDriver, Truck, TruckInput,
 } from './types';
 
@@ -937,5 +937,28 @@ export const settings = {
     const next = { ...(m.db.pvThresholds ?? R.defaultPvThresholds), ...t };
     if (!(next.behind > 0 && next.behind <= 1) || !(next.over >= 1 && next.over <= 2)) throw Object.assign(new Error('Behind must be between 0 and 1, over between 1 and 2 (e.g. 0.85 and 1.05)'), { status: 422 });
     m.db.pvThresholds = next; return commit(next);
+  },
+  /** V3-12: Management → Settings. */
+  async money(): Promise<MoneySettings> { ensure(); return wait({ ...R.defaultMoneySettings, ...m.db.moneySettings }); },
+  async setMoney(s: Partial<MoneySettings>): Promise<MoneySettings> {
+    ensure();
+    if (!R.canChangeSettings(current?.roles ?? [])) throw Object.assign(new Error('Only directors and the system administrator change these settings'), { status: 403 });
+    if (s.advanceApproval !== undefined && typeof s.advanceApproval !== 'boolean') throw Object.assign(new Error('Choose on or off'), { status: 422 });
+    const before = { ...R.defaultMoneySettings, ...m.db.moneySettings };
+    const next = { ...before, ...s };
+    m.db.moneySettings = next;
+    log('PUT', '/settings/money', { recordType: 'settings', recordId: 'money', summary: `Advance payments need director approval: ${next.advanceApproval ? 'on' : 'off'}`, before, after: next });
+    return commit(next);
+  },
+  /** V3-12: my email / SMS choices for money notifications (in-app is always on). */
+  async myNotify(): Promise<NotifyPrefs> { ensure(); return wait({ ...R.defaultNotifyPrefs, ...(current ? m.db.notifyPrefs?.[current.id] : undefined) }); },
+  async setMyNotify(n: Partial<NotifyPrefs>): Promise<NotifyPrefs> {
+    ensure();
+    if (!current) throw Object.assign(new Error('Sign in first'), { status: 401 });
+    const id = current.id;
+    if ((n.email !== undefined && typeof n.email !== 'boolean') || (n.sms !== undefined && typeof n.sms !== 'boolean')) throw Object.assign(new Error('Choose on or off'), { status: 422 });
+    const next = { ...R.defaultNotifyPrefs, ...m.db.notifyPrefs?.[id], ...n };
+    (m.db.notifyPrefs ??= {})[id] = next;
+    return commit(next);
   },
 };

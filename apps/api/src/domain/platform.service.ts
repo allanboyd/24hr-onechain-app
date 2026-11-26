@@ -107,7 +107,7 @@ export class PlatformService {
     await db.insert(t.users).values(row);
     this.ref.invalidate();
     auditNote({ recordType: 'user', recordId: row.id, summary: `${row.name} (${row.roles.join(', ')})`, after: { roles: row.roles, entityIds: row.entityIds, pairs: row.pairs, loadingPointIds: row.loadingPointIds, warehouseIds: row.warehouseIds, routeIds: row.routeIds } });
-    return this.view({ ...row, active: true, tokenVersion: 0, createdAt: iso(), lastLoginAt: null });
+    return this.view({ ...row, active: true, tokenVersion: 0, createdAt: iso(), lastLoginAt: null, notifyEmail: false, notifySms: false });
   }
   async updateUser(p: Principal, id: string, input: Partial<{ name: string; email: string; roles: Role[]; entityIds: string[]; loadingPointIds: string[]; warehouseIds: string[]; pairs: UserPair[]; routeIds: string[]; active: boolean }>) {
     this.assertAdmin(p);

@@ -5,7 +5,7 @@ import * as R from './rules';
 import * as RP from './reports';
 import type {
   AckLine, Acknowledgement, CheckpointPass, Device, DriverWork, Entity, Flag, FxRate, GiverWork, ID, JourneyStep, Leg, Loading, Notification, PeriodKind, PeriodPlan, Plan, PlanLine, PoDetail, PoInput, PoUpdateInput,
-  PlanLineContext, PvThresholds,
+  MoneySettings, NotifyPrefs, PlanLineContext, PvThresholds,
   PurchaseOrder, ReceiverWork, Role, RouteStop, Sale, Shipment, StockRow, StoredFile, SyncResult, TripCost, TripPayment,
   Route, TruckIssue, User, UserAdmin, VelocityRow, WaitingEntry, Warehouse, WarehouseInput,
   DriverInput, Provider, ProviderInput, SavedDriver, Truck, TruckInput,
@@ -419,4 +419,10 @@ export const settings = {
   /** §8.14: planned-vs-actual flag thresholds (directors change them). */
   pvThresholds: () => get<PvThresholds>('/settings/pv-thresholds'),
   setPvThresholds: (t: Partial<PvThresholds>) => mutate(call<PvThresholds>('PUT', '/settings/pv-thresholds', t)),
+  /** V3-12: Management → Settings (directors and the system administrator change it). */
+  money: () => get<MoneySettings>('/settings/money'),
+  setMoney: (s: Partial<MoneySettings>) => mutate(call<MoneySettings>('PUT', '/settings/money', s)),
+  /** V3-12: the signed-in person's email / SMS choices for money notifications. */
+  myNotify: () => get<NotifyPrefs>('/me/notify'),
+  setMyNotify: (n: Partial<NotifyPrefs>) => mutate(call<NotifyPrefs>('PUT', '/me/notify', n)),
 };

@@ -216,5 +216,32 @@ ok(Math.abs(byLevel[3].rows[0].qtyReceived - perf.totals.qtyReceived) <= 1 && by
 ok(perf.fast.length > 0 && perf.slow.length > 0 && perf.byTruck.length > 0, 'fast / slow products and landed cost per truck');
 for (const who of ['u-kabonge', 'u-testfie', 'u-asie', 'u-yonas']) { await as(who); await rejects(api.reports.performance(), /403/, `${who}: no performance report`); await rejects(api.pricing.list(), /403/, `${who}: no selling prices`); }
 
+// ---- V3-12 step 0: Management settings and money notifications ----------------------------------------------------------
+{
+  const R2 = await import('../src/rules');
+  const people = [
+    { id: 'd1', roles: ['director'] as const, email: 'd1@x', phone: '+1', notifyEmail: true, notifySms: false },
+    { id: 'd2', roles: ['director'] as const, email: null, phone: '+2', notifyEmail: true, notifySms: true },
+    { id: 'd3', roles: ['director'] as const, active: false, email: 'd3@x', phone: '+3', notifyEmail: true, notifySms: true },
+    { id: 'p1', roles: ['planner'] as const, email: 'p1@x', phone: '+4', notifyEmail: true, notifySms: true },
+  ].map((u) => ({ ...u, roles: [...u.roles] }));
+  const to = R2.moneyRecipients(people);
+  ok(JSON.stringify(to) === JSON.stringify({ inApp: ['d1', 'd2'], email: ['d1@x'], sms: ['+2'] }), 'money news: active directors in-app; email / SMS only to those who turned it on and have an address', to);
+  ok(R2.canChangeSettings(['director']) && R2.canChangeSettings(['admin']) && !R2.canChangeSettings(['accounts', 'operations']), 'settings: directors and the system administrator change them');
+
+  await as('u-daniel');
+  ok((await api.settings.money()).advanceApproval === false, 'settings: advance approval is off by default (26 Nov)');
+  ok((await api.settings.setMoney({ advanceApproval: true })).advanceApproval === true && (await api.settings.money()).advanceApproval === true, 'settings: a director turns advance approval on');
+  await api.settings.setMoney({ advanceApproval: false });
+  const n0 = await api.settings.myNotify();
+  ok(n0.email === false && n0.sms === false, 'my notifications: email and SMS off by default');
+  const n1 = await api.settings.setMyNotify({ sms: true });
+  ok(n1.sms === true && n1.email === false && (await api.settings.myNotify()).sms === true, 'my notifications: turning SMS on keeps email as it was');
+  await as('u-yonas');
+  await rejects(api.settings.setMoney({ advanceApproval: true }), /403|Only directors/, 'settings: a warehouse user cannot change approvals');
+  ok((await api.settings.myNotify()).sms === false, 'my notifications: each person has their own choices');
+  await as('u-daniel'); await api.settings.setMyNotify({ sms: false });
+}
+
 console.log(fails ? `\n${fails} money check(s) FAILED` : '\nall money checks passed');
 if (fails) process.exitCode = 1;
