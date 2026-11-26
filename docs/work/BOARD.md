@@ -144,3 +144,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 Overview: the map fills its column, sales and profit is a box plot, and orange surfaces use white, blue and yellow. |
 | 26 Nov 2026 | cursor | V3-11 Overview: sales is a pyramid, Decisions is a distinct blue, and Clear sits at the end of the centred filters. |
 | 26 Nov 2026 | cursor | V3-11 Overview: sales is a share bar, Decisions is navy in light mode and blue in dark mode, and the filter Clear button is back to showing only when a filter is set. |
+| 26 Nov 2026 | cursor | V3-11 Overview: revenue, cost of sales and profit are vertical bars, and decision marks follow urgency. |
