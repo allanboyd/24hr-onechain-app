@@ -1,13 +1,12 @@
 <script lang="ts">
-  // Period plan editor (§8.3 PL-06..PL-12): lines, optional monthly split, copy to the next period. Plans are suggestions:
+  // Period plan editor (§8.3 PL-06..PL-12): lines and an optional monthly split. Plans are suggestions:
   // no approval — planners, directors and admins save them directly (each save is a new version in the history).
   // Active plans never overlap; a replaced plan is read-only and links to the plan that replaced it.
   import { lookup, ref, type User } from '@btw/api';
-  import { Badge, fmtDate, fmtDateTime, fmtMoney, fmtNum, router, say } from '@btw/ui';
+  import { Badge, fmtDate, fmtDateTime, fmtMoney, fmtNum, say } from '@btw/ui';
   import Plus from '@lucide/svelte/icons/plus';
   import Trash from '@lucide/svelte/icons/trash-2';
   import CircleAlert from '@lucide/svelte/icons/circle-alert';
-  import Copy from '@lucide/svelte/icons/copy';
   import RecordFor from '../components/RecordFor.svelte';
   import ErrorState from '../components/ErrorState.svelte';
   import CompanyMark from '../components/CompanyMark.svelte';
@@ -92,9 +91,6 @@
     <div class="row">
       {#if editable}
         <RecordFor entityId={plan.entityId} cue={false}><button class="btn btn-primary" onclick={() => save()} disabled={!dirty}>{dirty ? 'Save plan' : 'Saved'}</button></RecordFor>
-      {/if}
-      {#if canEdit}
-        <button class="btn btn-ghost" onclick={() => router.go(`/period-plans/new?copy=${plan!.id}`)}><Copy size={16} />Copy to a new period</button>
       {/if}
     </div>
   </div>

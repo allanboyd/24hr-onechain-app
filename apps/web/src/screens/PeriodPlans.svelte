@@ -55,7 +55,7 @@
     { key: 'cases', label: 'Cases', align: 'right', sortValue: (p) => planTotals(p).cases, value: (p) => fmtNum(planTotals(p).cases) },
     { key: 'value', label: 'Value (USD)', align: 'right', sortValue: (p) => planTotals(p).value, value: (p) => fmtNum(planTotals(p).value, 2) },
     { key: 'status', label: 'Status', value: (p) => p.status, cell: statusCell },
-    { key: 'actions', label: 'Actions', sortable: false, csv: false, mobile: 'actions', cell: actionsCell },
+    { key: 'actions', label: 'Actions', sortable: false, csv: false, hideable: false, mobile: 'actions', cell: actionsCell },
   ]);
 </script>
 
@@ -71,6 +71,7 @@
   {#await import('../components/reports/PlannedVsActualTab.svelte') then M}<M.default {user} focus={reportPlan ? { id: reportPlan.id, ref: reportPlan.ref, title: reportPlan.title, from: reportPlan.from, to: reportPlan.to, entityId: reportPlan.entityId } : undefined} />{/await}
 {:else}
 <SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Period plans summary" noun="plans" total={list ? list.length : null} shown={list ? shown : null} />
+<div class="plans">
 <DataTable id="period-plans" label="Period plans" noun="plans" rows={list ? rows : null} {columns} rowKey={(p) => p.id} onrowclick={(p) => router.go(`/period-plans/${p.id}`)}
   initialSort={{ key: 'period', dir: 'desc' }} filename="period-plans" searchable searchPlaceholder="Search reference or title"
   bind:search={tq.search.get, tq.search.set} bind:filters={tq.filters.get, tq.filters.set} bind:shown>
@@ -81,6 +82,7 @@
     {#if filtered}<EmptyState title="No period plans match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState>{:else}<EmptyState title="No period plans yet" hint={canCreate ? 'Create one to compare purchase orders with it.' : undefined} compact />{/if}
   {/snippet}
 </DataTable>
+</div>
 {/if}
 <PlanCreateDialog {user} bind:open={creating} />
 
@@ -96,5 +98,12 @@
   .acts { display: inline-flex; gap: 6px; }
   .plan-status .select { height: 32px; }
   .nowrap { white-space: nowrap; }
+  /* Actions stay on the right while the other columns scroll sideways. */
+  .plans :global(.dt-table th:last-child) { position: sticky; top: 0; right: 0; z-index: 5; background: var(--surface-sunken); }
+  .plans :global(.dt-table td:last-child) { position: sticky; right: 0; z-index: 2; background: var(--surface); }
+  .plans :global(.dt-table tbody tr:hover td:last-child) { background: var(--primary-subtle); }
+  .plans :global(.dt-table tbody tr.on td:last-child) { background: var(--sel-bg); }
+  .plans :global(.fade-r .dt-table th:last-child),
+  .plans :global(.fade-r .dt-table td:last-child) { box-shadow: -6px 0 8px -6px rgb(0 0 0 / .25); }
 </style>
 
