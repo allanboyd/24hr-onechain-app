@@ -231,8 +231,8 @@
   .rail .seg .thumb { width: auto; right: 4px; height: calc(50% - 6px); bottom: auto; }
   .rail .seg.mgmt .thumb { transform: translateY(calc(100% + 4px)); }
   .rail .seg a { padding: 9px 0; }
-  /* SB-2 nav: no titles, a little space between the process groups */
-  nav { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-1) var(--space-2) var(--space-4); }
+  /* SB-2 nav: no titles; groups keep their order (no extra gap, V3-1d) */
+  nav { display: flex; flex-direction: column; gap: 2px; padding: var(--space-1) var(--space-2) var(--space-4); } /* V3-1d: same spacing between every item, groups included (your 26 Nov note) */
   .grp { display: flex; flex-direction: column; gap: 2px; }
   nav a { position: relative; display: flex; align-items: center; gap: var(--space-3); color: var(--nav-text); padding: 9px var(--space-3); border-radius: 10px; font-weight: 500; text-decoration: none; white-space: nowrap; transition: background var(--motion-fast) var(--motion-easing), color var(--motion-fast) var(--motion-easing); }
   nav a:hover { background: var(--nav-hover); color: var(--nav-strong); text-decoration: none; }

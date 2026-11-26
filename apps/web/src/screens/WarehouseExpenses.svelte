@@ -8,7 +8,7 @@
   import { auth, ref, lookup, warehouse, type Currency, type User, type WarehouseExpense, type WarehouseExpenseCategory } from '@btw/api';
   import { fmtDate, fmtNum, say } from '@btw/ui';
   import { CURRENCIES, WAREHOUSE_EXPENSE_CATEGORIES, canEditExpense, validateExpense } from '@btw/api/money';
-  import { PageHeader, SummaryStrip, FilterBar, EmptyState, queryFilters, readQuery, type SummaryTile } from '../components/page';
+  import { PageHeader, SummaryStrip, EmptyState, DataTable, queryFilters, readQuery, tableQuery, processRows, ts, type Column, type SummaryTile } from '../components/page';
   import { expenseTiles, infoOf } from '../lib/tiles';
   import ExportMenu from '../components/ExportMenu.svelte';
   import Plus from '@lucide/svelte/icons/plus';
@@ -22,15 +22,18 @@
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = (n: number) => { const d = new Date(); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - n, 1)).toISOString().slice(0, 10); };
   // filters in the address; the list opens on this month (show=month) unless a filter is given
-  const hadFilter = ['show', 'wh', 'cat', 'from', 'to'].some((k) => readQuery(k));
-  const f = queryFilters({ show: '', wh: '', cat: '', from: '', to: '' });
+  const hadFilter = ['show', 'wh', 'cat', 'from', 'to', 'q', 'by', 'usd'].some((k) => readQuery(k));
+  const f = queryFilters({ show: '', wh: '', cat: '', from: '', to: '', q: '', by: '', usd: '' });
+  // V3-8: search + Warehouse / Category / By / USD filters in the table; From / To stay (they choose the period loaded)
+  const tq = tableQuery(f, { search: 'q', filters: { wh: 'wh', cat: 'cat', by: 'by', usd: ['usd', 'range'] } });
+  const one = (v: string) => (v && !v.includes(',') ? v : undefined); // the server takes one warehouse / category
   if (!hadFilter) f.set('show', 'month');
   // the strip covers this month and last month in every warehouse of the person's scope (independent of the list filters)
   let recent = $state<WarehouseExpense[] | null>(null);
   let rows = $state<WarehouseExpense[] | null>(null);
   const w = watch(async () => {
     [rows, recent] = await Promise.all([
-      warehouse.expenses({ warehouseId: f.values.wh || undefined, category: f.values.cat || undefined, from: f.values.from || monthStart(f.values.show === 'month' || f.values.show === 'top' ? 0 : f.values.show === 'last' ? 1 : 3), to: f.values.to || undefined }),
+      warehouse.expenses({ warehouseId: one(f.values.wh), category: one(f.values.cat) as WarehouseExpenseCategory | undefined, from: f.values.from || monthStart(f.values.show === 'month' || f.values.show === 'top' ? 0 : f.values.show === 'last' ? 1 : 3), to: f.values.to || undefined }),
       warehouse.expenses({ from: monthStart(1) }),
     ]);
   }, () => [f.values.wh, f.values.cat, f.values.from, f.values.to, f.values.show]);
@@ -46,7 +49,22 @@
   const inMonth = (x: WarehouseExpense, n: number) => x.date >= monthStart(n) && x.date < monthStart(n - 1);
   const SHOW: Record<string, (x: WarehouseExpense) => boolean> = { month: (x) => inMonth(x, 0), last: (x) => inMonth(x, 1), top: (x) => inMonth(x, 0) && x.category === fig.top?.category };
   const shown = $derived((rows ?? []).filter((x) => !f.values.show || SHOW[f.values.show]?.(x) !== false));
-  const active = $derived(['show', 'wh', 'cat', 'from', 'to'].filter((k) => f.values[k as 'show'] && f.values[k as 'show'] !== 'all').length);
+  const active = $derived(['show', 'wh', 'cat', 'from', 'to', 'q', 'by', 'usd'].filter((k) => f.values[k as 'show'] && f.values[k as 'show'] !== 'all').length);
+  const whName = (id: string) => lookup.warehouse(id)?.name ?? id;
+  const byName = (id: string) => lookup.user(id)?.name ?? id;
+  const columns: Column<WarehouseExpense>[] = [
+    { key: 'date', label: 'Date', sortValue: (x) => ts(x.date), csv: (x) => x.date, cell: dateCell, class: 'nowrap small' },
+    { key: 'wh', label: 'Warehouse', value: (x) => whName(x.warehouseId), filter: 'select', filterValue: (x) => x.warehouseId, filterLabel: whName },
+    { key: 'cat', label: 'Category', value: (x) => x.category, filter: 'select' },
+    { key: 'amount', label: 'Amount', align: 'right', sortValue: (x) => x.amount, value: (x) => `${x.currency} ${fmtNum(x.amount, x.currency === 'USD' ? 2 : 0)}`, class: 'nowrap' },
+    { key: 'usd', label: 'USD', align: 'right', filter: 'range', sortValue: (x) => x.amountUsd, value: (x) => fmtNum(x.amountUsd, 2), total: (l) => fmtNum(l.reduce((a, x) => a + x.amountUsd, 0), 2) },
+    { key: 'ref', label: 'Reference · note', value: (x) => [x.reference, x.note].filter(Boolean).join(' · ') || null, cell: refCell, class: 'small', hideBelow: 900 },
+    { key: 'receipt', label: 'Receipt', value: (x) => x.receipt?.name ?? null, cell: receiptCell, class: 'small', hideBelow: 1100 },
+    { key: 'by', label: 'By', value: (x) => byName(x.byUserId), class: 'small', filter: 'select', filterValue: (x) => x.byUserId, filterLabel: byName, hideBelow: 1000 },
+    { key: 'act', label: '', sortable: false, csv: false, hideable: false, searchable: false, cell: actCell, class: 'nowrap', mobile: 'actions' },
+  ];
+  // what the table shows (also the export)
+  const tableRows = $derived(processRows({ rows: shown, columns, rowKey: (x) => x.id, sort: null, search: f.values.q, filters: tq.filters.get() }).rows);
 
   // form (add / edit)
   type Form = { id?: string; warehouseId: string; date: string; category: WarehouseExpenseCategory; amount: number | null; currency: Currency; reference: string; note: string; receipt?: { id: string; url: string; name: string } | null };
@@ -74,7 +92,7 @@
     const e = await attempt(() => warehouse.deleteExpense(x.id)); if (e) say(e); else say('Expense removed');
   }
   const me = $derived({ ...user, id: auth.me()?.id ?? user.id });
-  const listRows = () => [['Date', 'Warehouse', 'Category', 'Amount', 'Currency', 'USD', 'Reference', 'Note', 'Receipt', 'Recorded by'], ...shown.map((x) => [x.date, lookup.warehouse(x.warehouseId)?.name ?? '', x.category, x.amount, x.currency, x.amountUsd, x.reference ?? '', x.note ?? '', x.receipt?.name ?? '', lookup.user(x.byUserId)?.name ?? x.byUserId])];
+  const listRows = () => [['Date', 'Warehouse', 'Category', 'Amount', 'Currency', 'USD', 'Reference', 'Note', 'Receipt', 'Recorded by'], ...tableRows.map((x) => [x.date, lookup.warehouse(x.warehouseId)?.name ?? '', x.category, x.amount, x.currency, x.amountUsd, x.reference ?? '', x.note ?? '', x.receipt?.name ?? '', lookup.user(x.byUserId)?.name ?? x.byUserId])];
 </script>
 
 <PageHeader overline="Stock & sales" title="Warehouse expenses" description="Offloading, storage, salaries, rent, utilities and damaged goods of {mine.length === 1 ? mine[0].name : 'our warehouses'}." analysis="warehouse"
@@ -103,37 +121,27 @@
 
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
 <SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Warehouse expenses summary" allValue="all" noun="expenses" shown={rows ? shown.length : null} />
-<FilterBar {active} onclear={() => f.clear()}>
-  <label class="field"><span>Warehouse</span><select class="select" value={f.values.wh} onchange={(e) => f.set('wh', e.currentTarget.value)}><option value="">All {mine.length > 1 ? 'my warehouses' : ''}</option>{#each mine as x (x.id)}<option value={x.id}>{x.name}</option>{/each}</select></label>
-  <label class="field"><span>Category</span><select class="select" value={f.values.cat} onchange={(e) => f.set('cat', e.currentTarget.value)}><option value="">All categories</option>{#each catList as c}<option value={c}>{c}</option>{/each}</select></label>
-  <label class="field"><span>From</span><input class="input" type="date" value={f.values.from} onchange={(e) => f.set('from', e.currentTarget.value)} /></label>
-  <label class="field"><span>To</span><input class="input" type="date" value={f.values.to} onchange={(e) => f.set('to', e.currentTarget.value)} /></label>
-  {#snippet end()}{#if rows}<span class="caption">{shown.length} expenses · {usd(Math.round(shown.reduce((a, x) => a + x.amountUsd, 0)))}</span>{/if}{/snippet}
-</FilterBar>
 
-<div class="card flush table-wrap">
-  <table class="table">
-    <thead><tr><th>Date</th><th>Warehouse</th><th>Category</th><th class="num">Amount</th><th class="num">USD</th><th>Reference · note</th><th>Receipt</th><th>By</th><th><span class="sr-only">Actions</span></th></tr></thead>
-    <tbody>
-      {#if !rows}{#each Array(3) as _}<tr><td colspan="9"><div class="skeleton"></div></td></tr>{/each}{/if}
-      {#each shown as x (x.id)}
-        <tr>
-          <td class="nowrap small">{fmtDate(x.date)}</td><td>{lookup.warehouse(x.warehouseId)?.name}</td><td>{x.category}</td>
-          <td class="num nowrap">{x.currency} {fmtNum(x.amount, x.currency === 'USD' ? 2 : 0)}</td><td class="num">{fmtNum(x.amountUsd, 2)}</td>
-          <td class="small">{x.reference ?? ''}{#if x.note}<div class="caption">{x.note}</div>{/if}</td>
-          <td class="small">{#if x.receipt}{#if x.receipt.url}<a href={x.receipt.url} target="_blank" rel="noopener">{x.receipt.name}</a>{:else}{x.receipt.name}{/if}{:else}<span class="caption">—</span>{/if}</td>
-          <td class="small">{lookup.user(x.byUserId)?.name ?? x.byUserId}</td>
-          <td class="nowrap">{#if canEditExpense(me, x)}<button class="btn btn-ghost btn-sm" onclick={() => edit(x)}>Edit</button><button class="btn btn-ghost btn-sm" onclick={() => remove(x)}>Remove</button>{/if}</td>
-        </tr>
-      {:else}{#if rows}<tr><td colspan="9"><EmptyState title={active ? 'No expenses match these filters' : 'No expenses recorded yet'} icon={SearchX} compact>{#if active}<button class="btn btn-secondary btn-sm" onclick={() => f.clear()}>Clear filters</button>{/if}</EmptyState></td></tr>{/if}{/each}
-    </tbody>
-  </table>
-</div>
+
+<DataTable id="wh-expenses" label="Warehouse expenses" noun="expenses" rows={rows ? shown : null} {columns} rowKey={(x) => x.id} initialSort={{ key: 'date', dir: 'desc' }} filename="warehouse-expenses-list"
+  searchable searchPlaceholder="Category, reference, note, who…" bind:search={tq.search.get, tq.search.set} bind:filters={tq.filters.get, tq.filters.set}>
+  {#snippet toolbar()}
+    <label class="dt-date"><span class="caption">From</span><input class="input" type="date" value={f.values.from} onchange={(e) => f.set('from', e.currentTarget.value)} /></label>
+    <label class="dt-date"><span class="caption">To</span><input class="input" type="date" value={f.values.to} onchange={(e) => f.set('to', e.currentTarget.value)} /></label>
+  {/snippet}
+  {#snippet empty()}<EmptyState title={active ? 'No expenses match these filters' : 'No expenses recorded yet'} icon={SearchX} compact>{#if active}<button class="btn btn-secondary btn-sm" onclick={() => f.clear()}>Clear filters</button>{/if}</EmptyState>{/snippet}
+</DataTable>
+
+{#snippet dateCell(x: WarehouseExpense)}{fmtDate(x.date)}{/snippet}
+{#snippet refCell(x: WarehouseExpense)}{x.reference ?? ''}{#if x.note}<div class="caption">{x.note}</div>{/if}{/snippet}
+{#snippet receiptCell(x: WarehouseExpense)}{#if x.receipt}{#if x.receipt.url}<a href={x.receipt.url} target="_blank" rel="noopener">{x.receipt.name}</a>{:else}{x.receipt.name}{/if}{:else}<span class="caption">-</span>{/if}{/snippet}
+{#snippet actCell(x: WarehouseExpense)}{#if canEditExpense(me, x)}<button class="btn btn-ghost btn-sm" onclick={() => edit(x)}>Edit</button><button class="btn btn-ghost btn-sm" onclick={() => remove(x)}>Remove</button>{/if}{/snippet}
 
 <style>
   .form-card { margin-bottom: var(--space-4); display: grid; gap: var(--space-3); }
   .wide { grid-column: span 2; }
   .error { color: var(--danger); }
-  .nowrap { white-space: nowrap; }
+  .dt-date { display: inline-flex; align-items: center; gap: 6px; }
+  .dt-date .input { height: var(--control-sm); width: auto; border-radius: 999px; }
   @media (max-width: 640px) { .wide { grid-column: auto; } }
 </style>
