@@ -4,6 +4,16 @@ How to use it: [`AGENTS.md`](../../AGENTS.md). Each agent edits **only its own r
 
 **Status:** ⬜ open · 📝 planned (waiting for approval) · 🔄 in progress · ⏸ handed over (read the plan's Handover section) · 👀 review · ✅ done · ⛔ blocked
 
+## Who does what (26 Nov 2026, agreed with the human)
+Two agents work in parallel on `design-v3`. Each edits only its own files; anything shared goes under **Requests**. Rebase on the latest `design-v3` before every merge.
+
+| Agent | Rows | Files it owns |
+|---|---|---|
+| **cursor** | V3-11 to the end (Live dashboards: card titles, heatmap, the other tabs), then V3-9 (new dropdowns) | `apps/web/src/screens/dash/**`, `apps/web/src/components/dashboard/**` (incl. `report.css`), `apps/web/src/components/charts/**`, `packages/ui/**` |
+| **claude** | V3-10 (Supplier balances, Cash and closing, Executive report, then recording the missing data), then V3-8 batch 2 (Users, Audit log, Master data, Truck desk tables) | `packages/api/src/dashboards.ts` (management builders), new `apps/web/src/screens/management/Suppliers.svelte` / `Cash.svelte` / `Exec.svelte`, `apps/web/src/screens/Users.svelte`, `Audit.svelte`, `MasterData.svelte`, `apps/web/src/components/trucks/**`, `apps/web/src/components/*Tab.svelte` |
+
+Shared (ask under Requests): `apps/web/src/screens/management/Management.svelte` (claude adds each new live page), `components/dashboard/report.css` (claude reuses, cursor edits), `App.svelte`, `routes.ts`, `package.json`.
+
 ## Design v3
 **Base branch: `design-v3`** (worktrees branch from it, PRs/merges go back into it). Plan: [doc 23](../23-design-v3.md). Rows need `Approved: yes` in their plan file.
 
@@ -92,3 +102,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 LD-2 / LD-3 merged: other Live dashboard tabs use the report layout. Row in review. |
 | 26 Nov 2026 | cursor | V3-11 filter bar is two rows on every Live dashboard tab. Method text is off the charts. Merged into design-v3. |
 | 26 Nov 2026 | cursor | V3-11: chart info icons and in-chart filters removed. My dashboards is Overview. Decisions uses the primary colour. New period plan is a modal, with Plan vs actual beside it. |
+| 26 Nov 2026 | claude | Split agreed: cursor = V3-11 then V3-9; claude = V3-10 then V3-8 batch 2 (see "Who does what"). claude starts V3-10 Supplier balances. |
