@@ -18,6 +18,32 @@ const hdrBefore = await p.locator('.fit .cell').first().locator('.dash-panel > h
 await body.evaluate((e) => e.scrollTo(0, 300)); await p.waitForTimeout(200);
 const hdrAfter = await p.locator('.fit .cell').first().locator('.dash-panel > header').boundingBox();
 ok(hdrBefore?.y === hdrAfter?.y && await p.evaluate(() => scrollY) === 0, 'scrolling a section moves only that section (header and page stay)');
+await p.locator('.fit .cell[style*="borders"] .xtick').first().waitFor({ timeout: 15_000 });
+const chrome = await p.evaluate(() => {
+  const overlap = (a, b) => !!(a && b && a.right > b.left + 1 && b.right > a.left + 1 && a.bottom > b.top + 1 && b.bottom > a.top + 1);
+  const narrow = ['delayed', 'issues', 'updates'].map((area) => {
+    const cell = document.querySelector(`.fit .cell[style*="${area}"]`);
+    const h3 = cell?.querySelector('h3');
+    const cs = h3 ? getComputedStyle(h3) : null;
+    const hb = h3?.getBoundingClientRect();
+    const icons = [...(cell?.querySelectorAll('.title-row .tip') ?? [])];
+    const tools = cell?.querySelector('.dash-panel > header .tools');
+    const title = cell?.querySelector('.title-row');
+    return {
+      area, title: h3?.textContent, w: cell ? Math.round(cell.getBoundingClientRect().width) : 0,
+      oneLine: cs?.whiteSpace === 'nowrap', ellipsis: cs?.textOverflow === 'ellipsis',
+      hit: icons.some((el) => overlap(hb, el.getBoundingClientRect())),
+      wrapped: !!(tools && title && tools.getBoundingClientRect().top >= title.getBoundingClientRect().bottom - 2),
+    };
+  });
+  const ticks = [...document.querySelectorAll('.fit .cell[style*="borders"] .xaxislayer-above .xtick text')].map((t) => ({ text: t.textContent || '', box: t.getBoundingClientRect() }));
+  let tickHits = 0;
+  for (let i = 0; i < ticks.length; i++) for (let j = i + 1; j < ticks.length; j++) if (overlap(ticks[i].box, ticks[j].box)) tickHits++;
+  return { narrow, tickCount: ticks.length, tickHits, tickText: ticks.map((t) => t.text) };
+});
+console.log('     chrome:', JSON.stringify(chrome));
+ok(chrome.narrow.length === 3 && chrome.narrow.every((c) => c.oneLine && c.ellipsis && !c.hit && c.wrapped), 'narrow Fleet cards: title on one line, clear of its icons, tools on the next row');
+ok(chrome.tickCount >= 2 && chrome.tickHits === 0, `border heatmap column labels do not overlap (${chrome.tickHits} overlaps across ${chrome.tickCount} labels)`);
 await p.screenshot({ path: `${out}/fleet-fit.png` });
 await p.setViewportSize({ width: 390, height: 844 }); await p.waitForTimeout(800);
 ok(await p.locator('.fit .cell').count() === 5, 'phone: sections stacked');
