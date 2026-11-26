@@ -81,7 +81,7 @@
 <div class="map" bind:this={el}></div>
 
 <style>
-  .map { width: 100%; height: 280px; border-radius: var(--radius-md); overflow: hidden; isolation: isolate; z-index: 0; background: var(--surface-sunken); }
+  .map { width: 100%; height: 240px; border-radius: var(--radius-md); overflow: hidden; isolation: isolate; z-index: 0; background: var(--surface-sunken); }
   .map :global(.leaflet-container) { height: 100%; width: 100%; font: inherit; background: var(--surface-sunken); }
   :global([data-theme='dark'] .leaflet-tile-pane) { filter: brightness(.75) contrast(1.1) saturate(.8); }
   @media (prefers-color-scheme: dark) { :global(:root:not([data-theme='light']) .leaflet-tile-pane) { filter: brightness(.75) contrast(1.1) saturate(.8); } }
