@@ -21,7 +21,8 @@
   .pill { position: relative; width: 60px; height: 32px; border-radius: 16px; display: grid; place-items: center; transition: background var(--motion-base) var(--motion-easing), transform var(--motion-fast); }
   .tab:active .pill { transform: scale(.92); }
   .lbl { font: 600 12px/14px var(--ff-body); letter-spacing: .01em; }
-  .on { color: var(--text); }
-  .on .pill { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text); }
+  /* V3-6: the same active look as the web app's bottom bar */
+  .on { color: var(--primary); }
+  .on .pill { background: var(--primary-subtle); color: var(--primary); }
   .on .lbl { font-weight: 800; }
 </style>

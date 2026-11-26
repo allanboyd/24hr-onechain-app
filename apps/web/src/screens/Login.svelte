@@ -6,6 +6,8 @@
   import { session, signIn } from '../lib/session.svelte';
   import { showDemoHelpers } from '../lib/mode';
   import LogIn from '@lucide/svelte/icons/log-in';
+  import Eye from '@lucide/svelte/icons/eye';
+  import EyeOff from '@lucide/svelte/icons/eye-off';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import Smartphone from '@lucide/svelte/icons/smartphone';
   import Copy from '@lucide/svelte/icons/copy';
@@ -42,7 +44,8 @@
   let password = $state('');
   let error = $state('');
   let busy = $state<string | null>(null);
-  let showForm = $state(!users.length || !!prefill);
+  // V3-6: the sign-in form always comes first; the demo accounts sit below it (demo mode only)
+  let showPass = $state(false);
   let copied = $state(false);
 
   async function go(id: string, user: string, pass: string) {
@@ -62,6 +65,11 @@
 </script>
 
 <div class="wrap">
+  <aside class="brand" aria-hidden="true">
+    <div class="bmarks">{#each companies as c (c.id)}{#if c.logo}<span class="bt"><img src={c.logo} alt="" /></span>{/if}{/each}</div>
+    <h2 class="bh">Every truck, order and case, from the supplier to the sale.</h2>
+    <ul class="bl"><li>Plans and purchase orders</li><li>Trucks and shipments, live</li><li>Stock, sales and money, by warehouse</li></ul>
+  </aside>
   <main class="col">
     <div class="logos" aria-label="Group companies">
       {#each companies as c (c.id)}{#if c.logo}<img src={c.logo} alt={c.name} />{:else}<strong>{c.name}</strong>{/if}{/each}
@@ -69,14 +77,22 @@
     <div class="ribbon"></div>
     <div>
       <h1>Sign in</h1>
-      <p class="muted">BTW Global · Nihna Unique · Kivu — supply chain, logistics, inventory and sales.</p>
+      <p class="muted">BTW Global, Nihna Unique and Kivu: supply chain, logistics, inventory and sales.</p>
     </div>
     {#if session.notice}<p class="notice small" role="status">{session.notice}</p>{/if}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
+    <form class="stack card-form" onsubmit={submit} novalidate>
+      <label class="field"><span>Username or phone</span>
+        <input class="input big" id="login-user" autocomplete="username" bind:value={username} placeholder="+254 7xx xxx xxx" aria-invalid={!!error} /></label>
+      <label class="field"><span>Password</span>
+        <span class="pw"><input class="input big" id="login-pass" type={showPass ? 'text' : 'password'} autocomplete="current-password" bind:value={password} aria-invalid={!!error} />
+          <button type="button" class="eye" aria-label={showPass ? 'Hide the password' : 'Show the password'} aria-pressed={showPass} onclick={() => (showPass = !showPass)}>{#if showPass}<EyeOff size={18} />{:else}<Eye size={18} />{/if}</button></span></label>
+      <button class="btn btn-primary btn-lg btn-block" disabled={!!busy}><LogIn size={18} />{busy === 'form' ? 'Signing in…' : 'Sign in'}</button>
+    </form>
 
     {#if office.length}
       <section aria-labelledby="demo-h">
-        <div class="row between head"><span id="demo-h" class="overline">Office · try a demo</span><span class="caption">web {DEMO_PASSWORD} · app PIN 1234</span></div>
+        <div class="row between head"><span id="demo-h" class="overline">Or try a demo account</span><span class="caption">web {DEMO_PASSWORD} · app PIN 1234</span></div>
         {#each groups as g (g.title)}
           <div class="ghead"><CompanyMark entityId={g.id} size={20} /><span class="small"><strong>{g.title}</strong></span></div>
           <div class="list">
@@ -95,17 +111,6 @@
       </section>
     {/if}
 
-    {#if showForm}
-      <form class="stack" onsubmit={submit} novalidate>
-        <label class="field"><span>Username or phone</span>
-          <input class="input big" id="login-user" autocomplete="username" bind:value={username} placeholder="+254 7xx xxx xxx" aria-invalid={!!error} /></label>
-        <label class="field"><span>Password</span>
-          <input class="input big" id="login-pass" type="password" autocomplete="current-password" bind:value={password} aria-invalid={!!error} /></label>
-        <button class="btn btn-primary btn-lg btn-block" disabled={!!busy}><LogIn size={18} />{busy === 'form' ? 'Signing in…' : 'Sign in'}</button>
-      </form>
-    {:else}
-      <button type="button" class="btn btn-secondary btn-lg btn-block" onclick={() => (showForm = true)}>Sign in with your own account</button>
-    {/if}
 
     {#if field.length}
       <section class="fieldapp" aria-labelledby="field-h">
@@ -133,6 +138,22 @@
 
 <style>
   .wrap { min-height: 100vh; display: grid; justify-items: center; align-items: start; padding: var(--space-8) var(--space-4); background: var(--bg); }
+  .brand { display: none; }
+  @media (min-width: 1000px) {
+    .wrap { grid-template-columns: minmax(380px, 46%) 1fr; padding: 0; align-items: stretch; justify-items: stretch; }
+    .wrap .col { justify-self: center; }
+    .wrap .logos { display: none; }
+    .brand { display: flex; flex-direction: column; justify-content: center; gap: var(--space-6); padding: 64px 56px; background: linear-gradient(160deg, var(--primary) 0%, color-mix(in srgb, var(--primary) 70%, #000) 100%); color: #fff; position: sticky; top: 0; height: 100vh; box-sizing: border-box; }
+    .col { padding: 64px var(--space-4); }
+  }
+  .bmarks { display: flex; gap: 12px; } .bt { display: grid; place-items: center; width: 120px; height: 64px; border-radius: 14px; background: #fff; padding: 8px; box-sizing: border-box; } .bt img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .bh { font: 800 34px/1.2 var(--ff-display); margin: 0; color: #fff; max-width: 16ch; }
+  .bl { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; font-size: 16px; opacity: .9; }
+  .bl li::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 10px; }
+  .card-form { padding: var(--space-5); border-radius: var(--radius-lg); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--elevation-1); }
+  .pw { position: relative; display: block; } .pw .input { padding-right: 48px; }
+  .eye { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border: 0; border-radius: 50%; background: transparent; color: var(--text-muted); display: grid; place-items: center; cursor: pointer; }
+  .eye:hover { background: var(--surface-sunken); color: var(--text); }
   .col { width: min(460px, 100%); display: flex; flex-direction: column; gap: var(--space-5); }
   .logos { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); align-items: center; padding: var(--space-3); background: var(--logo-tile); border-radius: var(--radius-lg); }
   .logos img { width: 100%; height: 48px; object-fit: contain; }
