@@ -5,7 +5,7 @@
   import { lookup, ref } from '@btw/api';
   import { costsByProvider, costsByTruck, type DeskKpis, type TruckRow, type CostLine } from '@btw/api/trucks';
   import { fmtMoney, fmtNum } from '@btw/ui';
-  import { SummaryStrip, DataTable, queryFilters, tableQuery, type Column, type SummaryTile } from '../page';
+  import { SummaryStrip, DataTable, Tabs, queryFilters, readQuery, writeQuery, tableQuery, type Column, type SummaryTile } from '../page';
   import ExportMenu from '../ExportMenu.svelte';
   import { usd } from '../charts';
   import { infoOf } from '../../lib/tiles';
@@ -17,6 +17,10 @@
   // table, kept in the address); the trucks table has the search box.
   const tq = tableQuery(f, { search: 'q', filters: { provider: 'provider' } });
   function clearAll() { f.clear(); }
+  // V3-15: By provider | By truck as tabs; picking a provider opens its trucks
+  let ctab = $state<'providers' | 'trucks'>(readQuery('by') === 'truck' || readQuery('provider') ? 'trucks' : 'providers');
+  function setCtab(k: string) { ctab = k as typeof ctab; writeQuery({ by: k === 'trucks' ? 'truck' : null }); }
+  function pickProvider(id: string) { f.set('provider', id); setCtab('trucks'); }
 
   const tiles = $derived<SummaryTile[]>([
     { key: 'owed', label: 'Transport owed', value: trips ? k.owed : null, format: usd, sub: 'agreed − paid, all trips', info: infoOf('transportOwed') },
@@ -60,26 +64,28 @@
 <SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Transport money" noun="providers" total={trips ? provCosts.length : null} shown={trips ? provShown.length : null} />
 <div class="row links"><a class="small" href="#/transport-costs">Payments → Transport costs</a><ExportMenu name="transport-costs" rows={exportCosts} /></div>
 
-{#snippet provCell(c: CostLine)}<strong>{c.label}</strong>{#if f.values.provider === c.id}<div class="caption">showing its trucks below</div>{/if}{/snippet}
+{#snippet provCell(c: CostLine)}<strong>{c.label}</strong>{/snippet}
 {#snippet agreedCell(c: CostLine)}{fmtMoney(c.agreed)}{#if c.notRecorded}<div class="caption nr">{c.notRecorded} not recorded</div>{/if}{/snippet}
 {#snippet pendingCell(c: CostLine)}{c.pending ? fmtMoney(c.pending) : '-'}{/snippet}
 {#snippet owedCell(c: CostLine)}<strong class:owed={c.balance > 0}>{fmtMoney(c.balance)}</strong>{/snippet}
 {#snippet detailsCell(c: CostLine)}{@const row = rows.find((x) => x.truck.id === c.id)}{#if row}<button class="btn btn-ghost btn-sm" onclick={(e) => { e.stopPropagation(); onopen(row); }}>Details</button>{/if}{/snippet}
 
+<Tabs label="Costs" tabs={[{ key: 'providers', label: 'By provider', n: provShown.length }, { key: 'trucks', label: 'By truck', n: trucksShown.length }]} value={ctab} onselect={setCtab} />
+{#if ctab === 'providers'}
 <section class="card flush">
   <header><div><h3>By provider</h3><div class="caption">Amounts in USD at the approved month-average rate · pick a provider to see its trucks</div></div></header>
   <DataTable id="truck-costs-providers" label="Costs by provider" noun="providers" rows={trips ? provShown : null} columns={provCols} rowKey={(c) => c.id} selected={f.values.provider || null}
-    onrowclick={(c) => f.toggle('provider', c.id)} initialSort={{ key: 'balance', dir: 'desc' }} filename="costs-by-provider" tools={false} emptyTitle="No provider matches these filters" />
+    onrowclick={(c) => pickProvider(c.id)} initialSort={{ key: 'balance', dir: 'desc' }} filename="costs-by-provider" tools={false} emptyTitle="No provider matches these filters" />
 </section>
-
-<section class="card flush gap">
+{:else}
+<section class="card flush">
   <header><div><h3>By truck{f.values.provider ? ` · ${lookup.provider(f.values.provider)?.name ?? ''}` : ''}</h3><div class="caption">Trips are counted for the truck that loaded them</div></div></header>
   <DataTable id="truck-costs-trucks" label="Costs by truck" noun="trucks" rows={trips ? trucksShown : null} columns={truckCols} rowKey={(c) => c.id} initialSort={{ key: 'balance', dir: 'desc' }} filename="costs-by-truck" onclear={clearAll}
     searchable searchPlaceholder="Truck or provider" bind:search={tq.search.get, tq.search.set} bind:filters={tq.filters.get, tq.filters.set} emptyTitle="No trips" />
 </section>
+{/if}
 
 <style>
-  .gap { margin-top: var(--space-4); }
   .owed { color: var(--danger); }
   .nr { color: var(--warning); font-weight: 600; }
 </style>
