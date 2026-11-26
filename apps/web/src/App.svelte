@@ -210,7 +210,7 @@
   .shell { --side-w: 248px; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); min-height: 100vh; transition: grid-template-columns var(--motion-base) var(--motion-easing); }
   .shell.rail { --side-w: 72px; }
   .side-col { background: var(--nav); }
-  .side { background: var(--nav); color: var(--nav-text); display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+  .side { background: var(--nav); color: var(--nav-text); display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: var(--nav-line) transparent; } /* the dark sidebar keeps a light-on-dark scroller */
   /* SB-1 brand: one fixed-height header, logo on a white tile so every company logo reads */
   .brand { height: 68px; flex: none; display: flex; align-items: center; padding: 0 var(--space-4); }
   .brand .tile { display: flex; align-items: center; height: 44px; max-width: 100%; padding: 6px 12px; background: var(--logo-tile); border-radius: 12px; }

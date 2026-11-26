@@ -10,6 +10,12 @@ body { background: var(--bg); color: var(--text); font-family: var(--ff-body); f
 a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
 :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* V3-11a: scrollbars in the brand colour (light: navy, dark: orange), thin, rounded */
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--primary) 55%, transparent) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--primary) 55%, transparent); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--primary); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
 /* Typography */
