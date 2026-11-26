@@ -54,7 +54,7 @@ export type DashKey =
   | 'orders-analysis' | 'plan-vs-actual-report' | 'purchase-planning' | 'loading-queues' | 'shipment-analysis' | 'logistics-report'
   | 'trip-costs' | 'finance-report' | 'stock-analysis' | 'inventory-report' | 'sales-velocity' | 'sales-report' | 'quarterly-review'
   // design v3 Management pages on live data (V3-10): same data, scoping and builders as the dashboards above
-  | 'mgmt-overview' | 'mgmt-plans' | 'mgmt-clients' | 'mgmt-perf' | 'mgmt-suppliers' | 'mgmt-cash';
+  | 'mgmt-overview' | 'mgmt-plans' | 'mgmt-clients' | 'mgmt-perf' | 'mgmt-suppliers' | 'mgmt-cash' | 'mgmt-exec';
 export interface DashDef {
   key: DashKey; id: string; title: string; group: DashGroup; who: Who[];
   /** the business question it answers */ question: string; /** the visual */ visual: string;
@@ -66,6 +66,7 @@ export interface DashDef {
 const d = (key: DashKey, id: string, title: string, group: DashGroup, who: Who[], question: string, visual: string, link?: string, client?: boolean): DashDef => ({ key, id, title, group, who, question, visual, link, client });
 const a = (key: DashKey, title: string, group: DashGroup, who: Who[], features: FeatureKey[], question: string, visual: string, link: string): DashDef => ({ key, id: 'F-2', title, group, who, question, visual, link, client: true, analysis: true, features });
 export const DASHBOARDS: DashDef[] = [
+  { key: 'mgmt-exec', id: 'M-02', title: 'Executive report', group: 'management', who: ['dir'], features: ['reports'], question: 'What went well, what must the directors decide, and how does each warehouse stand?', visual: 'Good news, decisions for the directors, warehouses and combined', link: '#/management/exec' },
   { key: 'mgmt-cash', id: 'M-06', title: 'Cash and closing', group: 'management', who: ['dir'], features: ['reports'], question: 'How did money move this period, and where do stock, client balances and transport bills stand?', visual: 'Statement, month by month, by warehouse, opening to closing', link: '#/management/cash' },
   { key: 'mgmt-suppliers', id: 'M-05', title: 'Supplier balances', group: 'management', who: ['dir'], features: ['reports'], question: 'How much of our money is with each supplier from short loads?', visual: 'KPIs, money with suppliers by month, by supplier, brands loaded short, short loads list, supplier statement', link: '#/management/suppliers' },
   { key: 'mgmt-perf', id: 'M-07', title: 'Warehouse performance', group: 'management', who: ['dir'], features: ['reports'], question: 'Which warehouse makes the most profit, and are we selling above the safe price?', visual: 'Warehouses side by side, headline numbers, profit waterfall, plan vs actual, margin and profit per case by month, price floor', link: '#/management/perf' },
@@ -802,6 +803,60 @@ function mgmtCash(c: Ctx): Out {
     empty: !sales.length && !paidOut.length && !expenses.length });
 }
 
+// ---- design v3 Management · Executive report (V3-10 step 3e): plain sentences written by fixed rules -------------------
+// Every sentence comes from the figures of the other Management builders (same Ctx, same memoised performance report), so
+// the report never disagrees with them. No AI: a rule fires only when its figure says so.
+export interface MgmtExecItem { key: string; text: string; tone: 'good' | 'warn' | 'bad'; href?: string }
+export interface MgmtExec {
+  period: DashPeriod; prev: DashPeriod; targetMargin: number;
+  good: MgmtExecItem[]; decisions: MgmtExecItem[];
+  table: { key: string; label: string; revenue: number; profit: number; margin: number | null; cases: number; profitPerCase: number | null; combined?: boolean }[];
+}
+function mgmtExec(c: Ctx): Out {
+  const ov = mgmtOverview(c).data as MgmtOverview, pf = mgmtPerf(c).data as MgmtPerf, cl = mgmtClients(c).data as MgmtClients;
+  const pl = mgmtPlans(c).data as MgmtPlans, sp = mgmtSuppliers(c).data as MgmtSuppliers;
+  const usd = (x: number) => `$${Math.round(x).toLocaleString('en-US')}`;
+  const pct = (x: number, d = 1) => `${(x * 100).toFixed(d)}%`;
+  const ch = (v: number | null, p: number | null) => (v !== null && p !== null && p !== 0 ? (v - p) / Math.abs(p) : null);
+  const k = ov.kpis, tm = pf.targetMargin;
+  const good: MgmtExecItem[] = [], dec: MgmtExecItem[] = [];
+  const rev = ch(k.revenue.value, k.revenue.prev), prof = ch(k.profit.value, k.profit.prev);
+  if (rev !== null && rev > 0) good.push({ key: 'sales-up', tone: 'good', text: `Sales are up ${pct(rev, 0)} to ${usd(k.revenue.value!)} compared with the previous period.` });
+  if (prof !== null && prof > 0) good.push({ key: 'profit-up', tone: 'good', text: `Profit is up ${pct(prof, 0)} to ${usd(k.profit.value!)}.` });
+  if (k.margin.value !== null && k.margin.value >= tm) good.push({ key: 'margin-ok', tone: 'good', text: `The margin of ${pct(k.margin.value)} is at or above the ${pct(tm, 0)} target.` });
+  const topWh = pf.warehouses[0];
+  if (topWh && topWh.profit > 0) good.push({ key: 'best-warehouse', tone: 'good', text: `${topWh.label} made the most profit: ${usd(topWh.profit)} at a ${topWh.margin === null ? '-' : pct(topWh.margin)} margin.`, href: '#/management/perf' });
+  const bestB = ov.brands.best[0];
+  if (bestB && bestB.margin >= tm) good.push({ key: 'best-brand', tone: 'good', text: `${bestB.label} has the best margin: ${pct(bestB.margin)}.` });
+  if (pl.measures.planned > 0 && pl.measures.usedPct >= 90) good.push({ key: 'plans-ordered', tone: 'good', text: `Purchase orders cover ${Math.round(pl.measures.usedPct)}% of the plans.`, href: '#/management/plans' });
+  if (cl.kpis.owed !== null && cl.kpis.owed > 0 && (cl.kpis.overdue ?? 0) === 0) good.push({ key: 'no-overdue', tone: 'good', text: `No client is past the ${cl.terms}-day credit time.` });
+
+  if (k.margin.value !== null && k.margin.value < tm) {
+    const weak = ov.brands.weakest.filter((b) => b.margin < tm).slice(0, 3).map((b) => b.label);
+    dec.push({ key: 'margin-low', tone: 'bad', text: `The margin is ${pct(k.margin.value)}, below the ${pct(tm, 0)} target.${weak.length ? ` Review the prices of ${weak.join(', ')}.` : ''}`, href: '#/management/perf' });
+  }
+  const below = pf.floor.filter((x) => x.below);
+  if (below.length) dec.push({ key: 'below-floor', tone: 'bad', text: `${below.length} ${below.length === 1 ? 'product sells' : 'products sell'} below the safe price: ${below.slice(0, 3).map((x) => x.label).join(', ')}${below.length > 3 ? ' and more' : ''}.`, href: '#/management/perf' });
+  if ((cl.kpis.overdue ?? 0) > 0) {
+    const top = cl.balances.top.filter((x) => x.overdue > 0).slice(0, 2).map((x) => x.customer);
+    dec.push({ key: 'overdue', tone: 'warn', text: `Collect ${usd(cl.kpis.overdue!)} overdue (over ${cl.terms} days)${top.length ? `, starting with ${top.join(' and ')}` : ''}.`, href: '#/management/clients' });
+  }
+  if (pl.measures.planned > 0 && pl.measures.usedPct < 90) dec.push({ key: 'plans-behind', tone: 'warn', text: `Plans are ${Math.round(pl.measures.usedPct)}% ordered: ${Math.round(pl.measures.remaining).toLocaleString('en-US')} cases still to order.`, href: '#/management/plans' });
+  if (sp.kpis.held > 0) dec.push({ key: 'supplier-cash', tone: 'warn', text: `${usd(sp.kpis.held)} of our money is with suppliers from short loads${sp.bySupplier[0] ? `, most with ${sp.bySupplier[0].label} (${usd(sp.bySupplier[0].held)})` : ''}. Use it on the next orders.`, href: '#/management/suppliers' });
+  for (const d of ov.decisions.filter((x) => (x.count ?? 0) > 0 && (x.severity === 'critical' || x.severity === 'high')))
+    dec.push({ key: `today-${d.key}`, tone: 'bad', text: `${d.label} (${d.count}): ${d.detail}.`.replace('..', '.'), href: d.href });
+  const h = pf.headline;
+  const data: MgmtExec = {
+    period: c.period, prev: c.prev, targetMargin: tm, good, decisions: dec,
+    table: [
+      ...pf.warehouses.map((w) => ({ key: w.warehouseId, label: w.label, revenue: w.revenue, profit: w.profit, margin: w.margin, cases: w.cases, profitPerCase: w.profitPerCase })),
+      ...(h.revenue !== null ? [{ key: 'combined', label: 'Combined', revenue: h.revenue, profit: h.profit ?? 0, margin: h.margin, cases: h.cases ?? 0, profitPerCase: h.profitPerCase, combined: true }] : []),
+    ],
+  };
+  return out(data, { definition: `Sentences written by fixed rules from the Management figures for ${c.period.label} (compared with ${c.prev.label}): Overview, Warehouse performance, Sales and clients, Plans and orders, Supplier balances. A sentence shows only when its figure says so.`,
+    currency: 'USD', unit: 'USD', period: c.period, freshness: newest(c.usd.sales.map((x) => x.at)), empty: !good.length && !dec.length && !data.table.length });
+}
+
 function directorToday(c: Ctx): Out {
   const n = names(c.src); const now = c.now; const d0 = new Date(now);
   const dayStart = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate());
@@ -1124,6 +1179,7 @@ const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
   'mgmt-perf': mgmtPerf,
   'mgmt-suppliers': mgmtSuppliers,
   'mgmt-cash': mgmtCash,
+  'mgmt-exec': mgmtExec,
   'warehouse-today': warehouseToday,
   'order-this-week': orderThisWeek,
   'stock-movements': stockMovements,

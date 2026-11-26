@@ -125,6 +125,24 @@ ok(mo.brands.best.length > 0 && mo.brands.best.every((b, i, a) => i === 0 || a[i
   ok(Math.abs(mcash.kpis.warehouseBills - expIn) < 1, 'Management Cash: warehouse bills = the warehouse expenses of the period', [mcash.kpis.warehouseBills, expIn]);
   ok(mcash.byMonth.length === 12 && mcash.byWarehouse.length > 0, 'Management Cash: 12 months and by warehouse');
 }
+// ---- Management · Executive report (V3-10 step 3e): sentences by fixed rules from the same figures ----
+{
+  const per = { from: td.period.from, to: new Date(Date.parse(td.period.to) + 1).toISOString() };
+  const r = await api.dashboards.get(['mgmt-exec', 'mgmt-overview', 'mgmt-perf', 'mgmt-clients', 'mgmt-suppliers'], per);
+  const ex = r.results['mgmt-exec']!.data as import('../src/dashboards').MgmtExec;
+  const o = r.results['mgmt-overview']!.data as import('../src/dashboards').MgmtOverview;
+  const pfd = r.results['mgmt-perf']!.data as import('../src/dashboards').MgmtPerf;
+  const cld = r.results['mgmt-clients']!.data as import('../src/dashboards').MgmtClients;
+  const spd = r.results['mgmt-suppliers']!.data as import('../src/dashboards').MgmtSuppliers;
+  const all = [...ex.good, ...ex.decisions];
+  ok(all.length > 0 && all.every((x) => /\.$/.test(x.text) && !/undefined|NaN|null|—/.test(x.text)), 'Management Exec: every sentence is clean (no undefined / NaN / em dash, ends with a full stop)', all.map((x) => x.text));
+  const has = (k: string) => ex.decisions.some((x) => x.key === k);
+  ok(has('margin-low') === ((o.kpis.margin.value ?? 1) < ex.targetMargin), 'Management Exec: "margin below target" exactly when the margin is below target');
+  ok(has('below-floor') === pfd.floor.some((x) => x.below), 'Management Exec: "below the safe price" exactly when a product is');
+  ok(has('overdue') === ((cld.kpis.overdue ?? 0) > 0) && has('supplier-cash') === (spd.kpis.held > 0), 'Management Exec: overdue and supplier-cash decisions follow their figures');
+  const comb = ex.table.find((x) => x.combined)!;
+  ok(Math.abs(comb.revenue - o.kpis.revenue.value!) < 1 && Math.abs(ex.table.filter((x) => !x.combined).reduce((a, x) => a + x.revenue, 0) - comb.revenue) < 2, 'Management Exec: combined row = Overview; warehouses add up', [comb.revenue, o.kpis.revenue.value]);
+}
 ok(td.cash.value! > 0 && td.cash.overdue! <= td.cash.value! && td.cash.spark?.length === 8, 'Today: cash to collect with the overdue part (never more than the total)', [td.cash.value, td.cash.overdue]);
 ok(td.owed.bands.length === 3 && td.owed.total === td.cash.value && td.owed.overdue === td.cash.overdue && td.owed.top.length > 0 && td.owed.bands.every((b) => b.value >= 0), 'Today: who-owes-us ageing bands and top customers', td.owed);
 ok(td.trucks.value !== null && td.trucks.delayed <= td.trucks.value && td.trucks.spark?.length === 14 && td.trucks.spark.at(-1) === td.trucks.value, 'Today: trucks on the road, delayed, 14-day trend ending at now', td.trucks);
