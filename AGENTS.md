@@ -36,6 +36,7 @@ cd ../btw-gd-<ID> && pnpm install
 - Screens import only `@btw/api` and `@btw/ui`. Colours, sizes and radii come from tokens (`docs/design-system/tokens.json` → `pnpm tokens`), never hard-coded hex.
 - Icons: `@lucide/svelte/icons/<name>`, 18 px in nav and buttons, 16 px inline.
 - Product text: plain, short, sentence case. **No em dashes (—)**. Empty cells show `-`. No spec codes in UI text (`pnpm check:text`).
+- Status cards: do not put a coloured bar on the left. The card corner makes that bar look curved. Show the state with the icon in that colour, or with a light wash of the colour on the card (about 10% of danger, warning, success, or info on the surface). A danger note is a pale red with a red icon.
 - Dashboards: follow `.cursor/rules/dashboards-home.mdc`.
 - Business rules live in `packages/api/src/rules.ts`, with a test.
 - Size budgets: web entry 130 KB, phone entry 90 KB (`pnpm size`).

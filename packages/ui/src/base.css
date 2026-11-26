@@ -49,7 +49,15 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: var(--space-4) 
 .card.flush { padding: 0; overflow: hidden; }
 .card > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); }
 .card.flush > header { padding: var(--space-4) var(--space-5); margin: 0; border-bottom: 1px solid var(--border); }
-.card.flag-danger { border-left: 3px solid var(--danger); } .card.flag-warning { border-left: 3px solid var(--warning-solid); } .card.flag-success { border-left: 3px solid var(--success); } .card.flag-info { border-left: 3px solid var(--info); }
+/* Status cards: a light wash of the state colour, and the icon in that colour. No left bar (it follows the corner). */
+.card.flag-danger { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); }
+.card.flag-warning { background: color-mix(in srgb, var(--warning-solid) 14%, var(--surface)); }
+.card.flag-success { background: color-mix(in srgb, var(--success) 10%, var(--surface)); }
+.card.flag-info { background: color-mix(in srgb, var(--info) 10%, var(--surface)); }
+.card.flag-danger svg { color: var(--danger); }
+.card.flag-warning svg { color: var(--warning); }
+.card.flag-success svg { color: var(--success); }
+.card.flag-info svg { color: var(--info); }
 .kpi .value { font-family: var(--ff-display); font-size: 28px; line-height: 36px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .kpi .delta { font-size: var(--fs-caption); color: var(--text-muted); }
 
