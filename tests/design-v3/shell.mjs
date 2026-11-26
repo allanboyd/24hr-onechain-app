@@ -67,8 +67,10 @@ ok(!/BTW · NUD · Kivu/.test(brand), 'brand: no subtitle line');
 const markH = await p.locator('aside .brand .marks > *').first().evaluate((e) => e.getBoundingClientRect().height).catch(() => 0);
 ok(markH > 0 && markH <= 24, `brand: company marks 24 px (${markH})`);
 await p.setViewportSize({ width: 390, height: 844 }); await p.goto(`${base}#/`); await p.waitForTimeout(1500);
-await p.getByRole('button', { name: 'Open the menu' }).click(); await p.waitForTimeout(500);
-ok(await seg(p).isVisible(), 'phone width: switch inside the menu drawer');
+// V3-6: on a phone the menu (and the Operations | Management switch) is in More, opened from the bottom bar
+await p.getByRole('button', { name: 'More', exact: true }).click(); await p.waitForTimeout(500);
+ok(await p.getByRole('dialog', { name: 'More' }).getByRole('group', { name: 'Operations or management' }).isVisible(), 'phone width: the switch is inside More');
+await p.keyboard.press('Escape'); await p.waitForTimeout(300);
 await p.screenshot({ path: `${out}/shell-phone.png` });
 
 // ---- warehouse user: no switch, removed pages still closed
