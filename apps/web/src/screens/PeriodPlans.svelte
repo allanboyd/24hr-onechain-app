@@ -36,7 +36,7 @@
   const endingN = $derived(list ? list.filter((p) => p.status === 'Active' && p.to >= today && p.to <= soon).length : null);
   const usedState = $derived(fig.used === null || fig.expected === null || !pv ? undefined : fig.used < fig.expected * pv.thresholds.behind ? 'warn' : fig.used > pv.thresholds.over ? 'bad' : 'good');
   const tiles = $derived<SummaryTile[]>([
-    { key: 'inforce', label: 'In force today', value: list ? fig.inForce : null, status: fig.inForce ? 'good' : 'none', statusLabel: fig.inForce ? 'Running' : 'None now', icon: ArrowUp, info: infoOf('plansInForce') },
+    { key: 'inforce', label: 'Active plan', value: list ? fig.inForce : null, status: fig.inForce ? 'good' : 'none', statusLabel: fig.inForce ? 'Running' : 'None now', icon: ArrowUp, info: infoOf('plansInForce') },
     { key: 'upcoming', label: 'Upcoming', value: list ? fig.upcoming : null, status: fig.upcoming ? 'good' : 'none', statusLabel: 'Starts later', icon: ArrowRight, info: infoOf('plansUpcoming') },
     { key: 'ending', label: 'Ending soon', value: endingN, status: endingN ? 'warn' : 'good', statusLabel: 'Within 30 days', icon: ArrowDown },
     { key: 'used', label: 'Plan used this quarter', value: fig.used, format: pctS, filter: false, status: usedState, icon: usedState === 'warn' ? ArrowDown : ArrowUp,
