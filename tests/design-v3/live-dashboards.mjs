@@ -4,7 +4,7 @@ const [base, out = '.'] = process.argv.slice(2);
 let fails = 0; const ok = (c, m) => { console.log(`${c ? 'ok  ' : 'FAIL'} ${m}`); if (!c) fails++; };
 const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
 const errs = []; p.on('pageerror', (e) => errs.push(e.message));
-await p.goto(base); await p.waitForTimeout(1200);
+await p.goto(base, { waitUntil: 'domcontentloaded' });
 await p.getByRole('button', { name: 'Sign in to the web as Daniel' }).first().click(); await p.locator('aside nav a').first().waitFor();
 await p.goto(`${base}#/dashboards/fleet`); await p.locator('.fit .cell').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(2500);
 const box = await p.locator('.fit').boundingBox();
@@ -44,8 +44,24 @@ const chrome = await p.evaluate(() => {
 console.log('     chrome:', JSON.stringify(chrome));
 ok(chrome.narrow.length === 3 && chrome.narrow.every((c) => c.oneLine && c.ellipsis && !c.hit && c.wrapped), 'narrow Fleet cards: title on one line, clear of its icons, tools on the next row');
 ok(chrome.tickCount >= 2 && chrome.tickHits === 0, `border heatmap column labels do not overlap (${chrome.tickHits} overlaps across ${chrome.tickCount} labels)`);
+ok(await p.getByRole('group', { name: 'Warehouse' }).getByRole('button', { name: 'Combined' }).getAttribute('aria-pressed') === 'true', 'Fleet uses the report filter bar (warehouse chips)');
+ok(await p.getByRole('group', { name: 'Period' }).getByRole('button', { name: '30 days' }).getAttribute('aria-pressed') === 'true', 'period chips match the report, 30 days selected');
 await p.screenshot({ path: `${out}/fleet-fit.png` });
-await p.setViewportSize({ width: 390, height: 844 }); await p.waitForTimeout(800);
+const tabs = ['business', 'purchasing', 'loading', 'fees', 'deliveries', 'warehouse', 'sales', 'admin'];
+for (const tab of tabs) {
+  await p.goto(`${base}#/dashboards/${tab}`);
+  await p.locator('.dash-panel').first().waitFor({ timeout: 20_000 });
+  await p.waitForTimeout(800);
+  const bar = await p.locator('.fbar').count();
+  const panels = await p.locator('.dash-panel').count();
+  const method = await p.locator('.dash-method').count();
+  ok(bar === 1 && panels > 0 && method > 0, `${tab}: report filter bar, ${panels} cards, method text on ${method}`);
+  await p.screenshot({ path: `${out}/tab-${tab}.png` });
+}
+await p.setViewportSize({ width: 390, height: 844 });
+await p.goto(`${base}#/dashboards/fleet`);
+await p.locator('.fit .cell').first().waitFor({ timeout: 20_000 });
+await p.waitForTimeout(500);
 ok(await p.locator('.fit .cell').count() === 5, 'phone: sections stacked');
 ok(!errs.length, `no page errors ${errs.join(' | ')}`);
 await b.close(); console.log(fails ? `${fails} check(s) failed` : 'all live-dashboard checks passed'); process.exit(fails ? 1 : 0);

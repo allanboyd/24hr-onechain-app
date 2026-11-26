@@ -2,8 +2,10 @@
   // Directors · business (docs/15): executive overview ★1, combined performance (link), profit and margin ★2, landed cost per
   // product and per truck, selling price & target margin (link + gauge), fast / slow products ★3.
   import type { DashKey, DashResult } from '@btw/api';
-  import { DashboardPanel, KpiScorecard, ExceptionList, Waterfall, StackedBarH, QuadrantScatter, type Kpi } from '../../../components/dashboard';
+  import { DashboardPanel, ExceptionList, Waterfall, StackedBarH, QuadrantScatter, type Kpi } from '../../../components/dashboard';
+  import '../../../components/dashboard/report.css';
   import { BarChart, Donut, Gauge, Meter } from '../../../components/charts';
+  import SparkArea from '../../../components/charts/SparkArea.svelte';
   import type { Ink } from '../../../components/charts/theme.svelte';
   import ColumnsLine from '../../../components/charts/ColumnsLine.svelte';
   import { compact } from '../../../components/charts/scale';
@@ -65,7 +67,19 @@
   <DashboardPanel span="full" subtitle="tap a figure to open its list" decision="Unblock delayed trucks and high-priority alerts first; then prices and stock that miss target." {...fr} title={r.title} rows={() => [...kpiRows(), ...bulletRows().slice(1), ...excRows().slice(1)]} filename="executive-overview" owner="Directors">
     <div class="exec">
       <div class="exec-main">
-        <KpiScorecard items={kpis} label="Executive overview" />
+        <div class="dash-kpis" role="list" aria-label="Executive overview">
+          {#each kpis as k (k.label)}
+            {@const c = k.change}
+            {@const dir = c?.value == null ? 0 : Math.sign(c.value)}
+            {@const good = dir === 0 ? null : (dir > 0) === (c?.upIsGood ?? true)}
+            <svelte:element this={k.href ? 'a' : 'div'} role="listitem" class="card kpi" href={k.href || undefined}>
+              <span class="lbl">{k.label}</span>
+              {#if k.value == null}<b class="val none">No data yet</b>{:else}<b class="val">{(k.format ?? ((n: number) => String(n)))(k.value)}</b>{/if}
+              <span class="sub">{#if c && c.value != null}<span class="dash-chip" class:good={good === true} class:bad={good === false}>{dir > 0 ? '▲' : dir < 0 ? '▼' : '0'} {c.kind === 'pp' ? `${Math.abs(c.value).toFixed(1)} pp` : c.kind === 'abs' ? (k.format ?? ((n: number) => String(n)))(Math.abs(c.value)) : `${(Math.abs(c.value) * 100).toFixed(1)}%`}</span>{/if} {c?.label ?? ''}</span>
+              {#if k.trend}<div class="spark"><SparkArea values={k.trend} height={30} /></div>{/if}
+            </svelte:element>
+          {/each}
+        </div>
         {#if d.bullets?.length}
           <div class="bullets">
             {#each d.bullets as b}
@@ -168,7 +182,7 @@
   .plain { margin: var(--space-2) 0 0; padding-left: 18px; }
   .exec { display: flex; flex-wrap: wrap; gap: var(--space-5); align-items: start; }
   .exec-main { flex: 1.6 1 420px; min-width: 0; display: flex; flex-direction: column; }
-  @media (min-width: 720px) { .exec-main :global(.kpis) { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  @media (min-width: 720px) { .exec-main :global(.dash-kpis) { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
   .exec-side { flex: 1 1 300px; min-width: 0; max-height: 560px; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-4); background: var(--surface-sunken); }
   .exec-side :global(.exc) { overflow: auto; min-height: 0; }
   .side-head h4 { margin: 0 0 4px; font-size: 15px; }

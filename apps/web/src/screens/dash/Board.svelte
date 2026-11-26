@@ -35,22 +35,12 @@ const groupLabel = (g: string) => (room && ROOM[g]) || DASH_GROUPS.find((x) => x
     const r = await dashboards.get(serverKeys, filter);
     res = r; onload?.(r);
   }, () => JSON.stringify([serverKeys, filter]));
-  // Row filling (2 columns): panels per key and full-width ones; a single panel that would sit alone takes the whole row.
-  // Keys whose panel emits two grid cells (a fragment of two cards). One card with an inner pair is still one cell.
-  const TWO = ['profit-margin', 'sales-summary'];
-  const FULL = ['exec-overview', 'fleet-board', 'alerts', 'fast-slow', 'border-stops', 'warehouse-today', 'order-this-week', 'stock-movements', 'data-completeness', 'po-pipeline'];
+  // Wide charts and opening summaries keep the whole row. Paired charts stay one column each, so a short card is not stretched.
+  const FULL = ['exec-overview', 'fleet-board', 'alerts', 'fast-slow', 'border-stops', 'warehouse-today', 'order-this-week', 'stock-movements', 'data-completeness'];
   const spans = $derived.by(() => {
     const out: Record<string, 'full' | undefined> = {};
     if (cols !== 2) return out;
-    const shown = keys.filter((k) => dashDef(k)?.client || res?.results[k]);
-    let pos = 0;
-    shown.forEach((k, i) => {
-      if (FULL.includes(k)) { pos = 0; return; }
-      const n = TWO.includes(k) ? 2 : 1;
-      const next = shown[i + 1];
-      if (n === 1 && pos === 0 && (!next || FULL.includes(next))) { out[k] = 'full'; return; }
-      pos = (pos + n) % 2;
-    });
+    for (const k of keys) if (FULL.includes(k)) out[k] = 'full';
     return out;
   });
   // V3-11 LD-1: the Fleet tab fits the screen. Board + delayed on top, issues · updates · borders below; each panel scrolls
@@ -61,7 +51,7 @@ const groupLabel = (g: string) => (room && ROOM[g]) || DASH_GROUPS.find((x) => x
   let fitH = $state(0);
   $effect(() => {
     if (!fit || !fitEl) return;
-    const size = () => { const top = fitEl!.getBoundingClientRect().top + scrollY; fitH = Math.max(560, innerHeight - top - 16); };
+    const size = () => { const room = innerHeight - fitEl!.getBoundingClientRect().top - 16; fitH = Math.max(240, room); };
     size(); addEventListener('resize', size);
     return () => removeEventListener('resize', size);
   });

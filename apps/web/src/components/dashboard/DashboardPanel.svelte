@@ -12,6 +12,7 @@
   import ChartIcon from '@lucide/svelte/icons/chart-column';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import CircleDashed from '@lucide/svelte/icons/circle-dashed';
+  import './report.css';
 
   let {
     title, subtitle = '', decision = '', definition = '', owner = '', unit = '', period = '', updatedAt, freshness = 'updated', staleAfter = 60,
@@ -46,6 +47,12 @@
   const isEmpty = $derived(ready && (empty ?? (rows ? data.length <= 1 : false)));
   const isNum = (v: unknown) => typeof v === 'number';
   const name = $derived(filename ?? title.toLowerCase().replace(/\W+/g, '-').replace(/^-|-$/g, ''));
+  const itemCount = $derived.by(() => {
+    if (!ready || isEmpty || data.length < 2) return 0;
+    const head = String(data[0]?.[0] ?? '');
+    if (head === 'Measure' || head === 'Kind') return 0;
+    return data.length - 1;
+  });
   const meta = () => ({ title, subtitle, definition, unit, period, filters: filterText, owner, freshness: updatedAt === undefined ? '' : freshnessText(updatedAt, freshness, now) });
 </script>
 
@@ -55,6 +62,7 @@
       <h3 id="{uid}-t" title={title}>{title}</h3>
       {#if infoLines.length}<InfoTip lines={infoLines} label="About {title}" mark={stale} size={15} />{/if}
       {#if decision}<InfoTip kind="alert" text={decision} label="Recommendation" size={15} />{/if}
+      {#if itemCount}<span class="dash-chip">{itemCount} {itemCount === 1 ? 'item' : 'items'}</span>{/if}
     </div>
     <div class="tools">
       {@render actions?.()}
@@ -84,6 +92,7 @@
     {:else}
       {@render children()}
     {/if}
+    {#if ready && !isEmpty && definition}<p class="dash-method">{definition}</p>{/if}
   </div>
 
   {#if drill && ready && !isEmpty}

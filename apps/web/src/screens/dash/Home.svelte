@@ -11,8 +11,6 @@
   import { dashDef } from '@btw/api/dashboards';
   import Board from './Board.svelte';
   import Filters from './Filters.svelte';
-  import FilterPanel from './FilterPanel.svelte';
-  import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
   import { DEFAULT_PERIOD, datesOf } from './period';
   import { HOME_TAB, reportKeys } from './room';
   let { user, params }: { user: User; params?: { group?: string } } = $props();
@@ -49,10 +47,6 @@
   const hrefOf = (k: string) => (k === 'mine' ? '#/' : `#/dashboards/${k}`);
   let filter = $state<DashFilter>(datesOf(DEFAULT_PERIOD));
   let options = $state<DashResponse['options'] | null>(null);
-  let filterOpen = $state(false);
-  let filtersRef = $state<{ reset: () => void }>();
-  let filterActive = $state(false);
-  let filterChip = $state('');
   const showFilterBar = $derived.by(() => {
     if (active === 'companies') return false;
     if (active === 'mine' && home.includes('director-today')) return false;
@@ -65,15 +59,9 @@
   <div><div class="overline crumb">{roleText(user.roles)}{groupView ? ' · Group view' : ''}</div>
     <h1>Good {hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening'}, {user.name.split(' ')[0]}</h1>
     {#if active !== 'mine'}<p class="caption">{tabs.find((t) => t.key === active)?.blurb ?? ''}</p>{/if}</div>
-  <div class="head-actions">
+    <div class="head-actions">
     <!-- V3-11a: My dashboards puts its filter toolbar here, at the right of the greeting (lib/portal.ts) -->
     <div id="home-head-tools" class="head-tools"></div>
-    {#if showFilterBar}
-      <button type="button" class="btn btn-secondary btn-sm icon-only" aria-expanded={filterOpen} aria-label="Filters" onclick={() => (filterOpen = true)}>
-        <SlidersHorizontal size={16} aria-hidden="true" />
-      </button>
-      {#if filterActive && filterChip}<span class="fchip">{filterChip}</span>{/if}
-    {/if}
     {#if user.roles.includes('planner') && can(user, 'purchase-orders')}
       {#await import('../../components/page/ActionInCompany.svelte') then A}<A.default label="New purchase order" what="purchase order" href="#/pos/new" />{/await}
     {/if}
@@ -92,21 +80,14 @@
   <div class="card empty"><h2>No dashboards for your role yet</h2><p class="small">Use the menu to open your work.</p></div>
 {:else}
   {#key active}
+    {#if showFilterBar}<Filters bind:filter {options} money={director} />{/if}
     {#if panelKeys.length}<Board keys={panelKeys} {filter} onload={(r) => (options = r.options)} />{/if}
     {#if analysisKeys.length}{#await import('./Analysis.svelte') then An}<An.default keys={analysisKeys} {filter} {user} />{/await}{/if}
   {/key}
 {/if}
 
-{#if showFilterBar}
-  <FilterPanel bind:open={filterOpen} onClear={() => filtersRef?.reset()}>
-    <Filters bind:this={filtersRef} bind:filter bind:active={filterActive} bind:chip={filterChip} {options} money={director} embedded />
-  </FilterPanel>
-{/if}
-
 <style>
   .head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
   .head-tools { display: contents; }
-  .fchip { font-size: 12px; font-weight: 600; color: var(--text-muted); padding: 2px 10px; border-radius: var(--radius-full); border: 1px solid var(--border); background: var(--surface-sunken); }
-  .icon-only { gap: 0; padding-inline: var(--space-2); }
 </style>
 
