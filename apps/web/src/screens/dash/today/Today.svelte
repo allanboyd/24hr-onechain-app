@@ -125,7 +125,8 @@
 {#if !d && w.loading}
   <div class="facts sk">{#each Array(8) as _, i (i)}<div class="card skel"></div>{/each}</div>
 {:else if d}
-  <div class="dash-kpis facts" class:busy={w.loading}>
+  <div class="band" class:busy={w.loading}>
+  <div class="dash-kpis facts">
     <a class="card kpi" href="#/pos">
       <span class="lbl">Purchase orders</span>
       <b class="val">{stages.length ? count(poCount) : '-'}</b>
@@ -146,9 +147,29 @@
       <b class="val">{d.trucks.value == null ? '-' : count(d.trucks.value)}</b>
       <span class="sub">{d.trucks.delayed ? `${d.trucks.delayed} delayed` : 'None delayed'} · {d.trucks.arrivingToday} today</span>
     </a>
+    <a class="card kpi" href="#/shipments?show=delivered">
+      <span class="lbl">Collected trips</span>
+      <b class="val">{wh?.losses ? count(wh.losses.deliveries) : '-'}</b>
+      <span class="sub">Signed for in the last 30 days</span>
+    </a>
+    <a class="card kpi" href="#/dashboards/warehouse">
+      <span class="lbl">Warehouse stock</span>
+      <b class="val">{d.stock ? count(d.stock.cases) : '-'}</b>
+      <span class="sub">{d.stock?.value == null ? 'Cases on hand' : `${moneyVal(d.stock.value)} on hand`}</span>
+    </a>
+    <a class="card kpi" href="#/pos">
+      <span class="lbl">Suppliers</span>
+      <b class="val">{stages.length ? count(suppliers) : '-'}</b>
+      <span class="sub">On open purchase orders</span>
+    </a>
+    <a class="card kpi" href="#/sales">
+      <span class="lbl">Customers</span>
+      <b class="val">{buyers ? count(buyers.clients) : '-'}</b>
+      <span class="sub">With a sale in this period</span>
+    </a>
   </div>
 
-  <div class="graphs" class:busy={w.loading}>
+  <div class="graphs">
     <div>
       <TodayCard title="Sales and profit" caption="{currency.code} · total {compact(chartTotal.sales)} sales, {compact(chartTotal.profit)} profit" updatedAt={res?.freshness ?? null} rows={chartRows} filename="sales-and-profit" empty={!chart.sales.some((v) => v != null)} viewToggle>
         {#snippet actions()}
@@ -196,28 +217,6 @@
       </TodayCard>
     </div>
   </div>
-
-  <div class="dash-kpis facts" class:busy={w.loading}>
-    <a class="card kpi" href="#/shipments?show=delivered">
-      <span class="lbl">Collected trips</span>
-      <b class="val">{wh?.losses ? count(wh.losses.deliveries) : '-'}</b>
-      <span class="sub">Signed for in the last 30 days</span>
-    </a>
-    <a class="card kpi" href="#/dashboards/warehouse">
-      <span class="lbl">Warehouse stock</span>
-      <b class="val">{d.stock ? count(d.stock.cases) : '-'}</b>
-      <span class="sub">{d.stock?.value == null ? 'Cases on hand' : `${moneyVal(d.stock.value)} on hand`}</span>
-    </a>
-    <a class="card kpi" href="#/pos">
-      <span class="lbl">Suppliers</span>
-      <b class="val">{stages.length ? count(suppliers) : '-'}</b>
-      <span class="sub">On open purchase orders</span>
-    </a>
-    <a class="card kpi" href="#/sales">
-      <span class="lbl">Customers</span>
-      <b class="val">{buyers ? count(buyers.clients) : '-'}</b>
-      <span class="sub">With a sale in this period</span>
-    </a>
   </div>
 
   <div class="dec-wrap" class:busy={w.loading}>
@@ -250,11 +249,12 @@
   :global(:root[data-theme='dark']) { --t-sales: #9bb6d6; --t-profit: #3dbe8a; }
 
   .busy { opacity: 0.6; transition: opacity 0.2s; }
-  .facts { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: var(--space-4); }
-  .sk { display: grid; gap: 14px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .band { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.2fr); gap: var(--space-4); align-items: start; margin-bottom: var(--space-4); }
+  .facts { grid-template-columns: repeat(4, minmax(0, 1fr)); align-content: start; }
+  .sk { display: grid; gap: 14px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: var(--space-4); }
   .skel { height: 118px; }
 
-  .graphs { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); align-items: stretch; margin-bottom: var(--space-4); }
+  .graphs { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); align-items: stretch; }
   .graphs > div { display: flex; min-width: 0; }
   .graphs > div > :global(.tc) { flex: 1; width: 100%; }
   .dec-wrap { margin-bottom: var(--space-4); }
@@ -286,6 +286,9 @@
   .ct b { font-size: 16px; font-variant-numeric: tabular-nums; color: var(--text-on-primary); }
   .dec :global(.chev) { color: var(--text-on-primary); }
 
+  @media (max-width: 1280px) {
+    .band { grid-template-columns: 1fr; }
+  }
   @media (max-width: 1100px) {
     .facts, .sk, .dec { grid-template-columns: 1fr 1fr; }
     .graphs { grid-template-columns: 1fr; }
