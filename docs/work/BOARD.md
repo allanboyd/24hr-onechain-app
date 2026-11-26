@@ -61,7 +61,7 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 <!-- BUG-<n> · where · steps · screenshot · found by <agent> (gets its own row once triaged) -->
 - **BUG-1** · `packages/api/test/plans.test.ts` lines 110, 141, 142 fail on unchanged `design-v3` (and `main`): over-plan mark / Kivu plan link / over-plan PO issued. Likely date-driven (the demo plan period vs today, 26 Nov). Run: `npx tsx packages/api/test/plans.test.ts`. Found by claude (V3-0).
 - **BUG-3** · ✅ fixed in V3-8 batch 1: Stock's table listed every line whatever the filters (the strip said "6 of 20"). Found by claude.
-| BUG-4 | claude | Sales (and any page using `ActionInCompany`) in the Group view: **New sale** → pick a company switches the company but the form does not open (the `do=` intent is lost; URL ends `?co=BTW`). Steps: Group view → Sales → New sale → BTW. Seen on design-v3 before V3-12 too. `tests/design-v3/clients.mjs` works around it. | open |
+- **BUG-4** · open: Group view → Sales → **New sale** → pick BTW switches the company but the form doesn't open (the `do=` intent is lost; the address ends `?co=BTW`). Same on design-v3 before V3-12; likely in `components/page/ActionInCompany.svelte`. `tests/design-v3/clients.mjs` opens the form again as a workaround. Found by claude.
 - **BUG-2** · `packages/api/test/metrics.test.ts`: "Group (Daniel) · needs attention: Inventory page 8 = stock report 9" fails on unchanged `design-v3`. The two pages count stock needing attention differently (probably also date-driven). Found by claude (V3-0).
 
 ## Requests
