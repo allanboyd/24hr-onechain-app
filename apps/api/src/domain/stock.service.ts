@@ -1,13 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
-import { db, schema as t } from '../db/client';
-import { amount, computeStock, computeVelocity, DAY, flagsFrom, hasFeature, saleStatus, toUsd, type StockMove, type Thresholds } from '@btw/api/rules';
+import { db, schema as t, type Tx } from '../db/client';
+type Q = typeof db | Tx;
+import { amount, canSetCreditDays, cleanClientName, clientKey, validTermsDays, computeStock, computeVelocity, DAY, flagsFrom, hasFeature, saleStatus, toUsd, type StockMove, type Thresholds } from '@btw/api/rules';
 import { fxRates } from './companies';
 import { canSell, seesPrices, seesShipment } from '@btw/api/access';
 import { landedCostMap } from '@btw/api/landed';
-import { casesInTransit, casesOnHand, fleetFigures, owedByCustomers, stockValue } from '@btw/api/metrics';
-import type { Sale } from '@btw/api/types';
-import { fail, forbidden } from '../common/errors';
+import { casesInTransit, casesOnHand, clientFigures, fleetFigures, owedByCustomers, stockValue } from '@btw/api/metrics';
+import type { Client, ClientInput, ClientRow, Sale } from '@btw/api/types';
+import { auditNote } from '../common/audit-context';
+import { fail, forbidden, notFound } from '../common/errors';
 import { iso, uid } from '../common/ids';
 import { canSeeEntity, canSeeWarehouse, has, isGlobal, writeEntity, type Principal } from '../auth/principal';
 import { RefService } from './ref.service';
@@ -48,6 +50,77 @@ export class StockService {
     const rows = await db.select().from(t.sales).where(and(inArray(t.sales.entityId, p.scope), warehouseId ? eq(t.sales.warehouseId, warehouseId) : undefined)).orderBy(desc(t.sales.at)).limit(200);
     return rows.map(map.sale).filter((s) => canSeeWarehouse(p, s.warehouseId));
   }
+  // ---- Clients (V3-12 step 1) ------------------------------------------------------------------------------------
+  private clientOut(r: typeof t.clients.$inferSelect): Client {
+    return { id: r.id, entityId: r.entityId, name: r.name, phone: r.phone ?? undefined, warehouseId: r.warehouseId ?? undefined, termsDays: r.termsDays, active: r.active, createdAt: new Date(r.createdAt).toISOString() };
+  }
+  /** Clients with their figures over all their sales (USD at the approved month rate, the same rule as Sales and Today). */
+  async clients(p: Principal): Promise<ClientRow[]> {
+    if (!hasFeature(p.roles, 'sales') && !hasFeature(p.roles, 'reports')) return [];
+    const [rows, sold, rates] = await Promise.all([
+      db.select().from(t.clients).where(inArray(t.clients.entityId, p.scope)).orderBy(t.clients.name),
+      db.select({ clientId: t.sales.clientId, at: t.sales.at, lines: t.sales.lines, paid: t.sales.paid, status: t.sales.status, currency: t.sales.currency, termsDays: t.sales.termsDays }).from(t.sales).where(inArray(t.sales.entityId, p.scope)),
+      fxRates(),
+    ]);
+    const usd = sold.map((s) => { const at = new Date(s.at).toISOString(); const cv = (v: number) => toUsd(v, s.currency, rates, at); return { clientId: s.clientId ?? undefined, at, termsDays: s.termsDays, paid: cv(s.paid), status: s.status as Sale['status'], lines: s.lines.map((l) => ({ ...l, price: cv(l.price) })) }; });
+    const fig = clientFigures(usd, Date.now());
+    return rows.map((r) => ({ ...this.clientOut(r), sales: 0, lastSaleAt: null, owed: 0, overdue: 0, ...fig.get(r.id) }));
+  }
+  private async checkClient(q: Q, input: Partial<ClientInput>, entityId: string, selfId?: string) {
+    if (input.name !== undefined) {
+      const name = cleanClientName(String(input.name ?? ''));
+      if (name.length < 1) fail('Enter the client name', 422);
+      const [dup] = await q.select({ id: t.clients.id }).from(t.clients).where(and(eq(t.clients.entityId, entityId), eq(t.clients.nameKey, clientKey(name))));
+      if (dup && dup.id !== selfId) fail(`${name} is already a client`, 409, 'conflict');
+    }
+    if (input.termsDays !== undefined && !validTermsDays(input.termsDays)) fail('Credit days must be a whole number from 0 to 180', 422);
+    if (input.warehouseId && !(await this.ref.get()).bundle.warehouses.some((w) => w.id === input.warehouseId)) fail('Unknown warehouse', 422);
+  }
+  async createClient(p: Principal, input: ClientInput) {
+    if (!hasFeature(p.roles, 'sales')) forbidden('Clients are added by the people who sell');
+    const entityId = writeEntity(p, typeof input?.entityId === 'string' ? input.entityId : undefined);
+    if (input.termsDays !== undefined && input.termsDays !== 14 && !canSetCreditDays(p.roles)) forbidden('Credit days are set by the directors or accounts');
+    await this.checkClient(db, input, entityId);
+    const name = cleanClientName(input.name);
+    const [row] = await db.insert(t.clients).values({ id: uid('cl'), entityId, name, nameKey: clientKey(name), phone: input.phone?.trim() || null, warehouseId: input.warehouseId || null, termsDays: input.termsDays ?? 14, byUserId: p.id }).returning();
+    auditNote({ recordType: 'client', recordId: row.id, entityId, summary: `${name} · ${row.termsDays} credit days`, after: this.clientOut(row) });
+    return this.clientOut(row);
+  }
+  async updateClient(p: Principal, id: string, input: Partial<ClientInput>) {
+    if (!hasFeature(p.roles, 'sales')) forbidden('Clients are changed by the people who sell');
+    const [cur] = await db.select().from(t.clients).where(eq(t.clients.id, id));
+    if (!cur || !p.scope.includes(cur.entityId)) notFound('Client');
+    if (input.termsDays !== undefined && input.termsDays !== cur!.termsDays && !canSetCreditDays(p.roles)) forbidden('Credit days are set by the directors or accounts');
+    await this.checkClient(db, input, cur!.entityId, id);
+    const set: Partial<typeof t.clients.$inferInsert> = {};
+    if (input.name !== undefined) { set.name = cleanClientName(input.name); set.nameKey = clientKey(input.name); }
+    if (input.phone !== undefined) set.phone = input.phone?.trim() || null;
+    if (input.warehouseId !== undefined) set.warehouseId = input.warehouseId || null;
+    if (input.termsDays !== undefined) set.termsDays = input.termsDays;
+    if (input.active !== undefined) set.active = !!input.active;
+    const [row] = Object.keys(set).length ? await db.update(t.clients).set(set).where(eq(t.clients.id, id)).returning() : [cur!];
+    // a new name is kept on the sales too, so lists and reports show one client
+    if (set.name) await db.update(t.sales).set({ customer: set.name }).where(eq(t.sales.clientId, id));
+    auditNote({ recordType: 'client', recordId: id, entityId: cur!.entityId, summary: row.name, before: this.clientOut(cur!), after: this.clientOut(row) });
+    return this.clientOut(row);
+  }
+  /** A sale's client: the one picked, else the same name in the company, else a new client with the default days. */
+  private async clientForSale(q: Q, p: Principal, entityId: string, input: { clientId?: string; customer?: string; warehouseId: string }) {
+    if (input.clientId) {
+      const [c] = await q.select().from(t.clients).where(and(eq(t.clients.id, input.clientId), eq(t.clients.entityId, entityId)));
+      if (!c) fail('Pick a client of this company', 422);
+      if (!c!.active) fail(`${c!.name} is deactivated`, 422);
+      return c!;
+    }
+    const name = cleanClientName(String(input.customer ?? ''));
+    if (name.length < 1) fail('Enter the client', 422);
+    const [same] = await q.select().from(t.clients).where(and(eq(t.clients.entityId, entityId), eq(t.clients.nameKey, clientKey(name))));
+    if (same) { if (!same.active) fail(`${same.name} is deactivated`, 422); return same; }
+    const [row] = await q.insert(t.clients).values({ id: uid('cl'), entityId, name, nameKey: clientKey(name), warehouseId: input.warehouseId, byUserId: p.id }).returning();
+    auditNote({ recordType: 'client', recordId: row.id, entityId, summary: `${name} · added with a sale`, after: this.clientOut(row) });
+    return row;
+  }
+
   /** SL-01..03: stock reduces at once; above-stock sales are blocked unless a director overrides (SL-02). */
   async createSale(p: Principal, input: Omit<Sale, 'id' | 'ref' | 'status' | 'entityId'> & { entityId?: string }, override = false) {
     // Sales staff/receivers record sales; a director may also record one (that is how an above-stock override happens, SL-02).
@@ -74,7 +147,8 @@ export class StockService {
         if (l.qty > avail && !override) fail(`Only ${avail} cases of ${bundle.products.find((x) => x.id === l.productId)?.brand} in stock`);
       }
       const n = (await tx.select({ c: sql<number>`count(*)::int` }).from(t.sales))[0].c;
-      const sale: Sale = { ...input, entityId, counterpartyEntityId: cp || undefined, at: input.at ?? iso(), id: uid('sale'), ref: `SAL-${String(n + 1).padStart(5, '0')}`, salespersonId: p.id, status: saleStatus(input.lines, input.paid ?? 0), paid: input.paid ?? 0, currency: input.currency ?? 'USD' };
+      const cl = await this.clientForSale(tx, p, entityId, input);
+      const sale: Sale = { ...input, customer: cl.name, clientId: cl.id, termsDays: cl.termsDays, entityId, counterpartyEntityId: cp || undefined, at: input.at ?? iso(), id: uid('sale'), ref: `SAL-${String(n + 1).padStart(5, '0')}`, salespersonId: p.id, status: saleStatus(input.lines, input.paid ?? 0), paid: input.paid ?? 0, currency: input.currency ?? 'USD' };
       await tx.insert(t.sales).values({ ...sale, counterpartyEntityId: sale.counterpartyEntityId ?? null });
       for (const l of sale.lines) await tx.insert(t.stockMoves).values({ entityId, warehouseId: sale.warehouseId, productId: l.productId, kind: 'sold', qty: l.qty, at: sale.at, ref: sale.ref });
       // intercompany: the buying sibling receives the goods in the same warehouse (eliminated in group totals)

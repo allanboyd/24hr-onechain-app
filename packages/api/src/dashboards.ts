@@ -620,6 +620,8 @@ export interface MgmtClients {
   clients: { customer: string; purchases: number; total: number; paid: number; balance: number }[];
   pay: { kind: string; total: number; purchases: number }[];
   balances: { within: number; overdue: number; top: { customer: string; within: number; overdue: number }[] };
+  /** V3-12: credit days in use on open sales (set per client on Sales → Clients), with what is owed under each. */
+  termsMix: { days: number; clients: number; owed: number; overdue: number }[];
   records: { id: ID; ref: string; at: string; customer: string; warehouseId: ID; warehouse: string; kind: string; amount: number; paid: number; balance: number; status: string }[];
 }
 function mgmtClients(c: Ctx): Out {
@@ -630,13 +632,16 @@ function mgmtClients(c: Ctx): Out {
   for (const s of inP) { const v = val(s); const x = by.get(s.customer) ?? { customer: s.customer, purchases: 0, total: 0, paid: 0, balance: 0 }; x.purchases++; x.total += v; x.paid += Math.min(s.paid, v); x.balance += Math.max(0, v - s.paid); by.set(s.customer, x); }
   const kinds = new Map<string, { kind: string; total: number; purchases: number }>();
   for (const s of inP) { const x = kinds.get(s.kind) ?? { kind: s.kind, total: 0, purchases: 0 }; x.total += val(s); x.purchases++; kinds.set(s.kind, x); }
-  // balances: every open sale up to now (not only this period), one rule for everyone: overdue after TERMS_DAYS
+  // balances: every open sale up to now (not only this period); overdue after the sale's credit days (V3-12: the client's, default TERMS_DAYS)
   const open = MX.openSales(sales, now);
   const bc = new Map<string, { customer: string; within: number; overdue: number }>();
-  for (const o of open) { const x = bc.get(o.s.customer) ?? { customer: o.s.customer, within: 0, overdue: 0 }; if (o.age > TERMS_DAYS) x.overdue += o.bal; else x.within += o.bal; bc.set(o.s.customer, x); }
+  for (const o of open) { const x = bc.get(o.s.customer) ?? { customer: o.s.customer, within: 0, overdue: 0 }; if (o.pastDue > 0) x.overdue += o.bal; else x.within += o.bal; bc.set(o.s.customer, x); }
   const owed = sales.length ? MX.owedByCustomers(sales, now) : null, overdue = sales.length ? MX.overdueByCustomers(sales, now) : null;
   const rd = <X extends { total: number; paid: number; balance: number }>(x: X): X => { x.total = r2(x.total); x.paid = r2(x.paid); x.balance = r2(x.balance); return x; };
+  const mix = new Map<number, { days: number; who: Set<string>; owed: number; overdue: number }>();
+  for (const o of open) { const d = MX.termsOf(o.s); const x = mix.get(d) ?? { days: d, who: new Set<string>(), owed: 0, overdue: 0 }; x.who.add(o.s.customer); x.owed += o.bal; if (o.pastDue > 0) x.overdue += o.bal; mix.set(d, x); }
   const data: MgmtClients = {
+    termsMix: [...mix.values()].sort((a, b) => a.days - b.days).map((x) => ({ days: x.days, clients: x.who.size, owed: r2(x.owed), overdue: r2(x.overdue) })),
     terms: TERMS_DAYS,
     kpis: { sales: inP.length || sales.length ? MX.salesValue(sales, { from: c.from, to: c.to }) : null, purchases: inP.length, clients: by.size, owed, overdue },
     clients: [...by.values()].map(rd).sort((a, b) => b.purchases - a.purchases || b.total - a.total),
@@ -644,7 +649,7 @@ function mgmtClients(c: Ctx): Out {
     balances: { within: owed !== null && overdue !== null ? r2(owed - overdue) : 0, overdue: overdue ?? 0, top: [...bc.values()].map((x) => ({ ...x, within: r2(x.within), overdue: r2(x.overdue) })).sort((a, b) => b.within + b.overdue - a.within - a.overdue).slice(0, 15) },
     records: inP.sort((a, b) => t(b.at) - t(a.at)).slice(0, 1000).map((s) => { const v = val(s); return { id: s.id, ref: s.ref, at: s.at, customer: s.customer, warehouseId: s.warehouseId, warehouse: n.warehouse(s.warehouseId), kind: s.kind, amount: r2(v), paid: r2(Math.min(s.paid, v)), balance: r2(Math.max(0, v - s.paid)), status: s.status }; }),
   };
-  return out(data, { definition: `Sales = cases × price (USD at the approved month rate) in ${c.period.label}. Balances: every unpaid sale up to now; overdue after ${TERMS_DAYS} days (one rule for every client until per-client credit terms are recorded). The same figures as the Today view and Live dashboards → Sales.`,
+  return out(data, { definition: `Sales = cases × price (USD at the approved month rate) in ${c.period.label}. Balances: every unpaid sale up to now; overdue after each client's credit days (${TERMS_DAYS} unless set on Sales → Clients; a sale keeps the days it was made with). The same figures as the Today view and Live dashboards → Sales.`,
     currency: 'USD', unit: 'USD', period: c.period, freshness: newest(sales.map((s) => s.at)), empty: !sales.length });
 }
 
@@ -986,11 +991,12 @@ function directorToday(c: Ctx): Out {
   const rank = { critical: 0, high: 1, medium: 2, low: 3 };
   decisions.sort((a, b) => Number(!(a.count ?? 0)) - Number(!(b.count ?? 0)) || rank[a.severity] - rank[b.severity]);
 
-  const openBal = sales.filter((s) => s.status !== 'Paid').map((s) => ({ customer: s.customer, age: Math.floor((now - t(s.at)) / DAY), balance: r2(sum(s.lines, (l) => l.qty * l.price) - s.paid) })).filter((x) => x.balance > 0.5);
+  // V3-12: bands by days past each sale's credit days (the client's, default TERMS_DAYS)
+  const openBal = sales.filter((s) => s.status !== 'Paid').map((s) => ({ customer: s.customer, age: Math.floor((now - t(s.at)) / DAY) - MX.termsOf(s), balance: r2(sum(s.lines, (l) => l.qty * l.price) - s.paid) })).filter((x) => x.balance > 0.5);
   const bandDefs = [
-    { name: `Within terms (≤ ${TERMS_DAYS} d)`, lo: 0, hi: TERMS_DAYS + 1, tone: 'good' as const },
-    { name: '1–30 days overdue', lo: TERMS_DAYS + 1, hi: TERMS_DAYS + 31, tone: 'warn' as const },
-    { name: 'Over 30 days overdue', lo: TERMS_DAYS + 31, hi: Infinity, tone: 'bad' as const },
+    { name: 'Within terms', lo: -Infinity, hi: 1, tone: 'good' as const },
+    { name: '1–30 days overdue', lo: 1, hi: 31, tone: 'warn' as const },
+    { name: 'Over 30 days overdue', lo: 31, hi: Infinity, tone: 'bad' as const },
   ];
   const owed: TodayData['owed'] = {
     terms: TERMS_DAYS, total: cashK.value, overdue: cashK.overdue,
@@ -1563,12 +1569,12 @@ const BUILDERS: Partial<Record<DashKey, (c: Ctx) => Out>> = {
   },
   // C-P1-25 ----------------------------------------------------------------------------------------------------
   'customer-balances': (c) => {
-    const open = c.usd.sales.filter((s) => s.status !== 'Paid').map((s) => ({ customer: s.customer, age: Math.floor((c.now - t(s.at)) / DAY), balance: r2(sum(s.lines, (l) => l.qty * l.price) - s.paid), at: s.at })).filter((x) => x.balance > 0.5);
-    const bands = [{ name: `Within terms (≤ ${TERMS_DAYS} d)`, lo: 0, hi: TERMS_DAYS + 1 }, { name: '1–30 days overdue', lo: TERMS_DAYS + 1, hi: TERMS_DAYS + 31 }, { name: 'Over 30 days overdue', lo: TERMS_DAYS + 31, hi: Infinity }];
+    const open = c.usd.sales.filter((s) => s.status !== 'Paid').map((s) => ({ customer: s.customer, age: Math.floor((c.now - t(s.at)) / DAY) - MX.termsOf(s), balance: r2(sum(s.lines, (l) => l.qty * l.price) - s.paid), at: s.at })).filter((x) => x.balance > 0.5);
+    const bands = [{ name: 'Within terms', lo: -Infinity, hi: 1 }, { name: '1–30 days overdue', lo: 1, hi: 31 }, { name: 'Over 30 days overdue', lo: 31, hi: Infinity }]; // days past each sale's credit days (V3-12)
     const cust = [...new Set(open.map((x) => x.customer))].map((cu) => ({ cu, total: sum(open.filter((x) => x.customer === cu), (x) => x.balance) })).sort((a, b) => b.total - a.total).slice(0, 10).map((x) => x.cu);
     const values = bands.map((b) => ({ name: b.name, values: cust.map((cu) => r2(sum(open.filter((x) => x.customer === cu && x.age >= b.lo && x.age < b.hi), (x) => x.balance))) }));
     return out({ customers: cust, bands: values, total: MX.owedByCustomers(c.usd.sales, c.now), overdue: MX.overdueByCustomers(c.usd.sales, c.now), terms: TERMS_DAYS }, {
-      definition: `Unpaid and part-paid sales (value − paid, USD) per customer by days since the sale. Overdue = past ${TERMS_DAYS} days payment terms (to confirm). Top 10 customers by balance.`, currency: 'USD', unit: 'USD', period: null,
+      definition: `Unpaid and part-paid sales (value − paid, USD) per customer by days since the sale. Overdue = past the client's credit days (${TERMS_DAYS} unless set on the client). Top 10 customers by balance.`, currency: 'USD', unit: 'USD', period: null,
       freshness: newest(c.usd.sales.map((s) => s.at)), empty: !open.length,
     });
   },
