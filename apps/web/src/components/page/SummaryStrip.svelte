@@ -42,14 +42,11 @@
   } = $props();
   const shownTiles = $derived(tiles.slice(0, 4));
   const fmt = (t: SummaryTile) => (t.value === null || t.value === undefined ? '—' : typeof t.value === 'number' ? (t.format ?? ((n: number) => n.toLocaleString('en-US')))(t.value) : t.value);
-  let touched = $state(false);
   const filtered = $derived(!!value && value !== allValue);
   const activeLabel = $derived(tiles.find((t) => t.key === value)?.label ?? labels[value] ?? value);
-  const needsAction = $derived(filtered && !touched && !!auto && value === auto);
   const count = (n: number | null) => (n === null || n === undefined ? '' : n.toLocaleString('en-US'));
 
   function set(v: string) {
-    touched = true;
     value = v;
     if (sync) writeQuery({ [param]: value || null });
     onchange?.(value);
@@ -83,13 +80,13 @@
   {/each}
 </div>
 {#if noun}
-  <div class="filter-note" class:on={filtered}>
+  <div class="filter-note" class:on={filtered} class:opened={!!auto && value === auto}>
     <button type="button" class="sel-chip" aria-pressed={!filtered} onclick={showAll} title={filtered ? `Show all ${noun}` : `Showing all ${noun}`}>All {noun}{#if total !== null && total !== undefined}<span class="n">{count(total)}</span>{/if}</button>
-    <span class="say" aria-live="polite">
-      {#if filtered}{needsAction ? 'Showing what needs action:' : 'Showing:'} <b>{activeLabel}</b>{#if shown !== null && total !== null}{' '}({count(shown)} of {count(total)}){:else if shown !== null}{' '}({count(shown)}){/if}
-      {:else if shown !== null && total !== null && shown !== total}Showing {count(shown)} of {count(total)} {noun} (other filters below)
-      {:else}Showing all {noun} · pick a figure above to see only those{/if}
-    </span>
+    {#if filtered}
+      <span class="say" aria-live="polite"><b>{activeLabel}</b>{#if shown !== null && total !== null}{' · '}{count(shown)} of {count(total)}{:else if shown !== null}{' · '}{count(shown)}{/if}</span>
+    {:else if shown !== null && total !== null && shown !== total}
+      <span class="say" aria-live="polite">{count(shown)} of {count(total)}</span>
+    {/if}
     {#if filtered}<button type="button" class="btn btn-ghost btn-sm all-btn" onclick={showAll}>Show all<X size={14} aria-hidden="true" /></button>{/if}
   </div>
 {/if}
@@ -126,7 +123,10 @@
   .dot { color: var(--text-subtle); }
   .muted { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; }
   .info { position: absolute; top: 8px; right: 8px; }
-  .say { min-width: 0; }
+  .filter-note { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--elevation-1); min-height: 52px; padding: 8px 12px; margin-bottom: var(--space-4); }
+  .filter-note.on { background: var(--surface); color: var(--text); box-shadow: var(--elevation-1); }
+  .say { min-width: 0; color: var(--text-muted); }
+  .say b { color: var(--text); font-weight: 600; }
   .all-btn { gap: 4px; }
   @media (max-width: 600px) {
     .strip { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
