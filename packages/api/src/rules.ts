@@ -644,6 +644,21 @@ export function revisePlan(prev: Plan, truckNo: number, loading: Pick<LoadingLin
 }
 export const defaultPvThresholds: PvThresholds = { behind: 0.85, over: 1.05 };
 
+// ---- V3-14: my profile ------------------------------------------------------------------------------------------------
+/** Name and email a person may set on their own account. Returns the error or null. */
+export function profileError(input: { name?: unknown; email?: unknown }): string | null {
+  if (input.name !== undefined && (typeof input.name !== 'string' || input.name.trim().length < 2 || input.name.trim().length > 80)) return 'Enter your name (2 to 80 characters)';
+  if (input.email !== undefined && input.email !== null && input.email !== '' && (typeof input.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email.trim()))) return 'Enter a valid email, or leave it empty';
+  return null;
+}
+/** A new password (web) or PIN (field app), the same rules as Users & access. Returns the error or null. */
+export function secretError(input: { password?: unknown; pin?: unknown }): string | null {
+  if (input.password === undefined && input.pin === undefined) return 'Enter the new password or PIN';
+  if (input.pin !== undefined && !/^\d{4,6}$/.test(String(input.pin))) return 'The PIN must be 4 to 6 digits';
+  if (input.password !== undefined && (typeof input.password !== 'string' || input.password.length < 8)) return 'The password must be at least 8 characters';
+  return null;
+}
+
 // ---- V3-12 step 2: client payments ---------------------------------------------------------------------------------------
 export const PAYMENT_METHODS = ['Cash', 'Mobile money', 'Bank'] as const;
 /** What is still owed on a sale (never below zero). */

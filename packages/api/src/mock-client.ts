@@ -8,7 +8,7 @@ import * as RP from './reports';
 import * as PO from './mock/po';
 import type {
   AckLine, AppConfig, AuditFilter, AuditPage, Checkpoint, EntityInput, PriceListItem, Product, ProductInput, ReceivingCompany, ReceivingCompanyInput, Supplier, SupplierInput, UserPair, LoadingAlternative, PeriodPlanLine, PurchaseOrder, CheckpointPass, Device, DriverWork, Entity, FeatureKey, FxRate, GiverWork, ID, Leg, LegView, PeriodKind, PeriodPlan, Plan, PlanLine,
-  CashEntry, CashOpeningInput, CashOverview, CashTransferInput, SupplierEntry, SupplierEntryInput, SupplierMoney, Client, ClientInput, ClientPayment, ClientPaymentInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PoDetail, PoInput, PoUpdateInput, PvThresholds, ReceiverWork, Role, RouteStop, Sale, Shipment, StoredFile, SyncResult, TripCost, TruckIssue, User, UserAdmin, Warehouse, WarehouseInput,
+  MyDevice, MyProfile, MySecretInput, CashEntry, CashOpeningInput, CashOverview, CashTransferInput, SupplierEntry, SupplierEntryInput, SupplierMoney, Client, ClientInput, ClientPayment, ClientPaymentInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PoDetail, PoInput, PoUpdateInput, PvThresholds, ReceiverWork, Role, RouteStop, Sale, Shipment, StoredFile, SyncResult, TripCost, TruckIssue, User, UserAdmin, Warehouse, WarehouseInput,
   Driver, DriverInput, Provider, ProviderInput, SavedDriver, Truck, TruckInput,
 } from './types';
 
@@ -1009,6 +1009,47 @@ export const users = {
 /** docs/12 A-07: the audit log — search by user, feature, date and text; newest first, paged (directors). */
 export const audit = { async list(f: AuditFilter = {}): Promise<AuditPage> { return (await admin()).auditList(adminCtx(), f); } };
 
+// ---- My profile (V3-14) -------------------------------------------------------------------------------------------
+const meAdmin = () => (current ? mockUsers.find((x) => x.id === current!.id) : undefined);
+export const profile = {
+  async get(): Promise<MyProfile> {
+    ensure(); if (!current) throw httpErr('Sign in first', 401);
+    const a = meAdmin(), s = m.db.secrets?.[current.id];
+    return wait({ id: current.id, name: current.name, email: a?.email ?? null, phone: current.phone, roles: current.roles, entityIds: current.entityIds, warehouseIds: current.warehouseIds,
+      loadingPointIds: current.loadingPointIds, pairs: current.pairs ?? [], hasPassword: a?.hasPassword ?? !!s?.password, hasPin: a?.hasPin ?? !!s?.pin, lastLoginAt: m.db.lastLogin?.[current.id] ?? null });
+  },
+  async update(input: { name?: string; email?: string | null }): Promise<MyProfile> {
+    ensure(); if (!current) throw httpErr('Sign in first', 401);
+    const err = R.profileError(input);
+    if (err) throw Object.assign(new Error(err), { status: 422 });
+    const a = meAdmin(); const before = { name: current.name, email: a?.email ?? null };
+    if (input.name !== undefined) { current = { ...current, name: input.name.trim() }; if (a) a.name = input.name.trim(); }
+    if (input.email !== undefined && a) a.email = input.email ? input.email.trim() : undefined;
+    log('PATCH', '/me', { recordType: 'user', recordId: current.id, summary: `${current.name}: own details changed`, before, after: input });
+    commit(true);
+    return this.get();
+  },
+  async changeSecret(input: MySecretInput): Promise<boolean> {
+    ensure(); if (!current) throw httpErr('Sign in first', 401);
+    const err = R.secretError(input);
+    if (err) throw Object.assign(new Error(err), { status: 422 });
+    const kind = input.pin !== undefined ? 'pin' : 'password';
+    const known = m.db.secrets?.[current.id]?.[kind];
+    // the demo accepts any current secret until one has been set here; after that it must match
+    if (!input.current || (known !== undefined && known !== input.current)) throw Object.assign(new Error(kind === 'pin' ? 'Your current PIN is not right' : 'Your current password is not right'), { status: 422 });
+    ((m.db.secrets ??= {})[current.id] ??= {})[kind] = String(kind === 'pin' ? input.pin : input.password);
+    log('POST', '/me/secret', { recordType: 'user', recordId: current.id, summary: `${current.name}: own ${kind === 'pin' ? 'PIN' : 'password'} changed; other sessions ended` });
+    return commit(true);
+  },
+  async devices(): Promise<MyDevice[]> {
+    ensure(); if (!current) return wait([]);
+    return wait([{ id: 'dev-this-browser', platform: 'web', appVersion: null, lastSeenAt: new Date().toISOString(), current: true }]);
+  },
+  async signOutDevice(id: ID): Promise<boolean> {
+    if (id === 'dev-this-browser') throw Object.assign(new Error('This is the device you are using: sign out from the top bar'), { status: 422 });
+    return wait(true);
+  },
+};
 export const devices = {
   async register(_input: { pushToken?: string; platform?: string; appVersion?: string }) { return wait({ id: 'dev-mock' }); },
   async revoke(_deviceId: ID) { return wait(true); },

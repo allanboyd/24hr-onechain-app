@@ -15,6 +15,7 @@
   import { company, initCompany, GROUP } from './lib/company.svelte';
   import { companyBrand, allCompanies } from './lib/companies';
   import Bell from '@lucide/svelte/icons/bell';
+  import { theme, applyTheme } from './lib/theme.svelte';
   import Moon from '@lucide/svelte/icons/moon';
   import Sun from '@lucide/svelte/icons/sun';
   import LogOut from '@lucide/svelte/icons/log-out';
@@ -51,10 +52,10 @@
     addEventListener('unhandledrejection', onRejection);
     return () => removeEventListener('unhandledrejection', onRejection);
   });
-  let theme = $state<'light' | 'dark' | ''>((() => { try { return (localStorage.getItem('btw-theme') as any) ?? ''; } catch { return ''; } })());
+  // V3-14: the theme lives in lib/theme (Profile → Preferences changes it too)
   let navOpen = $state(false);
 
-  $effect(() => { theme ? document.documentElement.setAttribute('data-theme', theme) : document.documentElement.removeAttribute('data-theme'); try { localStorage.setItem('btw-theme', theme); } catch {} });
+  $effect(() => { applyTheme(theme.value); });
   const refreshUnread = async () => { try { unread = (await notifications.list()).filter((n) => !n.read).length; } catch { /* badge only */ } };
   $effect(() => { if (user) { refreshUnread(); return onChange(refreshUnread); } });
 
@@ -118,8 +119,8 @@
   const loadOf = (r: WebRoute) => { if (!loads.has(r.load!)) loads.set(r.load!, r.load!()); return loads.get(r.load!)!; };
 
   function toggleTheme() {
-    const dark = theme === 'dark' || (!theme && matchMedia('(prefers-color-scheme: dark)').matches);
-    theme = dark ? 'light' : 'dark';
+    const dark = theme.value === 'dark' || (!theme.value && matchMedia('(prefers-color-scheme: dark)').matches);
+    theme.value = dark ? 'light' : 'dark';
   }
   function logout() { signOut(); }
   // Same origin when served from one point (/app/), else the field dev server.
@@ -200,9 +201,9 @@
         </nav>
         <div class="grow"></div>
         {#if scope}<span class="scope small" title="Your data scope">Scope: <strong>{scope}</strong></span>{/if}
-        <button class="ibtn" onclick={toggleTheme} aria-label="Toggle theme">{#if theme === 'dark'}<Sun size={18} />{:else}<Moon size={18} />{/if}</button>
+        <button class="ibtn" onclick={toggleTheme} aria-label="Toggle theme">{#if theme.value === 'dark'}<Sun size={18} />{:else}<Moon size={18} />{/if}</button>
         <a class="ibtn bell" href="#/system/alerts" aria-label="Alerts{unread ? `, ${unread} unread` : ''}"><Bell size={18} />{#if unread}<span class="dotcount">{bellCount}</span>{/if}</a>
-        <div class="acct"><span class="av" aria-hidden="true">{initials}</span><span class="who"><span class="nm">{user.name}</span><span class="rl">{roleText(user.roles)}</span></span></div>
+        <a class="acct" href="#/system/profile" title="My profile" aria-label="My profile: {user.name}"><span class="av" aria-hidden="true">{initials}</span><span class="who"><span class="nm">{user.name}</span><span class="rl">{roleText(user.roles)}</span></span></a>
         <button class="ibtn" onclick={logout} aria-label="Sign out" title="Sign out"><LogOut size={18} /></button>
         </header>
       </div>
@@ -296,6 +297,7 @@
   .scope { color: var(--text-muted); max-width: 32ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bell .dotcount { position: absolute; top: 3px; right: 1px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: grid; place-items: center; background: var(--danger-solid); color: var(--text-on-danger); font: 700 10.5px/1 var(--ff-body); box-shadow: 0 0 0 2px var(--surface); }
   .acct { display: flex; align-items: center; gap: var(--space-2); padding: 4px 10px 4px 4px; margin-left: var(--space-1); border: 1px solid var(--border); border-radius: 999px; background: var(--surface); }
+  a.acct { color: inherit; text-decoration: none; } a.acct:hover { border-color: var(--border-strong, var(--border)); text-decoration: none; }
   .av { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--primary-subtle); color: var(--link); font: 700 12px/1 var(--ff-body); }
   .who { display: flex; flex-direction: column; line-height: 1.15; }
   .nm { font-size: 13px; font-weight: 600; }

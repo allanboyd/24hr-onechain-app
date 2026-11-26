@@ -51,7 +51,7 @@ ok(!/view=map/.test(p.url()) && await p.locator('aside nav a.active', { hasText:
 await p.locator('aside nav a', { hasText: 'Settings & alerts' }).click(); await p.waitForTimeout(2500);
 ok(p.url().endsWith('#/system/alerts') && (await p.locator('main h1').first().textContent())?.trim() === 'Alerts' && await p.locator('aside nav a.active', { hasText: 'Settings & alerts' }).count() === 1, 'Settings & alerts opens Alerts and stays current');
 const sys = p.getByRole('navigation', { name: 'Settings & alerts' });
-ok(JSON.stringify((await sys.locator('a').allTextContents()).map((x) => x.trim())) === JSON.stringify(['Alerts', 'My notifications', 'Approvals', 'Exchange rates', 'Thresholds', 'Users & access', 'Audit log', 'Integrations']), 'its sections for a director, in groups');
+ok(JSON.stringify((await sys.locator('a').allTextContents()).map((x) => x.trim())) === JSON.stringify(['Profile', 'My notifications', 'Alerts', 'Approvals', 'Exchange rates', 'Thresholds', 'Users & access', 'Audit log', 'Integrations']), 'its sections for a director, in groups');
 await sys.getByRole('link', { name: 'Audit log' }).click(); await p.waitForTimeout(2000);
 ok(p.url().endsWith('#/system/audit') && (await p.locator('main h1').first().textContent())?.trim() === 'Audit log' && await sys.locator('a[aria-current=page]').textContent().then((t) => t?.trim() === 'Audit log'), 'Audit log: own address, highlighted in the left menu');
 await p.evaluate(() => { window.__kept = 7; });
@@ -77,7 +77,7 @@ await p.screenshot({ path: `${out}/shell-phone.png` });
 const q = await signIn('Yonas');
 ok((await items(q)).includes('Home') && !(await items(q)).includes('Live dashboards'), 'warehouse user: one Home entry for the dashboards');
 await q.goto(`${base}#/system/alerts`); await q.waitForTimeout(2000);
-ok(JSON.stringify((await q.getByRole('navigation', { name: 'Settings & alerts' }).locator('a').allTextContents()).map((x) => x.trim())) === JSON.stringify(['Alerts', 'My notifications']), 'warehouse user: Settings & alerts shows Alerts and My notifications only');
+ok(JSON.stringify((await q.getByRole('navigation', { name: 'Settings & alerts' }).locator('a').allTextContents()).map((x) => x.trim())) === JSON.stringify(['Profile', 'My notifications', 'Alerts']), 'warehouse user: Settings & alerts shows My account and Alerts only');
 await q.goto(`${base}#/system/approvals`); await q.waitForTimeout(1500);
 ok(await q.getByRole('switch', { name: 'Advance payments need director approval' }).count() === 0, 'warehouse user: Approvals does not open');
 ok(await seg(q).count() === 0, 'warehouse user: no switch');

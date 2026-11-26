@@ -53,10 +53,19 @@ export class AuthController {
 
 @Controller()
 export class MeController {
-  constructor(private platform: PlatformService) {}
+  constructor(private platform: PlatformService, private auth: AuthService) {}
   @Get('me') me(@Me() p: Principal) { const { channel: _c, ...u } = p; return { ...u, features: featuresFor(p.roles) }; }
   @Post('devices') @HttpCode(200) device(@Me() p: Principal, @Body() b: { pushToken?: string; platform?: string; appVersion?: string }) { return this.platform.registerDevice(p, b ?? {}); }
   @Get('notifications') notifications(@Me() p: Principal) { return this.platform.notifications(p); }
+  /** V3-14: my profile: details, own password / PIN (fresh session here, others end), my signed-in devices. */
+  @Get('me/profile') profile(@Me() p: Principal) { return this.platform.myProfile(p); }
+  @Patch('me') updateMe(@Me() p: Principal, @Body() b: { name?: string; email?: string | null }) { return this.platform.updateMe(p, b ?? {}); }
+  @Post('me/secret') @HttpCode(200) async mySecret(@Me() p: Principal, @Body() b: { current?: string; password?: string; pin?: string }) {
+    const s = await this.auth.changeOwnSecret(p, b ?? {});
+    auditNote({ recordType: 'user', recordId: p.id, summary: `${p.name}: own ${b?.pin !== undefined ? 'PIN' : 'password'} changed; other sessions ended` });
+    return s;
+  }
+  @Get('me/devices') myDevices(@Me() p: Principal) { return this.platform.myDevices(p); }
   /** V3-12: my email / SMS choices for money notifications (in-app is always on). */
   @Get('me/notify') async myNotify(@Me() p: Principal): Promise<NotifyPrefs> {
     const [u] = await db.select({ email: schema.users.notifyEmail, sms: schema.users.notifySms }).from(schema.users).where(eq(schema.users.id, p.id));

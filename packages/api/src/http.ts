@@ -5,7 +5,7 @@ import * as R from './rules';
 import * as RP from './reports';
 import type {
   AckLine, Acknowledgement, CheckpointPass, Device, DriverWork, Entity, Flag, FxRate, GiverWork, ID, JourneyStep, Leg, Loading, Notification, PeriodKind, PeriodPlan, Plan, PlanLine, PoDetail, PoInput, PoUpdateInput,
-  CashEntry, CashOpeningInput, CashOverview, CashTransferInput, SupplierEntry, SupplierEntryInput, SupplierMoney, Client, ClientInput, ClientPayment, ClientPaymentInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PvThresholds,
+  MyDevice, MyProfile, MySecretInput, CashEntry, CashOpeningInput, CashOverview, CashTransferInput, SupplierEntry, SupplierEntryInput, SupplierMoney, Client, ClientInput, ClientPayment, ClientPaymentInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PvThresholds,
   PurchaseOrder, ReceiverWork, Role, RouteStop, Sale, Shipment, StockRow, StoredFile, SyncResult, TripCost, TripPayment,
   Route, TruckIssue, User, UserAdmin, VelocityRow, WaitingEntry, Warehouse, WarehouseInput,
   DriverInput, Provider, ProviderInput, SavedDriver, Truck, TruckInput,
@@ -346,6 +346,22 @@ export const users = {
   update: (id: ID, input: Partial<Pick<UserAdmin, 'name' | 'email' | 'roles' | 'entityIds' | 'loadingPointIds' | 'warehouseIds' | 'pairs' | 'routeIds' | 'active'>>) => withRef(call<UserAdmin>('PATCH', `/users/${id}`, input)),
   setSecret: (id: ID, input: { pin?: string; password?: string }) => post<boolean>(`/users/${id}/secret`, input),
   devices: (id: ID) => get<Device[]>(`/users/${id}/devices`),
+};
+/** V3-14: my own account. A password / PIN change ends my other sessions and gives this one a fresh session. */
+export const profile = {
+  get: () => get<MyProfile>('/me/profile'),
+  async update(input: { name?: string; email?: string | null }) {
+    const p = await call<MyProfile>('PATCH', '/me', input);
+    if (session) { session = { ...session, user: { ...session.user, name: p.name } }; write('btw-session', session); }
+    emit(); return p;
+  },
+  async changeSecret(input: MySecretInput) {
+    const s = await post<Session>('/me/secret', input);
+    session = { ...s, user: { ...(session?.user ?? s.user), ...s.user } }; write('btw-session', session); emit();
+    return true;
+  },
+  devices: () => get<MyDevice[]>('/me/devices'),
+  signOutDevice: (id: ID) => mutate(post<boolean>(`/auth/devices/${id}/revoke`)).then(() => true),
 };
 export const devices = {
   register: (input: { pushToken?: string; platform?: string; appVersion?: string }) => post<{ id: string }>('/devices', input),
