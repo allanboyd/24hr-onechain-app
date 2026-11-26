@@ -18,7 +18,7 @@ export interface Section {
 }
 const dirOrAdmin = (u: User) => u.roles.includes('director') || u.roles.includes('admin');
 export const SECTIONS: Section[] = [
-  { key: 'alerts', label: 'Alerts', group: 'Alerts', icon: Bell, load: () => import('../Notifications.svelte') },
+  { key: 'alerts', label: 'Alerts', group: 'Alerts', icon: Bell, load: () => import('./Alerts.svelte') },
   { key: 'notifications', label: 'My notifications', group: 'Alerts', icon: BellRing, load: () => import('./MyNotifications.svelte') },
   { key: 'approvals', label: 'Approvals', group: 'Rules', icon: ShieldCheck, allow: dirOrAdmin, load: () => import('./Approvals.svelte') },
   { key: 'users', label: 'Users & access', group: 'People & system', icon: UsersIcon, feature: 'users', load: () => import('../Users.svelte') },
