@@ -4,8 +4,8 @@ import { chromium } from 'playwright';
 
 const [base, out = '.'] = process.argv.slice(2);
 let fails = 0; const ok = (c, m) => { console.log(`${c ? 'ok  ' : 'FAIL'} ${m}`); if (!c) fails++; };
-const OPS = ['Home', 'Period plans', 'Purchase orders', 'Truck desk', 'Shipments', 'Shipment map', 'Goods transfers', 'Stock', 'Warehouse expenses', 'Sales', 'Master data', 'System settings & logs', 'Alerts'];
-const MGMT = ['Overview', 'Executive report', 'Plans and orders', 'Sales and clients', 'Supplier balances', 'Cash and closing', 'Warehouse performance', 'Settings'];
+const OPS = ['Home', 'Period plans', 'Purchase orders', 'Truck desk', 'Shipments', 'Shipment map', 'Goods transfers', 'Stock', 'Warehouse expenses', 'Sales', 'Master data', 'Settings & alerts'];
+const MGMT = ['Overview', 'Executive report', 'Plans and orders', 'Sales and clients', 'Supplier balances', 'Cash and closing', 'Warehouse performance'];
 const b = await chromium.launch();
 async function signIn(name, width = 1440) {
   const p = await b.newPage({ viewport: { width, height: 900 } });
@@ -15,7 +15,7 @@ async function signIn(name, width = 1440) {
   await p.locator('aside nav a').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(500);
   return p;
 }
-const items = (p) => p.locator('aside nav a').allTextContents().then((xs) => xs.map((x) => x.trim()));
+const items = (p) => p.locator('aside nav a .lbl').allTextContents().then((xs) => xs.map((x) => x.trim()));
 const seg = (p) => p.getByRole('group', { name: 'Operations or management' });
 
 // ---- director
@@ -47,14 +47,21 @@ await p.locator('aside nav a', { hasText: 'Shipment map' }).click(); await p.wai
 ok(/view=map/.test(p.url()) && await p.locator('aside nav a.active', { hasText: 'Shipment map' }).count() === 1 && await p.locator('aside nav a.active', { hasText: /^Shipments$/ }).count() === 0, 'Shipment map opens the map and is the current entry (not Shipments)');
 await p.locator('aside nav a', { hasText: /^Shipments$/ }).click(); await p.waitForTimeout(1500);
 ok(!/view=map/.test(p.url()) && await p.locator('aside nav a.active', { hasText: /^Shipments$/ }).count() === 1, 'Shipments opens the list');
-await p.locator('aside nav a', { hasText: 'System settings & logs' }).click(); await p.waitForTimeout(2500);
-ok(p.url().endsWith('#/users') && (await p.locator('main h1').first().textContent())?.trim() === 'Users & access' && await p.locator('aside nav a.active', { hasText: 'System settings & logs' }).count() === 1, 'System settings & logs opens Users & access and stays current');
-const sys = p.getByRole('navigation', { name: 'System settings & logs' });
-ok(JSON.stringify((await sys.locator('a').allTextContents()).map((x) => x.trim())) === JSON.stringify(['Users & access', 'Audit log', 'Settings']), 'its pages: Users & access, Audit log, Settings');
+// V3-13: Settings & alerts workspace: a left menu inside the page, one address per section; Alerts left the main sidebar
+await p.locator('aside nav a', { hasText: 'Settings & alerts' }).click(); await p.waitForTimeout(2500);
+ok(p.url().endsWith('#/system/alerts') && (await p.locator('main h1').first().textContent())?.trim() === 'Alerts' && await p.locator('aside nav a.active', { hasText: 'Settings & alerts' }).count() === 1, 'Settings & alerts opens Alerts and stays current');
+const sys = p.getByRole('navigation', { name: 'Settings & alerts' });
+ok(JSON.stringify((await sys.locator('a').allTextContents()).map((x) => x.trim())) === JSON.stringify(['Alerts', 'My notifications', 'Approvals', 'Users & access', 'Audit log', 'Integrations']), 'its sections for a director, in groups');
 await sys.getByRole('link', { name: 'Audit log' }).click(); await p.waitForTimeout(2000);
-ok((await p.locator('main h1').first().textContent())?.trim() === 'Audit log' && await p.locator('aside nav a.active', { hasText: 'System settings & logs' }).count() === 1, 'Audit log keeps System settings & logs current');
-await sys.getByRole('link', { name: 'Settings' }).click(); await p.waitForTimeout(2000);
-ok(await p.getByRole('switch', { name: 'Advance payments need director approval' }).count() === 1 && await p.locator('aside nav a.active', { hasText: 'System settings & logs' }).count() === 1, 'Settings (approval, my notifications) is reachable from Operations');
+ok(p.url().endsWith('#/system/audit') && (await p.locator('main h1').first().textContent())?.trim() === 'Audit log' && await sys.locator('a[aria-current=page]').textContent().then((t) => t?.trim() === 'Audit log'), 'Audit log: own address, highlighted in the left menu');
+await p.evaluate(() => { window.__kept = 7; });
+await sys.getByRole('link', { name: 'Approvals' }).click(); await p.waitForTimeout(1500);
+ok(await p.getByRole('switch', { name: 'Advance payments need director approval' }).count() === 1 && await p.evaluate(() => window.__kept) === 7, 'Approvals opens without reloading the page');
+for (const [old, h1] of [['#/notifications', 'Alerts'], ['#/users', 'Users & access'], ['#/audit', 'Audit log'], ['#/integrations', 'Integrations']]) {
+  await p.goto(base + old); await p.waitForTimeout(1800);
+  ok((await p.locator('main h1').first().textContent())?.trim() === h1 && await p.locator('aside nav a.active', { hasText: 'Settings & alerts' }).count() === 1, `old address ${old} opens ${h1} in the workspace`);
+}
+await p.goto(`${base}#/system/approvals`); await p.waitForTimeout(1500);
 await p.screenshot({ path: `${out}/system-settings.png` });
 // brand: no subtitle lines; marks small
 const brand = await p.locator('aside .brand').innerText();
@@ -69,6 +76,10 @@ await p.screenshot({ path: `${out}/shell-phone.png` });
 // ---- warehouse user: no switch, removed pages still closed
 const q = await signIn('Yonas');
 ok((await items(q)).includes('Home') && !(await items(q)).includes('Live dashboards'), 'warehouse user: one Home entry for the dashboards');
+await q.goto(`${base}#/system/alerts`); await q.waitForTimeout(2000);
+ok(JSON.stringify((await q.getByRole('navigation', { name: 'Settings & alerts' }).locator('a').allTextContents()).map((x) => x.trim())) === JSON.stringify(['Alerts', 'My notifications']), 'warehouse user: Settings & alerts shows Alerts and My notifications only');
+await q.goto(`${base}#/system/approvals`); await q.waitForTimeout(1500);
+ok(await q.getByRole('switch', { name: 'Advance payments need director approval' }).count() === 0, 'warehouse user: Approvals does not open');
 ok(await seg(q).count() === 0, 'warehouse user: no switch');
 for (const r of ['/performance', '/selling-prices', '/transport-costs', '/management/cash', '/dashboards']) {
   await q.goto(`${base}#${r}`); await q.waitForTimeout(1500);

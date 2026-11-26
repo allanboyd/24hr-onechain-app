@@ -111,7 +111,8 @@
   $effect(() => { document.title = `${matched?.route.title ?? 'BTW'} · ${co ? co.shortName : user ? 'Group' : 'BTW'} · Supply Chain`; navOpen = false; router.path; });
   // Remount the screen when the company or the route changes, so its data reloads for the new scope.
   // All Management pages are one screen: it switches report pages itself and keeps its report frame loaded.
-  const screenKey = $derived(`${company.active}|${router.path.startsWith('/management') ? '/management' : router.path}`);
+  // one screen per area: the Management pages and the Settings & alerts sections switch inside it (no remount)
+  const screenKey = $derived(`${company.active}|${router.path.startsWith('/management') ? '/management' : router.path.startsWith('/system') ? '/system' : router.path}`);
   // One import per screen module: the same promise for the same load function, so a kept screen is not re-created.
   const loads = new Map<() => Promise<{ default: any }>, Promise<{ default: any }>>();
   const loadOf = (r: WebRoute) => { if (!loads.has(r.load!)) loads.set(r.load!, r.load!()); return loads.get(r.load!)!; };
@@ -168,7 +169,7 @@
           <div class="grp" role="group" aria-label={g.label}>
             {#each g.items as it}
               {@const Icon = it.icon}
-              <a href={it.href} class:active={it.match ? it.match(router.path) : active(it.href)} title={rail ? it.label : undefined} aria-label={rail ? it.label : undefined}><Icon size={18} /><span class="lbl">{it.label}</span></a>
+              <a href={it.href} class:active={it.match ? it.match(router.path) : active(it.href)} title={rail ? it.label : undefined} aria-label={rail ? it.label : undefined}><Icon size={18} /><span class="lbl">{it.label}</span>{#if it.badge === 'unread' && unread}<span class="nbadge" aria-label="{unread} unread">{bellCount}</span>{/if}</a>
             {/each}
           </div>
         {/each}
@@ -200,7 +201,7 @@
         <div class="grow"></div>
         {#if scope}<span class="scope small" title="Your data scope">Scope: <strong>{scope}</strong></span>{/if}
         <button class="ibtn" onclick={toggleTheme} aria-label="Toggle theme">{#if theme === 'dark'}<Sun size={18} />{:else}<Moon size={18} />{/if}</button>
-        <a class="ibtn bell" href="#/notifications" aria-label="Alerts{unread ? `, ${unread} unread` : ''}"><Bell size={18} />{#if unread}<span class="dotcount">{bellCount}</span>{/if}</a>
+        <a class="ibtn bell" href="#/system/alerts" aria-label="Alerts{unread ? `, ${unread} unread` : ''}"><Bell size={18} />{#if unread}<span class="dotcount">{bellCount}</span>{/if}</a>
         <div class="acct"><span class="av" aria-hidden="true">{initials}</span><span class="who"><span class="nm">{user.name}</span><span class="rl">{roleText(user.roles)}</span></span></div>
         <button class="ibtn" onclick={logout} aria-label="Sign out" title="Sign out"><LogOut size={18} /></button>
         </header>
@@ -267,6 +268,8 @@
   nav a { position: relative; display: flex; align-items: center; gap: var(--space-3); color: var(--nav-text); padding: 9px var(--space-3); border-radius: 10px; font-weight: 500; text-decoration: none; white-space: nowrap; transition: background var(--motion-fast) var(--motion-easing), color var(--motion-fast) var(--motion-easing); }
   nav a:hover { background: var(--nav-hover); color: var(--nav-strong); text-decoration: none; }
   nav a:hover :global(svg) { color: var(--nav-strong); }
+  .nbadge { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 99px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+  .rail .nbadge { display: none; }
   nav a.active { background: var(--nav-active-bg); color: var(--nav-strong); font-weight: 600; }
   nav a.active::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; background: var(--nav-indicator); }
   nav a :global(svg) { flex: none; }
