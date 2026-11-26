@@ -23,7 +23,7 @@
   // Short tab names so every tab fits on one row (the group's full name stays in the page caption)
   const SHORT: Record<string, string> = { business: 'Business', fees: 'Fees & expenses', admin: 'Alerts & admin' };
   const ROOM_BLURB: Record<string, string> = {
-    business: 'Stand of the business: KPIs, exceptions, profit bridge, and prices vs target.',
+    business: 'Sales, profit and margin, prices below target, and landed cost per product.',
     purchasing: 'What to order, the pipeline, open orders, and plan vs actual.',
     loading: 'Today’s loading list, how far each order is loaded, and where trucks wait.',
     fleet: 'Live board, delays, open issues, and quiet trucks.',
