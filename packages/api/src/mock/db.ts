@@ -30,7 +30,9 @@ export interface DB {
   /** Period plans (§8.3) and planned-vs-actual thresholds (§8.14); optional so older saved data still loads. */
   periodPlans?: PeriodPlan[]; pvThresholds?: PvThresholds;
   /** V3-12: Management settings and each person's email / SMS choices (optional so older saved data still loads). */
-  moneySettings?: import('../types').MoneySettings; notifyPrefs?: Record<ID, import('../types').NotifyPrefs>;
+  moneySettings?: import('../types').MoneySettings;
+  /** V3-12: clients (built from the sales' customer names the first time they are needed). */
+  clients?: import('../types').Client[]; notifyPrefs?: Record<ID, import('../types').NotifyPrefs>;
   trucks: typeof seed.trucks; routes: typeof seed.routes;
   /** Transport master data, editable by truck planners / fleet / planners (docs/10). */
   providers: typeof seed.providers; drivers: typeof seed.drivers;

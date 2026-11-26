@@ -24,7 +24,7 @@ import { ReportsService } from '../domain/reports.service';
 import * as RP from '@btw/api/reports';
 import type { CheckpointPass, DriverInput, Leg, ProviderInput, TruckInput, WarehouseInput, PeriodPlan, PoInput, PoUpdateInput, RouteStop, Sale, TripCost, TruckIssue } from '@btw/api/types';
 import { canChangeSettings, defaultMoneySettings, defaultPvThresholds, featuresFor } from '@btw/api/rules';
-import type { MoneySettings, NotifyPrefs } from '@btw/api/types';
+import type { ClientInput, MoneySettings, NotifyPrefs } from '@btw/api/types';
 import { auditNote } from '../common/audit-context';
 import { seesPrices } from '@btw/api/access';
 import { eq } from 'drizzle-orm';
@@ -257,6 +257,10 @@ export class StockController {
   @Get('stock') rows(@Me() p: Principal) { return this.stock.stock(p); }
   @Get('stock/ledger') ledger(@Me() p: Principal, @Query('warehouseId') w: string, @Query('productId') pr: string) { return this.stock.ledger(p, w, pr); }
   @Get('sales') sales(@Me() p: Principal, @Query('warehouseId') w?: string) { return this.stock.sales(p, w); }
+  /** V3-12: clients (picked on the sale; credit days set by directors / accounts). */
+  @Get('clients') clients(@Me() p: Principal) { return this.stock.clients(p); }
+  @Post('clients') createClient(@Me() p: Principal, @Body() b: ClientInput, @Headers('idempotency-key') k: Idem) { return once(k, p.id, 'client.create', () => this.stock.createClient(p, b ?? ({} as ClientInput))).then((r) => r.result); }
+  @Patch('clients/:id') updateClient(@Me() p: Principal, @Param('id') id: string, @Body() b: Partial<ClientInput>) { return this.stock.updateClient(p, id, b ?? {}); }
   @Post('sales') create(@Me() p: Principal, @Body() b: Omit<Sale, 'id' | 'ref' | 'status' | 'entityId'> & { entityId?: string; override?: boolean }, @Headers('idempotency-key') k: Idem) { const { override, ...input } = b ?? ({} as never); return once(k, p.id, 'sale.create', () => this.stock.createSale(p, input, !!override)).then((r) => r.result); }
   @Get('analytics/summary') summary(@Me() p: Principal) { return this.stock.summary(p); }
   @Get('analytics/velocity') velocity(@Me() p: Principal) { return this.stock.velocity(p); }

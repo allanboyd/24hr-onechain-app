@@ -140,16 +140,32 @@ export const needsAttention = (rows: StockRow[], sales: Pick<Sale, 'entityId' | 
 // =====================================================================================================================
 // Sales and customer balances (USD; pass sales already scoped and converted — intercompany removed in the Group view)
 // =====================================================================================================================
-type SaleL = Pick<Sale, 'at' | 'lines' | 'paid' | 'status'>;
+type SaleL = Pick<Sale, 'at' | 'lines' | 'paid' | 'status'> & { termsDays?: number };
 /** Customer payment terms (days) before a balance is overdue — to confirm. */
 export const TERMS_DAYS = 14;
+/** V3-12: credit days of a sale: its client's days when the sale was made, else the default 14. */
+export const termsOf = (s: { termsDays?: number | null }) => (s.termsDays != null && s.termsDays >= 0 ? s.termsDays : TERMS_DAYS);
 export const saleValue = (s: Pick<Sale, 'lines'>) => sum(s.lines, (l) => l.qty * l.price);
 export const salesValue = (sales: SaleL[], p?: Period | null) => r2(sum(sales.filter((s) => inP(t(s.at), p)), saleValue));
 export const casesSold = (sales: SaleL[], p?: Period | null) => sum(sales.filter((s) => inP(t(s.at), p)), (s) => sum(s.lines, (l) => l.qty));
 /** Open customer balances now: value − paid of every sale not fully paid. */
-export const openSales = <S extends SaleL>(sales: S[], now: number) => sales.filter((s) => s.status !== 'Paid' && t(s.at) <= now).map((s) => ({ s, bal: saleValue(s) - s.paid, age: (now - t(s.at)) / DAY })).filter((x) => x.bal > 0.005);
+/** `pastDue`: days past the sale's credit days (≤ 0 = still within them). */
+export const openSales = <S extends SaleL>(sales: S[], now: number) => sales.filter((s) => s.status !== 'Paid' && t(s.at) <= now).map((s) => { const age = (now - t(s.at)) / DAY; return { s, bal: saleValue(s) - s.paid, age, pastDue: age - termsOf(s) }; }).filter((x) => x.bal > 0.005);
 export const owedByCustomers = (sales: SaleL[], now: number) => r2(sum(openSales(sales, now), (x) => x.bal));
-export const overdueByCustomers = (sales: SaleL[], now: number) => r2(sum(openSales(sales, now).filter((x) => x.age > TERMS_DAYS), (x) => x.bal));
+/** V3-12: per client (sale.clientId): number of sales, last sale, owed and overdue now; the same rule as the totals. */
+export function clientFigures<S extends SaleL & { clientId?: string }>(sales: S[], now: number) {
+  const m = new Map<string, { sales: number; lastSaleAt: string | null; owed: number; overdue: number }>();
+  for (const s of sales) {
+    if (!s.clientId) continue;
+    const x = m.get(s.clientId) ?? { sales: 0, lastSaleAt: null, owed: 0, overdue: 0 };
+    x.sales++; if (!x.lastSaleAt || s.at > x.lastSaleAt) x.lastSaleAt = s.at;
+    m.set(s.clientId, x);
+  }
+  for (const o of openSales(sales, now)) { const x = o.s.clientId ? m.get(o.s.clientId) : undefined; if (x) { x.owed += o.bal; if (o.pastDue > 0) x.overdue += o.bal; } }
+  for (const x of m.values()) { x.owed = r2(x.owed); x.overdue = r2(x.overdue); }
+  return m;
+}
+export const overdueByCustomers = (sales: SaleL[], now: number) => r2(sum(openSales(sales, now).filter((x) => x.pastDue > 0), (x) => x.bal));
 
 // =====================================================================================================================
 // Transport fees (USD)

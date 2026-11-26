@@ -642,6 +642,15 @@ export function revisePlan(prev: Plan, truckNo: number, loading: Pick<LoadingLin
 }
 export const defaultPvThresholds: PvThresholds = { behind: 0.85, over: 1.05 };
 
+// ---- V3-12 step 1: clients ----------------------------------------------------------------------------------------------
+/** Same client whatever the spacing or capitals: "kimironko  wholesale" = "Kimironko Wholesale". */
+export const clientKey = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+export const cleanClientName = (name: string) => name.trim().replace(/\s+/g, ' ');
+/** Credit days: a whole number from 0 (pay at once) to 180. */
+export const validTermsDays = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 0 && (n as number) <= 180;
+/** Who changes a client's credit days: money decisions (directors, accounts). Anyone who sells may add a client. */
+export const canSetCreditDays = (roles: Role[]) => roles.includes('director') || roles.includes('accounts') || roles.includes('admin');
+
 // ---- V3-12 step 0: Management settings and money notifications -------------------------------------------------------
 export const defaultMoneySettings: MoneySettings = { advanceApproval: false };
 export const defaultNotifyPrefs: NotifyPrefs = { email: false, sms: false };

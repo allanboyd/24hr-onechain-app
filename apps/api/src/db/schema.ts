@@ -188,7 +188,15 @@ export const sales = pgTable('sales', {
   currency: text('currency').notNull(), paid: doublePrecision('paid').notNull(), status: text('status').notNull(),
   /** Buyer is a sibling company: eliminated from group totals. */
   counterpartyEntityId: text('counterparty_entity_id'),
-}, (t) => [index('sales_wh_at_idx').on(t.warehouseId, t.at), index('sales_entity_idx').on(t.entityId, t.at)]);
+  /** V3-12: the client record and its credit days when the sale was made (the overdue rule uses these). */
+  clientId: text('client_id'), termsDays: integer('terms_days').notNull().default(14),
+}, (t) => [index('sales_wh_at_idx').on(t.warehouseId, t.at), index('sales_entity_idx').on(t.entityId, t.at), index('sales_client_idx').on(t.clientId)]);
+/** V3-12: clients of a company, picked (or created) on the sale; credit days per client (default 14). */
+export const clients = pgTable('clients', {
+  id: text('id').primaryKey(), entityId: text('entity_id').notNull(), name: text('name').notNull(), nameKey: text('name_key').notNull(),
+  phone: text('phone'), warehouseId: text('warehouse_id'), termsDays: integer('terms_days').notNull().default(14),
+  active: boolean('active').notNull().default(true), createdAt: ts('created_at').notNull().default(now()), byUserId: text('by_user_id'),
+}, (t) => [uniqueIndex('clients_entity_name_idx').on(t.entityId, t.nameKey)]);
 export const tripCosts = pgTable('trip_costs', {
   id: text('id').primaryKey(), entityId: text('entity_id').notNull(), shipmentId: text('shipment_id').notNull(), legId: text('leg_id'), kind: text('kind').notNull(),
   amount: doublePrecision('amount').notNull(), currency: text('currency').notNull(), docRef: text('doc_ref'),

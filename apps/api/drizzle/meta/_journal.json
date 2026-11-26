@@ -99,6 +99,13 @@
       "when": 1795683936784,
       "tag": "0013_settings_notify",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1795684889337,
+      "tag": "0014_clients",
+      "breakpoints": true
     }
   ]
 }

@@ -243,5 +243,60 @@ for (const who of ['u-kabonge', 'u-testfie', 'u-asie', 'u-yonas']) { await as(wh
   await as('u-daniel'); await api.settings.setMyNotify({ sms: false });
 }
 
+// ---- V3-12 step 1: clients and credit days ------------------------------------------------------------------------------
+{
+  const MX = await import('../src/metrics');
+  const R3 = await import('../src/rules');
+  const now = Date.UTC(2026, 10, 26, 12), at = (d: number) => iso(now - d * DAY);
+  const sale = (d: number, termsDays?: number) => ({ at: at(d), lines: [{ productId: 'p', qty: 10, price: 10 }], paid: 0, status: 'Unpaid' as const, termsDays });
+  ok(MX.termsOf({}) === 14 && MX.termsOf({ termsDays: 30 }) === 30 && MX.termsOf({ termsDays: 0 }) === 0, 'credit days: the sale\'s own, else 14');
+  ok(MX.overdueByCustomers([sale(20)], now) === 100 && MX.overdueByCustomers([sale(20, 30)], now) === 0 && MX.overdueByCustomers([sale(31, 30)], now) === 100, 'overdue: 20 days old is overdue on 14 days, not on 30; 31 days is overdue on 30');
+  ok(MX.overdueByCustomers([sale(1, 0)], now) === 100 && MX.owedByCustomers([sale(20), sale(20, 30)], now) === 200, 'overdue: "pay at once" (0 days) is overdue the next day; owed counts every open sale');
+  ok(R3.clientKey('  Kimironko   Wholesale ') === R3.clientKey('kimironko wholesale') && R3.cleanClientName('  Kimironko   Wholesale ') === 'Kimironko Wholesale', 'client names: same client whatever the spacing or capitals');
+  ok(R3.validTermsDays(0) && R3.validTermsDays(180) && !R3.validTermsDays(-1) && !R3.validTermsDays(181) && !R3.validTermsDays(7.5), 'credit days: whole days from 0 to 180');
+  ok(R3.canSetCreditDays(['director']) && R3.canSetCreditDays(['accounts']) && !R3.canSetCreditDays(['sales']), 'credit days: set by directors and accounts, not by sales staff');
+
+  await as('u-daniel');
+  const before = await api.dashboards.get(['director-today', 'mgmt-clients'], {});
+  const cl = await api.clients.list();
+  const all = await api.sales.list();
+  ok(cl.length > 0 && all.filter((s) => s.customer.trim()).every((s) => !!s.clientId && cl.some((c) => c.id === s.clientId && c.name === s.customer)), 'backfill: every sale points to a client with its name', cl.length);
+  ok(cl.every((c) => c.name.trim()) && all.filter((s) => !s.customer.trim()).every((s) => !s.clientId), 'backfill: a sale without a client name stays without a client (still flagged as missing data)');
+
+  ok(cl.every((c) => c.termsDays === 14) && new Set(cl.map((c) => `${c.entityId}|${R3.clientKey(c.name)}`)).size === cl.length, 'backfill: one client per name and company, 14 credit days');
+  const after = await api.dashboards.get(['director-today', 'mgmt-clients'], {});
+  // the figures, not the period's end (it is "now", a few ms later on the second call)
+  const fig = (r: typeof before, k: string) => JSON.stringify({ ...((r.results as Record<string, { data: object }>)[k]?.data ?? {}), period: null, prev: null });
+  ok(fig(before, 'mgmt-clients') === fig(after, 'mgmt-clients') && fig(before, 'director-today') === fig(after, 'director-today'), 'backfill keeps the figures: Today and Sales and clients are the same before and after');
+  const mc = (after.results['mgmt-clients']!.data) as import('../src/dashboards').MgmtClients;
+  // the Clients tab adds up to the company totals, apart from the sales recorded without a client (no client to show them on)
+  const mdb = (await import('../src/mock/db')).db, MXc = await import('../src/metrics');
+  const noClient = mdb.sales.filter((x) => !x.clientId);
+  const sumOf = (k: 'owed' | 'overdue') => cl.reduce((a, c) => a + c[k], 0);
+  ok(Math.abs(sumOf('owed') + MXc.owedByCustomers(noClient, Date.now()) - MXc.owedByCustomers(mdb.sales, Date.now())) < 1
+    && Math.abs(sumOf('overdue') + MXc.overdueByCustomers(noClient, Date.now()) - MXc.overdueByCustomers(mdb.sales, Date.now())) < 1, 'Clients tab: owed and overdue over all sales add up to the totals (with the sales that have no client)');
+  ok(Math.abs(mc.termsMix.reduce((a, x) => a + x.owed, 0) - (mc.kpis.owed ?? 0)) < 1 && Math.abs(mc.termsMix.reduce((a, x) => a + x.overdue, 0) - (mc.kpis.overdue ?? 0)) < 1, 'Management: credit days in use add up to owed and overdue', mc.termsMix);
+
+  const stockRow = (await api.inventory.stock()).find((r) => r.entityId === 'e-btw' && r.closing > 5)!;
+  api.entities.setActive('e-btw');
+  const line = [{ productId: stockRow.productId, qty: 1, price: 10 }];
+  const mk = (customer: string, clientId?: string) => api.sales.create({ entityId: 'e-btw', at: new Date().toISOString(), warehouseId: stockRow.warehouseId, customer, clientId, salespersonId: 'u-daniel', kind: 'Credit', lines: line, currency: 'USD', paid: 0 });
+  const n0 = (await api.clients.list()).length;
+  const s1 = await mk('  Nyabugogo   Traders ');
+  const c1 = (await api.clients.list()).find((c) => c.id === s1.clientId)!;
+  ok(c1 && c1.name === 'Nyabugogo Traders' && c1.termsDays === 14 && s1.termsDays === 14 && s1.customer === 'Nyabugogo Traders' && (await api.clients.list()).length === n0 + 1, 'a sale to a new name adds the client with 14 credit days');
+  const s2 = await mk('nyabugogo traders');
+  ok(s2.clientId === c1.id && (await api.clients.list()).length === n0 + 1, 'the same name again (other capitals) is the same client');
+  const c1b = await api.clients.update(c1.id, { termsDays: 30 });
+  const s3 = await mk('Nyabugogo Traders', c1.id);
+  ok(c1b.termsDays === 30 && s3.termsDays === 30 && (await api.sales.list()).find((x) => x.id === s1.id)!.termsDays === 14, 'new credit days apply to the next sales; earlier sales keep theirs');
+  await rejects(api.clients.update(c1.id, { termsDays: 200 }), /0 to 180/, 'credit days over 180 are refused');
+  await rejects(api.clients.create({ entityId: 'e-btw', name: 'NYABUGOGO traders' }), /already a client/, 'a second client with the same name is refused');
+  await api.clients.update(c1.id, { active: false });
+  await rejects(mk('Nyabugogo Traders'), /deactivated/, 'a deactivated client cannot be picked on a new sale');
+  await api.clients.update(c1.id, { active: true });
+  api.entities.setActive(null);
+}
+
 console.log(fails ? `\n${fails} money check(s) FAILED` : '\nall money checks passed');
 if (fails) process.exitCode = 1;
