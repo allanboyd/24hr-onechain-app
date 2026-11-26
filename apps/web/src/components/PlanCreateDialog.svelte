@@ -5,6 +5,7 @@
   import { router, say } from '@btw/ui';
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
   import CompanyMark from './CompanyMark.svelte';
+  import FormSelect from './FormSelect.svelte';
   import ReplaceDialog from './ReplaceDialog.svelte';
   import { company, GROUP, allowedIds } from '../lib/company.svelte';
   import { allCompanies, companyBrand, companyLabel } from '../lib/companies';
@@ -15,15 +16,8 @@
   const lockedId = $derived(company.active === GROUP ? '' : company.active);
   const companies = $derived(allCompanies().filter((c) => allowedIds(user).includes(c.id)));
   const nextMonth = (() => { const d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + 1); return d.toISOString().slice(0, 7); })();
-  const monthChoices = (() => {
-    const y0 = new Date().getUTCFullYear();
-    const out: { key: string; label: string }[] = [];
-    for (let i = 0; i < 24; i++) {
-      const d = new Date(Date.UTC(y0, i, 1));
-      out.push({ key: d.toISOString().slice(0, 7), label: d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }) });
-    }
-    return out;
-  })();
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((label, i) => ({ value: String(i + 1).padStart(2, '0'), label }));
+  const YEARS = [0, 1].map((n) => { const y = String(new Date().getUTCFullYear() + n); return { value: y, label: y }; });
   const LENGTH: { k: PeriodKind; label: string; hint: string }[] = [
     { k: 'month', label: 'Month', hint: '1 month' },
     { k: 'quarter', label: 'Quarter', hint: '3 months' },
@@ -36,7 +30,8 @@
   let step = $state<1 | 2 | 3>(1);
   let picked = $state('');
   let kind = $state<PeriodKind>('quarter');
-  let startMonth = $state(nextMonth);
+  let startM = $state(nextMonth.slice(5, 7));
+  let startY = $state(nextMonth.slice(0, 4));
   let customFrom = $state(`${nextMonth}-01`);
   let customTo = $state('');
   let title = $state('');
@@ -47,6 +42,7 @@
   let replaceDialog = $state<ReturnType<typeof ReplaceDialog>>();
 
   const entityId = $derived(lockedId || picked);
+  const startMonth = $derived(`${startY}-${startM}`);
   const co = $derived(entityId ? companyBrand(entityId) : null);
   function spanOf(k: PeriodKind, ym: string) {
     if (k === 'custom') return { from: customFrom, to: customTo };
@@ -65,9 +61,9 @@
   $effect(() => {
     if (!dlg) return;
     if (open && !dlg.open) {
-      const ym = monthChoices.some((m) => m.key === nextMonth) ? nextMonth : monthChoices[0].key;
+      const ym = nextMonth;
       const end = spanOf('quarter', ym).to;
-      step = 1; picked = lockedId; kind = 'quarter'; startMonth = ym;
+      step = 1; picked = lockedId; kind = 'quarter'; startY = ym.slice(0, 4); startM = ym.slice(5, 7);
       customFrom = `${ym}-01`; customTo = end; title = ''; copyFrom = '';
       dlg.showModal();
     } else if (!open && dlg.open) dlg.close();
@@ -94,6 +90,14 @@
   }
 </script>
 
+{#snippet clash()}
+  <div class="card flag-warning warn" role="alert">
+    <div class="row"><TriangleAlert size={18} /><strong>This period overlaps {overlaps.length} existing plan{overlaps.length === 1 ? '' : 's'}</strong></div>
+    <p>Change the month, the year, or the length.</p>
+    <ul>{#each overlaps as o (o.id)}<li>{o.ref} · {periodLabel(o)} · {planTotals(o).cases.toLocaleString()} cases</li>{/each}</ul>
+  </div>
+{/snippet}
+
 <dialog class="sheet plan" bind:this={dlg} onclose={close} aria-labelledby="plan-new-title">
   <form class="body" onsubmit={create}>
     <header class="top">
@@ -113,10 +117,7 @@
       <p class="lead">{group ? 'Group view keeps every company. Choose which one this plan belongs to.' : 'This plan is recorded for the company you are in.'}</p>
       {#if group}
         <label class="field"><span>Company</span>
-          <select class="select" bind:value={picked}>
-            <option value="">Choose a company</option>
-            {#each companies as c (c.id)}<option value={c.id}>{companyLabel(c.id)} · {c.name}</option>{/each}
-          </select>
+          <FormSelect label="Company" bind:value={picked} placeholder="Choose a company" options={companies.map((c) => ({ value: c.id, label: `${companyLabel(c.id)} · ${c.name}` }))} />
         </label>
       {:else if co}
         <div class="co card"><CompanyMark entityId={entityId} size={32} /><div><strong>{co.name}</strong><span>{companyLabel(entityId)}</span></div></div>
@@ -125,12 +126,15 @@
         <button type="button" class="btn btn-primary" disabled={!entityId} onclick={() => (step = 2)}>Continue</button>
       </div>
     {:else if step === 2}
-      <p class="lead">Pick the first month, then how long the plan runs. The end date is worked out from that.</p>
-      <label class="field"><span>Starts</span>
-        <select class="select" bind:value={startMonth}>
-          {#each monthChoices as m (m.key)}<option value={m.key}>{m.label}</option>{/each}
-        </select>
-      </label>
+      <p class="lead">Pick the month and the year, then how long the plan runs. The end date is worked out from that.</p>
+      <div class="pair">
+        <label class="field"><span>Month</span>
+          <FormSelect label="Month" bind:value={startM} options={MONTHS} />
+        </label>
+        <label class="field"><span>Year</span>
+          <FormSelect label="Year" bind:value={startY} options={YEARS} />
+        </label>
+      </div>
       <div class="field"><span>Length</span>
         <div class="kinds" role="group" aria-label="Length">
           {#each LENGTH as x (x.k)}
@@ -149,29 +153,27 @@
         <span>{valid ? `${day(period.from)} to ${day(period.to)}` : '-'} · {monthCount} {monthCount === 1 ? 'month' : 'months'}</span>
         {#if kind !== 'custom' && valid}<span>Ends {day(period.to)}</span>{/if}
       </p>
+      {#if overlaps.length}
+        {@render clash()}
+      {/if}
       <div class="row end">
         <button type="button" class="btn btn-ghost" onclick={() => (step = 1)}>Back</button>
-        <button type="button" class="btn btn-primary" disabled={!valid} onclick={() => (step = 3)}>Continue</button>
+        <button type="button" class="btn btn-primary" disabled={!valid || overlaps.length > 0} onclick={() => (step = 3)}>Continue</button>
       </div>
     {:else}
       <p class="when"><strong>{label}</strong><span>{companyLabel(entityId)} · {day(period.from)} to {day(period.to)} · {KIND_LABEL[kind]}</span></p>
       <label class="field"><span>Title</span><input class="input" bind:value={title} placeholder={`${companyLabel(entityId)} ${label}`} /></label>
-      <label class="field"><span>Start from an earlier plan</span>
-        <select class="select" bind:value={copyFrom}>
-          <option value="">Start empty</option>
-          {#each earlier as p (p.id)}<option value={p.id}>{p.ref} · {periodLabel(p)} · {p.lines.length} lines</option>{/each}
-        </select>
+      <label class="field"><span>Copy lines</span>
+        <FormSelect label="Copy lines" bind:value={copyFrom} options={[{ value: '', label: 'No lines yet' }, ...earlier.map((p) => ({ value: p.id, label: `${p.ref} · ${periodLabel(p)} · ${p.lines.length} lines` }))]} />
+        <span class="hint">No lines yet means you add the products on the next screen. Pick an earlier plan only when you want its lines copied.</span>
       </label>
       {#if overlaps.length}
-        <div class="card flag-warning warn" role="alert">
-          <div class="row"><TriangleAlert size={18} /><strong>This period overlaps {overlaps.length} existing plan{overlaps.length === 1 ? '' : 's'}</strong></div>
-          <ul>{#each overlaps as o (o.id)}<li>{o.ref} · {periodLabel(o)} · {planTotals(o).cases.toLocaleString()} cases</li>{/each}</ul>
-        </div>
+        {@render clash()}
       {/if}
       {#if !canCreate}<p class="error">Only planners, directors and admins create period plans.</p>{/if}
       <div class="row end">
         <button type="button" class="btn btn-ghost" onclick={() => (step = 2)}>Back</button>
-        <button class="btn btn-primary" disabled={busy || !canCreate || !entityId || !valid}>{busy ? 'Saving' : copyFrom ? 'Copy into a new plan' : 'Create plan'}</button>
+        <button class="btn btn-primary" disabled={busy || !canCreate || !entityId || !valid || overlaps.length > 0}>{busy ? 'Saving' : copyFrom ? 'Copy into a new plan' : 'Create plan'}</button>
       </div>
     {/if}
   </form>
@@ -195,9 +197,11 @@
   .kinds { display: flex; flex-wrap: wrap; gap: 8px; }
   .kinds .sel-chip { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 108px; padding: 10px 12px; }
   .kinds small { font-weight: 500; font-size: 11px; opacity: 0.8; }
+  .pair { display: grid; grid-template-columns: 1fr 140px; gap: 12px; }
+  .hint { color: var(--text-muted); font-size: 13px; font-weight: 500; }
   .when { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: var(--space-4); background: var(--surface-sunken); border-radius: var(--radius-md); }
   .when span { color: var(--text-muted); font-size: 13px; }
   .end { justify-content: flex-end; gap: var(--space-2); }
-  .warn { padding: var(--space-4); } .warn ul { margin: var(--space-2) 0 0; padding-left: var(--space-4); }
+  .warn { padding: var(--space-4); } .warn p { margin: 6px 0 0; } .warn ul { margin: var(--space-2) 0 0; padding-left: var(--space-4); }
   .field { display: flex; flex-direction: column; gap: 8px; }
 </style>
