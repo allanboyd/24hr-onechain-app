@@ -103,7 +103,7 @@ async function screen(path, word, filterLegend, chipLabel, param) {
   }
   ok(await p.locator('form.filterbar, .filter-bar').count() === 0, `${path}: no separate filter bar`);
 }
-await screen('/shipments?show=all', 'KBL', 'Status', 'Status', 'status');
+await screen('/shipments?show=all&view=list', 'KBL', 'Status', 'Status', 'status');
 await screen('/sales', 'a', 'Warehouse', 'Warehouse', 'wh');
 await screen('/transport-costs', 'SSD', 'Provider', 'Provider', 'provider');
 await screen('/transport-costs?tab=trips', 'SSD', 'Route', 'Route', 'route');
