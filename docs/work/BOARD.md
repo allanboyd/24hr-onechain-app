@@ -105,5 +105,6 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11: chart info icons and in-chart filters removed. My dashboards is Overview. Decisions uses the primary colour. New period plan is a modal, with Plan vs actual beside it. |
 | 26 Nov 2026 | cursor | V3-11 Overview: filter bar has space between the rows, cards match Management and show the operational facts, all six decisions are colour-coded, export is an icon beside chart and table. Merged into design-v3. |
 | 26 Nov 2026 | cursor | V3-11 filter bar is one row on every Live dashboard tab: a small title over each compact control. Merged into design-v3. |
+| 26 Nov 2026 | cursor | V3-11 Overview Sales card: sparkline removed, comparison reads Past period. Merged into design-v3. |
 | 26 Nov 2026 | claude | Split agreed: cursor = V3-11 then V3-9; claude = V3-10 then V3-8 batch 2 (see "Who does what"). claude starts V3-10 Supplier balances. |
 | 26 Nov 2026 | claude | V3-10 step 3c merged: Management → Supplier balances on live data (short loads; credit notes / advances not recorded yet). Request to cursor: ColumnsLine right-axis format. Next: Cash and closing. |
