@@ -5,9 +5,10 @@
   import { STATUS, type Status } from './status';
   export interface KanbanColumn { key: string; label: string; status?: Status }
   export interface KanbanCard { id: string; column: string; title: string; group?: string; subtitle?: string; meta?: string; status?: Status; statusLabel?: string; stale?: boolean }
-  let { columns, cards, groupLabel = 'Route', summary = true, fit = false, oncard }: {
+  let { columns, cards, groupLabel = 'Route', summary = true, fit = false, brief = false, oncard }: {
     columns: KanbanColumn[]; cards: KanbanCard[]; groupLabel?: string; /** status counts across the top */ summary?: boolean;
     /** columns share the width and each one scrolls, so none is cut off */ fit?: boolean;
+    /** truck and status only; the rest opens from the card */ brief?: boolean;
     oncard?: (card: KanbanCard) => void;
   } = $props();
   const inCol = (k: string) => cards.filter((c) => c.column === k);
@@ -30,10 +31,15 @@
       {#each grouped(col.key) as [g, cs]}
         {#if g}<div class="grp caption" title="{groupLabel}: {g}">{g}</div>{/if}
         {#each cs as c (c.id)}
-          <svelte:element this={oncard ? 'button' : 'div'} class="kc" class:stale={c.stale} type={oncard ? 'button' : undefined} role={oncard ? undefined : 'group'} onclick={oncard ? () => oncard(c) : undefined}>
-            <div class="row between" style="gap:var(--space-2);flex-wrap:{fit ? 'wrap' : 'nowrap'}"><strong>{c.title}</strong>{#if c.status}<StatusBadge status={c.status} label={c.statusLabel} size={12} />{/if}</div>
-            {#if c.subtitle}<div class="small muted">{c.subtitle}</div>{/if}
-            {#if c.meta}<div class="caption">{c.meta}{#if c.stale} · not updated recently{/if}</div>{/if}
+          <svelte:element this={oncard ? 'button' : 'div'} class="kc" class:stale={c.stale} class:brief type={oncard ? 'button' : undefined} role={oncard ? undefined : 'group'} onclick={oncard ? () => oncard(c) : undefined}>
+            {#if brief}
+              <strong>{c.title}</strong>
+              {#if c.status}<StatusBadge status={c.status} label={c.statusLabel} size={12} />{/if}
+            {:else}
+              <div class="row between face"><strong>{c.title}</strong>{#if c.status}<StatusBadge status={c.status} label={c.statusLabel} size={12} />{/if}</div>
+            {/if}
+            {#if !brief && c.subtitle}<div class="small muted">{c.subtitle}</div>{/if}
+            {#if !brief && c.meta}<div class="caption">{c.meta}{#if c.stale} · not updated recently{/if}</div>{/if}
           </svelte:element>
         {/each}
       {:else}<p class="caption none">No trucks</p>{/each}
@@ -49,12 +55,16 @@
   .count { font-variant-numeric: tabular-nums; background: var(--surface); border-radius: var(--radius-full); padding: 0 8px; font-size: var(--fs-caption); border: 1px solid var(--border); }
   .grp { padding: 4px 4px 0; text-transform: none; font-weight: 600; color: var(--text-muted); }
   .kc { display: flex; flex-direction: column; gap: 2px; text-align: left; font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); min-height: 44px; }
+  .face { gap: 6px; flex-wrap: nowrap; min-width: 0; }
+  .face strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .face :global(.sb) { flex: none; }
   button.kc { cursor: pointer; } button.kc:hover { border-color: var(--border-strong); }
   .kc.stale { opacity: 0.65; border-style: dashed; }
+  .kc.brief { padding: 6px 8px; min-height: 0; align-items: flex-start; gap: 4px; }
+  .kc.brief strong { font-size: 13px; line-height: 1.2; }
   .none { padding: 4px; }
   .kb.fit { grid-auto-flow: row; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); overflow: hidden; flex: 1; min-height: 0; }
-  .kb.fit .col { overflow: auto; min-height: 0; }
-  .kb.fit .kc { overflow: hidden; }
-  .kb.fit .kc strong, .kb.fit .caption, .kb.fit .small, .kb.fit .grp { white-space: normal; overflow-wrap: anywhere; }
+  .kb.fit .col { overflow: auto; min-height: 0; gap: 6px; padding: 6px; }
+  .kb.fit .grp { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   @media (max-width: 600px) { .kb { grid-auto-columns: 78%; } }
 </style>

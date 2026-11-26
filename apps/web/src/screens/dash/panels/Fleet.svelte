@@ -14,10 +14,18 @@
   const drill = $derived(link ? { label: 'Open the full screen', href: link } : undefined);
   const go = (h: string) => (location.hash = h.replace(/^#/, ''));
 
-  const cards = $derived(key === 'fleet-board' ? (d.cards ?? []).map((c: any): KanbanCard & { shipmentId?: string } => ({
+  const cards = $derived(key === 'fleet-board' ? (d.cards ?? []).map((c: any): KanbanCard & { shipmentId?: string; where?: string; etaLabel?: string; updated?: string } => ({
     id: c.id, column: c.column, title: c.title, group: c.group, subtitle: c.subtitle + (c.reexport ? ' · re-export' : ''),
+    where: c.where, etaLabel: c.eta ? day(c.eta) : '', updated: c.lastUpdate ? ago(c.lastUpdate) : '',
     meta: `${c.where}${c.eta ? ` · ETA ${day(c.eta)}` : ''}${c.lastUpdate ? ` · update ${ago(c.lastUpdate)}` : ''}`, status: c.status, statusLabel: c.statusLabel, stale: c.stale, shipmentId: c.shipmentId,
   })) : []);
+  let picked = $state<(typeof cards)[number] | null>(null);
+  let cardDlg = $state<HTMLDialogElement>();
+  $effect(() => {
+    if (!cardDlg) return;
+    if (picked && !cardDlg.open) cardDlg.showModal();
+    else if (!picked && cardDlg.open) cardDlg.close();
+  });
   const boardRows = () => [['Truck', 'Status', 'Route', 'Driver · provider', 'Where', 'ETA', 'Last update', 'Stale'], ...(d.cards ?? []).map((c: any) => [c.title, c.statusLabel, c.group, c.subtitle, c.where, c.eta ?? '', c.lastUpdate ?? '', c.stale ? 'Yes' : ''])];
   // heatmap
   const hm = $derived.by(() => {
@@ -39,9 +47,25 @@
   <div class="board-row">
     <TruckStage mode="map" />
     <DashboardPanel span={1} subtitle="by status, grouped by route · faded = no recent update" decision="Act on delayed and faded (silent) trucks first." {...fr} title={r.title} staleAfter={12 * 60} freshness="synced" rows={boardRows} filename="live-fleet" {drill}>
-      <KanbanBoard columns={d.columns} {cards} fit oncard={(c) => { const x = cards.find((y: any) => y.id === c.id); if (x?.shipmentId) go(`#/shipments/${x.shipmentId}`); }} />
+      <KanbanBoard columns={d.columns} {cards} fit brief oncard={(c) => { picked = cards.find((y: (typeof cards)[number]) => y.id === c.id) ?? null; }} />
     </DashboardPanel>
   </div>
+  {#if picked}
+    <dialog class="sheet" bind:this={cardDlg} aria-labelledby="fleet-card-title" onclose={() => (picked = null)}>
+      <div class="body">
+        <div class="row between"><h2 id="fleet-card-title">{picked.title}</h2><button type="button" class="btn btn-ghost btn-sm" onclick={() => cardDlg?.close()}>Close</button></div>
+        {#if picked.status}<p><StatusBadge status={picked.status} label={picked.statusLabel} /></p>{/if}
+        <dl class="facts">
+          <div><dt>Route</dt><dd>{picked.group || '-'}</dd></div>
+          <div><dt>Driver</dt><dd>{picked.subtitle || '-'}</dd></div>
+          <div><dt>Where</dt><dd>{picked.where || '-'}</dd></div>
+          <div><dt>ETA</dt><dd>{picked.etaLabel || '-'}</dd></div>
+          <div><dt>Last update</dt><dd>{picked.updated || '-'}{#if picked.stale} · not updated recently{/if}</dd></div>
+        </dl>
+        {#if picked.shipmentId}<a class="btn btn-primary" href="#/shipments/{picked.shipmentId}" onclick={() => cardDlg?.close()}>Open the shipment</a>{/if}
+      </div>
+    </dialog>
+  {/if}
 {:else if key === 'delayed-trucks'}
   <DashboardPanel span={span ?? 1} subtitle="by days late" decision="Give every late truck an owner and a next step." {...fr} title={r.title} rows={() => [['Truck', 'Shipment', 'Route', 'Where', 'Days late', 'Reason', 'Owner', 'Severity'], ...(d.rows ?? []).map((x: any) => [x.truck, x.ref, x.route, x.where, x.daysLate, x.reason, x.owner ?? 'Not assigned', x.severity])]} filename="delayed-trucks" {drill} emptyText="No truck is late">
     <div class="table-wrap"><table class="table">
@@ -100,6 +124,10 @@
   .feed li > span:nth-child(2) { flex: 1 1 auto; min-width: 0; }
   .feed .t { flex: none; }
   .feed li.issue { color: var(--danger); }
+  .facts { display: grid; gap: 10px; margin: var(--space-4) 0; }
+  .facts div { display: grid; gap: 2px; }
+  .facts dt { font-size: 12px; color: var(--text-muted); }
+  .facts dd { margin: 0; }
   .board-row { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: var(--space-4); align-items: stretch; height: 640px; }
   .board-row :global(.dash-panel),
   .board-row :global(.stage) { min-width: 0; min-height: 0; height: 100%; overflow: hidden; }

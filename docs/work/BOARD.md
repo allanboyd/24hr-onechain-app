@@ -171,3 +171,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | claude | V3-15 step 3 merged: Alerts as an activity feed (by day, buttons) and exceptions as cards by severity; tables one click away. |
 | 26 Nov 2026 | claude | V3-15 step 4 merged: Stock with warehouse cards, cover bars and "what to do"; nothing scrolls sideways. |
 | 26 Nov 2026 | cursor | V3-11 Sales stops at cash vs credit. Warehouse today no longer stacks every arrival, and the stock report is not repeated under the cards. |
+| 26 Nov 2026 | cursor | V3-11 Shipments: Driver status updates is removed. A live board card is the truck and its standing, and a click opens the detail without leaving the page. |
