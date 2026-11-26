@@ -5,8 +5,8 @@
   import { termsOf } from '@btw/api/metrics';
   import { watch } from '../../../lib/load.svelte';
   import ErrorState from '../../../components/ErrorState.svelte';
-  import SmoothTrend from '../../../components/charts/SmoothTrend.svelte';
   import { BarChart, Donut } from '../../../components/charts';
+  import BoxPlot from '../../../components/charts/BoxPlot.svelte';
   import type { Ink } from '../../../components/charts/theme.svelte';
   import { compact } from '../../../components/charts/scale';
   import { currency, cv, cvRow } from '../fmt.svelte';
@@ -45,8 +45,6 @@
   const cmp1 = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
   const axisFmt = (n: number) => cmp1.format(n);
   const moneyTxt = (usd: number | null | undefined) => (usd == null ? 'No data yet' : `${currency.code} ${amount(usd)}`);
-  const dayFmt = (iso: string, o: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' }) => new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString('en-GB', { ...o, timeZone: 'UTC' });
-  let hideSales = $state(false), hideProfit = $state(false);
   const chart = $derived.by(() => {
     if (!d) return { labels: [] as string[], sales: [] as (number | null)[], profit: [] as (number | null)[] };
     const inRange = d.daily.filter((x) => (!filter.from || x.day >= filter.from.slice(0, 10)) && (!filter.to || x.day <= filter.to.slice(0, 10)));
@@ -55,6 +53,10 @@
   });
   const chartRows = () => [['Day', `Sales (${currency.code})`, `Profit (${currency.code})`], ...chart.labels.map((l, i) => [l, chart.sales[i] == null ? '' : Math.round(chart.sales[i]! * 100) / 100, chart.profit[i] == null ? '' : Math.round(chart.profit[i]! * 100) / 100])];
   const chartTotal = $derived({ sales: chart.sales.reduce((a: number, v) => a + (v ?? 0), 0), profit: chart.profit.reduce((a: number, v) => a + (v ?? 0), 0) });
+  const spread = $derived([
+    { label: 'Sales', values: chart.sales.filter((v): v is number => v != null) },
+    { label: 'Profit', values: chart.profit.filter((v): v is number => v != null), slot: 1 },
+  ]);
 
   const ICON: Record<TodayDecision['key'], typeof Truck> = { approvals: HandCoins, trucks: Truck, fees: Banknote, stock: Package, acks: Inbox, prices: Tag };
   const STATE: Record<TodayDecision['severity'], string> = { critical: 'Critical', high: 'High', medium: 'Watch', low: 'Clear' };
@@ -188,7 +190,7 @@
     </a>
   </div>
   <div class="map-slot">
-    <TodayCard title="Trucks" caption="Where they are now" updatedAt={res?.freshness ?? null} rows={truckRows} filename="trucks-now" empty={!onMap.length} emptyText="No trucks on the road" drill={{ label: 'Open shipments', href: '#/shipments' }} viewToggle>
+    <TodayCard title="Trucks" caption="Where they are now" updatedAt={res?.freshness ?? null} rows={truckRows} filename="trucks-now" empty={!onMap.length} emptyText="No trucks on the road" drill={{ label: 'Open shipments', href: '#/shipments' }} viewToggle fill>
       {#snippet tableView()}
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Truck</th><th>Where</th><th>Standing</th></tr></thead>
@@ -202,16 +204,8 @@
 
   <div class="graphs">
     <div>
-      <TodayCard title="Sales and profit" caption="{currency.code} · total {compact(chartTotal.sales)} sales, {compact(chartTotal.profit)} profit" updatedAt={res?.freshness ?? null} rows={chartRows} filename="sales-and-profit" empty={!chart.sales.some((v) => v != null)} viewToggle>
-        {#snippet actions()}
-          <div class="legend" role="group" aria-label="Show or hide a line">
-            <button class="lg" aria-pressed={!hideSales} onclick={() => (hideSales = !hideSales)}><i style="background:var(--t-sales)"></i>Sales</button>
-            <button class="lg" aria-pressed={!hideProfit} onclick={() => (hideProfit = !hideProfit)}><i style="background:var(--t-profit)"></i>Profit</button>
-          </div>
-        {/snippet}
-        <SmoothTrend label="Sales and profit" labels={chart.labels}
-          series={[{ name: 'Sales', values: chart.sales, color: 'var(--t-sales)', area: true, hidden: hideSales }, { name: 'Profit', values: chart.profit, color: 'var(--t-profit)', hidden: hideProfit }]}
-          format={axisFmt} xLabel={(s) => dayFmt(s)} tipLabel={(s) => dayFmt(s, { weekday: 'short', day: 'numeric', month: 'short' })} height={240} />
+      <TodayCard title="Sales and profit" caption="{currency.code} · total {compact(chartTotal.sales)} sales, {compact(chartTotal.profit)} profit" updatedAt={res?.freshness ?? null} rows={chartRows} filename="sales-and-profit" empty={!spread.some((g) => g.values.length)} viewToggle>
+        <BoxPlot label="Sales and profit" groups={spread} unit={currency.code} format={axisFmt} height={340} note="Box is the middle half of days. The line is the median. Each dot is a day." />
       </TodayCard>
     </div>
     <div>
@@ -272,14 +266,10 @@
 {/if}
 
 <style>
-  :global(:root) { --t-sales: #1f3a5f; --t-profit: #1b7f5c; }
-  @media (prefers-color-scheme: dark) { :global(:root:not([data-theme='light'])) { --t-sales: #9bb6d6; --t-profit: #3dbe8a; } }
-  :global(:root[data-theme='dark']) { --t-sales: #9bb6d6; --t-profit: #3dbe8a; }
-
   .busy { opacity: 0.6; transition: opacity 0.2s; }
-  .band { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.2fr); gap: var(--space-4); align-items: start; margin-bottom: var(--space-4); }
-  .side { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
-  .map-slot { display: flex; min-width: 0; }
+  .band { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.2fr); gap: var(--space-4); align-items: stretch; margin-bottom: var(--space-4); }
+  .side { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; min-height: 100%; }
+  .map-slot { display: flex; flex: 1; min-width: 0; min-height: 240px; }
   .map-slot > :global(.tc) { flex: 1; width: 100%; }
   .facts { grid-template-columns: repeat(4, minmax(0, 1fr)); align-content: start; }
   .facts.trio { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -292,29 +282,18 @@
   .bottom { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); margin-bottom: var(--space-4); align-items: stretch; }
   .dec { display: grid; grid-template-columns: 1fr; }
 
-  .legend { display: flex; gap: 2px; }
-  .lg { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 0; background: none; border-radius: var(--radius-md); font: inherit; font-size: 13px; color: var(--text); cursor: pointer; }
-  .lg i { width: 10px; height: 10px; border-radius: 50%; }
-  .lg[aria-pressed='false'] { color: var(--text-subtle); text-decoration: line-through; }
-  .lg[aria-pressed='false'] i { opacity: 0.35; }
-  .lg:hover { background: var(--surface-sunken); }
-
   .dec { list-style: none; margin: 0; padding: 0; }
   .dec li { border-top: 1px solid color-mix(in srgb, var(--text-on-primary) 22%, transparent); }
   .dec li:first-child { border-top: 0; }
   .dec a { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto auto 14px; align-items: center; gap: var(--space-2); padding: 8px 0; color: var(--text-on-primary); text-decoration: none; }
   .dec a:hover b { text-decoration: underline; }
-  .dec .ic { display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-md); background: transparent; color: var(--text-on-primary); }
-  .tx { display: flex; flex-direction: column; min-width: 0; font-size: 11px; color: color-mix(in srgb, var(--text-on-primary) 78%, transparent); }
+  .dec .ic, .st, .ct b, .dec :global(.chev) { color: var(--on-primary-accent); }
+  .dec .ic { display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-md); background: transparent; }
+  .tx { display: flex; flex-direction: column; min-width: 0; font-size: 11px; color: var(--text-on-primary-muted); }
   .tx b { font-size: 13px; font-weight: 600; color: var(--text-on-primary); line-height: 1.3; }
   .tx > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
-  .st { justify-self: end; padding: 0; border-radius: 0; font-size: 12px; font-weight: 700; background: transparent; color: var(--text-on-primary); }
-  .sev-critical .st, .sev-critical .ic { background: transparent; color: color-mix(in srgb, var(--danger-solid) 70%, white); }
-  .sev-high .st, .sev-high .ic { background: transparent; color: var(--warning-solid); }
-  .sev-medium .st, .sev-medium .ic { background: transparent; color: color-mix(in srgb, var(--info) 45%, white); }
-  .sev-low .st, .sev-low .ic { background: transparent; color: color-mix(in srgb, var(--success) 50%, white); }
-  .ct b { font-size: 16px; font-variant-numeric: tabular-nums; color: var(--text-on-primary); }
-  .dec :global(.chev) { color: var(--text-on-primary); }
+  .st { justify-self: end; padding: 0; border-radius: 0; font-size: 12px; font-weight: 700; background: transparent; }
+  .ct b { font-size: 16px; font-variant-numeric: tabular-nums; }
 
   @media (max-width: 1280px) {
     .band { grid-template-columns: 1fr; }

@@ -78,16 +78,20 @@
       L = (mod as { default?: typeof import('leaflet') }).default ?? mod;
       map = L.map(node, { zoomControl: true, attributionControl: false }).setView([-0.8, 32.5], 6);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
-      if (node.clientWidth > 40) { seen = node.clientWidth; map.invalidateSize(); draw(); }
+      if (node.clientWidth > 40) { seenW = node.clientWidth; seenH = node.clientHeight; map.invalidateSize(); draw(); }
     })();
-    let seen = 0;
+    let seenW = 0;
+    let seenH = 0;
     const watchSize = new ResizeObserver(() => {
       if (!map) return;
       const w = node.clientWidth;
-      if (w < 40 || w === seen) return;
-      seen = w;
+      const h = node.clientHeight;
+      if (w < 40 || (w === seenW && h === seenH)) return;
+      const widthChanged = w !== seenW;
+      seenW = w;
+      seenH = h;
       map.invalidateSize();
-      draw();
+      if (widthChanged) draw();
     });
     watchSize.observe(node);
     return () => { dead = true; watchSize.disconnect(); };
@@ -106,14 +110,14 @@
 </div>
 
 <style>
-  .wrap { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .wrap { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1; min-height: 0; height: 100%; }
   .key { display: flex; flex-wrap: wrap; gap: 12px; margin: 0; padding: 0; list-style: none; font-size: 12px; color: var(--text-muted); }
   .key li { display: inline-flex; align-items: center; gap: 6px; }
   .key i { width: 10px; height: 10px; border-radius: 50%; }
   .ok { background: var(--success); }
   .late { background: var(--warning-solid); }
   .over { background: var(--danger); }
-  .map { width: 100%; height: 280px; border-radius: var(--radius-md); overflow: hidden; isolation: isolate; z-index: 0; background: var(--surface-sunken); }
+  .map { width: 100%; flex: 1; min-height: 220px; height: auto; border-radius: var(--radius-md); overflow: hidden; isolation: isolate; z-index: 0; background: var(--surface-sunken); }
   .map :global(.leaflet-container) { height: 100%; width: 100%; font: inherit; background: var(--surface-sunken); }
   :global([data-theme='dark'] .leaflet-tile-pane) { filter: brightness(.75) contrast(1.1) saturate(.8); }
   @media (prefers-color-scheme: dark) { :global(:root:not([data-theme='light']) .leaflet-tile-pane) { filter: brightness(.75) contrast(1.1) saturate(.8); } }

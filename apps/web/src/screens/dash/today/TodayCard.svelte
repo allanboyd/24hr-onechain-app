@@ -10,13 +10,15 @@
   import TableIcon from '@lucide/svelte/icons/table-2';
   let {
     title, definition = '', caption = '', decision = '', updatedAt, rows, filename, drill, empty = false, emptyText = 'No data yet',
-    actions, children, tableView, flush = false, viewToggle = false, tone = 'default',
+    actions, children, tableView,     flush = false, viewToggle = false, tone = 'default', fill = false,
   }: {
     title: string; definition?: string; caption?: string; decision?: string; updatedAt?: string | null;
     rows?: () => Rows; filename?: string; drill?: { label: string; href: string };
     empty?: boolean; emptyText?: string; actions?: Snippet; children: Snippet; tableView?: Snippet;
     flush?: boolean; /** show chart | table icon pair when rows + tableView exist */ viewToggle?: boolean;
     tone?: 'default' | 'primary';
+    /** grow so a map can fill the leftover height of the row */
+    fill?: boolean;
   } = $props();
   const uid = `tc-${Math.random().toString(36).slice(2, 8)}`;
   let table = $state(false);
@@ -28,7 +30,7 @@
   $effect(() => { decision; });
 </script>
 
-<section class="tc" class:primary={tone === 'primary'} aria-labelledby="{uid}-t">
+<section class="tc" class:primary={tone === 'primary'} class:fill aria-labelledby="{uid}-t">
   <header>
     <div class="ttl">
       <h3 id="{uid}-t">{title}</h3>
@@ -79,6 +81,8 @@
   .vbtn[aria-pressed='true'] { background: var(--surface-sunken); color: var(--text); }
   .vbtn:hover { color: var(--text); }
   .body { margin-top: var(--space-4); min-width: 0; display: flex; flex-direction: column; }
+  .fill { height: 100%; }
+  .fill .body { flex: 1; min-height: 0; }
   .body.flush { margin-left: calc(-1 * var(--space-6)); margin-right: calc(-1 * var(--space-6)); }
   .nodata { display: flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: 140px; color: var(--text-muted); background: var(--surface-sunken); border-radius: var(--radius-md); font-size: 14px; }
   .drill { align-self: stretch; display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: var(--space-4); padding: 9px var(--space-3); border-radius: var(--radius-md); border: 1px solid var(--border); color: var(--text); font-weight: 600; font-size: 13px; text-decoration: none; }
