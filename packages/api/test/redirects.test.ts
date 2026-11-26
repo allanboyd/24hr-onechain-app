@@ -61,7 +61,11 @@ for (const d of DASHBOARDS) if (d.link) ok(isRoute(d.link), `dashboard ${d.key} 
 const nav = read('apps/web/src/routes.ts');
 const navBlock = nav.slice(nav.indexOf('export const nav'), nav.indexOf('const HIDDEN'));
 const hrefs = [...navBlock.matchAll(/href: '#([^']*)'/g)].map((m) => m[1]);
-ok(hrefs.length === 16, `sidebar has 16 entries — docs/17 §4 list (its '15' miscounts the Admin group) (${hrefs.length})`, hrefs);
+// docs/23 (design v3): the Management group (report pages + live dashboards) is counted on its own; Operations keeps 16
+const mgmt = hrefs.filter((h) => h.startsWith('/management/') || h === '/dashboards');
+const ops = hrefs.filter((h) => !mgmt.includes(h));
+ok(ops.length === 16, `operations sidebar has 16 entries — docs/17 §4 list (its '15' miscounts the Admin group) (${ops.length})`, ops);
+ok(mgmt.length === 8 && mgmt.filter((h) => h.startsWith('/management/')).every((h) => isRoute(h)), `management group: 7 report pages + live dashboards, all routes (${mgmt.length})`, mgmt);
 for (const r of RETIRED.concat(['/integrations'])) ok(!hrefs.includes(r), `sidebar has no ${r}`);
 for (const h of hrefs) ok(isRoute(h), `sidebar ${h} is a route`);
 
