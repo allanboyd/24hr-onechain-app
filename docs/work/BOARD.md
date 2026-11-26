@@ -138,3 +138,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 Period plans and Purchase orders: the All plans bar is white, and the long explanation under it is gone. |
 | 26 Nov 2026 | cursor | V3-11 Overview: four stats, a 2 by 2 of graphs (sales, money owed, most sold, trucks), then four stats. |
 | 26 Nov 2026 | cursor | V3-11 Overview: the eight stats sit on the left, two rows of four, and the graphs sit beside them. |
+| 26 Nov 2026 | cursor | V3-11 Overview: map under the stats, money owed is a pie at the bottom, purchase order and shipment status are charts. Trucks are colour coded. |
