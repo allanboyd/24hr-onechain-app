@@ -1,119 +1,141 @@
 <script lang="ts">
-  // Period plans (§8.3 PL-06..PL-12; docs/17 Phase 1): what each company plans to buy over a month / quarter / half year /
-  // year. Work page: opens on the plan list with a strip (registry: in force · upcoming · plan used vs expected). The
-  // planned-vs-actual charts live on Home · Purchasing; "Plan or check a period" (from the retired Reports page) is a
-  // secondary action. No needs-action default: the list is short and plans are suggestions (nothing waits for approval).
-  import { lookup, type User } from '@btw/api';
+  // Period plans as a year of months. Each company keeps its own plan. The year is on the left.
+  // A month, the year check, or plan vs actual opens in the panel on the right.
+  import { type User } from '@btw/api';
   import { Badge, fmtNum, router } from '@btw/ui';
-  import SearchX from '@lucide/svelte/icons/search-x';
-  import ArrowUp from '@lucide/svelte/icons/arrow-up';
-  import ArrowDown from '@lucide/svelte/icons/arrow-down';
-  import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import ErrorState from '../components/ErrorState.svelte';
   import PlanCreateDialog from '../components/PlanCreateDialog.svelte';
   import { watch } from '../lib/load.svelte';
-  import { PageHeader, SummaryStrip, EmptyState, DataTable, queryFilters, tableQuery, type Column, type SummaryTile } from '../components/page';
-  import { companyLabel } from '../lib/companies';
-  import { planTiles, infoOf } from '../lib/tiles';
-  import { canEditPeriodPlans, KIND_LABEL, onPlanningChange, periodFor, periodLabel, periodPlans, plannedVsActual, planTotals, type PeriodPlan, type PlannedVsActual } from '../lib/planning';
+  import { PageHeader } from '../components/page';
+  import { allCompanies, companyBrand, companyLabel } from '../lib/companies';
+  import { allowedIds } from '../lib/company.svelte';
+  import { canEditPeriodPlans, monthsOf, onPlanningChange, periodPlans, planTotals, type PeriodPlan } from '../lib/planning';
   let { user }: { user: User } = $props();
   let list = $state<PeriodPlan[] | null>(null);
-  // Plans are suggestions (no approval): Active, or Replaced by a newer plan (kept for history, hidden by default).
-  const f = queryFilters({ show: '', status: '', q: '', entity: '', kind: '' });
-  const tq = tableQuery(f, { search: 'q', filters: { company: 'entity', kind: 'kind' } });
-  let shown = $state(0);
-  const showReplaced = $derived(f.values.status === 'Replaced' || f.values.status === 'all');
-  let pv = $state<PlannedVsActual | null>(null);
-  const today = new Date().toISOString().slice(0, 10);
-  const soon = (() => { const d = new Date(); d.setUTCDate(d.getUTCDate() + 30); return d.toISOString().slice(0, 10); })();
-  const w = watch(async () => {
-    [list, pv] = await Promise.all([periodPlans.list({ all: showReplaced }), plannedVsActual(periodFor('quarter', today)).catch(() => null)]);
-  }, () => showReplaced);
+  const w = watch(async () => { list = await periodPlans.list(); });
   $effect(() => onPlanningChange(() => w.retry()));
-  // docs/18: strip figures from the registry (plans in force / upcoming; this quarter's plan used vs expected by today)
-  const fig = $derived(planTiles(list ?? [], pv?.measures ?? null));
-  const pctS = (n: number) => `${Math.round(n * 100)} %`;
-  const endingN = $derived(list ? list.filter((p) => p.status === 'Active' && p.to >= today && p.to <= soon).length : null);
-  const usedState = $derived(fig.used === null || fig.expected === null || !pv ? undefined : fig.used < fig.expected * pv.thresholds.behind ? 'warn' : fig.used > pv.thresholds.over ? 'bad' : 'good');
-  const tiles = $derived<SummaryTile[]>([
-    { key: 'inforce', label: 'Active plan', value: list ? fig.inForce : null, status: fig.inForce ? 'good' : 'none', statusLabel: fig.inForce ? 'Running' : 'None now', icon: ArrowUp, info: infoOf('plansInForce') },
-    { key: 'upcoming', label: 'Upcoming', value: list ? fig.upcoming : null, status: fig.upcoming ? 'good' : 'none', statusLabel: 'Starts later', icon: ArrowRight, info: infoOf('plansUpcoming') },
-    { key: 'ending', label: 'Ending soon', value: endingN, status: endingN ? 'warn' : 'good', statusLabel: 'Within 30 days', icon: ArrowDown },
-    { key: 'used', label: 'Plan used this quarter', value: fig.used, format: pctS, filter: false, status: usedState, icon: usedState === 'warn' ? ArrowDown : ArrowUp,
-      statusLabel: usedState === 'warn' ? 'Behind' : usedState === 'bad' ? 'Over plan' : usedState === 'good' ? 'On track' : undefined, info: infoOf('planUsed') },
-  ]);
-  const SHOW: Record<string, (p: PeriodPlan) => boolean> = {
-    inforce: (p) => p.status === 'Active' && p.from <= today && p.to >= today,
-    upcoming: (p) => p.status === 'Active' && p.from > today,
-    ending: (p) => p.status === 'Active' && p.to >= today && p.to <= soon,
-  };
-  const rows = $derived((list ?? []).filter((p) => (!f.values.show || SHOW[f.values.show]?.(p) !== false) && (!f.values.status || f.values.status === 'all' || p.status === f.values.status)));
-  const canCreate = $derived(canEditPeriodPlans(user));
-  const filtered = $derived(!!(f.values.show || f.values.status || f.values.q || f.values.entity || f.values.kind));
+
+  const now = new Date();
+  const thisYear = now.getUTCFullYear();
+  const YEARS = [thisYear - 1, thisYear, thisYear + 1, thisYear + 2];
+  const NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  let year = $state(String(thisYear));
+  let month = $state<string | null>(null);
+  let panel = $state<'month' | 'check' | 'actual'>('check');
   let creating = $state(false);
-  let view = $state<'plans' | 'actual'>('plans');
-  let reportPlan = $state<PeriodPlan | null>(null);
-  function clearAll() { f.clear(); }
-  function openReport(p: PeriodPlan) { reportPlan = p; view = 'actual'; }
-  const columns = $derived<Column<PeriodPlan>[]>([
-    { key: 'ref', label: 'Reference', sticky: true, value: (p) => p.ref, cell: refCell },
-    { key: 'title', label: 'Title', value: (p) => p.title || '-' },
-    { key: 'company', label: 'Company', value: (p) => companyLabel(p.entityId), hideBelow: 900, filter: 'select', filterValue: (p) => p.entityId, filterLabel: (id) => companyLabel(id) || lookup.entity(id)?.code || id },
-    { key: 'period', label: 'Period', sortValue: (p) => p.from, value: (p) => periodLabel(p), cell: periodCell },
-    { key: 'kind', label: 'Kind', value: (p) => KIND_LABEL[p.periodKind], filter: 'select', filterValue: (p) => p.periodKind, filterLabel: (k) => KIND_LABEL[k as PeriodPlan['periodKind']] ?? k },
-    { key: 'lines', label: 'Lines', align: 'right', sortValue: (p) => p.lines.length, value: (p) => p.lines.length },
-    { key: 'cases', label: 'Cases', align: 'right', sortValue: (p) => planTotals(p).cases, value: (p) => fmtNum(planTotals(p).cases) },
-    { key: 'value', label: 'Value (USD)', align: 'right', sortValue: (p) => planTotals(p).value, value: (p) => fmtNum(planTotals(p).value, 2) },
-    { key: 'status', label: 'Status', value: (p) => p.status, cell: statusCell },
-    { key: 'actions', label: 'Actions', sortable: false, csv: false, hideable: false, mobile: 'actions', cell: actionsCell },
-  ]);
+  const canCreate = $derived(canEditPeriodPlans(user));
+  const companies = $derived(allCompanies().filter((c) => allowedIds(user).includes(c.id)));
+  const ink = (id: string) => companyBrand(id).colors.accent;
+
+  const active = $derived((list ?? []).filter((p) => p.status === 'Active'));
+  const covers = (p: PeriodPlan, ym: string) => p.from.slice(0, 7) <= ym && p.to.slice(0, 7) >= ym;
+  const months = $derived(NAMES.map((name, i) => {
+    const key = `${year}-${String(i + 1).padStart(2, '0')}`;
+    return { key, name, plans: active.filter((p) => covers(p, key)) };
+  }));
+  const gaps = $derived(companies.flatMap((c) => months.filter((m) => !m.plans.some((p) => p.entityId === c.id)).map((m) => ({ company: c, month: m.name }))));
+  const covered = $derived(list != null && gaps.length === 0);
+  const picked = $derived(months.find((m) => m.key === month) ?? null);
+
+  function openMonth(key: string) { month = key; panel = 'month'; }
 </script>
 
-<PageHeader overline="Procurement" title={view === 'actual' ? 'Plan vs actual' : 'Period plans'} description={view === 'actual' ? (reportPlan ? `${reportPlan.ref} · what this plan said, against the orders placed in its period.` : 'What the plan said, against the orders placed in that period.') : 'What each company plans to buy over a month, quarter, half year or year.'}>
-  {#snippet secondary()}
-    {#if view === 'actual'}<button class="btn btn-secondary" type="button" onclick={() => { view = 'plans'; reportPlan = null; }}>Period plans</button>
-    {:else}<button class="btn btn-secondary" type="button" onclick={() => { reportPlan = null; view = 'actual'; }}>Plan vs actual</button>{/if}
-  {/snippet}
-  {#snippet primary()}{#if canCreate && view === 'plans'}<button class="btn btn-primary" type="button" onclick={() => (creating = true)}>New period plan</button>{/if}{/snippet}
+<PageHeader overline="Procurement" title="Period plans" description="What each company plans to buy, month by month.">
+  {#snippet primary()}{#if canCreate}<button class="btn btn-primary" type="button" onclick={() => (creating = true)}>New period plan</button>{/if}{/snippet}
 </PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
-{#if view === 'actual'}
-  {#await import('../components/reports/PlannedVsActualTab.svelte') then M}<M.default {user} focus={reportPlan ? { id: reportPlan.id, ref: reportPlan.ref, title: reportPlan.title, from: reportPlan.from, to: reportPlan.to, entityId: reportPlan.entityId } : undefined} />{/await}
-{:else}
-<SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Period plans summary" noun="plans" total={list ? list.length : null} shown={list ? shown : null} />
-<div class="plans">
-<DataTable id="period-plans" label="Period plans" noun="plans" rows={list ? rows : null} {columns} rowKey={(p) => p.id} onrowclick={(p) => router.go(`/period-plans/${p.id}`)}
-  initialSort={{ key: 'period', dir: 'desc' }} filename="period-plans" searchable searchPlaceholder="Search reference or title"
-  bind:search={tq.search.get, tq.search.set} bind:filters={tq.filters.get, tq.filters.set} bind:shown>
-  {#snippet toolbar()}
-    <label class="plan-status"><span class="dt-sr-only">Status</span><select class="select" aria-label="Status" value={f.values.status} onchange={(e) => f.set('status', e.currentTarget.value)}><option value="">Active</option><option value="Replaced">Replaced</option><option value="all">Active and replaced</option></select></label>
-  {/snippet}
-  {#snippet empty()}
-    {#if filtered}<EmptyState title="No period plans match these filters" icon={SearchX} compact><button class="btn btn-secondary btn-sm" onclick={clearAll}>Clear filters</button></EmptyState>{:else}<EmptyState title="No period plans yet" hint={canCreate ? 'Create one to compare purchase orders with it.' : undefined} compact />{/if}
-  {/snippet}
-</DataTable>
+
+<div class="toolbar">
+  <label class="year"><span>Year</span>
+    <select class="select" aria-label="Year" bind:value={year}>{#each YEARS as y}<option value={String(y)}>{y}</option>{/each}</select>
+  </label>
+  <ul class="legend" aria-label="Companies">
+    {#each companies as c}<li><span class="swatch" style:background={c.colors.accent}></span>{companyLabel(c.id)}</li>{/each}
+  </ul>
+  <div class="tools">
+    <Badge tone={list == null ? 'neutral' : covered ? 'success' : 'warning'}>{list == null ? 'Loading' : covered ? 'Year is covered' : `${gaps.length} gaps`}</Badge>
+    <button type="button" class="btn btn-secondary btn-sm" aria-pressed={panel === 'check'} onclick={() => (panel = 'check')}>Check the year</button>
+    <button type="button" class="btn btn-secondary btn-sm" aria-pressed={panel === 'actual'} onclick={() => (panel = 'actual')}>Plan vs actual</button>
+  </div>
 </div>
-{/if}
+
+<div class="split">
+  <div class="year-grid" role="list" aria-label={`Months in ${year}`}>
+    {#each months as m (m.key)}
+      <button type="button" class="mo" class:on={panel === 'month' && month === m.key} onclick={() => openMonth(m.key)}>
+        <span class="name">{m.name}</span>
+        {#if m.plans.length}
+          <span class="marks">{#each m.plans as p (p.id)}<span class="mark" style:--co={ink(p.entityId)}>{companyLabel(p.entityId)}</span>{/each}</span>
+        {:else}<span class="empty">No plan</span>{/if}
+      </button>
+    {/each}
+  </div>
+
+  <aside class="side card" aria-label="Plan detail">
+    {#if panel === 'actual'}
+      <h2>Plan vs actual</h2>
+      <p class="caption">{year}. Orders against the plans that cover this year.</p>
+      {#await import('../components/reports/PlannedVsActualTab.svelte') then M}
+        <M.default {user} />
+      {/await}
+    {:else if panel === 'month' && picked}
+      <h2>{picked.name} {year}</h2>
+      {#if picked.plans.length}
+        <ul class="plans">
+          {#each picked.plans as p (p.id)}
+            <li>
+              <span class="swatch" style:background={ink(p.entityId)}></span>
+              <div>
+                <b>{companyLabel(p.entityId)}</b>
+                <span class="caption">{p.ref}{p.title ? ` · ${p.title}` : ''}</span>
+                <span class="caption">{fmtNum(planTotals(p).cases)} cases · {monthsOf(p.from, p.to).length} {monthsOf(p.from, p.to).length === 1 ? 'month' : 'months'}</span>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" aria-label={`Open the ${companyLabel(p.entityId)} plan`} onclick={() => router.go(`/period-plans/${p.id}`)}>Open</button>
+            </li>
+          {/each}
+        </ul>
+      {:else}<p class="caption">No company has a plan in {picked.name}.</p>{/if}
+    {:else}
+      <h2>Check the year</h2>
+      {#if list == null}<p class="caption">Loading the plans.</p>
+      {:else if covered}<p>Every company has a plan in each month of {year}.</p>
+      {:else}
+        <p class="caption">A month is open when that company has no active plan covering it.</p>
+        <ul class="gaps">
+          {#each companies as c (c.id)}
+            {@const miss = gaps.filter((g) => g.company.id === c.id)}
+            {#if miss.length}<li><span class="swatch" style:background={c.colors.accent}></span><span><b>{companyLabel(c.id)}</b> <span class="caption">{miss.map((g) => g.month).join(', ')}</span></span></li>{/if}
+          {/each}
+        </ul>
+      {/if}
+    {/if}
+  </aside>
+</div>
+
 <PlanCreateDialog {user} bind:open={creating} />
 
-{#snippet refCell(p: PeriodPlan)}<a class="mono nowrap" href="#/period-plans/{p.id}">{p.ref}</a>{/snippet}
-{#snippet periodCell(p: PeriodPlan)}<span class="nowrap">{periodLabel(p)}</span>{/snippet}
-{#snippet statusCell(p: PeriodPlan)}<Badge tone={p.status === 'Active' ? 'success' : 'neutral'}>{p.status}</Badge>{#if p.version > 1}<span class="caption"> v{p.version}</span>{/if}{/snippet}
-{#snippet actionsCell(p: PeriodPlan)}
-  <span class="acts"><button type="button" class="btn btn-secondary btn-sm" onclick={() => router.go(`/period-plans/${p.id}`)}>View</button><button type="button" class="btn btn-secondary btn-sm" onclick={() => openReport(p)}>Report</button></span>
-{/snippet}
-
 <style>
-  .dt-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .acts { display: inline-flex; gap: 6px; }
-  .plan-status .select { height: 32px; }
-  .nowrap { white-space: nowrap; }
-  /* Actions stay on the right while the other columns scroll sideways. */
-  .plans :global(.dt-table th:last-child) { position: sticky; top: 0; right: 0; z-index: 5; background: var(--surface-sunken); }
-  .plans :global(.dt-table td:last-child) { position: sticky; right: 0; z-index: 2; background: var(--surface); }
-  .plans :global(.dt-table tbody tr:hover td:last-child) { background: var(--primary-subtle); }
-  .plans :global(.dt-table tbody tr.on td:last-child) { background: var(--sel-bg); }
-  .plans :global(.fade-r .dt-table th:last-child),
-  .plans :global(.fade-r .dt-table td:last-child) { box-shadow: -6px 0 8px -6px rgb(0 0 0 / .25); }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-4); margin-bottom: var(--space-4); }
+  .year { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+  .year .select { height: 36px; min-width: 96px; }
+  .legend { list-style: none; display: flex; flex-wrap: wrap; gap: 12px; margin: 0; padding: 0; font-size: 13px; }
+  .legend li, .gaps li { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+  .split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr); gap: var(--space-4); align-items: start; }
+  .year-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .mo { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-height: 92px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); color: var(--text); text-align: left; cursor: pointer; }
+  .mo:hover { border-color: var(--border-strong); }
+  .mo.on { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+  .name { font: 600 14px/1.2 var(--ff-display); }
+  .marks { display: flex; flex-wrap: wrap; gap: 4px; }
+  .mark { display: inline-flex; align-items: center; gap: 4px; color: var(--text); font-size: 12px; font-weight: 650; line-height: 1; }
+  .mark::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--co); flex: none; }
+  .empty { font-size: 12px; color: var(--text-muted); }
+  .side { padding: var(--space-4) var(--space-5); max-height: calc(100vh - 140px); overflow: auto; }
+  .side h2 { margin: 0 0 8px; font-size: var(--fs-h3); }
+  .plans, .gaps { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .plans li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+  .plans li > div { display: flex; flex-direction: column; min-width: 0; }
+  @media (max-width: 900px) { .split { grid-template-columns: 1fr; } .side { max-height: none; } .tools { margin-left: 0; } }
 </style>
-

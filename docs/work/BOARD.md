@@ -155,3 +155,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 Shipments: map is one third, live fleet board is two thirds. Truck list stays on Loading. Purchase orders chart no longer stacks a table, and the plan card is a noun. |
 | 26 Nov 2026 | cursor | V3-11 Sales stops at cash vs credit. Warehouse today no longer stacks every arrival, and the stock report is not repeated under the cards. |
 | 26 Nov 2026 | cursor | V3-11 Shipments: Driver status updates is removed. A live board card is the truck and its standing, and a click opens the detail without leaving the page. |
+| 26 Nov 2026 | cursor | V3-11 Period plans: a year of month tiles, one colour per company. All companies writes three plans. Check the year and Plan vs actual open in the panel beside the year. |
