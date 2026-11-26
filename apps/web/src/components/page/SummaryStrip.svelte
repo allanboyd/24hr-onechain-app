@@ -64,7 +64,7 @@
     {@const empty = t.value === null || t.value === undefined}
     {@const on = value === t.key}
     {@const Icon = t.icon ?? m?.icon}
-    <div class="tile" class:on class:static={t.filter === false} class:good={m?.status === 'good'} class:warn={m?.status === 'warn'} class:bad={m?.status === 'bad'}>
+    <div class="tile" class:on class:static={t.filter === false}>
       {#if t.filter === false}
         <div class="face">
           <span class="lbl">{t.label}</span>
@@ -113,9 +113,6 @@
   /* layout only — colours, border and the chosen state come from .sel-card (base.css) */
   .face { flex-direction: column; align-items: stretch; justify-content: center; gap: 2px; width: 100%; min-height: 72px; height: 100%; padding: var(--space-2) var(--space-4); }
   div.face { display: flex; background: var(--surface); color: var(--text); border: 1px solid var(--card-border); border-radius: var(--radius-lg); box-shadow: var(--elevation-1); }
-  .tile.good:not(.on) .face { background: color-mix(in srgb, var(--success) 10%, var(--surface)); }
-  .tile.warn:not(.on) .face { background: color-mix(in srgb, var(--warning-solid) 12%, var(--surface)); }
-  .tile.bad:not(.on) .face { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); }
   .top { display: flex; align-items: center; gap: 6px; min-width: 0; padding-right: 22px; }
   .vrow { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
   .lbl { font: 600 var(--fs-label) / var(--lh-label) var(--ff-body); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
