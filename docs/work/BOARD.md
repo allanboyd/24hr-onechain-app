@@ -10,7 +10,7 @@ How to use it: [`AGENTS.md`](../../AGENTS.md). Each agent edits **only its own r
 | ID | Title | Status | Agent | Branch | Depends | Owns | Port |
 |---|---|---|---|---|---|---|---|
 | V3-0 | Look + tokens: centred content, cards, chips, buttons, tables, page header (folds in UI-0, UI-4 T-/P- issues) ([plan](plans/V3-0.md)) | 👀 review (merged into design-v3) | claude | `v3/V3-0-look` | none | `docs/design-system/tokens.json`, `packages/tokens/**`, `packages/ui/src/**`, `apps/web/src/components/page/**` | 5230 |
-| V3-1 | Shell: Operations / Management switch, process-ordered menus, Performance + Selling prices commented out (folds in UI-1) | ⬜ open | | `v3/V3-1-shell` | V3-0 | `apps/web/src/App.svelte`, `apps/web/src/routes.ts`, `components/CompanySwitcher.svelte`, `components/CompanyMark.svelte`, `apps/web/src/lib/side.svelte.ts` (new) | 5231 |
+| V3-1 | Shell: Operations / Management switch, process-ordered menus, Performance + Selling prices commented out (folds in UI-1) ([plan](plans/V3-1.md)) | 🔄 in progress | claude | `v3/V3-1-shell` | V3-0 | `apps/web/src/App.svelte`, `apps/web/src/routes.ts`, `components/CompanySwitcher.svelte`, `components/CompanyMark.svelte`, `apps/web/src/lib/side.svelte.ts` (new) | 5231 |
 | V3-2 | Management room: the report as is, driven by our sidebar, sample-data banner ([plan](plans/V3-2.md)) | 👀 review (merged into design-v3) | claude | `v3/V3-2-management` | none (menu entries via V3-1) | `apps/web/public/management/**`, `apps/web/src/screens/management/**` | 5232 |
 | V3-3 | Operations · Today: KPIs, pipeline with owners, act on these first, who handles what | ⬜ open | | `v3/V3-3-today` | V3-0, V3-1 | `apps/web/src/screens/ops/**` | 5233 |
 | V3-4 | Operations pages look: POs, Truck desk, Shipments, transfers, Stock, expenses, Sales, Period plans, Admin pages, Alerts "What I receive" (folds in UI-3 forms) | ⬜ open | | `v3/V3-4-ops-pages` | V3-0 | `apps/web/src/screens/*.svelte` (not Login), `apps/web/src/components/**` except `page/**`, `dashboard/**`, `charts/**` | 5234 |
@@ -61,3 +61,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | claude | V3-0 merged into design-v3 (look + tokens). BUG-1, BUG-2 logged (pre-existing test failures). |
 | 26 Nov 2026 | claude | V3-2 merged into design-v3: report as is under Management; `tests/design-v3/management.mjs` all pass on :5173. |
 | 26 Nov 2026 | claude | V3-5 merged into design-v3: office app installable, phone update banner, install page (`/app/install.html`). `tests/design-v3/pwa.mjs` 12/12 on a production build. Next free rows: V3-1, V3-4, V3-6 (V3-0 is in). |
+| 26 Nov 2026 | claude | V3-1 approved and started. |
