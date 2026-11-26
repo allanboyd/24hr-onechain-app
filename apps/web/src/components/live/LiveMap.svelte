@@ -95,7 +95,8 @@
   $effect(() => { active; zoom; selected; hover; if (ready) { drawTrucks(); drawRoute(); } });
   $effect(() => { if (ready && !fitted && active.length) { fitted = true; fitAll(); } });
   $effect(() => { selected; if (ready) fly(); });
-  onDestroy(() => map?.remove());
+  // stop a running fly-to first: removing the map mid-animation throws "_leaflet_pos" (V3-6 fix)
+  onDestroy(() => { if (!map) return; map.stop(); map.off(); map.remove(); map = null; });
   /** the page can ask the map to show every truck again */
   export function showAll() { onselect(null); fitAll(); }
   /** the map was hidden and is shown again (a view switch): let Leaflet measure itself */
