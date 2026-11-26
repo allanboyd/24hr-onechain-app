@@ -17,7 +17,7 @@ import * as MX from './metrics';
 import { METRICS, type MetricSource } from './metric-registry';
 import type {
   Acknowledgement, AppConfig, CostKind, FeatureKey, ID, Leg, Plan, PurchaseOrder, ReexportOrder, Role, SellingPrice, Shipment, TransportFeeRow,
-  UserAdmin, WaitingEntry, WarehouseExpense, ClientPayment,
+  UserAdmin, WaitingEntry, WarehouseExpense, ClientPayment, SupplierEntry,
 } from './types';
 
 // ======================================================================================================
@@ -163,6 +163,7 @@ export const FILTER_KEYS: (keyof DashFilter)[] = ['entityId', 'supplierId', 'rou
 export interface DashSource extends ReportData {
   expenses?: WarehouseExpense[]; sellingPrices?: SellingPrice[]; reexports?: ReexportOrder[];
   /** V3-12 step 2: money received from clients, by date (absent = not loaded: Cash falls back to the sales' paid amounts) */ clientPayments?: ClientPayment[];
+  /** V3-12 step 3: pro-formas, advances, credit notes and uses recorded on the POs (absent = not loaded) */ supplierEntries?: SupplierEntry[];
   /** transport-fee rows the caller may see (null = not for this person) */ fees?: TransportFeeRow[] | null;
   /** user admin rows (directors) */ users?: UserAdmin[] | null;
   /** names and roles of the roster, for owners ("who acts") */ people?: { id: ID; name: string; roles: Role[]; warehouseIds?: ID[]; loadingPointIds?: ID[]; pairs?: { entityId: ID; supplierId: ID }[] }[];
@@ -241,6 +242,7 @@ export function scopeSource(src: DashSource, v: Viewer): DashSource & { pricesHi
     costs: moneyTrips ? src.costs.filter((c) => shipIds.has(c.shipmentId)) : [], payments: moneyTrips ? src.payments.filter((p) => shipIds.has(p.shipmentId)) : [],
     sales: feats.has('sales') ? src.sales : [],
     clientPayments: feats.has('sales') ? src.clientPayments : [],
+    supplierEntries: prices && (dir || feats.has('purchase-orders')) ? src.supplierEntries : [],
     moves: src.moves.filter((m) => whOk(m.warehouseId)),
     stock: src.stock.filter((r) => whOk(r.warehouseId)).map((r) => (prices ? r : { ...r, landedCostPerCase: 0 })),
     priceList: prices ? src.priceList : [],
@@ -702,54 +704,69 @@ function mgmtPerf(c: Ctx): Out {
 // A short load = cases on the order line not put on the truck at loading. Their value (PO price, USD at the month's average
 // rate) stays with the supplier. Credit notes, advance payments and pro-forma invoices are not recorded yet (V3-10 step 4).
 export interface MgmtSuppliers {
-  kpis: { held: number; addedInPeriod: number; shortLoads: number; shortCases: number; suppliers: number };
+  kpis: { held: number; addedInPeriod: number; shortLoads: number; shortCases: number; suppliers: number;
+    /** V3-12 step 3 (USD): advances paid and credit notes in the period, pro-formas still open now */ advancesPaid: number; creditNotes: number; proformaOpen: number; pending: number };
   bySupplier: { supplierId: ID; label: string; held: number; inPeriod: number; loads: number }[];
   byMonth: { month: string; added: number; total: number }[];
   byBrand: { productId: ID; label: string; cases: number; value: number }[];
   loads: { id: string; at: string; poId: ID; poRef: string; supplierId: ID; supplier: string; productId: ID; brand: string; ordered: number; loaded: number; short: number; value: number }[];
-  statement: { supplierId: ID; supplier: string; at: string; poRef: string; brand: string; added: number; balance: number }[];
+  /** what the supplier holds: + short loads, + credit notes, − money used on advances (USD); advances and pro-formas are listed with no effect on it */
+  statement: { id: string; supplierId: ID; supplier: string; at: string; poRef: string; brand: string; kind: 'short-load' | 'credit-note' | 'use' | 'advance' | 'proforma'; added: number; balance: number }[];
+  /** advances waiting for a director (Management → Settings turns approval on) */
+  pendingAdvances: { id: ID; supplier: string; poRef: string; date: string; amountUsd: number; by: string }[];
   notRecorded: ('creditNotes' | 'advances' | 'proformas' | 'uses')[];
 }
 function mgmtSuppliers(c: Ctx): Out {
   const n = names(c.src);
-  const empty: MgmtSuppliers = { kpis: { held: 0, addedInPeriod: 0, shortLoads: 0, shortCases: 0, suppliers: 0 }, bySupplier: [], byMonth: [], byBrand: [], loads: [], statement: [], notRecorded: ['creditNotes', 'advances', 'proformas', 'uses'] };
+  const empty: MgmtSuppliers = { kpis: { held: 0, addedInPeriod: 0, shortLoads: 0, shortCases: 0, suppliers: 0, advancesPaid: 0, creditNotes: 0, proformaOpen: 0, pending: 0 }, bySupplier: [], byMonth: [], byBrand: [], loads: [], statement: [], pendingAdvances: [], notRecorded: ['creditNotes', 'advances', 'proformas', 'uses'] };
   if (c.src.pricesHidden) return out(empty, { definition: 'Prices are not part of your work.', currency: 'USD', unit: 'USD', period: c.period, freshness: null, empty: true });
-  const pos = new Map(c.raw.pos.map((p) => [p.id, p]));
-  const plans = new Map(c.raw.plans.map((p) => [p.id, p]));
-  const rows: MgmtSuppliers['loads'] = [];
-  for (const l of c.src.loadings) {
-    if (l.status !== 'Loaded' || !l.loadedAt) continue;
-    const po = pos.get(l.poId); if (!po) continue;
-    if (c.f.supplierId && po.supplierId !== c.f.supplierId) continue;
-    const plan = plans.get(po.planId);
-    for (const x of l.lines) {
-      const short = Math.max(0, x.orderedQty - x.loadedQty);
-      if (!short || x.alternativeFor) continue;
-      const pl = plan?.lines.find((y) => y.id === x.planLineId);
-      const price = pl?.price ?? 0;
-      const value = r2((short * price) / (po.currency === 'USD' ? 1 : fxFor(c.raw.fxRates ?? [], po.currency, l.loadedAt, 'avg')));
-      rows.push({ id: `${l.id}:${x.planLineId}`, at: l.loadedAt, poId: po.id, poRef: po.ref, supplierId: po.supplierId, supplier: n.supplier(po.supplierId), productId: x.productId, brand: n.product(x.productId), ordered: x.orderedQty, loaded: x.loadedQty, short, value });
-    }
-  }
-  rows.sort((a, b) => t(b.at) - t(a.at));
+  const supOk = (id: ID) => !c.f.supplierId || id === c.f.supplierId;
+  // short loads: the same rows as the PO page (money.shortLoadRows); entries: what the PO page records (V3-12 step 3)
+  const rows: MgmtSuppliers['loads'] = M.shortLoadRows({ loadings: c.src.loadings, pos: c.raw.pos, plans: c.raw.plans, fxRates: c.raw.fxRates })
+    .filter((r) => supOk(r.supplierId))
+    .map((r) => ({ id: r.id, at: r.at, poId: r.poId, poRef: r.poRef, supplierId: r.supplierId, supplier: n.supplier(r.supplierId), productId: r.productId, brand: n.product(r.productId), ordered: r.ordered, loaded: r.loaded, short: r.short, value: r.value }));
+  const scope = new Set(c.src.pos.map((p) => p.entityId).concat(c.src.loadings.map((l) => l.entityId)));
+  const entries = c.src.supplierEntries?.filter((e) => supOk(e.supplierId) && (!c.f.entityId || e.entityId === c.f.entityId) && (scope.size === 0 || scope.has(e.entityId)));
+  const es = entries ?? [];
+  const rec = es.filter((e) => e.status === 'Recorded');
   const inP = rows.filter((r) => inPeriod(c, r.at));
   const sup = new Map<ID, MgmtSuppliers['bySupplier'][number]>();
-  for (const r of rows) { const x = sup.get(r.supplierId) ?? { supplierId: r.supplierId, label: r.supplier, held: 0, inPeriod: 0, loads: 0 }; x.held += r.value; x.loads++; if (inPeriod(c, r.at)) x.inPeriod += r.value; sup.set(r.supplierId, x); }
+  const bump = (supplierId: ID, v: number, at: string, load = false) => { const x = sup.get(supplierId) ?? { supplierId, label: n.supplier(supplierId), held: 0, inPeriod: 0, loads: 0 }; x.held += v; if (load) x.loads++; if (inPeriod(c, at)) x.inPeriod += v; sup.set(supplierId, x); };
+  for (const r of rows) bump(r.supplierId, r.value, r.at, true);
+  const heldMoves = rec.filter((e) => e.kind === 'credit-note' || e.kind === 'use').map((e) => ({ at: `${e.date}T12:00:00.000Z`, supplierId: e.supplierId, value: e.kind === 'use' ? -e.amountUsd : e.amountUsd }));
+  for (const m of heldMoves) bump(m.supplierId, m.value, m.at);
   const brand = new Map<ID, MgmtSuppliers['byBrand'][number]>();
   for (const r of inP) { const x = brand.get(r.productId) ?? { productId: r.productId, label: r.brand, cases: 0, value: 0 }; x.cases += r.short; x.value += r.value; brand.set(r.productId, x); }
-  let run = 0; const byMonth = months(c.now, 12).map((m) => { const added = r2(sum(rows.filter((r) => { const x = t(r.at); return x >= m.from && x < m.to; }), (r) => r.value)); run += added; return { month: m.key, added, total: r2(run) }; });
-  const before = r2(sum(rows.filter((r) => t(r.at) < months(c.now, 12)[0].from), (r) => r.value));
+  const allMoves = [...rows.map((r) => ({ at: r.at, value: r.value })), ...heldMoves];
+  let run = 0; const byMonth = months(c.now, 12).map((m) => { const added = r2(sum(allMoves.filter((r) => { const x = t(r.at); return x >= m.from && x < m.to; }), (r) => r.value)); run += added; return { month: m.key, added, total: r2(run) }; });
+  const before = r2(sum(allMoves.filter((r) => t(r.at) < months(c.now, 12)[0].from), (r) => r.value));
   for (const m of byMonth) m.total = r2(m.total + before);
+  // statement per supplier, oldest first: short loads, credit notes and uses change what it holds; advances and pro-formas are shown for the story
+  type Line = MgmtSuppliers['statement'][number];
+  const lines: Omit<Line, 'balance'>[] = [
+    ...rows.map((r) => ({ id: r.id, supplierId: r.supplierId, supplier: r.supplier, at: r.at, poRef: r.poRef, brand: r.brand, kind: 'short-load' as const, added: r.value })),
+    ...rec.map((e) => ({ id: e.id, supplierId: e.supplierId, supplier: n.supplier(e.supplierId), at: `${e.date}T12:00:00.000Z`, poRef: e.poRef ?? '-', brand: '-', kind: e.kind,
+      added: e.kind === 'credit-note' ? e.amountUsd : e.kind === 'use' ? -e.amountUsd : 0 })),
+  ];
   const bal = new Map<ID, number>();
-  const statement = [...rows].reverse().map((r) => { const b = r2((bal.get(r.supplierId) ?? 0) + r.value); bal.set(r.supplierId, b); return { supplierId: r.supplierId, supplier: r.supplier, at: r.at, poRef: r.poRef, brand: r.brand, added: r.value, balance: b }; }).reverse();
+  const statement = lines.sort((a, b) => t(a.at) - t(b.at)).map((l) => { const b = r2((bal.get(l.supplierId) ?? 0) + l.added); bal.set(l.supplierId, b); return { ...l, added: r2(l.added), balance: b }; }).reverse();
+  const inPe = (e: { date: string }) => inPeriod(c, `${e.date}T12:00:00.000Z`);
+  // open pro-forma now, in USD at each PO's own entry rate
+  const openNow = r2(sum([...new Set(es.filter((e) => e.poId).map((e) => e.poId!))], (poId) => { const m = M.poMoney(es, poId); const rate = es.find((e) => e.poId === poId)?.fxRate || 1; return m.open / rate; }));
   const data: MgmtSuppliers = {
-    kpis: { held: r2(sum(rows, (r) => r.value)), addedInPeriod: r2(sum(inP, (r) => r.value)), shortLoads: new Set(inP.map((r) => r.id.split(':')[0])).size, shortCases: sum(inP, (r) => r.short), suppliers: sup.size },
+    kpis: { held: r2(sum(rows, (r) => r.value) + sum(heldMoves, (m) => m.value)), addedInPeriod: r2(sum(inP, (r) => r.value) + sum(heldMoves.filter((m) => inPeriod(c, m.at)), (m) => m.value)),
+      shortLoads: new Set(inP.map((r) => r.id.split(':')[0])).size, shortCases: sum(inP, (r) => r.short), suppliers: sup.size,
+      advancesPaid: r2(sum(rec.filter((e) => (e.kind === 'advance' || e.kind === 'use') && inPe(e)), (e) => e.amountUsd)),
+      creditNotes: r2(sum(rec.filter((e) => e.kind === 'credit-note' && inPe(e)), (e) => e.amountUsd)),
+      proformaOpen: openNow, pending: r2(sum(es.filter((e) => e.status === 'Pending approval' && e.kind !== 'use'), (e) => e.amountUsd)) },
     bySupplier: [...sup.values()].map((x) => ({ ...x, held: r2(x.held), inPeriod: r2(x.inPeriod) })).sort((a, b) => b.held - a.held),
     byMonth, byBrand: [...brand.values()].map((x) => ({ ...x, value: r2(x.value) })).sort((a, b) => b.value - a.value),
-    loads: rows.slice(0, 1000), statement: statement.slice(0, 1000), notRecorded: ['creditNotes', 'advances', 'proformas', 'uses'],
+    loads: rows.slice(0, 1000), statement: statement.slice(0, 1000),
+    pendingAdvances: es.filter((e) => e.kind === 'advance' && e.status === 'Pending approval').map((e) => ({ id: e.id, supplier: n.supplier(e.supplierId), poRef: e.poRef ?? '-', date: e.date, amountUsd: r2(e.amountUsd + sum(es.filter((u) => u.linkedId === e.id), (u) => u.amountUsd)), by: c.src.people?.find((u) => u.id === e.byUserId)?.name ?? '-' })),
+    notRecorded: entries ? [] : ['creditNotes', 'advances', 'proformas', 'uses'],
   };
-  return out(data, { definition: 'Short load = cases on the order line not loaded on the truck; value = short cases × the PO price (USD at the average rate of the loading month). This value stays with the supplier. Credit notes, advance payments, pro-forma invoices and the later orders that use this money are not recorded yet, so the balance only grows.',
-    currency: 'USD', unit: 'USD · cases', period: c.period, freshness: newest(rows.map((r) => r.at)), empty: !rows.length });
+  return out(data, { definition: `Short load = cases on the order line not loaded on the truck; value = short cases × the PO price (USD at the average rate of the loading month). This value stays with the supplier, with credit notes (promotions); money used on later advances comes off it. Advances are paid against the supplier's pro-forma on the purchase order. All recorded on the PO page.`,
+    currency: 'USD', unit: 'USD · cases', period: c.period, freshness: newest(rows.map((r) => r.at), es.map((e) => e.at)), empty: !rows.length && !es.length });
 }
 
 // ---- design v3 Management · Cash and closing (V3-10 step 3d): money in and out from what we record ---------------------
