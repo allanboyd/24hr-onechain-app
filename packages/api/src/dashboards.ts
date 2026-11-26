@@ -545,6 +545,9 @@ export interface MgmtOverview {
 }
 function mgmtOverview(c: Ctx): Out {
   const cur = perf(c, c.from, c.to), old = perf(c, t(c.prev.from), t(c.prev.to));
+  const n = names(c.src);
+  // names as the report shows them: "Brand pack" and "Country – Town" (performance rows carry ids as labels)
+  const whLabel = (id: ID) => { const w = c.src.warehouses.find((x) => x.id === id) as { country?: string; town?: string } | undefined; return w?.country && w?.town ? `${w.country} – ${w.town}` : n.warehouse(id); };
   const ms = months(c.now, 12);
   const byM = ms.map((m) => { const r = perf(c, m.from, m.to); return { month: m.key, sales: r2(r?.totals.revenue ?? 0), profit: r2(r?.totals.profit ?? 0), margin: r?.totals.margin ?? null, cases: r?.totals.qtySold ?? 0 }; });
   const spark = (k: 'sales' | 'profit' | 'margin' | 'cases') => (byM.some((x) => x.sales) ? byM.slice(-6).map((x) => x[k]) : null);
@@ -555,21 +558,21 @@ function mgmtOverview(c: Ctx): Out {
   const rev = T?.revenue ?? 0;
   const share = (v: number) => (rev > 0 ? r2((v / rev) * 100) : 0);
   const otherCosts = cur?.otherCosts ?? 0;
-  const ranked = (cur?.rows ?? []).filter((r) => r.qtySold > 0 && r.margin !== null && r.revenue > 0).map((r) => ({ label: r.label, margin: r.margin!, revenue: r2(r.revenue) }));
+  const ranked = (cur?.rows ?? []).filter((r) => r.qtySold > 0 && r.margin !== null && r.revenue > 0).map((r) => ({ label: r.productId ? n.product(r.productId) : r.label, margin: r.margin!, revenue: r2(r.revenue) }));
   const data: MgmtOverview = {
     period: c.period, prev: c.prev, targetMargin: cur?.targetMargin ?? 0.2,
     kpis: {
       revenue: { value: T ? r2(T.revenue) : null, prev: P ? r2(P.revenue) : null, spark: spark('sales') },
       profit: { value: T ? r2(T.profit) : null, prev: P ? r2(P.profit) : null, spark: spark('profit') },
       margin: { value: T?.margin ?? null, prev: P?.margin ?? null, spark: spark('margin') },
-      cases: { value: T?.qtySold ?? null, prev: P?.qtySold ?? null, spark: spark('cases'), top: topRow?.label ?? null },
+      cases: { value: T?.qtySold ?? null, prev: P?.qtySold ?? null, spark: spark('cases'), top: topRow?.productId ? n.product(topRow.productId) : topRow?.label ?? null },
       landed: { value: T ? r2(T.landedCost) : null, warehouse: T ? r2(T.warehouseCost) : null },
       flagged: { count: today.decisions.reduce((a, d) => a + (d.count ?? 0), 0), urgent: today.decisions.filter((d) => d.severity === 'critical' || d.severity === 'high').reduce((a, d) => a + (d.count ?? 0), 0) },
     },
     waterfall: cur?.waterfall ?? [],
     decisions: today.decisions,
     byMonth: byM.map(({ month, sales, profit }) => ({ month, sales, profit })),
-    byWarehouse: (wh?.rows ?? []).filter((r) => r.warehouseId).map((r) => ({ warehouseId: r.warehouseId!, label: r.label, sales: r2(r.revenue), profit: r2(r.profit), margin: r.margin })).sort((a, b) => b.sales - a.sales),
+    byWarehouse: (wh?.rows ?? []).filter((r) => r.warehouseId).map((r) => ({ warehouseId: r.warehouseId!, label: whLabel(r.warehouseId!), sales: r2(r.revenue), profit: r2(r.profit), margin: r.margin })).sort((a, b) => b.sales - a.sales),
     per100: T && rev > 0 ? [
       { label: 'Goods', value: share(T.cogsGoods) }, { label: 'Transport', value: share(T.cogsTruck) }, { label: 'Warehouse', value: share(T.cogsWarehouse) },
       ...(otherCosts ? [{ label: 'Other costs', value: share(otherCosts) }] : []), { label: 'Profit', value: share(T.profit - otherCosts) },

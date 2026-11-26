@@ -16,12 +16,25 @@ async function signIn(name) {
 const p = await signIn('Daniel');
 // since V3-1 the Management menu sits behind the Operations | Management switch
 ok(await p.getByRole('group', { name: 'Operations or management' }).getByRole('link', { name: 'Management' }).count() === 1, 'director sees the Management switch');
+// V3-10: Overview is our own page on live data (no frame, no sample banner); the warehouse chips change the figures
+await p.goto(`${base}#/management/overview`); await p.locator('.ov .kpi .val').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(800);
+ok(await p.locator('iframe[title^="Management report"]').count() === 0 && await p.getByText('Sample data.').count() === 0, 'Overview: our page, no report frame, no sample-data banner');
+const revAll = (await p.locator('.ov .kpi .val').first().textContent())?.trim();
+ok(/^\$[\d,]+$/.test(revAll ?? ''), `Overview: revenue from our data (${revAll})`);
+ok(await p.locator('.ov .ct', { hasText: 'How the company makes profit' }).count() === 1 && await p.locator('.ov .ct', { hasText: 'Act on these first' }).count() === 1, 'Overview: the report\'s cards (profit, act on these first)');
+ok(!(await p.locator('.ov').innerText()).match(/\bp-[a-z]\d{3}\b|\bw-[a-z]+\b/), 'Overview: names, not internal codes');
+await p.getByRole('group', { name: 'Warehouse' }).getByRole('button').nth(1).click(); await p.waitForTimeout(2500);
+const revOne = (await p.locator('.ov .kpi .val').first().textContent())?.trim();
+const n = (x) => Number((x ?? '').replace(/[^\d]/g, ''));
+ok(n(revOne) < n(revAll) && /wh=/.test(p.url()), `Overview: one warehouse shows less than combined (${revOne} < ${revAll}), kept in the address`);
+await p.screenshot({ path: `${out}/mgmt-overview-live.png` });
 for (const [k, title] of Object.entries(PAGES)) {
+  if (k === 'overview') continue; // rebuilt above
   await p.goto(`${base}#/management/${k}`); await p.waitForTimeout(2200);
   const f = p.frameLocator('iframe[title^="Management report"]');
   const h1 = (await f.locator('main h1').first().textContent().catch(() => ''))?.trim();
   ok(h1 === title, `#/management/${k} opens "${title}" (got "${h1}")`);
-  if (k === 'overview' || k === 'suppliers') {
+  if (k === 'suppliers') {
     const sideHidden = await f.locator('aside.side').evaluate((e) => getComputedStyle(e).display === 'none').catch(() => false);
     ok(sideHidden, `${k}: the report's own menu is hidden`);
     const w = await f.locator('main').evaluate((e) => e.getBoundingClientRect().width).catch(() => 0);
@@ -32,7 +45,7 @@ for (const [k, title] of Object.entries(PAGES)) {
 // default page + bad key falls back to overview (whitelist)
 await p.goto(`${base}#/management/evil');alert(1);('`); await p.waitForTimeout(2200);
 const h = (await p.frameLocator('iframe[title^="Management report"]').locator('main h1').first().textContent().catch(() => ''))?.trim();
-ok(h === 'Overview', `unknown key falls back to Overview (got "${h}")`);
+ok(h === 'Overview' || await p.locator('.ov h1', { hasText: 'Overview' }).count() === 1, `unknown key falls back to Overview (got "${h || 'our Overview page'}")`);
 // Live dashboards still opens for the director
 await p.goto(`${base}#/dashboards`); await p.waitForTimeout(2000);
 ok(!(await p.getByText('Not available for your role').count()), 'director: #/dashboards still opens');

@@ -21,6 +21,9 @@
   // own sidebar is hidden so there is one menu. It shows the sample data built into the file until it reads live data.
   import Info from '@lucide/svelte/icons/info';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
+  import Overview from './Overview.svelte';
+  /** pages rebuilt in our code on live data (V3-10); the others still show the report as is */
+  const LIVE: ReportPage[] = ['overview'];
 
   let { params = {} }: { params?: Record<string, string> } = $props();
   const page = $derived<ReportPage>(params.page && params.page in REPORT_PAGES ? (params.page as ReportPage) : 'overview');
@@ -60,6 +63,9 @@
   $effect(() => { open(page); });
 </script>
 
+{#if LIVE.includes(page)}
+  <Overview />
+{:else}
 <div class="mgmt">
   <div class="note" role="note">
     <Info size={16} aria-hidden="true" />
@@ -71,6 +77,7 @@
   {/if}
   <iframe bind:this={frame} {src} title="Management report: {REPORT_PAGES[page]}" onload={onload} class:hidden={failed}></iframe>
 </div>
+{/if}
 
 <style>
   .mgmt { display: flex; flex-direction: column; gap: var(--space-3); }
