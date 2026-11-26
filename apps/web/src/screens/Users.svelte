@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SystemNav from '../components/SystemNav.svelte';
   // Users & devices: the people on the field app (giver / driver / receiver) and office staff; scopes (UA-02, §17.7);
   // PIN reset and remote sign-out of lost phones (MA-08).
   import { ref, type User } from '@btw/api';
@@ -87,8 +88,9 @@
   const fieldPicked = $derived(form.roles.some((x) => FIELDISH.includes(x)));
 </script>
 
+<SystemNav {user} current="users" />
 <div class="page-head">
-  <div><div class="overline crumb">Admin</div><h1>Users & devices</h1></div>
+  <div><div class="overline crumb">System settings & logs</div><h1>Users & access</h1></div>
   <button class="btn btn-primary" onclick={() => open(null)}><UserPlus size={16} />New user</button>
 </div>
 

@@ -3,6 +3,8 @@ import { canAny, type Feature } from './lib/features';
 import type { RouteDef } from '@btw/ui';
 import LayoutDashboard from '@lucide/svelte/icons/layout-dashboard';
 import SettingsIcon from '@lucide/svelte/icons/settings';
+import MapIcon from '@lucide/svelte/icons/map';
+import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
 import Gauge from '@lucide/svelte/icons/gauge';
 import Presentation from '@lucide/svelte/icons/presentation';
 import ClipboardList from '@lucide/svelte/icons/clipboard-list';
@@ -17,11 +19,9 @@ import ShoppingCart from '@lucide/svelte/icons/shopping-cart';
 // import Wallet from '@lucide/svelte/icons/wallet';
 import Database from '@lucide/svelte/icons/database';
 import Bell from '@lucide/svelte/icons/bell';
-import UsersIcon from '@lucide/svelte/icons/users';
 // import ChartArea from '@lucide/svelte/icons/chart-area';
 import CalendarRange from '@lucide/svelte/icons/calendar-range';
 import Container from '@lucide/svelte/icons/container';
-import ScrollText from '@lucide/svelte/icons/scroll-text';
 import Receipt from '@lucide/svelte/icons/receipt';
 // import Tag from '@lucide/svelte/icons/tag';
 import ArrowRightLeft from '@lucide/svelte/icons/arrow-right-left';
@@ -62,9 +62,12 @@ export const routes: WebRoute[] = [
   { path: '/transport-costs', load: () => import('./screens/TransportCosts.svelte'), title: 'Transport costs' },
   { path: '/master', load: () => import('./screens/MasterData.svelte'), title: 'Master data' },
   { path: '/notifications', load: () => import('./screens/Notifications.svelte'), title: 'Notifications' },
-  { path: '/users', load: () => import('./screens/Users.svelte'), title: 'Users & devices' },
+  { path: '/users', load: () => import('./screens/Users.svelte'), title: 'Users & access' },
   { path: '/integrations', load: () => import('./screens/Integrations.svelte'), title: 'Integrations' },
   { path: '/audit', load: () => import('./screens/Audit.svelte'), title: 'Audit log' },
+  // V3-1g: System settings & logs (Users & access, Audit log, Settings); #/system opens the first page the person may see
+  { path: '/system', load: () => import('./screens/SystemSettings.svelte'), title: 'System settings & logs' },
+  { path: '/system/:page', load: () => import('./screens/SystemSettings.svelte'), title: 'Settings' },
   // docs/14 (workstream B): warehouse money and data
   { path: '/warehouse-expenses', load: mo('WarehouseExpenses'), title: 'Warehouse expenses' },
   { path: '/re-exports', load: mo('Reexports'), title: 'Re-export orders' },
@@ -78,7 +81,9 @@ export const routes: WebRoute[] = [
 ];
 
 /** navOnly: the feature decides who sees this menu entry, not who may open the page (the page keeps its own rule). */
-type NavItem = { href: string; label: string; icon: any; feature?: Feature | Feature[]; navOnly?: boolean };
+/** match: when the entry shows as the current page (default: the address starts with href). */
+type NavItem = { href: string; label: string; icon: any; feature?: Feature | Feature[]; navOnly?: boolean; match?: (path: string) => boolean };
+const isMap = (path: string) => /^\/shipments\?(.*&)?view=map(&|$)/.test(path);
 type NavGroup = { label: string; items: NavItem[] };
 /** Operations (design v3, docs/23 §2): day-to-day work, groups in process order: plan and order → load and move →
  *  receive, store and sell → admin. Labels follow the design; routes are unchanged. */
@@ -92,7 +97,9 @@ export const nav: NavGroup[] = [
   ] },
   { label: 'Logistics', items: [
     { href: '#/trucks', label: 'Truck desk', icon: Container, feature: ['trucks', 'loading'] },
-    { href: '#/shipments', label: 'Shipments', icon: Truck, feature: 'logistics' },
+    { href: '#/shipments', label: 'Shipments', icon: Truck, feature: 'logistics', match: (p) => /^\/shipments(\/|\?|$)/.test(p) && !isMap(p) },
+    // V3-1g: the shipments map on its own entry (the same page in Map view)
+    { href: '#/shipments?view=map', label: 'Shipment map', icon: MapIcon, feature: 'logistics', navOnly: true, match: isMap },
     { href: '#/re-exports', label: 'Goods transfers', icon: ArrowRightLeft, feature: 're-export' },
   ] },
   { label: 'Stock & sales', items: [
@@ -109,8 +116,8 @@ export const nav: NavGroup[] = [
   // ] },
   { label: 'Admin', items: [
     { href: '#/master', label: 'Master data', icon: Database, feature: ['master-data', 'master-data.static', 'master-data.transport'] },
-    { href: '#/users', label: 'Users & access', icon: UsersIcon, feature: 'users' },
-    { href: '#/audit', label: 'Audit log', icon: ScrollText, feature: 'audit' },
+    // V3-1g: one entry for Users & access, Audit log and Settings (tabs on those pages)
+    { href: '#/system', label: 'System settings & logs', icon: SlidersHorizontal, feature: ['users', 'audit'], navOnly: true, match: (p) => /^\/(users|audit|system)(\/|\?|$)/.test(p) },
     { href: '#/notifications', label: 'Alerts', icon: Bell },
   ] },
 ];
@@ -141,6 +148,8 @@ const HIDDEN: Record<string, Feature | Feature[]> = {
   performance: 'performance',
   'selling-prices': 'selling-prices',
   'transport-costs': ['finance', 'transport-fees'],
+  // V3-1g: reached through System settings & logs
+  users: 'users', audit: 'audit', system: ['users', 'audit', 'reports'],
 };
 
 export type Side = 'operations' | 'management';
