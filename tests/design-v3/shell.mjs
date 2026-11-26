@@ -5,7 +5,7 @@ import { chromium } from 'playwright';
 const [base, out = '.'] = process.argv.slice(2);
 let fails = 0; const ok = (c, m) => { console.log(`${c ? 'ok  ' : 'FAIL'} ${m}`); if (!c) fails++; };
 const OPS = ['Home', 'Live dashboards', 'Period plans', 'Purchase orders', 'Truck desk', 'Shipments', 'Goods transfers', 'Stock', 'Warehouse expenses', 'Sales', 'Master data', 'Users & access', 'Audit log', 'Alerts'];
-const MGMT = ['Overview', 'Executive report', 'Plans and orders', 'Sales and clients', 'Supplier balances', 'Cash and closing', 'Warehouse performance'];
+const MGMT = ['Overview', 'Executive report', 'Plans and orders', 'Sales and clients', 'Supplier balances', 'Cash and closing', 'Warehouse performance', 'Settings'];
 const b = await chromium.launch();
 async function signIn(name, width = 1440) {
   const p = await b.newPage({ viewport: { width, height: 900 } });

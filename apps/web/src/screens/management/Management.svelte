@@ -28,6 +28,7 @@
   import Cash from './Cash.svelte';
   import Exec from './Exec.svelte';
   import Perf from './Perf.svelte';
+  import Settings from './Settings.svelte';
   /** pages rebuilt in our code on live data (V3-10); the others still show the report as is */
   const LIVE: ReportPage[] = ['overview', 'exec', 'plans', 'clients', 'perf', 'suppliers', 'cash'];
 
@@ -69,7 +70,9 @@
   $effect(() => { open(page); });
 </script>
 
-{#if LIVE.includes(page)}
+{#if params.page === 'settings'}
+  <Settings />
+{:else if LIVE.includes(page)}
   {#if page === 'plans'}<Plans />{:else if page === 'clients'}<Clients />{:else if page === 'perf'}<Perf />{:else if page === 'suppliers'}<Suppliers />{:else if page === 'cash'}<Cash />{:else if page === 'exec'}<Exec />{:else}<Overview />{/if}
 {:else}
 <div class="mgmt">

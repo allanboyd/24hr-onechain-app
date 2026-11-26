@@ -63,12 +63,12 @@ const hrefsIn = (from: string, to: string) => {
   const block = nav.slice(nav.indexOf(from), nav.indexOf(to)).split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
   return [...block.matchAll(/href: '#([^']*)'/g)].map((m) => m[1]);
 };
-// docs/23 (design v3): Operations in process order; Management = 7 report pages + live dashboards (behind the switch)
+// docs/23 (design v3): Operations in process order, with Live dashboards for everyone (26 Nov); Management = 7 report pages + Settings (V3-12)
 const ops = hrefsIn('export const nav', 'export const managementNav');
 const mgmt = hrefsIn('export const managementNav', 'const HIDDEN');
-const OPS = ['/', '/period-plans', '/pos', '/trucks', '/shipments', '/re-exports', '/stock', '/warehouse-expenses', '/sales', '/master', '/users', '/audit', '/notifications'];
+const OPS = ['/', '/dashboards', '/period-plans', '/pos', '/trucks', '/shipments', '/re-exports', '/stock', '/warehouse-expenses', '/sales', '/master', '/users', '/audit', '/notifications'];
 ok(JSON.stringify(ops) === JSON.stringify(OPS), `operations sidebar = docs/23 §2 list in process order (${ops.length})`, ops);
-ok(mgmt.length === 8 && mgmt.filter((h) => h.startsWith('/management/')).length === 7 && mgmt.every((h) => isRoute(h)), `management: 7 report pages + live dashboards, all routes (${mgmt.length})`, mgmt);
+ok(mgmt.length === 8 && mgmt.every((h) => h.startsWith('/management/')) && mgmt.at(-1) === '/management/settings' && mgmt.every((h) => isRoute(h)), `management: 7 report pages + Settings, all routes (${mgmt.length})`, mgmt);
 // pages taken out of the menu keep their access rule (HIDDEN), or anyone could open them by address
 const hidden = nav.slice(nav.indexOf('const HIDDEN'), nav.indexOf('export type Side'));
 for (const [seg, rule] of [['performance', "'performance'"], ['selling-prices', "'selling-prices'"], ['transport-costs', "['finance', 'transport-fees']"]])
