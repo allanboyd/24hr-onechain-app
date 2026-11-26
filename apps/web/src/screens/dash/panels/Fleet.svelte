@@ -72,7 +72,6 @@
       <div class="badges" aria-label="Last update per truck on the road">
         {#each d.trucks as x}<a href="#/shipments/{x.shipmentId}" class="tb"><b>{x.truck}</b><StatusBadge status={x.status} label={x.hours == null ? 'No update yet' : `${x.hours} h ago`} />{#if !x.hasApp}<span class="caption">no app</span>{/if}</a>{/each}
       </div>
-      <p class="caption">Amber after {d.gap.amber} h, red after {d.gap.red} h without an update.</p>
     {/if}
     <ol class="feed">
       {#each (d.feed ?? []).slice(0, 25) as x}<li class:issue={x.kind === 'issue'}><span class="caption t">{dayTime(x.at)}</span><span><b>{x.truck}</b> {x.text}</span><span class="caption">{x.source}</span></li>{/each}
@@ -81,7 +80,6 @@
 {:else if key === 'border-stops' && hm}
   <DashboardPanel span={span ?? 2} subtitle="average days at each border by route · trips in each cell" decision="Plan extra days on the slowest cells." {...fr} title={r.title} rows={() => [['Route', 'Stop', 'Average days', 'Trips'], ...(d.cells ?? []).map((x: any) => [x.route, x.stop, x.avgDays, x.trips])]} filename="border-stop-heatmap" {drill}>
     <Heatmap label="Average days at each stop by route" rows={hm.routes} cols={hm.stops} values={hm.values} text={hm.text} format={(n) => `${n.toFixed(1)} d`} />
-    {#if d.slowest?.length}<p class="caption">Slowest (3+ trips): {d.slowest.map((x: any) => `${x.stop} on ${x.route} ${x.avgDays.toFixed(1)} d (${x.trips})`).join(' · ')}. Fewer than {d.minTrips} trips is not a stable pattern.</p>{/if}
   </DashboardPanel>
 {/if}
 

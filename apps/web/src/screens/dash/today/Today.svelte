@@ -1,9 +1,8 @@
 <script lang="ts">
   // Directors' My dashboards = Today (docs/15, docs/21): KPIs first, Decisions beside graphs, Money owed split charts.
   // Filter icon opens a modal. Chart|table on cards. No top products / distribution on the default desk.
-  import { dashboards, lookup, type DashFilter, type DashResult } from '@btw/api';
+  import { dashboards, type DashFilter, type DashResponse, type DashResult } from '@btw/api';
   import type { TodayData, TodayDecision } from '@btw/api/dashboards';
-  import { company, GROUP } from '../../../lib/company.svelte';
   import { watch } from '../../../lib/load.svelte';
   import ErrorState from '../../../components/ErrorState.svelte';
   import SparkArea from '../../../components/charts/SparkArea.svelte';
@@ -11,10 +10,7 @@
   import RingDonut from '../../../components/charts/RingDonut.svelte';
   import { BarChart } from '../../../components/charts';
   import { compact } from '../../../components/charts/scale';
-  import { CODES, currency, setCurrency, cv, cvRow, pctF } from '../fmt.svelte';
-  import { DEFAULT_PERIOD, PERIODS, datesOf, type PeriodKey } from '../period';
-  import FilterPanel from '../FilterPanel.svelte';
-  import { portal } from '../../../lib/portal';
+  import { currency, cv, cvRow, pctF } from '../fmt.svelte';
   import TodayCard from './TodayCard.svelte';
   import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
   import ArrowDownRight from '@lucide/svelte/icons/arrow-down-right';
@@ -26,24 +22,14 @@
   import Package from '@lucide/svelte/icons/package';
   import Inbox from '@lucide/svelte/icons/inbox';
   import Tag from '@lucide/svelte/icons/tag';
-  import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
 
-  const DAY = 864e5;
-  const groupView = company.active === GROUP;
-
-  let preset = $state<PeriodKey>(DEFAULT_PERIOD);
-  let warehouseId = $state('');
-  let filtersOpen = $state(false);
-  const filter = $derived.by((): DashFilter => ({ ...datesOf(preset), ...(warehouseId ? { warehouseId } : {}) }));
-  const periodShort = $derived(PERIODS.find((x) => x.key === preset)!.short);
-  const filtersActive = $derived(preset !== DEFAULT_PERIOD || !!warehouseId || currency.code !== 'USD');
+  let { filter, onload }: { filter: DashFilter; onload?: (options: DashResponse['options']) => void } = $props();
 
   let res = $state<DashResult<TodayData> | null>(null);
-  let whOptions = $state<string[]>([]);
   const w = watch(async () => {
     const r = await dashboards.get(['director-today'], filter);
     res = (r.results['director-today'] as DashResult<TodayData>) ?? null;
-    if (!warehouseId) whOptions = r.options.warehouses;
+    onload?.(r.options);
   }, () => JSON.stringify(filter));
   const d = $derived(res?.data ?? null);
 
@@ -58,29 +44,14 @@
   }
   const prevText = $derived(d ? (d.mtd ? 'vs same days last month' : `vs ${d.prev.label}`) : '');
 
-  let range = $state<'7' | '30' | '90' | 'year'>('7');
   let hideSales = $state(false), hideProfit = $state(false);
   const chart = $derived.by(() => {
-    if (!d) return { labels: [] as string[], sales: [] as (number | null)[], profit: [] as (number | null)[], weekly: false };
-    if (range !== 'year') {
-      const xs = d.daily.slice(-Number(range));
-      return { labels: xs.map((x) => x.day), sales: xs.map((x) => (x.sales == null ? null : cv(x.sales))), profit: xs.map((x) => (x.profit == null ? null : cv(x.profit))), weekly: false };
-    }
-    const y0 = `${new Date().getUTCFullYear()}-01-01`;
-    const m = new Map<string, { s: number | null; p: number | null }>();
-    for (const x of d.daily.filter((x) => x.day >= y0)) {
-      const t = Date.parse(`${x.day}T00:00:00Z`);
-      const wd = (new Date(t).getUTCDay() + 6) % 7;
-      const k = new Date(t - wd * DAY).toISOString().slice(0, 10);
-      const a = m.get(k) ?? { s: null, p: null };
-      if (x.sales != null) a.s = (a.s ?? 0) + x.sales;
-      if (x.profit != null) a.p = (a.p ?? 0) + x.profit;
-      m.set(k, a);
-    }
-    const ks = [...m.keys()].sort();
-    return { labels: ks, sales: ks.map((k) => (m.get(k)!.s == null ? null : cv(m.get(k)!.s!))), profit: ks.map((k) => (m.get(k)!.p == null ? null : cv(m.get(k)!.p!))), weekly: true };
+    if (!d) return { labels: [] as string[], sales: [] as (number | null)[], profit: [] as (number | null)[] };
+    const inRange = d.daily.filter((x) => (!filter.from || x.day >= filter.from.slice(0, 10)) && (!filter.to || x.day <= filter.to.slice(0, 10)));
+    const xs = inRange.length ? inRange : d.daily;
+    return { labels: xs.map((x) => x.day), sales: xs.map((x) => (x.sales == null ? null : cv(x.sales))), profit: xs.map((x) => (x.profit == null ? null : cv(x.profit))) };
   });
-  const chartRows = () => [[chart.weekly ? 'Week starting' : 'Day', `Sales (${currency.code})`, `Profit (${currency.code})`], ...chart.labels.map((l, i) => [l, chart.sales[i] == null ? '' : Math.round(chart.sales[i]! * 100) / 100, chart.profit[i] == null ? '' : Math.round(chart.profit[i]! * 100) / 100])];
+  const chartRows = () => [['Day', `Sales (${currency.code})`, `Profit (${currency.code})`], ...chart.labels.map((l, i) => [l, chart.sales[i] == null ? '' : Math.round(chart.sales[i]! * 100) / 100, chart.profit[i] == null ? '' : Math.round(chart.profit[i]! * 100) / 100])];
   const chartTotal = $derived({ sales: chart.sales.reduce((a: number, v) => a + (v ?? 0), 0), profit: chart.profit.reduce((a: number, v) => a + (v ?? 0), 0) });
   const sparkSales = $derived(chart.sales.map((v) => v ?? 0).slice(-7));
 
@@ -112,38 +83,7 @@
   const ragMargin = $derived(ragProfit);
   const ageTotal = $derived(d ? d.owed.bands.reduce((a, b) => a + b.value, 0) : 0);
   const owedRows = () => [['Customer', `Balance (${currency.code})`], ...(d?.owed.top ?? []).map((x) => [x.customer, cvRow(x.value)])];
-
-  function clearFilters() {
-    preset = DEFAULT_PERIOD;
-    warehouseId = '';
-    setCurrency('USD');
-  }
 </script>
-
-<div class="toolbar" use:portal={'home-head-tools'}>
-  <button type="button" class="btn btn-ghost btn-sm filt" class:on={filtersOpen || filtersActive} aria-expanded={filtersOpen} aria-haspopup="dialog" onclick={() => (filtersOpen = true)} title="Filters">
-    <SlidersHorizontal size={16} aria-hidden="true" />
-    <span class="sr">Filters</span>
-  </button>
-  {#if !filtersOpen}
-    <span class="chip-soft">{PERIODS.find((p) => p.key === preset)?.label ?? periodShort}{#if warehouseId} · filtered{/if}</span>
-  {/if}
-  <span class="scope">{groupView ? 'Group · all companies' : lookup.entity(company.active)?.shortName ?? ''}{#if currency.code !== 'USD' && currency.month} · {currency.code} at the {currency.month} rate{/if}</span>
-</div>
-
-<FilterPanel bind:open={filtersOpen} onClear={clearFilters}>
-  <label class="fl">Period
-    <select class="select" bind:value={preset}>{#each PERIODS as p}<option value={p.key}>{p.label}</option>{/each}</select>
-  </label>
-  {#if whOptions.length > 1}
-    <label class="fl">Warehouse
-      <select class="select" bind:value={warehouseId}><option value="">All warehouses</option>{#each whOptions as id}<option value={id}>{lookup.warehouse(id)?.name ?? id}</option>{/each}</select>
-    </label>
-  {/if}
-  <label class="fl">Currency
-    <select class="select" value={currency.code} onchange={(e) => setCurrency(e.currentTarget.value)}>{#each CODES as c}<option>{c}</option>{/each}</select>
-  </label>
-</FilterPanel>
 
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
 
@@ -160,7 +100,7 @@
       <span class="val">{#if d.sales.value == null}No data yet{:else}<small>{currency.code}</small> {amount(d.sales.value)}{/if}</span>
       <span class="chg">
         {#if sc != null}<span class="chip {sc >= 0 ? 'up' : 'down'}">{#if sc >= 0}<ArrowUpRight size={13} />{:else}<ArrowDownRight size={13} />{/if}{Math.abs(sc * 100).toFixed(1)}%</span>{/if}
-        <span class="sub">{sc != null ? prevText : periodShort}</span>
+        <span class="sub">{sc != null ? prevText : 'This period'}</span>
       </span>
       <span class="spk {ragSales}"><SparkArea values={sparkSales.length ? sparkSales : d.sales.spark} height={32} /></span>
     </a>
@@ -195,7 +135,7 @@
   <!-- Decisions | Sales | Stock -->
   <div class="main" class:busy={w.loading}>
     <div class="slot o-dec">
-      <TodayCard title="Decisions" definition="Things only a director can unblock, most urgent first." caption="{open.length ? `${open.length} open` : 'All clear'} · owner on each row" decision="Work the urgent rows before anything else." updatedAt={res?.freshness ?? null} rows={decRows} filename="decisions-today" viewToggle>
+      <TodayCard title="Decisions" tone="primary" definition="Things only a director can unblock, most urgent first." caption="{open.length ? `${open.length} open` : 'All clear'} · owner on each row" updatedAt={res?.freshness ?? null} rows={decRows} filename="decisions-today" viewToggle>
         {#snippet tableView()}
           <div class="table-wrap"><table class="table">
             <thead><tr><th>Decision</th><th class="num">Count</th><th>Owner</th></tr></thead>
@@ -226,22 +166,21 @@
     </div>
 
     <div class="slot o-chart">
-      <TodayCard title="Sales and profit" definition={res?.definition} caption="{currency.code} · {chart.weekly ? 'by week, this year' : `daily · last ${range} days`}{preset === 'today' && range === '7' ? ' · Today, last 7 days behind' : ''} · total {compact(chartTotal.sales)} sales, {compact(chartTotal.profit)} profit" decision="If profit lags sales, open the profit bridge." updatedAt={res?.freshness ?? null} rows={chartRows} filename="sales-and-profit" empty={!chart.sales.some((v) => v != null)} viewToggle>
+      <TodayCard title="Sales and profit" caption="{currency.code} · total {compact(chartTotal.sales)} sales, {compact(chartTotal.profit)} profit" updatedAt={res?.freshness ?? null} rows={chartRows} filename="sales-and-profit" empty={!chart.sales.some((v) => v != null)} viewToggle>
         {#snippet actions()}
           <div class="legend" role="group" aria-label="Show or hide a line">
             <button class="lg" aria-pressed={!hideSales} onclick={() => (hideSales = !hideSales)}><i style="background:var(--t-sales)"></i>Sales</button>
             <button class="lg" aria-pressed={!hideProfit} onclick={() => (hideProfit = !hideProfit)}><i style="background:var(--t-profit)"></i>Profit</button>
           </div>
-          <select class="select sm" bind:value={range} aria-label="Chart period"><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="year">This year</option></select>
         {/snippet}
-        <SmoothTrend label="Sales and profit, {chart.weekly ? 'weekly this year' : `daily over the last ${range} days`}" labels={chart.labels}
+        <SmoothTrend label="Sales and profit" labels={chart.labels}
           series={[{ name: 'Sales', values: chart.sales, color: 'var(--t-sales)', area: true, hidden: hideSales }, { name: 'Profit', values: chart.profit, color: 'var(--t-profit)', hidden: hideProfit }]}
-          format={axisFmt} xLabel={(s) => (chart.weekly ? dayFmt(s, { month: 'short' }) : dayFmt(s))} tipLabel={(s) => (chart.weekly ? `Week of ${dayFmt(s)}` : dayFmt(s, { weekday: 'short', day: 'numeric', month: 'short' }))} height={260} />
+          format={axisFmt} xLabel={(s) => dayFmt(s)} tipLabel={(s) => dayFmt(s, { weekday: 'short', day: 'numeric', month: 'short' })} height={260} />
       </TodayCard>
     </div>
 
     <div class="slot o-stock">
-      <TodayCard title="Stock cover" definition="Cases held now by days of cover. Centre = stock value at landed cost." caption="Cases by days of cover · now" decision="Reorder at-risk products. Count lines with no sales." updatedAt={res?.freshness ?? null} rows={stockRows} filename="stock-health" empty={!d.stock} drill={{ label: 'Open warehouse', href: '#/dashboards/warehouse' }} viewToggle>
+      <TodayCard title="Stock cover" caption="Cases by days of cover" updatedAt={res?.freshness ?? null} rows={stockRows} filename="stock-health" empty={!d.stock} drill={{ label: 'Open warehouse', href: '#/dashboards/warehouse' }} viewToggle>
         {#if d.stock}
           <div class="stock">
             <RingDonut size={130} thickness={14} label="Stock by days of cover" parts={d.stock.bands.map((b) => ({ label: b.label, value: b.cases, color: BAND_COLOR[b.key] }))} centerLabel="Stock value" centerValue={d.stock.value == null ? 'No data yet' : `${currency.code} ${amount(d.stock.value)}`} />
@@ -257,7 +196,7 @@
   </div>
 
   <div class="owed-wrap" class:busy={w.loading}>
-    <TodayCard title="Money owed" definition="Unpaid and part-paid sales by days since the sale. Overdue after {d.owed.terms} days." caption="{currency.code} · {d.owed.terms}-day terms" decision="Call customers in the overdue bands." updatedAt={res?.freshness ?? null} rows={owedRows} filename="money-owed" empty={d.owed.total == null} drill={{ label: 'Open customer balances', href: '#/sales?show=owed' }} viewToggle>
+    <TodayCard title="Money owed" caption="{currency.code} · {d.owed.terms}-day terms" updatedAt={res?.freshness ?? null} rows={owedRows} filename="money-owed" empty={d.owed.total == null} drill={{ label: 'Open customer balances', href: '#/sales?show=owed' }} viewToggle>
       {#snippet tableView()}
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Customer</th><th class="num">Balance</th></tr></thead>
@@ -305,17 +244,6 @@
   @media (prefers-color-scheme: dark) { :global(:root:not([data-theme='light'])) { --t-sales: #9bb6d6; --t-profit: #3dbe8a; } }
   :global(:root[data-theme='dark']) { --t-sales: #9bb6d6; --t-profit: #3dbe8a; }
 
-  /* V3-11a: shown at the right of the greeting (portal into Home's header) */
-  .toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2) var(--space-3); margin: 0; }
-  .filt { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); }
-  .filt.on { border-color: var(--border-strong); background: var(--surface-sunken); }
-  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .chip-soft { font-size: 12px; font-weight: 600; color: var(--text-muted); padding: 4px 10px; border-radius: 999px; background: var(--surface-sunken); }
-  .scope { margin-left: auto; font-size: 12px; color: var(--text-muted); }
-  .fl { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-muted); }
-  .fl .select { height: 36px; width: 100%; }
-  .select.sm { height: 32px; width: auto; min-width: 0; padding: 0 28px 0 10px; font-size: 13px; }
-
   .busy { opacity: 0.6; transition: opacity 0.2s; }
   .kpis {
     display: grid;
@@ -324,13 +252,13 @@
     margin-bottom: var(--space-5);
     align-items: stretch;
   }
-  .kpis.sk { grid-template-rows: auto; }
   .kpi {
-    display: flex; flex-direction: column; gap: 6px; min-width: 0;
+    display: flex; flex-direction: column; justify-content: space-between; gap: 6px; min-width: 0; height: 100%;
     padding: var(--space-4) var(--space-5); border-radius: var(--radius-lg);
     background: var(--surface); border: 1px solid var(--border); box-shadow: var(--elevation-1);
     color: var(--text); text-decoration: none;
   }
+  .kpis.sk { grid-template-rows: auto; }
   .kpi:hover { border-color: var(--border-strong); }
   .kpi:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
   .kpi.hero, .kpi.wide { grid-column: auto; grid-row: auto; min-height: 0; }
@@ -357,12 +285,12 @@
   .main {
     display: grid;
     grid-template-columns: minmax(220px, 0.85fr) minmax(0, 1.35fr) minmax(240px, 1fr);
-    gap: var(--space-5);
-    align-items: start;
+    gap: var(--space-4);
+    align-items: stretch;
     margin-bottom: var(--space-5);
   }
-  .slot { display: flex; flex-direction: column; min-width: 0; }
-  .slot > :global(.tc) { width: 100%; }
+  .slot { display: flex; flex-direction: column; min-width: 0; min-height: 100%; }
+  .slot > :global(.tc) { flex: 1; width: 100%; }
 
   .legend { display: flex; gap: 2px; }
   .lg { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 0; background: none; border-radius: var(--radius-md); font: inherit; font-size: 13px; color: var(--text); cursor: pointer; }
@@ -372,24 +300,22 @@
   .lg:hover { background: var(--surface-sunken); }
 
   .dec { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-  .dec li + li { border-top: 1px solid var(--border); }
-  .dec a { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto 14px; align-items: center; gap: var(--space-2); padding: 8px 0; color: var(--text); text-decoration: none; }
+  .dec li + li { border-top: 1px solid color-mix(in srgb, var(--text-on-primary) 22%, transparent); }
+  .dec a { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto 14px; align-items: center; gap: var(--space-2); padding: 8px 0; color: var(--text-on-primary); text-decoration: none; }
   .dec a:hover b { text-decoration: underline; }
-  .dec .ic { display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-md); background: var(--surface-sunken); color: var(--text-muted); }
-  .dec .sev-critical, .dec .sev-high { background: var(--danger-subtle); color: var(--danger); }
-  .dec .sev-medium { background: var(--warning-subtle); color: var(--warning); }
-  .tx { display: flex; flex-direction: column; min-width: 0; font-size: 11px; color: var(--text-muted); }
-  .tx b { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.3; }
+  .dec .ic { display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--text-on-primary) 16%, transparent); color: var(--text-on-primary); }
+  .tx { display: flex; flex-direction: column; min-width: 0; font-size: 11px; color: color-mix(in srgb, var(--text-on-primary) 78%, transparent); }
+  .tx b { font-size: 13px; font-weight: 600; color: var(--text-on-primary); line-height: 1.3; }
   .tx > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
-  .tx .own { color: var(--text-subtle); }
-  .ct b { font-size: 16px; font-variant-numeric: tabular-nums; }
-  .dec :global(.chev) { color: var(--text-subtle); }
-  .allclear { display: flex; align-items: center; gap: var(--space-2); color: var(--success); margin: 0; font-size: 13px; }
+  .tx .own { color: color-mix(in srgb, var(--text-on-primary) 70%, transparent); }
+  .ct b { font-size: 16px; font-variant-numeric: tabular-nums; color: var(--text-on-primary); }
+  .dec :global(.chev) { color: var(--text-on-primary); }
+  .allclear { display: flex; align-items: center; gap: var(--space-2); color: var(--text-on-primary); margin: 0; font-size: 13px; }
   .clear { margin-top: var(--space-3); font-size: 13px; }
-  .clear summary { cursor: pointer; color: var(--text-muted); font-weight: 600; }
+  .clear summary { cursor: pointer; color: color-mix(in srgb, var(--text-on-primary) 80%, transparent); font-weight: 600; }
   .clear ul { list-style: none; margin: var(--space-2) 0 0; padding: 0; }
-  .clear a { display: flex; justify-content: space-between; gap: var(--space-3); padding: 6px 0; color: var(--text); text-decoration: none; }
-  .clear a span { color: var(--text-muted); text-align: right; }
+  .clear a { display: flex; justify-content: space-between; gap: var(--space-3); padding: 6px 0; color: var(--text-on-primary); text-decoration: none; }
+  .clear a span { color: color-mix(in srgb, var(--text-on-primary) 75%, transparent); text-align: right; }
 
   .stock { display: flex; flex-direction: column; align-items: center; gap: var(--space-4); }
   .bands { list-style: none; margin: 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
@@ -411,8 +337,5 @@
   }
   @media (max-width: 600px) {
     .kpis { grid-template-columns: 1fr; gap: var(--space-3); }
-    .val { font-size: 26px; }
-    .val.sm { font-size: 20px; }
-    .scope { margin-left: 0; }
   }
 </style>

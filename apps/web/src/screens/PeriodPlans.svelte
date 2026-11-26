@@ -6,11 +6,11 @@
   import { type User } from '@btw/api';
   import { Badge, fmtNum, router } from '@btw/ui';
   import SearchX from '@lucide/svelte/icons/search-x';
-  import CalendarSearch from '@lucide/svelte/icons/calendar-search';
   import ErrorState from '../components/ErrorState.svelte';
   import CompanyCell from '../components/CompanyCell.svelte';
+  import PlanCreateDialog from '../components/PlanCreateDialog.svelte';
   import { watch } from '../lib/load.svelte';
-  import { PageHeader, SummaryStrip, FilterBar, ActionInCompany, EmptyState, queryFilters, type SummaryTile } from '../components/page';
+  import { PageHeader, SummaryStrip, FilterBar, EmptyState, queryFilters, type SummaryTile } from '../components/page';
   import { planTiles, infoOf } from '../lib/tiles';
   import { canEditPeriodPlans, KIND_LABEL, onPlanningChange, periodFor, periodLabel, periodPlans, plannedVsActual, planTotals, type PeriodPlan, type PlannedVsActual } from '../lib/planning';
   let { user }: { user: User } = $props();
@@ -41,15 +41,22 @@
     && (!f.values.q || `${p.ref} ${p.title}`.toLowerCase().includes(f.values.q.toLowerCase()))));
   const canCreate = $derived(canEditPeriodPlans(user));
   const active = $derived((f.values.show ? 1 : 0) + (f.values.status ? 1 : 0));
+  let creating = $state(false);
+  let view = $state<'plans' | 'actual'>('plans');
   function clearAll() { f.clear(); search = ''; }
 </script>
 
-<PageHeader overline="Procurement" title="Period plans" description="What each company plans to buy over a month, quarter, half year or year." analysis="purchasing"
-  info="Plans are suggestions: saved directly (no approval), never overlapping for one company, and shown on purchase orders for information. Plan used = cases ordered this quarter ÷ cases planned; the expected share assumes orders spread evenly over the period.">
-  {#snippet secondary()}<a class="btn btn-secondary" href="#/period-plans/check"><CalendarSearch size={16} aria-hidden="true" />Plan or check a period</a>{/snippet}
-  {#snippet primary()}<ActionInCompany label="New period plan" what="period plan" href="#/period-plans/new" when={canCreate} />{/snippet}
+<PageHeader overline="Procurement" title={view === 'actual' ? 'Plan vs actual' : 'Period plans'} description={view === 'actual' ? 'What the plan said, against the orders placed in that period.' : 'What each company plans to buy over a month, quarter, half year or year.'}>
+  {#snippet secondary()}
+    {#if view === 'actual'}<button class="btn btn-secondary" type="button" onclick={() => (view = 'plans')}>Period plans</button>
+    {:else}<button class="btn btn-secondary" type="button" onclick={() => (view = 'actual')}>Plan vs actual</button>{/if}
+  {/snippet}
+  {#snippet primary()}{#if canCreate && view === 'plans'}<button class="btn btn-primary" type="button" onclick={() => (creating = true)}>New period plan</button>{/if}{/snippet}
 </PageHeader>
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
+{#if view === 'actual'}
+  {#await import('../components/reports/PlannedVsActualTab.svelte') then M}<M.default {user} />{/await}
+{:else}
 <SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Period plans summary" noun="plans" total={list ? list.length : null} shown={list ? rows.length : null} />
 <FilterBar bind:search placeholder="Reference or title" {active} onclear={clearAll}>
   <label class="field"><span>Status</span><select class="select" value={f.values.status} onchange={(e) => f.set('status', e.currentTarget.value)}><option value="">Active</option><option value="Replaced">Replaced</option><option value="all">Active and replaced</option></select></label>
@@ -76,4 +83,6 @@
       </tbody>
     </table>
   </div>
+{/if}
+<PlanCreateDialog {user} bind:open={creating} />
 
