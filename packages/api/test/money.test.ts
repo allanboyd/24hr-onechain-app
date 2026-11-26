@@ -298,5 +298,45 @@ for (const who of ['u-kabonge', 'u-testfie', 'u-asie', 'u-yonas']) { await as(wh
   api.entities.setActive(null);
 }
 
+// ---- V3-12 step 2: client payments ------------------------------------------------------------------------------------
+{
+  const R4 = await import('../src/rules');
+  ok(R4.paymentError(100, { amount: 40, method: 'Cash' }) === null && /more than the balance/.test(R4.paymentError(100, { amount: 100.02, method: 'Cash' }) ?? '') && R4.paymentError(100, { amount: 100.004, method: 'Bank' }) === null, 'payment: up to the balance (a cent of rounding allowed)');
+  ok(/amount/.test(R4.paymentError(100, { amount: 0, method: 'Cash' }) ?? '') && /how the client paid/.test(R4.paymentError(100, { amount: 5, method: 'Cheque' }) ?? ''), 'payment: above zero and a known method');
+
+  await as('u-daniel'); api.entities.setActive(null);
+  const per = { from: new Date(Date.now() - 30 * DAY).toISOString(), to: new Date(Date.now() + DAY).toISOString() };
+  const cash0 = (await api.dashboards.get(['mgmt-cash'], per)).results['mgmt-cash']!.data as import('../src/dashboards').MgmtCash;
+  const pays = await api.sales.payments();
+  const all = await api.sales.list();
+  const bySale = new Map<string, number>(); for (const x of pays) bySale.set(x.saleId, (bySale.get(x.saleId) ?? 0) + x.amount);
+  ok(pays.length > 0 && all.filter((x) => x.paid > 0).every((x) => Math.abs((bySale.get(x.id) ?? 0) - x.paid) < 0.01), 'backfill: each sale\'s payments add up to what it says is paid', pays.length);
+  const allSales = (await import('../src/mock/db')).db.sales; // every sale (the list returns the latest 200)
+  const cp = (await import('../src/mock/db')).db.clientPayments!;
+  ok(cp.every((x) => x.method !== null || allSales.find((y) => y.id === x.saleId)?.at === x.at) && allSales.filter((x) => x.paid > 0).every((x) => cp.some((y) => y.saleId === x.id)), 'backfill: every sale with money paid has a payment; copied payments are dated at the sale, method not recorded');
+  ok(!cash0.notRecorded.includes('paymentDates'), 'Cash and closing: payment dates are recorded now');
+
+  const row = (await api.inventory.stock()).find((r) => r.entityId === 'e-btw' && r.closing > 5)!;
+  api.entities.setActive('e-btw');
+  const credit = await api.sales.create({ entityId: 'e-btw', at: new Date(Date.now() - 2 * DAY).toISOString(), warehouseId: row.warehouseId, customer: 'Payment Test Client', salespersonId: 'u-daniel', kind: 'Credit', lines: [{ productId: row.productId, qty: 2, price: 50 }], currency: 'USD', paid: 30, payMethod: 'Mobile money' });
+  const first = (await api.sales.payments(credit.id));
+  ok(first.length === 1 && first[0].amount === 30 && first[0].method === 'Mobile money' && credit.status === 'Part-paid', 'a sale with money paid writes its first payment, with how it was paid');
+  const r1 = await api.sales.recordPayment(credit.id, { amount: 50, method: 'Bank', reference: 'TT-123' });
+  ok(r1.sale.paid === 80 && r1.sale.status === 'Part-paid' && r1.payment.amountUsd === 50 && (await api.sales.list()).find((x) => x.id === credit.id)!.paid === 80, 'Record payment: paid and status follow (30 + 50 of 100 → part-paid)');
+  await rejects(api.sales.recordPayment(credit.id, { amount: 25, method: 'Cash' }), /more than the balance/, 'Record payment: not more than the balance (20 left)');
+  await rejects(api.sales.recordPayment(credit.id, { amount: 5, method: 'Cash', at: new Date(Date.now() - 10 * DAY).toISOString() }), /between the sale and today/, 'Record payment: not dated before the sale');
+  const r2 = await api.sales.recordPayment(credit.id, { amount: 20, method: 'Cash' });
+  ok(r2.sale.status === 'Paid' && (await api.sales.payments(credit.id)).length === 3, 'Record payment: the last 20 makes it paid; three payments on the sale');
+  await rejects(api.sales.recordPayment(credit.id, { amount: 1, method: 'Cash' }), /more than the balance/, 'a paid sale takes no more payments');
+  api.entities.setActive(null);
+  const cash1 = (await api.dashboards.get(['mgmt-cash'], per)).results['mgmt-cash']!.data as import('../src/dashboards').MgmtCash;
+  ok(Math.abs(cash1.kpis.received - cash0.kpis.received - 100) < 0.02, 'Cash and closing: received goes up by the 100 paid in the period (30 on the sale + 50 + 20)', [cash0.kpis.received, cash1.kpis.received]);
+  const clientsD = (await api.dashboards.get(['mgmt-clients'], per)).results['mgmt-clients']!.data as import('../src/dashboards').MgmtClients;
+  ok(!!clientsD.methods && Math.abs(clientsD.methods.reduce((a, x) => a + x.total, 0) - cash1.kpis.received) < 0.05 && clientsD.methods.some((x) => x.method === 'Bank'), 'Sales and clients: money by how clients paid adds up to Cash received', clientsD.methods);
+  await as('u-yonas');
+  await rejects(api.sales.recordPayment(credit.id, { amount: 1, method: 'Cash' }), /404|403|not found|Not/, 'a warehouse user outside the sale cannot record a payment');
+  await as('u-daniel');
+}
+
 console.log(fails ? `\n${fails} money check(s) FAILED` : '\nall money checks passed');
 if (fails) process.exitCode = 1;

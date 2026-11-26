@@ -29,6 +29,7 @@
   let kind = $state<'Cash' | 'Credit'>('Cash');
   let lines = $state<SaleLine[]>([]);
   let paid = $state<number | null>(null);
+  let payMethod = $state<'Cash' | 'Mobile money' | 'Bank'>('Cash');
   let busy = $state(false), error = $state('');
   const avail = (pid: string) => stock.find((x) => x.warehouseId === wh && x.productId === pid)?.closing ?? 0;
   const products = $derived(stock.filter((x) => x.warehouseId === wh).map((x) => ({ id: x.productId, p: lookup.product(x.productId), n: x.closing })).sort((a, b) => (a.p?.brand ?? '').localeCompare(b.p?.brand ?? '')));
@@ -45,7 +46,7 @@
     if (over) { error = `Only ${avail(over.productId)} cases of ${lookup.product(over.productId)?.brand} in stock`; return; }
     busy = true;
     try {
-      const s = await sales.create({ at: new Date().toISOString(), warehouseId: wh, customer: picked?.name ?? customer.trim(), clientId: picked?.id, salespersonId: user.id, kind, lines: $state.snapshot(lines), currency: 'USD', paid: paidNow });
+      const s = await sales.create({ at: new Date().toISOString(), warehouseId: wh, customer: picked?.name ?? customer.trim(), clientId: picked?.id, salespersonId: user.id, kind, lines: $state.snapshot(lines), currency: 'USD', paid: paidNow, payMethod });
       haptic('success'); say(`Sale ${s.ref} saved`); ondone();
     } catch (e) { error = (e as Error).message; haptic('warning'); } finally { busy = false; }
   }
@@ -75,6 +76,7 @@
     {/each}
     {#if products.length > lines.length}<button class="btn btn-ghost add" onclick={addLine}><Plus size={18} />Add another brand</button>{/if}
     <label class="field"><span>Paid now (USD)</span><input class="input" type="number" inputmode="decimal" min="0" step="0.01" value={paidNow} oninput={(e) => (paid = Number((e.currentTarget as HTMLInputElement).value))} /></label>
+    {#if paidNow > 0}<Segmented options={[{ id: 'Cash', label: 'Cash' }, { id: 'Mobile money', label: 'Mobile money' }, { id: 'Bank', label: 'Bank' }]} bind:value={payMethod} label="How the client paid" />{/if}
     <div class="total"><span>Total</span><strong>{usdFull(total)}</strong></div>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
     <button class="btn btn-primary btn-lg btn-block" onclick={save} disabled={busy}>{busy ? 'Saving…' : 'Save sale'}</button>

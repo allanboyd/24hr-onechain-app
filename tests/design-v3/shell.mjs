@@ -4,7 +4,7 @@ import { chromium } from 'playwright';
 
 const [base, out = '.'] = process.argv.slice(2);
 let fails = 0; const ok = (c, m) => { console.log(`${c ? 'ok  ' : 'FAIL'} ${m}`); if (!c) fails++; };
-const OPS = ['Home', 'Live dashboards', 'Period plans', 'Purchase orders', 'Truck desk', 'Shipments', 'Goods transfers', 'Stock', 'Warehouse expenses', 'Sales', 'Master data', 'Users & access', 'Audit log', 'Alerts'];
+const OPS = ['Home', 'Period plans', 'Purchase orders', 'Truck desk', 'Shipments', 'Goods transfers', 'Stock', 'Warehouse expenses', 'Sales', 'Master data', 'Users & access', 'Audit log', 'Alerts'];
 const MGMT = ['Overview', 'Executive report', 'Plans and orders', 'Sales and clients', 'Supplier balances', 'Cash and closing', 'Warehouse performance', 'Settings'];
 const b = await chromium.launch();
 async function signIn(name, width = 1440) {
@@ -34,10 +34,10 @@ ok((await p.locator('main h1').first().textContent())?.trim() === 'Supplier bala
 await p.screenshot({ path: `${out}/shell-mgmt.png` });
 await seg(p).getByRole('link', { name: 'Operations' }).click(); await p.waitForTimeout(2000);
 ok(p.url().endsWith('#/') && JSON.stringify(await items(p)) === JSON.stringify(OPS), 'switch → Operations goes home with the Operations menu');
-// Live dashboards is in Operations (26 Nov) and opens the first dashboard tab
-await p.locator('aside nav a', { hasText: 'Live dashboards' }).click(); await p.waitForTimeout(2500);
-ok(await seg(p).getByRole('link', { name: 'Operations' }).getAttribute('aria-current') === 'true' && await p.locator('aside nav a.active', { hasText: 'Live dashboards' }).count() === 1, 'Live dashboards is on the Operations side and marked current');
-ok(await p.locator('[role=tablist] [aria-selected=true], .tabs a[aria-current]').first().textContent().then((t) => t?.trim() !== 'Overview').catch(() => false), 'and it opens a dashboard tab, not Home');
+// One entry for the dashboards (26 Nov): a dashboard tab keeps Home selected in the Operations menu
+await p.goto(`${base}#/dashboards/sales`); await p.waitForTimeout(2500);
+ok(await seg(p).getByRole('link', { name: 'Operations' }).getAttribute('aria-current') === 'true' && await p.locator('aside nav a.active', { hasText: 'Home' }).count() === 1, 'a dashboard tab is on the Operations side with Home marked current');
+ok(await p.locator('[role=tablist] [aria-selected=true], .tabs a[aria-current]').first().textContent().then((t) => t?.trim() !== 'Overview').catch(() => false), 'and it shows that dashboard tab');
 for (const r of ['/performance', '/selling-prices', '/transport-costs']) {
   await p.goto(`${base}#${r}`); await p.waitForTimeout(1500);
   ok(await p.getByText('Not available for your role').count() === 0, `director still opens ${r} by link`);
@@ -54,7 +54,7 @@ await p.screenshot({ path: `${out}/shell-phone.png` });
 
 // ---- warehouse user: no switch, removed pages still closed
 const q = await signIn('Yonas');
-ok((await items(q)).includes('Live dashboards'), 'warehouse user: Live dashboards in the menu');
+ok((await items(q)).includes('Home') && !(await items(q)).includes('Live dashboards'), 'warehouse user: one Home entry for the dashboards');
 ok(await seg(q).count() === 0, 'warehouse user: no switch');
 for (const r of ['/performance', '/selling-prices', '/transport-costs', '/management/cash', '/dashboards']) {
   await q.goto(`${base}#${r}`); await q.waitForTimeout(1500);
