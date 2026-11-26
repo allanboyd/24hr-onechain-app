@@ -153,3 +153,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | claude | Your note → V3-13 planned: one Settings & alerts workspace with a left menu; Alerts moves in. Waiting for approval. |
 | 26 Nov 2026 | cursor | V3-11 Business: sales, profit and margin, prices below target, and landed cost per product. The longer study stays on Management. Trip cost per truck is on Fees. |
 | 26 Nov 2026 | cursor | V3-11 Business graphs return in short cards: profit bridge, where each $100 went, sales and profit, expenses. Overview chart is expenses, sales and profit. |
+| 26 Nov 2026 | cursor | V3-11 Business lead card is the expenses, sales and profit chart, matching the overview. The stat tiles are gone. |

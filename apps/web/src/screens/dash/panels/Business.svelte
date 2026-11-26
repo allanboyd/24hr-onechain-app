@@ -2,7 +2,7 @@
   // Directors · business (docs/15): executive overview ★1, combined performance (link), profit and margin ★2, landed cost per
   // product and per truck, selling price & target margin (link + gauge), fast / slow products ★3.
   import type { DashKey, DashResult } from '@btw/api';
-  import { DashboardPanel, Waterfall, StackedBarH, QuadrantScatter, type Kpi } from '../../../components/dashboard';
+  import { DashboardPanel, Waterfall, StackedBarH, QuadrantScatter } from '../../../components/dashboard';
   import '../../../components/dashboard/report.css';
   import { BarChart, Donut, Meter } from '../../../components/charts';
   import type { Ink } from '../../../components/charts/theme.svelte';
@@ -14,21 +14,15 @@
   const fr = $derived(frame(r));
   const go = (h: string) => (location.hash = h.replace(/^#/, ''));
 
-  // ── executive overview: sales, expenses, profit, margin. Trucks, orders and alerts stay on Home. ──
-  const asKpi = (k: any, upIsGood = k.upIsGood ?? true): Kpi => {
-    const fmt = k.unit === 'usd' ? (n: number) => compact(cv(n)) : k.unit === 'pct' ? (n: number) => pctF(n) : (n: number) => n0(n);
-    const change = k.value != null && k.prev != null && k.changeKind ? { value: k.changeKind === 'pp' ? (k.value - k.prev) * 100 : k.prev ? (k.value - k.prev) / Math.abs(k.prev) : null, kind: k.changeKind, upIsGood, label: 'vs previous period' } : undefined;
-    return { label: k.unit === 'usd' ? `${k.label} (${currency.code})` : k.label, value: k.value, format: fmt, change, note: k.note, status: k.status, href: k.href };
-  };
-  const kpis = $derived.by((): Kpi[] => {
-    if (key !== 'exec-overview') return [];
+  // ── executive overview: the same three bars as the overview chart. ──
+  const mix = $derived.by(() => {
+    if (key !== 'exec-overview') return { expenses: 0, sales: 0, profit: 0 };
     const by = new Map(((d?.kpis ?? []) as any[]).map((k) => [k.key, k]));
-    const sales = by.get('sales'); const profit = by.get('profit'); const margin = by.get('margin');
-    const exp = sales && profit && sales.value != null && profit.value != null ? Math.max(0, sales.value - profit.value) : null;
-    const expPrev = sales?.prev != null && profit?.prev != null ? Math.max(0, sales.prev - profit.prev) : null;
-    const expenses = { key: 'expenses', label: 'Expenses', value: exp, prev: expPrev, unit: 'usd', changeKind: exp != null && expPrev != null ? 'pct' : undefined, upIsGood: false };
-    return [sales, expenses, profit, margin].filter(Boolean).map((k) => asKpi(k, k.upIsGood ?? true));
+    const sales = Math.max(0, cv(by.get('sales')?.value ?? 0));
+    const profit = Math.max(0, Math.min(cv(by.get('profit')?.value ?? 0), sales));
+    return { expenses: Math.max(0, sales - profit), sales, profit };
   });
+  const fig = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const kpiRows = () => {
     const by = new Map(((d?.kpis ?? []) as any[]).map((k) => [k.key, k]));
     const sales = by.get('sales'); const profit = by.get('profit'); const margin = by.get('margin');
@@ -67,20 +61,12 @@
 </script>
 
 {#if key === 'exec-overview'}
-  <DashboardPanel span="full" subtitle="against the previous period" decision="Open performance for the full product, warehouse and company breakdown." {...fr} title="Sales, expenses and profit" rows={kpiRows} filename="sales-expenses-profit" owner="Directors" drill={{ label: 'Open performance', href: '#/performance' }}>
-    <div class="biz-kpis">
-      <div class="dash-kpis" role="list" aria-label="Sales, expenses and profit">
-        {#each kpis as k (k.label)}
-          {@const c = k.change}
-          {@const dir = c?.value == null ? 0 : Math.sign(c.value)}
-          {@const good = dir === 0 ? null : (dir > 0) === (c?.upIsGood ?? true)}
-          <svelte:element this={k.href ? 'a' : 'div'} role="listitem" class="card kpi" href={k.href || undefined}>
-            <span class="lbl">{k.label}</span>
-            {#if k.value == null}<b class="val none">No data yet</b>{:else}<b class="val">{(k.format ?? ((n: number) => String(n)))(k.value)}</b>{/if}
-            <span class="sub">{#if c && c.value != null}<span class="dash-chip" class:good={good === true} class:bad={good === false}>{dir > 0 ? '▲' : dir < 0 ? '▼' : '0'} {c.kind === 'pp' ? `${Math.abs(c.value).toFixed(1)} pp` : c.kind === 'abs' ? (k.format ?? ((n: number) => String(n)))(Math.abs(c.value)) : `${(Math.abs(c.value) * 100).toFixed(1)}%`}</span>{/if} {c?.label ?? (k.note ?? '')}</span>
-          </svelte:element>
-        {/each}
-      </div>
+  <DashboardPanel span="full" subtitle="{currency.code} · expenses {compact(mix.expenses)}, sales {compact(mix.sales)}, profit {compact(mix.profit)}" decision="Open performance for the full product, warehouse and company breakdown." {...fr} title="Expenses, sales and profit" rows={kpiRows} filename="expenses-sales-profit" owner="Directors" empty={mix.sales <= 0.5 && mix.profit <= 0.5} drill={{ label: 'Open performance', href: '#/performance' }}>
+    <BarChart label="Expenses, sales and profit" categories={['Expenses', 'Sales', 'Profit']} series={[{ name: 'Expenses', values: [mix.expenses, 0, 0], ink: 'cost' }, { name: 'Sales', values: [0, mix.sales, 0], ink: 'navy' }, { name: 'Profit', values: [0, 0, mix.profit], ink: 'good' }]} stacked format={(n) => `${currency.code} ${compact(n)}`} height={220} />
+    <div class="figs">
+      <b><span>{currency.code}</span>{fig(mix.expenses)}</b>
+      <b><span>{currency.code}</span>{fig(mix.sales)}</b>
+      <b><span>{currency.code}</span>{fig(mix.profit)}</b>
     </div>
   </DashboardPanel>
 {:else if key === 'combined-performance'}
@@ -144,15 +130,16 @@
   .fill.sales { width: 100%; background: var(--viz-1); }
   .fill.costs { background: var(--viz-2); }
   .fill.profit { background: var(--viz-3); }
-  .biz-kpis :global(.dash-kpis) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .figs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0 8px 0 32px; text-align: center; }
+  .figs b { display: flex; flex-direction: column; align-items: center; gap: 1px; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+  .figs b span { font-size: 11px; font-weight: 600; color: var(--text-muted); }
   .prices { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
   .prices li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: baseline; padding: 8px 0; border-top: 1px solid var(--border); }
   .prices li:first-child { border-top: 0; }
   .prices .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .prices b { font-variant-numeric: tabular-nums; }
   .prices .need { color: var(--text-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
-  @media (max-width: 1100px) { .biz-kpis :global(.dash-kpis) { grid-template-columns: 1fr 1fr; } }
-  @media (max-width: 720px) { .biz-kpis :global(.dash-kpis) { grid-template-columns: 1fr; } .prices li { grid-template-columns: minmax(0, 1fr) auto; } .prices .need { grid-column: 1 / -1; } }
+  @media (max-width: 720px) { .prices li { grid-template-columns: minmax(0, 1fr) auto; } .prices .need { grid-column: 1 / -1; } }
   .golink { margin-top: var(--space-3); }
   .split { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: stretch; }
   .split > div { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; }
