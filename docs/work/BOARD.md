@@ -168,3 +168,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | claude | Your note → V3-3 dropped (Home overview covers it); V3-15 planned (Shipments + map, Truck desk, Alerts activity, Stock); V3-6 planned (phone bottom bar and top bar) after V3-15. Waiting for approval. |
 | 26 Nov 2026 | cursor | V3-11 Shipments: map is one third, live fleet board is two thirds. Truck list stays on Loading. Purchase orders chart no longer stacks a table, and the plan card is a noun. |
 | 26 Nov 2026 | claude | V3-15 step 2 merged: Shipments and the map on one page (Split / List / Map, cards with progress, journey panel); the Shipment map entry is gone. |
+| 26 Nov 2026 | claude | V3-15 step 3 merged: Alerts as an activity feed (by day, buttons) and exceptions as cards by severity; tables one click away. |
