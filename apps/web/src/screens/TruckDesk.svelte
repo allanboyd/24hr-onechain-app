@@ -72,6 +72,7 @@
   const k = $derived(deskKpis(rows, trips));
   // V3-15: the left menu of the Truck desk (the Settings & alerts layout), each part with its count
   const ICON = { board: LayoutGrid, queues: ListOrdered, providers: Building2, costs: Wallet } as const;
+  const DESC = { board: 'Where every truck is now', queues: 'Loading point queues and loading', providers: 'Transport companies, trucks, drivers', costs: 'What transport costs and is owed' } as const;
   const countOf = (t: Tab) => (!w.loaded ? '' : t === 'board' ? String(rows.filter((x) => x.state !== 'Idle').length) : t === 'queues' ? String(k.inQueue) : t === 'providers' ? String(ref().trucks.filter((x) => x.active !== false).length) : k.owed ? `$${Math.round(k.owed / 1000)}k` : '');
   const alertOf = (t: Tab) => (t === 'board' ? k.delayed > 0 : t === 'queues' ? k.longWaits > 0 : false);
   // Board layout: lanes (default), lanes with the map, or the table; kept in the address (?layout=)
@@ -110,8 +111,11 @@
 {#if TABS.length > 1}
   <nav class="side" aria-label="Truck desk">
     {#each TABS as t (t.key)}{@const I = ICON[t.key]}
-      <a href="#/trucks{t.key === TABS[0].key ? '' : `?tab=${t.key}`}" class:on={tab === t.key} aria-current={tab === t.key ? 'page' : undefined} onclick={(e) => { e.preventDefault(); setTab(t.key as Tab); }}>
-        <I size={16} aria-hidden="true" /><span>{t.label}</span>{#if countOf(t.key as Tab)}<span class="n" class:alert={alertOf(t.key as Tab)}>{countOf(t.key as Tab)}</span>{/if}</a>
+      <a href="#/trucks{t.key === TABS[0].key ? '' : `?tab=${t.key}`}" class="mc" class:on={tab === t.key} aria-current={tab === t.key ? 'page' : undefined} onclick={(e) => { e.preventDefault(); setTab(t.key as Tab); }}>
+        <span class="ic"><I size={18} aria-hidden="true" /></span>
+        <span class="tx"><span class="lb">{t.label}</span><span class="ds">{DESC[t.key]}</span></span>
+        {#if countOf(t.key as Tab)}<span class="n" class:alert={alertOf(t.key as Tab)}>{countOf(t.key as Tab)}</span>{/if}
+      </a>
     {/each}
   </nav>
 {/if}
@@ -159,21 +163,26 @@
 </div>
 
 <style>
-  .desk { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: var(--space-5); align-items: start; }
+  .desk { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: var(--space-5); align-items: start; }
   .desk.solo { grid-template-columns: minmax(0, 1fr); }
   .content { min-width: 0; }
-  .side { position: sticky; top: var(--space-4); display: flex; flex-direction: column; gap: 2px; padding: var(--space-3); border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
-  .side a { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 9px; color: var(--text-muted); text-decoration: none; font-size: 14px; font-weight: 500; }
-  .side a:hover { background: var(--surface-sunken); color: var(--text); text-decoration: none; }
-  .side a.on { background: var(--primary-subtle); color: var(--primary); font-weight: 600; }
-  .side .n { margin-left: auto; font-size: 12px; padding: 1px 8px; border-radius: 99px; background: var(--surface-sunken); color: var(--text-muted); font-weight: 600; }
-  .side .n.alert { background: var(--danger-subtle); color: var(--danger); }
+  .side { position: sticky; top: var(--space-4); display: flex; flex-direction: column; gap: 10px; }
+  .mc { display: flex; align-items: center; gap: 12px; padding: 14px 14px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text); text-decoration: none; transition: border-color .15s, box-shadow .15s, transform .15s; }
+  .mc:hover { border-color: var(--border-strong, var(--border)); box-shadow: 0 2px 10px rgb(0 0 0 / .06); text-decoration: none; }
+  .mc.on { border-color: var(--primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 22%, transparent); }
+  .mc:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+  .mc .ic { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 11px; background: var(--surface-sunken); color: var(--text-muted); }
+  .mc.on .ic { background: var(--primary); color: var(--text-on-primary, #fff); }
+  .mc .tx { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+  .mc .lb { font-weight: 600; font-size: 14.5px; } .mc .ds { font-size: 12px; color: var(--text-muted); line-height: 1.35; }
+  .mc .n { flex: none; font-size: 13px; padding: 2px 9px; border-radius: 99px; background: var(--surface-sunken); color: var(--text-muted); font-weight: 700; }
+  .mc .n.alert { background: var(--danger-subtle); color: var(--danger); }
   .lay { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--surface-sunken); margin-bottom: var(--space-3); }
   .lay button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 6px 12px; border-radius: 8px; font: inherit; font-size: 13.5px; color: var(--text-muted); cursor: pointer; }
   .lay button.on { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
   @media (max-width: 960px) {
     .desk { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
-    .side { position: static; flex-direction: row; overflow-x: auto; padding: 6px; gap: 6px; scrollbar-width: none; }
-    .side a { flex: none; white-space: nowrap; border: 1px solid var(--border); border-radius: 99px; padding: 6px 12px; }
+    .side { position: static; flex-direction: row; overflow-x: auto; gap: 8px; scrollbar-width: none; }
+    .mc { flex: none; padding: 8px 12px; } .mc .ds { display: none; } .mc .ic { width: 30px; height: 30px; }
   }
 </style>

@@ -11,7 +11,7 @@ const rows = () => p.locator('section.dt table tbody tr');
 // Board
 // V3-15: the Truck desk in the left-menu layout; the Board opens as lanes by state, with a map option
 await p.goto(`${base}#/trucks`); await p.locator('.lane').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(800);
-const menu = (await p.getByRole('navigation', { name: 'Truck desk' }).locator('a span:not(.n)').allTextContents()).map((x) => x.trim());
+const menu = (await p.getByRole('navigation', { name: 'Truck desk' }).locator('.lb').allTextContents()).map((x) => x.trim());
 ok(JSON.stringify(menu) === JSON.stringify(['Board', 'Queues', 'Providers & trucks', 'Costs']), `left menu: ${menu.join(', ')}`);
 const lanes = (await p.locator('.lane h3 span:first-child').allTextContents()).map((x) => x.trim());
 ok(JSON.stringify(lanes) === JSON.stringify(['Waiting & loading', 'On the road', 'Delayed', 'Arrived']), 'Board: four lanes by state');
@@ -37,13 +37,18 @@ const states = await rows().locator('td .badge, td [class*=badge]').allTextConte
 ok(states.length > 0 && states.every((x) => /Delayed/i.test(x)), `Board: the State filter from the address (${states.length} delayed)`);
 await p.screenshot({ path: `${out}/trucks-board.png` });
 
-// Costs
-await p.goto(`${base}#/trucks?tab=costs`); await p.waitForTimeout(2500);
-const provTable = p.locator('section.dt').first(), truckTable = p.locator('section.dt').nth(1);
-const t0 = await truckTable.locator('tbody tr').count();
-await provTable.locator('tbody tr').first().click(); await p.waitForTimeout(800);
-const t1 = await truckTable.locator('tbody tr').count();
-ok(/provider=/.test(p.url()) && t1 > 0 && t1 <= t0 && await truckTable.locator('.chip, [class*=chip]').count() > 0, `Costs: a provider narrows the trucks (${t0} → ${t1}) with a chip`);
+// Costs: By provider | By truck as tabs; picking a provider opens its trucks
+await p.goto(`${base}#/trucks?tab=costs&by=truck`); await p.reload(); await p.locator('section.dt tbody tr').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(800);
+const t0 = await p.locator('section.dt tbody tr').count();
+await p.locator('.tabs', { hasText: 'By provider' }).getByText('By provider').click(); await p.waitForTimeout(600);
+await p.locator('section.dt tbody tr').first().click(); await p.waitForTimeout(800);
+const t1 = await p.locator('section.dt tbody tr').count();
+ok(/provider=/.test(p.url()) && /by=truck/.test(p.url()) && await p.locator('section.dt').count() === 1 && t1 > 0 && t1 <= t0 && await p.locator('.dt-chips, [class*=chip]').count() > 0, `Costs: one table at a time; a provider opens its trucks (${t0} → ${t1}) with a chip`);
+// the menu: one card per part with a description; Queues lists as tabs
+ok(await p.locator('nav[aria-label="Truck desk"] .mc .ds').count() === 4, 'the menu: a card per part, each with a short description');
+await p.locator('nav[aria-label="Truck desk"] .mc', { hasText: 'Queues' }).click(); await p.waitForTimeout(1500);
+const qtabs = (await p.locator('.tabs', { hasText: 'Waiting trucks' }).locator('button, a').allTextContents()).map((x) => x.replace(/\d+$/, '').trim());
+ok(JSON.stringify(qtabs) === JSON.stringify(['Waiting trucks', 'To load', 'Recently loaded']) && await p.locator('.qwrap section').count() === 1, `Queues: ${qtabs.join(' | ')} as tabs, one list at a time`);
 await p.screenshot({ path: `${out}/trucks-costs.png`, fullPage: true });
 ok(!errs.length, `no page errors ${errs.join(' | ')}`);
 await b.close();

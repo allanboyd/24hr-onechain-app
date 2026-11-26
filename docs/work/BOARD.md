@@ -173,3 +173,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 Sales stops at cash vs credit. Warehouse today no longer stacks every arrival, and the stock report is not repeated under the cards. |
 | 26 Nov 2026 | cursor | V3-11 Shipments: Driver status updates is removed. A live board card is the truck and its standing, and a click opens the detail without leaving the page. |
 | 26 Nov 2026 | claude | V3-15 step 5 merged: Truck desk in the left-menu layout; Board as lanes by state with flags, and lanes + live map on one screen. Next: V3-6 (phone). |
+| 26 Nov 2026 | claude | Your note: Truck desk menu as cards; Costs and Queues lists as tabs (one table at a time). Next: V3-6. |
