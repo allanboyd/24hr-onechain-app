@@ -4,7 +4,7 @@ import { chromium } from 'playwright';
 
 const [base, out = '.'] = process.argv.slice(2);
 let fails = 0; const ok = (c, m) => { console.log(`${c ? 'ok  ' : 'FAIL'} ${m}`); if (!c) fails++; };
-const OPS = ['Home', 'Period plans', 'Purchase orders', 'Truck desk', 'Shipments', 'Goods transfers', 'Stock', 'Warehouse expenses', 'Sales', 'Master data', 'Users & access', 'Audit log', 'Alerts'];
+const OPS = ['Home', 'Period plans', 'Purchase orders', 'Truck desk', 'Shipments', 'Shipment map', 'Goods transfers', 'Stock', 'Warehouse expenses', 'Sales', 'Master data', 'System settings & logs', 'Alerts'];
 const MGMT = ['Overview', 'Executive report', 'Plans and orders', 'Sales and clients', 'Supplier balances', 'Cash and closing', 'Warehouse performance', 'Settings'];
 const b = await chromium.launch();
 async function signIn(name, width = 1440) {
@@ -42,6 +42,20 @@ for (const r of ['/performance', '/selling-prices', '/transport-costs']) {
   await p.goto(`${base}#${r}`); await p.waitForTimeout(1500);
   ok(await p.getByText('Not available for your role').count() === 0, `director still opens ${r} by link`);
 }
+// V3-1g: Shipment map on its own entry; System settings & logs = Users & access, Audit log, Settings
+await p.locator('aside nav a', { hasText: 'Shipment map' }).click(); await p.waitForTimeout(2500);
+ok(/view=map/.test(p.url()) && await p.locator('aside nav a.active', { hasText: 'Shipment map' }).count() === 1 && await p.locator('aside nav a.active', { hasText: /^Shipments$/ }).count() === 0, 'Shipment map opens the map and is the current entry (not Shipments)');
+await p.locator('aside nav a', { hasText: /^Shipments$/ }).click(); await p.waitForTimeout(1500);
+ok(!/view=map/.test(p.url()) && await p.locator('aside nav a.active', { hasText: /^Shipments$/ }).count() === 1, 'Shipments opens the list');
+await p.locator('aside nav a', { hasText: 'System settings & logs' }).click(); await p.waitForTimeout(2500);
+ok(p.url().endsWith('#/users') && (await p.locator('main h1').first().textContent())?.trim() === 'Users & access' && await p.locator('aside nav a.active', { hasText: 'System settings & logs' }).count() === 1, 'System settings & logs opens Users & access and stays current');
+const sys = p.getByRole('navigation', { name: 'System settings & logs' });
+ok(JSON.stringify((await sys.locator('a').allTextContents()).map((x) => x.trim())) === JSON.stringify(['Users & access', 'Audit log', 'Settings']), 'its pages: Users & access, Audit log, Settings');
+await sys.getByRole('link', { name: 'Audit log' }).click(); await p.waitForTimeout(2000);
+ok((await p.locator('main h1').first().textContent())?.trim() === 'Audit log' && await p.locator('aside nav a.active', { hasText: 'System settings & logs' }).count() === 1, 'Audit log keeps System settings & logs current');
+await sys.getByRole('link', { name: 'Settings' }).click(); await p.waitForTimeout(2000);
+ok(await p.getByRole('switch', { name: 'Advance payments need director approval' }).count() === 1 && await p.locator('aside nav a.active', { hasText: 'System settings & logs' }).count() === 1, 'Settings (approval, my notifications) is reachable from Operations');
+await p.screenshot({ path: `${out}/system-settings.png` });
 // brand: no subtitle lines; marks small
 const brand = await p.locator('aside .brand').innerText();
 ok(!/BTW · NUD · Kivu/.test(brand), 'brand: no subtitle line');

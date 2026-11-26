@@ -168,7 +168,7 @@
           <div class="grp" role="group" aria-label={g.label}>
             {#each g.items as it}
               {@const Icon = it.icon}
-              <a href={it.href} class:active={active(it.href)} title={rail ? it.label : undefined} aria-label={rail ? it.label : undefined}><Icon size={18} /><span class="lbl">{it.label}</span></a>
+              <a href={it.href} class:active={it.match ? it.match(router.path) : active(it.href)} title={rail ? it.label : undefined} aria-label={rail ? it.label : undefined}><Icon size={18} /><span class="lbl">{it.label}</span></a>
             {/each}
           </div>
         {/each}
