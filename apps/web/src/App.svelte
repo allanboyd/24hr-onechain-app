@@ -92,7 +92,8 @@
     addEventListener('keydown', key); return () => removeEventListener('keydown', key);
   });
   const rail = $derived(sidebar.collapsed && !isPhone);
-  const active = (href: string) => (href === '#/' ? router.path === '/' : ('#' + router.path).startsWith(href));
+  // Home is also every dashboard tab (#/dashboards/..., #/overview): one menu entry for the dashboards page
+  const active = (href: string) => (href === '#/' ? /^\/(dashboards(\/|$)|overview$|$)/.test(router.path) : ('#' + router.path).startsWith(href));
   $effect(() => { document.title = `${matched?.route.title ?? 'BTW'} · ${co ? co.shortName : user ? 'Group' : 'BTW'} · Supply Chain`; navOpen = false; router.path; });
   // Remount the screen when the company or the route changes, so its data reloads for the new scope.
   // All Management pages are one screen: it switches report pages itself and keeps its report frame loaded.
