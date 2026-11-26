@@ -43,8 +43,8 @@
 </script>
 
 <section class="mrep" aria-labelledby="sp-h">
-  <ReportFilters {f} />
   <header><h1 id="sp-h">Supplier balances</h1><p class="muted">{whName} · {res?.period?.label ?? ''} · cash held = money left for cases not loaded</p></header>
+  <ReportFilters {f} />
   <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
   {#if d}
     {@const k = d.kpis}

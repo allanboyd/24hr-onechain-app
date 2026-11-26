@@ -106,6 +106,25 @@ ok(mo.brands.best.length > 0 && mo.brands.best.every((b, i, a) => i === 0 || a[i
   ok(ms.bySupplier.every((x) => Math.abs((lastBal.get(x.supplierId) ?? 0) - x.held) < 1), 'Management Suppliers: each statement ends at that supplier\'s balance');
   ok(ms.notRecorded.includes('creditNotes') && ms.notRecorded.includes('advances') && ms.loads.every((r) => !/^p-[a-z]\d/.test(r.brand)), 'Management Suppliers: credit notes / advances flagged as not recorded; names not codes');
 }
+// ---- Management · Cash and closing (V3-10 step 3d): money in / out and opening → closing from what we record ----
+{
+  const per = { from: td.period.from, to: new Date(Date.parse(td.period.to) + 1).toISOString() };
+  const r = await api.dashboards.get(['mgmt-cash', 'mgmt-clients'], per);
+  const mcash = r.results['mgmt-cash']!.data as import('../src/dashboards').MgmtCash;
+  const mcl = r.results['mgmt-clients']!.data as import('../src/dashboards').MgmtClients;
+  const recPaid = mcl.records.reduce((a, x) => a + x.paid, 0), recBal = mcl.records.reduce((a, x) => a + x.balance, 0);
+  ok(Math.abs(mcash.kpis.received - recPaid) < 1 && Math.abs(mcash.kpis.toCollect - recBal) < 1, 'Management Cash: received / still to collect = the Sales and clients records (same period)', [mcash.kpis.received, recPaid, mcash.kpis.toCollect, recBal]);
+  ok(mcash.clients.closing === mcl.kpis.owed, 'Management Cash: client balances closing = owed on Sales and clients', [mcash.clients.closing, mcl.kpis.owed]);
+  const st = mcash.statement; const net = st.find((x) => x.kind === 'total')!.value!;
+  ok(Math.abs(st.filter((x) => x.kind === 'in' || x.kind === 'out').reduce((a, x) => a + (x.value ?? 0), 0) - net) < 1 && st.filter((x) => x.kind === 'missing').length === 2, 'Management Cash: statement adds up; opening cash and transfers marked not recorded');
+  const stockRows = await api.inventory.stock();
+  const closingNow = stockRows.reduce((a, x) => a + x.closing, 0);
+  ok(Math.abs(mcash.stock.closing - closingNow) <= 1 && mcash.stock.opening + mcash.stock.received - mcash.stock.sold + mcash.stock.other === mcash.stock.closing, 'Management Cash: stock closing = the stock list; opening + received − sold ± other = closing', [mcash.stock, closingNow]);
+  const exps = await api.warehouse.expenses({ from: per.from.slice(0, 10), to: per.to.slice(0, 10) });
+  const expIn = exps.filter((e) => Date.parse(`${e.date}T00:00:00Z`) >= Date.parse(per.from) && Date.parse(`${e.date}T00:00:00Z`) < Date.parse(per.to)).reduce((a, e) => a + e.amountUsd, 0);
+  ok(Math.abs(mcash.kpis.warehouseBills - expIn) < 1, 'Management Cash: warehouse bills = the warehouse expenses of the period', [mcash.kpis.warehouseBills, expIn]);
+  ok(mcash.byMonth.length === 12 && mcash.byWarehouse.length > 0, 'Management Cash: 12 months and by warehouse');
+}
 ok(td.cash.value! > 0 && td.cash.overdue! <= td.cash.value! && td.cash.spark?.length === 8, 'Today: cash to collect with the overdue part (never more than the total)', [td.cash.value, td.cash.overdue]);
 ok(td.owed.bands.length === 3 && td.owed.total === td.cash.value && td.owed.overdue === td.cash.overdue && td.owed.top.length > 0 && td.owed.bands.every((b) => b.value >= 0), 'Today: who-owes-us ageing bands and top customers', td.owed);
 ok(td.trucks.value !== null && td.trucks.delayed <= td.trucks.value && td.trucks.spark?.length === 14 && td.trucks.spark.at(-1) === td.trucks.value, 'Today: trucks on the road, delayed, 14-day trend ending at now', td.trucks);

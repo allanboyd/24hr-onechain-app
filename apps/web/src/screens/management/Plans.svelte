@@ -28,8 +28,8 @@
 </script>
 
 <section class="pl" aria-labelledby="pl-h">
-  <ReportFilters {f} />
   <header><h1 id="pl-h">Plans and orders</h1><p class="muted">{d?.range.label ?? ''} · cases</p></header>
+  <ReportFilters {f} />
   <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
   {#if d}
     {@const m = d.measures}

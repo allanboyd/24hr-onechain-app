@@ -37,12 +37,11 @@
 </script>
 
 <section class="ov" aria-labelledby="ov-h">
-  <ReportFilters {f} />
-
   <header class="hd">
     <h1 id="ov-h">Overview</h1>
     <p class="muted">{whName} · all brands · {periodLabel}</p>
   </header>
+  <ReportFilters {f} />
   <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
 
   {#if !d}

@@ -34,8 +34,8 @@
 </script>
 
 <section class="mrep" aria-labelledby="pf-h">
-  <ReportFilters {f} />
   <header><h1 id="pf-h">Warehouse performance</h1><p class="muted">{whName} · {res?.period?.label ?? ''}</p></header>
+  <ReportFilters {f} />
   <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
   {#if d}
     {@const h = d.headline}
