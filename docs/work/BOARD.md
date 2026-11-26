@@ -90,3 +90,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 Fleet headers and heatmap labels merged. Next: report layout on the other Live dashboard tabs (plan Handover). |
 | 26 Nov 2026 | cursor | V3-11 report layout started (filter bar, KPI cards, paired grid on the other tabs). |
 | 26 Nov 2026 | cursor | V3-11 LD-2 / LD-3 merged: other Live dashboard tabs use the report layout. Row in review. |
+| 26 Nov 2026 | cursor | V3-11 filter bar is two rows on every Live dashboard tab. Method text is off the charts. Merged into design-v3. |
