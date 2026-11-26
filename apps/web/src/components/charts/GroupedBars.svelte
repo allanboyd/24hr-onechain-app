@@ -14,6 +14,14 @@
     height?: number; label: string; filename?: string; /** label the gap between the first and last series */ gaps?: boolean; onselect?: (category: string, series: string) => void;
   } = $props();
 
+  function tick(c: string): string {
+    const parts = c.split('-');
+    if (parts.length >= 3 && c.length > 16) {
+      const tail = parts.slice(-2).join('-');
+      if (tail.length <= 18) return tail;
+    }
+    return wrapLabel(c, 14);
+  }
   function spec(t: any, ctx: { narrow: boolean }) {
     const data = series.map((s, i) => ({
       type: 'bar', name: s.name, x: categories, y: s.values, marker: { color: mark(t, s.slot ?? i, s.ink) },
@@ -26,7 +34,8 @@
     const all = series.flatMap((s) => s.values.map((v) => v ?? 0));
     const max = Math.max(1, ...all);
     lay.yaxis = { ...lay.yaxis, showgrid: true, gridcolor: t.grid, range: [0, max * 1.22], tickformat: autoTick(all), fixedrange: true, title: { ...lay.yaxis.title, text: ctx.narrow ? '' : unit } };
-    lay.xaxis = { ...lay.xaxis, type: 'category', fixedrange: true, tickangle: 0, ...(ctx.narrow ? { tickmode: 'array', tickvals: categories, ticktext: categories.map((c) => wrapLabel(c, 12)) } : {}) };
+    const crowded = categories.length > 4 || categories.some((c) => c.length > 16);
+    lay.xaxis = { ...lay.xaxis, type: 'category', fixedrange: true, tickangle: crowded ? -40 : 0, tickmode: 'array', tickvals: categories, ticktext: categories.map((c) => tick(c)) };
     const first = series[0], last = series.at(-1);
     if (gaps && first && last && first !== last) lay.annotations = categories.map((c, i) => {
       const g = gapOf(first.values[i], last.values[i], tolerance);

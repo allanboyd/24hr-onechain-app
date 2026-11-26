@@ -2,7 +2,7 @@
   // Purchasing (Kabonge, directors) and Loading (loaders, Testfie, Kabonge, directors) — docs/15: PO pipeline, ordered vs
   // loaded vs delivered, open orders, plan vs actual, today's loading list (no prices), loading status, dispatched today.
   import type { DashKey, DashResult } from '@btw/api';
-  import { DashboardPanel, StageBars, GroupedBars, GapTable, StatusBadge, type Stage } from '../../../components/dashboard';
+  import { DashboardPanel, StageBars, GroupedBars, StatusBadge, type Stage } from '../../../components/dashboard';
   import PlanUsedTile from '../../../components/PlanUsedTile.svelte';
   import { frame, money, cvRow, n0, pctF, day, dayTime, currency } from '../fmt.svelte';
   import FileText from '@lucide/svelte/icons/file-text';
@@ -64,8 +64,7 @@
   </DashboardPanel>
 {:else if key === 'ordered-loaded-delivered'}
   <DashboardPanel span={span ?? 1} subtitle="per order, with the gap at each step" decision="Investigate the order with the largest gap." {...fr} title={r?.title ?? ''} rows={oldRows} filename="ordered-loaded-delivered" {drill}>
-    <GroupedBars label="Cases ordered, loaded and delivered per order" categories={cats} {series} unit="cases" format={(n) => n0(n)} onselect={(c) => { const x = d.rows.find((y: any) => y.ref === c); if (x) openRow(x); }} />
-    <GapTable categories={cats} {series} itemLabel="Order" unit="cases" onselect={(c) => { const x = d.rows.find((y: any) => y.ref === c); if (x) openRow(x); }} />
+    <GroupedBars label="Cases ordered, loaded and delivered per order" categories={cats} {series} unit="cases" format={(n) => n0(n)} gaps={false} height={240} onselect={(c) => { const x = d.rows.find((y: any) => y.ref === c); if (x) openRow(x); }} />
   </DashboardPanel>
 {:else if key === 'open-orders'}
   <DashboardPanel span={span ?? 1} subtitle="issued, not fully loaded · oldest first" decision="Load or cancel the oldest orders first." {...fr} title={r?.title ?? ''} rows={() => [['Order', 'Pair', 'Days waiting', 'Trucks loaded', 'Cases'], ...(d.rows ?? []).map((x: any) => [x.ref, x.pair, x.days, `${x.trucksLoaded}/${x.trucks}`, x.cases])]} filename="open-orders" {drill}>
@@ -133,10 +132,6 @@
   .age .bar { display: block; height: 100%; border-radius: 2px; background: var(--success); }
   .age .bar.warn { background: var(--warning-solid); }
   .age .bar.bad { background: var(--danger); }
-  .tiles2 { display: flex; gap: var(--space-6); margin-bottom: var(--space-2); }
-  .tiles2 div { display: flex; flex-direction: column; }
-  .tiles2 b { font: 700 22px/1.1 var(--ff-display); }
-  .tiles2 b.hot { color: var(--danger); }
   h4.overline { margin: var(--space-3) 0 0; }
   @media (max-width: 600px) { .hide-sm { display: none; } }
 </style>

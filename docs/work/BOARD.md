@@ -166,3 +166,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | cursor | V3-11 Loading and Shipments open on the truck map. Tabs renamed to Purchase orders and Shipments. A short card fills the row. |
 | 26 Nov 2026 | claude | V3-8 batch 2 done (Truck desk). V3-14 merged: My profile in Settings & alerts → My account; the name in the top bar opens it. |
 | 26 Nov 2026 | claude | Your note → V3-3 dropped (Home overview covers it); V3-15 planned (Shipments + map, Truck desk, Alerts activity, Stock); V3-6 planned (phone bottom bar and top bar) after V3-15. Waiting for approval. |
+| 26 Nov 2026 | cursor | V3-11 Shipments: map is one third, live fleet board is two thirds. Truck list stays on Loading. Purchase orders chart no longer stacks a table, and the plan card is a noun. |

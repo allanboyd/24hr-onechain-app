@@ -57,4 +57,4 @@
   }
 </script>
 <PlotlyChart {spec} {height} {label} {filename} zoom={false} onselect={onselect ? (p: PlotPoint) => onselect(String(p.x)) : undefined} />
-<p class="caption">{#if rows.length}<b>{vitalCount} of {rows.length}</b> causes make up {Math.round((rows[vitalCount - 1]?.cum ?? 0) * 100)}% of the total — the vital few.{/if}</p>
+<p class="caption">{#if rows.length}<b>{vitalCount} of {rows.length}</b> causes make up {Math.round((rows[vitalCount - 1]?.cum ?? 0) * 100)}% of the total. These are the main causes.{/if}</p>

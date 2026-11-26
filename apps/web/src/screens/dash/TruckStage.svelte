@@ -4,7 +4,7 @@
   import Truck from '@lucide/svelte/icons/truck';
   import TruckMap, { truckStanding } from './today/TruckMap.svelte';
 
-  let { mode = 'shipments' }: { mode?: 'loading' | 'shipments' } = $props();
+  let { mode = 'shipments' }: { mode?: 'loading' | 'shipments' | 'map' } = $props();
 
   let trips = $state<Shipment[] | null>(null);
   $effect(() => {
@@ -20,17 +20,18 @@
     return (hit ? lookup.checkpoint(hit.checkpointId)?.name : '')?.split(' (')[0] || 'On the road';
   };
   const moving = $derived((trips ?? []).filter((s) => s.status !== 'Acknowledged' && s.status !== 'Cancelled'));
-  const loadingOnly = $derived(moving.filter((s) => s.status === 'Loading'));
+  const loadingOnly = $derived(moving.filter((s) => s.status === 'Planned' || s.status === 'Loaded'));
   const shown = $derived(mode === 'loading' && loadingOnly.length ? loadingOnly : moving);
   const note = $derived(mode === 'loading' && trips && !loadingOnly.length ? 'No truck is at a loading point. These are on the road.' : '');
 </script>
 
-<div class="stage">
+<div class="stage" class:solo={mode === 'map'}>
   <section class="card map-card">
-    <h3>Where they are</h3>
+    <h3>Locations</h3>
     {#if note}<p class="caption">{note}</p>{/if}
     {#if trips && !shown.length}<p class="caption">No trucks on the road.</p>{:else}<TruckMap items={shown} />{/if}
   </section>
+  {#if mode !== 'map'}
   <section class="card trucks" aria-label="Trucks and their standing">
     <h3>Trucks</h3>
     <ul>
@@ -47,10 +48,13 @@
       {/each}
     </ul>
   </section>
+  {/if}
 </div>
 
 <style>
   .stage { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.8fr); gap: var(--space-4); align-items: stretch; min-height: 420px; }
+  .stage.solo { display: flex; grid-column: auto; min-height: 0; height: 100%; }
+  .stage.solo .map-card { flex: 1; width: 100%; }
   .map-card, .trucks { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; min-height: 0; padding: var(--space-4) var(--space-5); }
   h3 { margin: 0; font-size: var(--fs-h4); line-height: var(--lh-h4); }
   .map-card :global(.wrap) { flex: 1; min-height: 280px; }

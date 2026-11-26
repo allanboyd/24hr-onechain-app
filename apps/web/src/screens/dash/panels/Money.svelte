@@ -49,7 +49,7 @@
     { label: `Over by (${C})`, value: compact(cv((d.rows ?? []).reduce((a: number, x: any) => a + Math.max(0, x.variance ?? 0), 0))), sub: 'Sum of the overs', href: '#/transport-costs' },
   ]} />
   <DashboardPanel span={span ?? 1} subtitle="per truck · variance red when over" decision="Ask the provider about every trip over the agreed price." {...fr} title={r.title} rows={() => [['Shipment', 'Truck', 'Provider', `Agreed (${C})`, `Actual (${C})`, `Variance (${C})`], ...(d.rows ?? []).map((x: any) => [x.ref, x.truck, x.provider, x.agreed == null ? 'Not recorded' : cvRow(x.agreed), cvRow(x.actual), cvRow(x.variance)])]} filename="agreed-vs-actual" {drill}>
-    <GroupedBars label="Agreed and actual transport cost per truck" categories={recent.map((x: any) => `${x.truck} · ${x.ref.slice(-4)}`)} series={[{ name: 'Agreed', values: recent.map((x: any) => x.agreed), ink: 'allowed' }, { name: 'Actual', values: recent.map((x: any) => x.actual), ink: 'navy' }]} format={money} unit={C} tolerance={0.05} />
+    <GroupedBars label="Agreed and actual transport cost per truck" categories={recent.map((x: any) => x.truck)} series={[{ name: 'Agreed', values: recent.map((x: any) => x.agreed), ink: 'allowed' }, { name: 'Actual', values: recent.map((x: any) => x.actual), ink: 'navy' }]} format={money} unit={C} tolerance={0.05} height={240} gaps={false} />
   </DashboardPanel>
 {:else if key === 'fee-payments'}
   <DashboardPanel span={span ?? 1} subtitle="against document references" decision="Pay or query the oldest unpaid balances first." {...fr} title={r.title} rows={() => [['Shipment', 'Truck', 'Provider', 'Loaded', 'Age (days)', `Agreed (${C})`, `Paid (${C})`, `Balance (${C})`, 'Status', 'Flag', 'References'], ...(d.rows ?? []).map((x: any) => [x.ref, x.truck, x.provider, x.loadedAt ?? '', x.ageDays, x.agreed == null ? 'Not recorded' : cvRow(x.agreed), cvRow(x.paid), cvRow(x.balance), x.status, x.flag, x.references.join(' ')])]} filename="transport-fee-payments" {drill}>
@@ -69,8 +69,8 @@
     <AgeingBars label="Unpaid transport fees by provider and age" entities={d.providers ?? []} bands={d.bands ?? []} tones={['good', 'warn', 'bad']} format={money} onselect={() => go('#/transport-costs')} />
     <p class="caption">Total open {money(d.total)}.</p>
   </DashboardPanel>
-  <DashboardPanel span={1} subtitle="largest open balances" decision="Pay the largest balance first." {...fr} title="Top unpaid balances" rows={() => [['Provider', `Balance (${C})`], ...providerTotals.map((x) => [x.label, cvRow(x.value)])]} filename="top-unpaid-balances" empty={!providerTotals.length}>
-    <BarChart label="Top unpaid balances by provider" horizontal categories={providerTotals.map((x) => x.label)} series={[{ name: `Balance (${C})`, values: providerTotals.map((x) => x.value), ink: 'warn' }]} format={money} height={Math.max(180, providerTotals.length * 40 + 48)} />
+  <DashboardPanel span={1} subtitle="largest open balances" decision="Pay the largest balance first." {...fr} title="Top unpaid balances" rows={() => [['Provider', `Balance (${C})`], ...providerTotals.map((x: { label: string; value: number }) => [x.label, cvRow(x.value)])]} filename="top-unpaid-balances" empty={!providerTotals.length}>
+    <BarChart label="Top unpaid balances by provider" horizontal categories={providerTotals.map((x: { label: string; value: number }) => x.label)} series={[{ name: `Balance (${C})`, values: providerTotals.map((x: { label: string; value: number }) => x.value), ink: 'warn' }]} format={money} height={Math.max(180, providerTotals.length * 40 + 48)} />
   </DashboardPanel>
 {:else if key === 'truck-expenses'}
   <DashboardPanel span={span ?? 1} subtitle="per trip by category · open a trip for its legs" decision="Record missing agreed prices and odd categories." {...fr} title={r.title} rows={() => [['Shipment', 'Truck', 'Leg', ...(d.kinds ?? []).map((k: string) => `${k} (${C})`), `Total (${C})`], ...(d.rows ?? []).flatMap((x: any) => [[x.ref, x.truck, 'all', ...d.kinds.map((k: string) => cvRow(x.byKind[k])), cvRow(x.total)], ...(x.legs.length > 1 ? x.legs.map((l: any) => [x.ref, x.truck, `leg ${l.seq}`, ...d.kinds.map((k: string) => cvRow(l.byKind[k])), '']) : [])])]} filename="expenses-per-truck" {drill}>
@@ -108,8 +108,8 @@
     <AgeingBars label="Customer balances by ageing band" entities={d.customers ?? []} bands={d.bands ?? []} tones={['good', 'warn', 'bad']} format={money} onselect={() => go('#/sales?show=owed')} />
     <p class="caption">Owed {money(d.total)}, of which overdue {money(d.overdue)}.</p>
   </DashboardPanel>
-  <DashboardPanel span={1} subtitle="largest open balances" decision="Call the largest balance first." {...fr} title="Top balances" rows={() => [['Customer', `Balance (${C})`], ...custTotals.map((x) => [x.label, cvRow(x.value)])]} filename="top-customer-balances" empty={!custTotals.length}>
-    <BarChart label="Top customer balances" horizontal categories={custTotals.map((x) => x.label)} series={[{ name: `Balance (${C})`, values: custTotals.map((x) => x.value), ink: 'warn' }]} format={money} height={Math.max(180, custTotals.length * 40 + 48)} />
+  <DashboardPanel span={1} subtitle="largest open balances" decision="Call the largest balance first." {...fr} title="Top balances" rows={() => [['Customer', `Balance (${C})`], ...custTotals.map((x: { label: string; value: number }) => [x.label, cvRow(x.value)])]} filename="top-customer-balances" empty={!custTotals.length}>
+    <BarChart label="Top customer balances" horizontal categories={custTotals.map((x: { label: string; value: number }) => x.label)} series={[{ name: `Balance (${C})`, values: custTotals.map((x: { label: string; value: number }) => x.value), ink: 'warn' }]} format={money} height={Math.max(180, custTotals.length * 40 + 48)} />
   </DashboardPanel>
 {/if}
 
@@ -119,9 +119,5 @@
   .pbar { height: 6px; background: var(--surface-sunken); border-radius: 3px; overflow: hidden; margin-bottom: 2px; min-width: 80px; }
   .pbar span { display: block; height: 100%; background: var(--success); }
   .legs { border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); margin-top: var(--space-2); display: flex; flex-direction: column; gap: 2px; }
-  .split { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: stretch; }
-  .split > div { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; }
-  .cap-line { margin: 0 0 var(--space-2); font-size: 12px; font-weight: 600; color: var(--text-muted); }
-  @media (max-width: 900px) { .split { flex-direction: column; } }
   @media (max-width: 600px) { .hide-sm { display: none; } }
 </style>

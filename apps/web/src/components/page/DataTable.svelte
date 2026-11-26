@@ -165,7 +165,7 @@
     downloadCsv(`${filename}-${new Date().toISOString().slice(0, 10)}`, [cols.map((c) => c.label), ...sorted.map((r) => cols.map((c) => v(csvOf(c)!(r))))]);
   }
   const hasTotals = $derived(columns.some((c) => c.total));
-  const text = (c: Column<T>, r: T) => { const x = (c.value ?? c.sortValue)?.(r); return x === null || x === undefined || x === '' ? '—' : x; };
+  const text = (c: Column<T>, r: T) => { const x = (c.value ?? c.sortValue)?.(r); return x === null || x === undefined || x === '' ? '-' : x; };
   const fmtN = (n: number) => n.toLocaleString('en-US');
 
   // column menu

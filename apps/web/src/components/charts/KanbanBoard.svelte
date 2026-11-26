@@ -5,8 +5,9 @@
   import { STATUS, type Status } from './status';
   export interface KanbanColumn { key: string; label: string; status?: Status }
   export interface KanbanCard { id: string; column: string; title: string; group?: string; subtitle?: string; meta?: string; status?: Status; statusLabel?: string; stale?: boolean }
-  let { columns, cards, groupLabel = 'Route', summary = true, oncard }: {
+  let { columns, cards, groupLabel = 'Route', summary = true, fit = false, oncard }: {
     columns: KanbanColumn[]; cards: KanbanCard[]; groupLabel?: string; /** status counts across the top */ summary?: boolean;
+    /** columns share the width and each one scrolls, so none is cut off */ fit?: boolean;
     oncard?: (card: KanbanCard) => void;
   } = $props();
   const inCol = (k: string) => cards.filter((c) => c.column === k);
@@ -21,7 +22,7 @@
     {#each columns as col}{@const m = STATUS[col.status ?? 'none']}<li><m.icon size={14} aria-hidden="true" style="color:{m.ink}" /><span>{col.label}</span><b>{inCol(col.key).length}</b></li>{/each}
   </ul>
 {/if}
-<div class="kb" role="list" aria-label="Board by status">
+<div class="kb" class:fit style:--cols={columns.length} role="list" aria-label="Board by status">
   {#each columns as col}
     {@const list = inCol(col.key)}
     <section class="col" role="listitem" aria-label="{col.label}: {list.length}" style:--edge={STATUS[col.status ?? 'none'].fill}>
@@ -30,7 +31,7 @@
         {#if g}<div class="grp caption" title="{groupLabel}: {g}">{g}</div>{/if}
         {#each cs as c (c.id)}
           <svelte:element this={oncard ? 'button' : 'div'} class="kc" class:stale={c.stale} type={oncard ? 'button' : undefined} role={oncard ? undefined : 'group'} onclick={oncard ? () => oncard(c) : undefined}>
-            <div class="row between" style="gap:var(--space-2);flex-wrap:nowrap"><strong>{c.title}</strong>{#if c.status}<StatusBadge status={c.status} label={c.statusLabel} size={12} />{/if}</div>
+            <div class="row between" style="gap:var(--space-2);flex-wrap:{fit ? 'wrap' : 'nowrap'}"><strong>{c.title}</strong>{#if c.status}<StatusBadge status={c.status} label={c.statusLabel} size={12} />{/if}</div>
             {#if c.subtitle}<div class="small muted">{c.subtitle}</div>{/if}
             {#if c.meta}<div class="caption">{c.meta}{#if c.stale} · not updated recently{/if}</div>{/if}
           </svelte:element>
@@ -51,5 +52,9 @@
   button.kc { cursor: pointer; } button.kc:hover { border-color: var(--border-strong); }
   .kc.stale { opacity: 0.65; border-style: dashed; }
   .none { padding: 4px; }
+  .kb.fit { grid-auto-flow: row; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); overflow: hidden; flex: 1; min-height: 0; }
+  .kb.fit .col { overflow: auto; min-height: 0; }
+  .kb.fit .kc { overflow: hidden; }
+  .kb.fit .kc strong, .kb.fit .caption, .kb.fit .small, .kb.fit .grp { white-space: normal; overflow-wrap: anywhere; }
   @media (max-width: 600px) { .kb { grid-auto-columns: 78%; } }
 </style>

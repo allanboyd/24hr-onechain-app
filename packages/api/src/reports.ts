@@ -370,7 +370,7 @@ export function quarterlyReport(dt: ReportData, quarter?: string, f: ReportFilte
     highlights.push(`${best.brand} ${best.pack} grew ${pc(best.change)} on the previous quarter${whBest && whBest.c > whBest.p ? `, driven by ${whBest.w.name}` : ''}.`);
   }
   const worst = byChange.at(-1);
-  if (worst && (worst.change ?? 0) < -0.05) highlights.push(`${worst.brand} ${worst.pack} fell ${pc(worst.change)} — check stock availability and pricing.`);
+  if (worst && (worst.change ?? 0) < -0.05) highlights.push(`${worst.brand} ${worst.pack} fell ${pc(worst.change)}. Check stock availability and pricing.`);
   const ot = kpis.find((x) => x.key === 'onTime')!;
   const pp = (a: number, b: number | null) => (b === null ? '' : ` (${a - b >= 0 ? '+' : '−'}${Math.abs(Math.round((a - b) * 100))} points vs previous quarter)`);
   if (C.deliveries) highlights.push(`${Math.round(ot.value * 100)}% of ${C.deliveries} deliver${C.deliveries === 1 ? 'y' : 'ies'} arrived on time${pp(ot.value, ot.prev)}; average transit ${r1(C.transit ?? 0)} days.`);

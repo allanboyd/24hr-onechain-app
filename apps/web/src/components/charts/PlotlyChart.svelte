@@ -71,7 +71,7 @@
 
 <div class="plot" bind:this={wrap} style:min-height="{height}px" role="img" aria-label={label}>
   {#if !Plotly && !failed}<div class="skeleton" style:height="{height - 16}px"></div>{/if}
-  {#if failed}<p class="caption" style="padding:var(--space-4)">Chart could not load — use “View data”.</p>{/if}
+  {#if failed}<p class="caption" style="padding:var(--space-4)">Chart could not load. Use View data.</p>{/if}
   <div bind:this={el} class:clickable={!!onselect}></div>
 </div>
 
