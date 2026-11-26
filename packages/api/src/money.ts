@@ -7,7 +7,7 @@ import type {
 } from './types';
 import type { StockMove } from './rules';
 import { fxFor } from './rules';
-import type { FxRate, Loading, Plan, PurchaseOrder, SupplierEntry, SupplierEntryInput } from './types';
+import type { CashEntry, CashOpeningInput, CashTransferInput, FxRate, Loading, Plan, PurchaseOrder, SupplierEntry, SupplierEntryInput } from './types';
 
 const DAY = 864e5;
 const r2 = (x: number) => Math.round(x * 100) / 100;
@@ -318,4 +318,41 @@ export function supplierEntryError(input: Partial<SupplierEntryInput>, po: { pro
   if (use > 0 && usd(use) > available + 0.005) return `The supplier holds USD ${available.toFixed(2)} for this company`;
   if (amt + use > po.open + 0.005) return `That is more than the open pro-forma (${po.open.toFixed(2)})`;
   return null;
+}
+
+
+// ---- V3-12 step 4: warehouse cash ------------------------------------------------------------------------------------
+/** Cash at start is a money decision: directors, accounts, the system administrator. */
+export const canSetOpening = (u: { roles: Role[] }) => has(u, 'director', 'accounts', 'admin');
+/** Send cash from `wh` to the company account: the warehouse's receiver, or a director (same as recording its expenses). */
+export const canSendCash = (u: U, wh: ID) => canRecordWarehouse(u, wh);
+/** Checks cash at start. A warehouse takes its company's date and currency; warehouse parts can't add up to more than the
+ *  company amount, and the company amount can't go below them. Returns the error or null. */
+export function openingError(input: Partial<CashOpeningInput>, company: CashEntry | null, others: CashEntry[]): string | null {
+  const amt = Number(input.amount);
+  if (!(amt >= 0) || !Number.isFinite(amt)) return 'Enter the cash at start (zero or more)';
+  if (input.date && !/^\d{4}-\d{2}-\d{2}$/.test(input.date)) return 'Give the date as YYYY-MM-DD';
+  if (input.currency && !CURRENCIES.includes(input.currency)) return 'Pick a currency';
+  const split = others.filter((e) => e.warehouseId).reduce((a, e) => a + e.amount, 0);
+  if (input.warehouseId) {
+    if (company && split + amt > company.amount + 0.005) return `The warehouses would hold more than the company's cash at start (${company.currency} ${company.amount.toFixed(2)})`;
+  } else if (amt + 0.005 < split) return `The warehouses already hold ${split.toFixed(2)} of it; the company amount can't be lower`;
+  return null;
+}
+export function transferError(input: Partial<CashTransferInput>, today: string): string | null {
+  const amt = Number(input.amount);
+  if (!(amt > 0) || !Number.isFinite(amt)) return 'Enter the amount sent';
+  if (!input.currency || !CURRENCIES.includes(input.currency)) return 'Pick a currency';
+  if (input.date && (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || input.date > today)) return 'The date can\'t be after today';
+  return null;
+}
+/** What each receiving company and warehouse has as cash at start, and the part of the company amount not split by warehouse. */
+export function cashCompanies(entries: CashEntry[], warehouses: { id: ID; name: string; receivingCompanyId: ID }[], companies: { id: ID; name: string }[]) {
+  const open = entries.filter((e) => e.kind === 'opening');
+  return companies.map((rc) => {
+    const company = open.find((e) => e.receivingCompanyId === rc.id && !e.warehouseId) ?? null;
+    const whs = warehouses.filter((w) => w.receivingCompanyId === rc.id).map((w) => ({ warehouseId: w.id, name: w.name, opening: open.find((e) => e.warehouseId === w.id) ?? null }));
+    const split = whs.reduce((a, w) => a + (w.opening?.amount ?? 0), 0);
+    return { receivingCompanyId: rc.id, name: rc.name, opening: company, warehouses: whs, notSplit: company ? r2(company.amount - split) : null };
+  }).filter((c) => c.warehouses.length);
 }

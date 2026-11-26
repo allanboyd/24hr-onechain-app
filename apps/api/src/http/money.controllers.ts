@@ -1,12 +1,12 @@
 // docs/14 (workstream B) endpoints: warehouse expenses and inventory, re-export orders, selling prices, transport fees and
 // the combined performance report. Access is enforced in MoneyService with the shared rules (@btw/api/money).
-import { Body, Controller, Delete, Get, Headers, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { Me } from '../auth/decorators';
 import type { Principal } from '../auth/principal';
 import { once } from '../common/idempotency';
 import { MoneyService } from '../domain/money.service';
 import type { PerfFilter, PerfLevel } from '@btw/api/performance';
-import type { ReexportInput, ReexportLoadInput, SellingPriceInput, StockAdjustInput, SupplierEntryInput, WarehouseExpenseInput } from '@btw/api/types';
+import type { CashOpeningInput, CashTransferInput, ReexportInput, ReexportLoadInput, SellingPriceInput, StockAdjustInput, SupplierEntryInput, WarehouseExpenseInput } from '@btw/api/types';
 
 type Idem = string | undefined;
 const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
@@ -15,6 +15,10 @@ const LEVELS: PerfLevel[] = ['product', 'warehouse', 'company', 'receiving', 'bu
 @Controller('warehouse')
 export class WarehouseController {
   constructor(private money: MoneyService) {}
+  /** V3-12 step 4: warehouse cash (cash at start; cash sent to the company account). */
+  @Get('cash') cash(@Me() p: Principal) { return this.money.cashOverview(p); }
+  @Put('cash/opening') setOpening(@Me() p: Principal, @Body() b: CashOpeningInput) { return this.money.setOpening(p, b ?? ({} as CashOpeningInput)); }
+  @Post('cash/transfers') @HttpCode(200) sendCash(@Me() p: Principal, @Body() b: CashTransferInput, @Headers('idempotency-key') k: Idem) { return once(k, p.id, 'cash.send', () => this.money.sendCash(p, b ?? ({} as CashTransferInput))).then((r) => r.result); }
   @Get('expenses') expenses(@Me() p: Principal, @Query() q: Record<string, unknown>) { return this.money.expenses(p, { warehouseId: str(q?.warehouseId), from: str(q?.from), to: str(q?.to), category: str(q?.category) }); }
   @Post('expenses') addExpense(@Me() p: Principal, @Body() b: WarehouseExpenseInput) { return this.money.addExpense(p, b ?? ({} as WarehouseExpenseInput)); }
   @Patch('expenses/:id') updateExpense(@Me() p: Principal, @Param('id') id: string, @Body() b: Partial<WarehouseExpenseInput>) { return this.money.updateExpense(p, id, b ?? {}); }

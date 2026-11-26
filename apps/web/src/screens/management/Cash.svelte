@@ -26,11 +26,12 @@
   {#if d}
     {@const k = d.kpis}
     <div class="kpis">
-      <div class="card kpi"><span class="lbl">Cash received</span><b class="val">{usd(k.received)}</b><span class="sub">paid on this period's sales</span></div>
+      <div class="card kpi"><span class="lbl">Cash received</span><b class="val">{usd(k.received)}</b><span class="sub">payments dated in the period</span></div>
       <div class="card kpi"><span class="lbl">Still to collect</span><b class="val">{usd(k.toCollect)}</b><span class="sub">from this period's sales</span></div>
       <div class="card kpi"><span class="lbl">Transport bills paid</span><b class="val">{usd(k.transportPaid)}</b><span class="sub">approved or paid</span></div>
       <div class="card kpi"><span class="lbl">Warehouse expenses</span><b class="val">{usd(k.warehouseBills)}</b><span class="sub">dated in the period</span></div>
       <div class="card kpi"><span class="lbl">Net cash movement</span><b class="val" class:neg={k.net < 0}>{usd(k.net)}</b><span class="sub">received − bills</span></div>
+      <div class="card kpi"><span class="lbl">Cash in hand</span><b class="val" class:neg={(d.cash.inHand ?? 0) < 0}>{d.cash.inHand === null ? 'Not set yet' : usd(d.cash.inHand)}</b><span class="sub">{d.cash.inHand === null ? 'set cash at start on Warehouse expenses' : 'at the end of the period'}</span></div>
     </div>
 
     <div class="g2">
@@ -39,11 +40,12 @@
         <table class="stmt">
           <tbody>
             {#each d.statement as x (x.label)}
-              <tr class={x.kind}><td>{x.label}</td><td class="num">{#if x.kind === 'missing'}<span class="chip">Not recorded yet</span>{:else}{usd(x.value)}{/if}</td></tr>
+              <tr class={x.kind}><td>{x.label}</td><td class="num">{#if x.kind === 'missing'}<a class="chip" href="#/warehouse-expenses?view=cash">Not set yet</a>{:else}{usd(x.value)}{/if}</td></tr>
             {/each}
           </tbody>
         </table>
-        <p class="small muted">Cash in hand needs the opening cash and the transfers to the company account, which are not recorded yet (V3-10 step 4).</p>
+        {#if d.cash.atStart === null}<p class="small muted">Cash in hand shows once the directors or accounts set the cash at start on Warehouse expenses → Cash.</p>
+        {:else if d.cash.withOpening < d.cash.companies}<p class="small muted">{d.cash.withOpening} of {d.cash.companies} companies have their cash at start set; cash in hand covers those.</p>{/if}
       </div>
       <div class="card">
         <h3 class="ct">Opening and closing</h3>
@@ -72,8 +74,13 @@
     </div>
 
     <div class="card">
-      <h3 class="ct">Transfers to the company account<span class="chip">Not recorded yet</span></h3>
-      <p class="muted">Money sent from the warehouses to the company account is not recorded yet. Recording it (with the opening cash) is planned as a follow-up (V3-10 step 4).</p>
+      <h3 class="ct">Cash sent to the company account<span class="chip">{usd(d.cash.transfers)} this period</span></h3>
+      {#if d.transfers.length}
+        <table class="table">
+          <thead><tr><th>Date</th><th>Warehouse</th><th>Bank slip</th><th>By</th><th class="num">USD</th></tr></thead>
+          <tbody>{#each d.transfers as x (x.id)}<tr><td>{x.date}</td><td>{x.warehouse}</td><td>{x.reference}</td><td>{x.by}</td><td class="num">{usd(x.amountUsd)}</td></tr>{/each}</tbody>
+        </table>
+      {:else}<p class="muted">No cash sent to the company account in this period. Warehouses record it on Warehouse expenses → Cash.</p>{/if}
     </div>
     <p class="caption">{res?.definition}</p>
   {:else}

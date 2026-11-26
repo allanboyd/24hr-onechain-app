@@ -191,6 +191,14 @@ export const sales = pgTable('sales', {
   /** V3-12: the client record and its credit days when the sale was made (the overdue rule uses these). */
   clientId: text('client_id'), termsDays: integer('terms_days').notNull().default(14),
 }, (t) => [index('sales_wh_at_idx').on(t.warehouseId, t.at), index('sales_entity_idx').on(t.entityId, t.at), index('sales_client_idx').on(t.clientId)]);
+/** V3-12 step 4: warehouse cash: cash at start (per receiving company, warehouseId null; or a warehouse's part) and cash
+ *  sent from a warehouse to the company account (with the bank slip). */
+export const cashEntries = pgTable('cash_entries', {
+  id: text('id').primaryKey(), kind: text('kind').notNull(), receivingCompanyId: text('receiving_company_id').notNull(), warehouseId: text('warehouse_id'),
+  amount: doublePrecision('amount').notNull(), currency: text('currency').notNull(), fxRate: doublePrecision('fx_rate').notNull().default(1), amountUsd: doublePrecision('amount_usd').notNull(),
+  date: text('date').notNull(), reference: text('reference'), note: text('note'), slip: jsonb('slip').$type<DocumentRef | null>(),
+  byUserId: text('by_user_id').notNull(), at: ts('at').notNull().default(now()),
+}, (t) => [index('cash_entries_rc_idx').on(t.receivingCompanyId, t.kind), index('cash_entries_wh_idx').on(t.warehouseId, t.date)]);
 /** V3-12 step 3: supplier money on the purchase order (base PO of the chain): pro-forma, advance, credit note, use of held money. */
 export const supplierEntries = pgTable('supplier_entries', {
   id: text('id').primaryKey(), entityId: text('entity_id').notNull(), supplierId: text('supplier_id').notNull(), poId: text('po_id'), poRef: text('po_ref'),

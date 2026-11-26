@@ -17,7 +17,7 @@ export const DEMO_PIN = '1234';
 const TABLES = [
   'users', 'entities', 'receiving_companies', 'warehouses', 'suppliers', 'products', 'price_list', 'providers', 'trucks', 'drivers',
   'checkpoints', 'routes', 'plans', 'plan_versions', 'period_plans', 'period_plan_versions', 'pos', 'po_versions', 'waiting_entries', 'loadings', 'shipments', 'legs', 'acks', 'positions',
-  'stock_moves', 'sales', 'clients', 'client_payments', 'supplier_entries', 'trip_costs', 'trip_payments', 'notifications', 'notification_reads', 'audit_log', 'idempotency_keys',
+  'stock_moves', 'sales', 'clients', 'client_payments', 'supplier_entries', 'cash_entries', 'trip_costs', 'trip_payments', 'notifications', 'notification_reads', 'audit_log', 'idempotency_keys',
   'devices', 'refresh_tokens', 'files', 'settings', 'fx_rates', 'warehouse_expenses', 'selling_prices', 'reexport_orders',
 ];
 

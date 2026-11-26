@@ -364,6 +364,22 @@ export interface Sale {
 export interface Client {
   id: ID; entityId: ID; name: string; phone?: string; warehouseId?: ID; termsDays: number; active: boolean; createdAt: ISODate;
 }
+/** V3-12 step 4: warehouse cash. `opening` = cash at start: one per receiving company (warehouseId null, sets the date and
+ *  currency for its warehouses) and optionally one per warehouse (its part of it). `transfer` = cash sent from a warehouse
+ *  to the company account (bank slip). */
+export interface CashEntry {
+  id: ID; kind: 'opening' | 'transfer'; receivingCompanyId: ID; warehouseId: ID | null;
+  amount: number; currency: Currency; fxRate: number; amountUsd: number; date: string;
+  reference?: string; note?: string; slip?: DocumentRef | null; byUserId: ID; at: ISODate;
+}
+export interface CashOpeningInput { receivingCompanyId: ID; warehouseId?: ID | null; amount: number; currency?: Currency; date?: string; note?: string }
+export interface CashTransferInput { warehouseId: ID; amount: number; currency: Currency; date?: string; reference?: string; note?: string; slipFileId?: ID | null; slipName?: string | null; slipUrl?: string | null }
+export interface CashOverview {
+  companies: { receivingCompanyId: ID; name: string; opening: CashEntry | null; warehouses: { warehouseId: ID; name: string; opening: CashEntry | null }[]; notSplit: number | null }[];
+  transfers: CashEntry[];
+  /** set or change cash at start: directors, accounts, the system administrator */ canSetOpening: boolean;
+  /** warehouses this person sends cash from */ canSend: ID[];
+}
 /** V3-12 step 3: supplier money, recorded on the purchase order. A pro-forma is the supplier's bill for the PO; an advance is
  *  paid against it (part of it may come from money the supplier already holds: a `use`); a credit note (promotion) adds to
  *  what the supplier holds. Short loads are not stored: they come from the loadings (`money.shortLoadRows`). */

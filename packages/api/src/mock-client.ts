@@ -8,7 +8,7 @@ import * as RP from './reports';
 import * as PO from './mock/po';
 import type {
   AckLine, AppConfig, AuditFilter, AuditPage, Checkpoint, EntityInput, PriceListItem, Product, ProductInput, ReceivingCompany, ReceivingCompanyInput, Supplier, SupplierInput, UserPair, LoadingAlternative, PeriodPlanLine, PurchaseOrder, CheckpointPass, Device, DriverWork, Entity, FeatureKey, FxRate, GiverWork, ID, Leg, LegView, PeriodKind, PeriodPlan, Plan, PlanLine,
-  SupplierEntry, SupplierEntryInput, SupplierMoney, Client, ClientInput, ClientPayment, ClientPaymentInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PoDetail, PoInput, PoUpdateInput, PvThresholds, ReceiverWork, Role, RouteStop, Sale, Shipment, StoredFile, SyncResult, TripCost, TruckIssue, User, UserAdmin, Warehouse, WarehouseInput,
+  CashEntry, CashOpeningInput, CashOverview, CashTransferInput, SupplierEntry, SupplierEntryInput, SupplierMoney, Client, ClientInput, ClientPayment, ClientPaymentInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PoDetail, PoInput, PoUpdateInput, PvThresholds, ReceiverWork, Role, RouteStop, Sale, Shipment, StoredFile, SyncResult, TripCost, TruckIssue, User, UserAdmin, Warehouse, WarehouseInput,
   Driver, DriverInput, Provider, ProviderInput, SavedDriver, Truck, TruckInput,
 } from './types';
 
@@ -418,6 +418,64 @@ export const inventory = {
   async stock() { ensure(); return wait(m.stock().filter((r) => inScope(r.entityId) && seesWh(r.warehouseId)).map(stockOut)); },
   async ledger(warehouseId: ID, productId: ID) { ensure(); if (!seesWh(warehouseId)) throw httpErr('Not available for your role', 403); return wait(m.db.stockMoves.filter((x) => inScope(x.entityId) && x.warehouseId === warehouseId && x.productId === productId).slice(-50).reverse()); },
 };
+// ---- Warehouse cash (V3-12 step 4) ---------------------------------------------------------------------------------
+const today10 = () => new Date().toISOString().slice(0, 10);
+export const cash = {
+  async overview(): Promise<CashOverview> {
+    ensure(); if (!current || !R.hasFeature(current.roles, 'warehouse-expenses')) throw forbid('Warehouse cash is for the warehouses and the directors');
+    const M = await import('./money');
+    const r = ref();
+    const whs = r.warehouses.filter((w) => M.seesWarehouse(me(), w.id));
+    const es = m.db.cashEntries ?? [];
+    return wait({ companies: M.cashCompanies(es, whs, r.receivingCompanies), transfers: es.filter((e) => e.kind === 'transfer' && !!e.warehouseId && whs.some((w) => w.id === e.warehouseId)).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.at < b.at ? 1 : -1)),
+      canSetOpening: M.canSetOpening(current), canSend: whs.filter((w) => M.canSendCash(me(), w.id)).map((w) => w.id) });
+  },
+  async setOpening(input: CashOpeningInput): Promise<CashEntry> {
+    ensure();
+    const M = await import('./money');
+    if (!current || !M.canSetOpening(current)) throw forbid('Cash at start is set by the directors or accounts');
+    const r = ref();
+    if (!r.receivingCompanies.some((x) => x.id === input.receivingCompanyId)) throw Object.assign(new Error('Pick the company'), { status: 422 });
+    if (input.warehouseId && r.warehouses.find((w) => w.id === input.warehouseId)?.receivingCompanyId !== input.receivingCompanyId) throw Object.assign(new Error('That warehouse is not this company\'s'), { status: 422 });
+    const es = (m.db.cashEntries ??= []);
+    const company = es.find((e) => e.kind === 'opening' && e.receivingCompanyId === input.receivingCompanyId && !e.warehouseId) ?? null;
+    const others = es.filter((e) => e.kind === 'opening' && e.receivingCompanyId === input.receivingCompanyId && e.warehouseId && e.warehouseId !== input.warehouseId);
+    const err = M.openingError(input, company, others);
+    if (err) throw Object.assign(new Error(err), { status: 422 });
+    // a warehouse takes its company's date and currency
+    const currency = input.warehouseId && company ? company.currency : input.currency ?? 'USD';
+    const date = input.warehouseId && company ? company.date : input.date ?? today10();
+    const rate = currency === 'USD' ? 1 : R.fxFor(m.db.fxRates ?? seed.seedFxRates(), currency, `${date}T12:00:00Z`);
+    const cur = es.find((e) => e.kind === 'opening' && e.receivingCompanyId === input.receivingCompanyId && (e.warehouseId ?? null) === (input.warehouseId ?? null));
+    const amount = Math.round(Number(input.amount) * 100) / 100;
+    const next: CashEntry = { id: cur?.id ?? m.uid('ce'), kind: 'opening', receivingCompanyId: input.receivingCompanyId, warehouseId: input.warehouseId ?? null, amount, currency, fxRate: rate,
+      amountUsd: Math.round((amount / rate) * 100) / 100, date, note: input.note?.trim() || undefined, byUserId: current.id, at: new Date().toISOString() };
+    if (cur) Object.assign(cur, next); else es.push(next);
+    // a company's new date and currency carry to its warehouse parts
+    if (!input.warehouseId) for (const e of es.filter((x) => x.kind === 'opening' && x.receivingCompanyId === input.receivingCompanyId && x.warehouseId)) { e.date = date; e.currency = currency; e.fxRate = rate; e.amountUsd = Math.round((e.amount / rate) * 100) / 100; }
+    log('PUT', '/warehouse/cash/opening', { recordType: 'cash', recordId: next.id, summary: `Cash at start ${input.warehouseId ? lookup.warehouse(input.warehouseId)?.name : r.receivingCompanies.find((x) => x.id === input.receivingCompanyId)?.name}: ${currency} ${amount} on ${date}`, before: cur ? { ...cur } : null, after: next });
+    return commit(next);
+  },
+  async send(input: CashTransferInput): Promise<CashEntry> {
+    ensure();
+    const M = await import('./money');
+    const w = ref().warehouses.find((x) => x.id === input.warehouseId);
+    if (!w) throw Object.assign(new Error('Pick the warehouse'), { status: 422 });
+    if (!current || !M.canSendCash(me(), w.id)) throw forbid('Cash is sent by the warehouse\'s receiver or a director');
+    const err = M.transferError(input, today10());
+    if (err) throw Object.assign(new Error(err), { status: 422 });
+    const date = input.date ?? today10();
+    const rate = input.currency === 'USD' ? 1 : R.fxFor(m.db.fxRates ?? seed.seedFxRates(), input.currency, `${date}T12:00:00Z`);
+    const amount = Math.round(Number(input.amount) * 100) / 100;
+    const e: CashEntry = { id: m.uid('ce'), kind: 'transfer', receivingCompanyId: w.receivingCompanyId, warehouseId: w.id, amount, currency: input.currency, fxRate: rate, amountUsd: Math.round((amount / rate) * 100) / 100,
+      date, reference: input.reference?.trim() || undefined, note: input.note?.trim() || undefined, slip: input.slipFileId ? { id: input.slipFileId, kind: 'receipt', name: input.slipName ?? 'Bank slip', url: input.slipUrl ?? undefined } : null, byUserId: current.id, at: new Date().toISOString() };
+    (m.db.cashEntries ??= []).push(e);
+    log('POST', '/warehouse/cash/transfers', { recordType: 'cash', recordId: e.id, summary: `${w.name}: sent ${e.currency} ${amount} to the company account${e.reference ? ` · ${e.reference}` : ''}`, after: e });
+    m.notify('Cash sent to the company account', `${w.name}: ${e.currency} ${amount.toLocaleString('en-US')} by ${current.name}${e.reference ? ` · ${e.reference}` : ''}`, '#/warehouse-expenses?view=cash', ['director'], null);
+    return commit(e);
+  },
+};
+
 // ---- Supplier money (V3-12 step 3) --------------------------------------------------------------------------------
 /** The PO the money belongs to: the base of its chain, so revisions share one pro-forma and its advances. */
 const basePo = (id: ID) => { const p = m.db.pos.find((x) => x.id === id); return p ? m.db.pos.find((x) => x.id === (p.revisionOf ?? p.id)) ?? p : undefined; };

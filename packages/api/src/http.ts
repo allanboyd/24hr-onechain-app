@@ -5,7 +5,7 @@ import * as R from './rules';
 import * as RP from './reports';
 import type {
   AckLine, Acknowledgement, CheckpointPass, Device, DriverWork, Entity, Flag, FxRate, GiverWork, ID, JourneyStep, Leg, Loading, Notification, PeriodKind, PeriodPlan, Plan, PlanLine, PoDetail, PoInput, PoUpdateInput,
-  SupplierEntry, SupplierEntryInput, SupplierMoney, Client, ClientInput, ClientPayment, ClientPaymentInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PvThresholds,
+  CashEntry, CashOpeningInput, CashOverview, CashTransferInput, SupplierEntry, SupplierEntryInput, SupplierMoney, Client, ClientInput, ClientPayment, ClientPaymentInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PvThresholds,
   PurchaseOrder, ReceiverWork, Role, RouteStop, Sale, Shipment, StockRow, StoredFile, SyncResult, TripCost, TripPayment,
   Route, TruckIssue, User, UserAdmin, VelocityRow, WaitingEntry, Warehouse, WarehouseInput,
   DriverInput, Provider, ProviderInput, SavedDriver, Truck, TruckInput,
@@ -387,6 +387,12 @@ export const dashboards = {
 };
 
 // ---- docs/14 workstream B: warehouse money and data ---------------------------------------------------------------
+/** V3-12 step 4: warehouse cash (cash at start; cash sent to the company account). */
+export const cash = {
+  overview: () => get<CashOverview>('/warehouse/cash'),
+  setOpening: (input: CashOpeningInput) => mutate(call<CashEntry>('PUT', '/warehouse/cash/opening', input)),
+  send: (input: CashTransferInput) => mutate(post<CashEntry>('/warehouse/cash/transfers', input, key())),
+};
 export const warehouse = {
   expenses: (f: ExpenseFilter = {}) => get<WarehouseExpense[]>(`/warehouse/expenses${qs(f)}`),
   addExpense: (input: WarehouseExpenseInput) => mutate(post<WarehouseExpense>('/warehouse/expenses', input)),

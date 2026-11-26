@@ -1,0 +1,44 @@
+// V3-12 step 4: warehouse cash (cash at start, cash sent to the company account); Management → Cash and closing reads it.
+// Run: node tests/design-v3/cash.mjs <base> <outDir>
+import { chromium } from 'playwright';
+const [base, out = '.'] = process.argv.slice(2);
+let fails = 0; const ok = (c, m) => { console.log(`${c ? 'ok  ' : 'FAIL'} ${m}`); if (!c) fails++; };
+const b = await chromium.launch(); const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
+const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+await p.goto(base, { waitUntil: 'domcontentloaded' });
+await p.getByRole('button', { name: 'Sign in to the web as Daniel' }).first().click(); await p.locator('aside nav a').first().waitFor();
+await p.goto(`${base}#/warehouse-expenses`); await p.waitForTimeout(2000);
+await p.getByRole('tab', { name: 'Cash' }).click(); await p.locator('.co').first().waitFor({ timeout: 15_000 });
+ok(p.url().includes('view=cash') && await p.locator('.co').count() > 0, 'Warehouse expenses has a Cash tab with each receiving company');
+// the first company: set its cash at start, then a warehouse's part
+const co = p.locator('.co').first();
+const coName = (await co.locator('h3').textContent())?.trim();
+await co.getByRole('button', { name: /^Set cash at start of|Change/ }).first().click(); await p.locator('dialog[open]').waitFor();
+await p.locator('dialog[open] input[type=number]').fill('20000');
+await p.locator('dialog[open]').getByRole('button', { name: 'Save' }).click(); await p.waitForTimeout(1200);
+ok((await co.locator('.big').textContent())?.includes('20,000.00'), `cash at start set for ${coName}: 20,000`);
+await co.locator('.whs li').first().getByRole('button').click(); await p.locator('dialog[open]').waitFor();
+ok(await p.locator('dialog[open] select').isDisabled(), 'a warehouse uses its company\'s currency and date');
+await p.locator('dialog[open] input[type=number]').fill('25000');
+await p.locator('dialog[open]').getByRole('button', { name: 'Save' }).click(); await p.waitForTimeout(800);
+ok(await p.locator('dialog[open] [role=alert]').count() === 1, 'a warehouse part over the company amount is refused');
+await p.locator('dialog[open] input[type=number]').fill('12000');
+await p.locator('dialog[open]').getByRole('button', { name: 'Save' }).click(); await p.waitForTimeout(1200);
+ok((await co.locator('.whs').textContent())?.includes('Company, not split by warehouse'), 'the rest shows as "Company, not split by warehouse"');
+await p.getByRole('button', { name: 'Send to the company account' }).click(); await p.locator('dialog[open]').waitFor();
+await p.locator('dialog[open] input[type=number]').fill('750');
+await p.locator('dialog[open] input[autocomplete=off]').first().fill('SLIP-TEST');
+await p.screenshot({ path: `${out}/wh-cash-send.png` });
+await p.locator('dialog[open]').getByRole('button', { name: 'Send' }).click(); await p.waitForTimeout(1500);
+ok(await p.locator('table tbody tr', { hasText: 'SLIP-TEST' }).count() === 1, 'the cash sent is listed with its bank slip');
+await p.screenshot({ path: `${out}/wh-cash.png`, fullPage: true });
+await p.goto(`${base}#/management/cash`); await p.locator('.mrep .kpi').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(1000);
+const inHand = await p.locator('.mrep .kpi', { has: p.locator('.lbl', { hasText: /^Cash in hand$/ }) }).locator('.val').textContent();
+ok(/\$/.test(inHand ?? ''), `Management → Cash and closing shows cash in hand (${inHand?.trim()})`);
+ok(await p.locator('.mrep').getByText('Not recorded yet').count() === 0, 'nothing on Cash and closing says "Not recorded yet"');
+ok(await p.locator('.mrep table tbody tr', { hasText: 'SLIP-TEST' }).count() === 1, 'the cash sent is listed on Cash and closing');
+await p.screenshot({ path: `${out}/mgmt-cash-in-hand.png`, fullPage: true });
+ok(!errs.length, `no page errors ${errs.join(' | ')}`);
+await b.close();
+console.log(fails ? `${fails} check(s) failed` : 'all cash checks passed');
+process.exit(fails ? 1 : 0);

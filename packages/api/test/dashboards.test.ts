@@ -115,8 +115,10 @@ ok(mo.brands.best.length > 0 && mo.brands.best.every((b, i, a) => i === 0 || a[i
   const recPaid = mcl.records.reduce((a, x) => a + x.paid, 0), recBal = mcl.records.reduce((a, x) => a + x.balance, 0);
   ok(Math.abs(mcash.kpis.received - recPaid) < 1 && Math.abs(mcash.kpis.toCollect - recBal) < 1, 'Management Cash: received / still to collect = the Sales and clients records (same period)', [mcash.kpis.received, recPaid, mcash.kpis.toCollect, recBal]);
   ok(mcash.clients.closing === mcl.kpis.owed, 'Management Cash: client balances closing = owed on Sales and clients', [mcash.clients.closing, mcl.kpis.owed]);
-  const st = mcash.statement; const net = st.find((x) => x.kind === 'total')!.value!;
-  ok(Math.abs(st.filter((x) => x.kind === 'in' || x.kind === 'out').reduce((a, x) => a + (x.value ?? 0), 0) - net) < 1 && st.filter((x) => x.kind === 'missing').length === 2, 'Management Cash: statement adds up; opening cash and transfers marked not recorded');
+  // V3-12 step 4: the statement ends at cash in hand (cash at start + in − out) or, with no cash at start yet, at the net movement
+  const st = mcash.statement; const end = st[st.length - 1].value!; const start = st[0].kind === 'missing' ? 0 : st[0].value ?? 0;
+  ok(Math.abs(start + st.filter((x) => x.kind === 'in' || x.kind === 'out').reduce((a, x) => a + (x.value ?? 0), 0) - end) < 1 && Math.abs(-st.find((x) => /Sent to the company/.test(x.label))!.value! - mcash.cash.transfers) < 0.01 && mcash.notRecorded.length === 0,
+    'Management Cash: statement adds up (cash at start + in − out = the last line); cash sent to the company is recorded');
   const stockRows = await api.inventory.stock();
   const closingNow = stockRows.reduce((a, x) => a + x.closing, 0);
   ok(Math.abs(mcash.stock.closing - closingNow) <= 1 && mcash.stock.opening + mcash.stock.received - mcash.stock.sold + mcash.stock.other === mcash.stock.closing, 'Management Cash: stock closing = the stock list; opening + received − sold ± other = closing', [mcash.stock, closingNow]);
