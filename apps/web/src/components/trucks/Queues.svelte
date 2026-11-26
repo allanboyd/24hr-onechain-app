@@ -249,6 +249,8 @@
   .long { color: var(--warning); }
   .mono { white-space: nowrap; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  /* V3-6: keep the hidden header labels inside the table scroller (they widened the page in Safari) */
+  .table-wrap { position: relative; }
   .phone { display: none; }
   @media (max-width: 600px) {
     .opt { display: none; }
