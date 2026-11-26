@@ -161,3 +161,4 @@ See [doc 22 §5](../22-ui-cleanup.md#5-decisions-needed-from-you): fonts, accent
 | 26 Nov 2026 | claude | V3-8 batch 2c merged: Truck desk Board and Costs on DataTable. Batch 2 done (queue, loading form and grouped provider / goods lists kept on purpose). Next: Profile page plan (your note). |
 | 26 Nov 2026 | claude | Your note → V3-14 planned: My profile (in Settings & alerts → My account). Waiting for approval. |
 | 26 Nov 2026 | cursor | V3-11 every operations tab opens with four stats, then one chart per card. |
+| 26 Nov 2026 | cursor | V3-11 Loading and Shipments open on the truck map. Tabs renamed to Purchase orders and Shipments. A short card fills the row. |

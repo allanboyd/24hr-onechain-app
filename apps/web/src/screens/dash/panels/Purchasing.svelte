@@ -8,6 +8,7 @@
   import FileText from '@lucide/svelte/icons/file-text';
   import Camera from '@lucide/svelte/icons/camera';
   import StatRow from '../StatRow.svelte';
+  import TruckStage from '../TruckStage.svelte';
   let { key, r, link, span }: { key: DashKey; r?: DashResult; link?: string; span?: 1 | 2 | 'full' } = $props();
   const d = $derived((r?.data ?? {}) as any);
   const fr = $derived(frame(r));
@@ -84,6 +85,7 @@
     { label: 'Loaded today', value: n0((d.rows ?? []).filter((x: any) => x.status === 'Loaded').length), sub: 'Left the queue', href: '#/trucks?tab=queues' },
     { label: 'In the queue', value: n0((d.queue ?? []).length), sub: 'Trucks waiting', href: '#/trucks?tab=queues' },
   ]} />
+  <TruckStage mode="loading" />
   <DashboardPanel span={span ?? 1} subtitle="ready · waiting for a truck · loaded today, quantities only" decision="Load the ready trucks; find a truck for the waiting ones." {...fr} title={r?.title ?? ''} rows={() => [['Order', 'Loading point', 'Truck', 'Driver', 'Ordered (cases)', 'Loaded (cases)', 'Status'], ...(d.rows ?? []).map((x: any) => [x.poRef, x.loadingPoint, x.truck, x.driver, x.ordered, x.loaded ?? '', x.status])]} filename="loading-list" drill={{ label: 'Open the queues', href: '#/trucks?tab=queues' }} empty={!(d.rows ?? []).length && !(d.queue ?? []).length} emptyText="Nothing to load today">
     <ul class="cards">
       {#each d.rows ?? [] as x}

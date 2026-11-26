@@ -35,7 +35,7 @@ const groupLabel = (g: string) => (room && ROOM[g]) || DASH_GROUPS.find((x) => x
     const r = await dashboards.get(serverKeys, filter);
     res = r; onload?.(r);
   }, () => JSON.stringify([serverKeys, filter]));
-  // Wide charts and opening summaries keep the whole row. Paired charts stay one column each, so a short card is not stretched.
+  // Wide charts and opening summaries keep the whole row. A short card stretches up to its neighbour.
   const FULL = ['exec-overview', 'fleet-board', 'alerts', 'fast-slow', 'border-stops', 'warehouse-today', 'order-this-week', 'stock-movements', 'data-completeness'];
   const spans = $derived.by(() => {
     const out: Record<string, 'full' | undefined> = {};
@@ -43,10 +43,10 @@ const groupLabel = (g: string) => (room && ROOM[g]) || DASH_GROUPS.find((x) => x
     for (const k of keys) if (FULL.includes(k)) out[k] = 'full';
     return out;
   });
-  // V3-11 LD-1: the Fleet tab fits the screen. Board + delayed on top, issues · updates · borders below; each panel scrolls
-  // inside its own cell, so the page itself doesn't need to scroll (phones: stacked, each with its own max height).
+  // Shipments scrolls, with the truck map under the stats. The old locked grid hid that map.
   const FIT_AREAS: Record<string, string> = { 'fleet-board': 'board', 'delayed-trucks': 'delayed', 'truck-issues': 'issues', 'driver-updates': 'updates', 'border-stops': 'borders' };
-  const fit = $derived(keys.includes('fleet-board') && keys.every((k) => k in FIT_AREAS));
+  const lockFleet = false;
+  const fit = $derived(lockFleet && keys.includes('fleet-board') && keys.every((k) => k in FIT_AREAS));
   let fitEl = $state<HTMLDivElement>();
   let fitH = $state(0);
   $effect(() => {

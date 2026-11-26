@@ -7,6 +7,7 @@
   import { frame, day, dayTime, n0 } from '../fmt.svelte';
   import { ago } from '../../../components/dashboard';
   import StatRow from '../StatRow.svelte';
+  import TruckStage from '../TruckStage.svelte';
   let { key, r, link, span }: { key: DashKey; r: DashResult; link?: string; span?: 1 | 2 | 'full' } = $props();
   const d = $derived(r.data as any);
   const fr = $derived(frame(r));
@@ -35,6 +36,7 @@
     { label: 'To acknowledge', value: n0((d.cards ?? []).filter((c: any) => c.statusLabel === 'To acknowledge').length), sub: 'Arrived', href: '#/shipments' },
     { label: 'Quiet', value: n0((d.cards ?? []).filter((c: any) => c.stale).length), sub: 'No recent update', href: '#/trucks' },
   ]} />
+  <TruckStage mode="shipments" />
   <DashboardPanel span={span ?? 'full'} subtitle="by status, grouped by route · faded = no recent update" decision="Act on delayed and faded (silent) trucks first." {...fr} title={r.title} staleAfter={12 * 60} freshness="synced" rows={boardRows} filename="live-fleet" {drill}>
     <KanbanBoard columns={d.columns} {cards} oncard={(c) => { const x = cards.find((y: any) => y.id === c.id); if (x?.shipmentId) go(`#/shipments/${x.shipmentId}`); }} />
   </DashboardPanel>
