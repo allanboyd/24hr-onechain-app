@@ -129,7 +129,7 @@ ok(await rowsShown() === lvlCount && lvlCount < allLines && stripText.includes(`
 await p.locator('.dt-chips').getByRole('button', { name: 'Clear all' }).click(); await p.waitForTimeout(300);
 // the Shipments map uses the same filtered rows
 await p.goto(`${base}#/shipments?show=all&q=KBL&view=map`); await p.waitForTimeout(2500);
-ok(/Showing \d+ of/.test((await p.locator('.filter-note').first().textContent()) ?? ''), 'Shipments map: the strip counts the searched rows');
+ok(/\d+ of \d+/.test((await p.locator('.filter-note').first().textContent()) ?? ''), 'Shipments map: the strip counts the searched rows');
 
 // phone: cards + search still there
 await p.setViewportSize({ width: 390, height: 844 }); await p.goto(`${base}#/pos?stage=all`); await p.waitForTimeout(1800);
