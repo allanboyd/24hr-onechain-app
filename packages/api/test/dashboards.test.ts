@@ -94,6 +94,55 @@ ok(mo.brands.best.length > 0 && mo.brands.best.every((b, i, a) => i === 0 || a[i
   ok(mf.floor.length > 0 && mf.floor.every((x) => x.floor === null || x.landedPerCase === null || Math.abs(x.floor - x.landedPerCase / (1 - mf.targetMargin)) < 0.05 * x.floor), 'Management Performance: price floor = landed cost ÷ (1 − target margin)', mf.floor.slice(0, 2));
   ok(mf.months.length === 12 && mf.plan.months.length >= 1, 'Management Performance: 12 months of margin / profit per case; plan vs actual by month');
 }
+// ---- Management · Supplier balances (V3-10 step 3c): short loads = ordered − loaded on loaded trucks, at the PO price ----
+{
+  const y0 = `${new Date().getUTCFullYear() - 1}-01-01T00:00:00.000Z`, y1 = new Date(Date.now() + 864e5).toISOString();
+  const ms = (await api.dashboards.get(['mgmt-suppliers'], { from: y0, to: y1 })).results['mgmt-suppliers']!.data as import('../src/dashboards').MgmtSuppliers;
+  const lds = await api.loading.list();
+  const shortLines = lds.filter((l) => l.status === 'Loaded' && l.loadedAt).flatMap((l) => l.lines.filter((x) => !x.alternativeFor && x.orderedQty > x.loadedQty));
+  ok(ms.loads.length > 0 && ms.loads.length === Math.min(1000, shortLines.length) && ms.loads.every((r) => r.short === r.ordered - r.loaded && r.short > 0 && r.value >= 0), 'Management Suppliers: one row per short line on loaded trucks (= the loadings), short = ordered − loaded', [ms.loads.length, shortLines.length]);
+  ok(Math.abs(ms.bySupplier.reduce((a, x) => a + x.held, 0) - ms.kpis.held) < 1 && Math.abs(ms.byMonth.at(-1)!.total - ms.kpis.held) < 1, 'Management Suppliers: suppliers and the running total by month add up to the money held', [ms.kpis.held, ms.byMonth.at(-1)]);
+  const lastBal = new Map<string, number>(); for (const r of [...ms.statement].reverse()) lastBal.set(r.supplierId, r.balance);
+  ok(ms.bySupplier.every((x) => Math.abs((lastBal.get(x.supplierId) ?? 0) - x.held) < 1), 'Management Suppliers: each statement ends at that supplier\'s balance');
+  ok(ms.notRecorded.includes('creditNotes') && ms.notRecorded.includes('advances') && ms.loads.every((r) => !/^p-[a-z]\d/.test(r.brand)), 'Management Suppliers: credit notes / advances flagged as not recorded; names not codes');
+}
+// ---- Management · Cash and closing (V3-10 step 3d): money in / out and opening → closing from what we record ----
+{
+  const per = { from: td.period.from, to: new Date(Date.parse(td.period.to) + 1).toISOString() };
+  const r = await api.dashboards.get(['mgmt-cash', 'mgmt-clients'], per);
+  const mcash = r.results['mgmt-cash']!.data as import('../src/dashboards').MgmtCash;
+  const mcl = r.results['mgmt-clients']!.data as import('../src/dashboards').MgmtClients;
+  const recPaid = mcl.records.reduce((a, x) => a + x.paid, 0), recBal = mcl.records.reduce((a, x) => a + x.balance, 0);
+  ok(Math.abs(mcash.kpis.received - recPaid) < 1 && Math.abs(mcash.kpis.toCollect - recBal) < 1, 'Management Cash: received / still to collect = the Sales and clients records (same period)', [mcash.kpis.received, recPaid, mcash.kpis.toCollect, recBal]);
+  ok(mcash.clients.closing === mcl.kpis.owed, 'Management Cash: client balances closing = owed on Sales and clients', [mcash.clients.closing, mcl.kpis.owed]);
+  const st = mcash.statement; const net = st.find((x) => x.kind === 'total')!.value!;
+  ok(Math.abs(st.filter((x) => x.kind === 'in' || x.kind === 'out').reduce((a, x) => a + (x.value ?? 0), 0) - net) < 1 && st.filter((x) => x.kind === 'missing').length === 2, 'Management Cash: statement adds up; opening cash and transfers marked not recorded');
+  const stockRows = await api.inventory.stock();
+  const closingNow = stockRows.reduce((a, x) => a + x.closing, 0);
+  ok(Math.abs(mcash.stock.closing - closingNow) <= 1 && mcash.stock.opening + mcash.stock.received - mcash.stock.sold + mcash.stock.other === mcash.stock.closing, 'Management Cash: stock closing = the stock list; opening + received − sold ± other = closing', [mcash.stock, closingNow]);
+  const exps = await api.warehouse.expenses({ from: per.from.slice(0, 10), to: per.to.slice(0, 10) });
+  const expIn = exps.filter((e) => Date.parse(`${e.date}T00:00:00Z`) >= Date.parse(per.from) && Date.parse(`${e.date}T00:00:00Z`) < Date.parse(per.to)).reduce((a, e) => a + e.amountUsd, 0);
+  ok(Math.abs(mcash.kpis.warehouseBills - expIn) < 1, 'Management Cash: warehouse bills = the warehouse expenses of the period', [mcash.kpis.warehouseBills, expIn]);
+  ok(mcash.byMonth.length === 12 && mcash.byWarehouse.length > 0, 'Management Cash: 12 months and by warehouse');
+}
+// ---- Management · Executive report (V3-10 step 3e): sentences by fixed rules from the same figures ----
+{
+  const per = { from: td.period.from, to: new Date(Date.parse(td.period.to) + 1).toISOString() };
+  const r = await api.dashboards.get(['mgmt-exec', 'mgmt-overview', 'mgmt-perf', 'mgmt-clients', 'mgmt-suppliers'], per);
+  const ex = r.results['mgmt-exec']!.data as import('../src/dashboards').MgmtExec;
+  const o = r.results['mgmt-overview']!.data as import('../src/dashboards').MgmtOverview;
+  const pfd = r.results['mgmt-perf']!.data as import('../src/dashboards').MgmtPerf;
+  const cld = r.results['mgmt-clients']!.data as import('../src/dashboards').MgmtClients;
+  const spd = r.results['mgmt-suppliers']!.data as import('../src/dashboards').MgmtSuppliers;
+  const all = [...ex.good, ...ex.decisions];
+  ok(all.length > 0 && all.every((x) => /\.$/.test(x.text) && !/undefined|NaN|null|—/.test(x.text)), 'Management Exec: every sentence is clean (no undefined / NaN / em dash, ends with a full stop)', all.map((x) => x.text));
+  const has = (k: string) => ex.decisions.some((x) => x.key === k);
+  ok(has('margin-low') === ((o.kpis.margin.value ?? 1) < ex.targetMargin), 'Management Exec: "margin below target" exactly when the margin is below target');
+  ok(has('below-floor') === pfd.floor.some((x) => x.below), 'Management Exec: "below the safe price" exactly when a product is');
+  ok(has('overdue') === ((cld.kpis.overdue ?? 0) > 0) && has('supplier-cash') === (spd.kpis.held > 0), 'Management Exec: overdue and supplier-cash decisions follow their figures');
+  const comb = ex.table.find((x) => x.combined)!;
+  ok(Math.abs(comb.revenue - o.kpis.revenue.value!) < 1 && Math.abs(ex.table.filter((x) => !x.combined).reduce((a, x) => a + x.revenue, 0) - comb.revenue) < 2, 'Management Exec: combined row = Overview; warehouses add up', [comb.revenue, o.kpis.revenue.value]);
+}
 ok(td.cash.value! > 0 && td.cash.overdue! <= td.cash.value! && td.cash.spark?.length === 8, 'Today: cash to collect with the overdue part (never more than the total)', [td.cash.value, td.cash.overdue]);
 ok(td.owed.bands.length === 3 && td.owed.total === td.cash.value && td.owed.overdue === td.cash.overdue && td.owed.top.length > 0 && td.owed.bands.every((b) => b.value >= 0), 'Today: who-owes-us ageing bands and top customers', td.owed);
 ok(td.trucks.value !== null && td.trucks.delayed <= td.trucks.value && td.trucks.spark?.length === 14 && td.trucks.spark.at(-1) === td.trucks.value, 'Today: trucks on the road, delayed, 14-day trend ending at now', td.trucks);

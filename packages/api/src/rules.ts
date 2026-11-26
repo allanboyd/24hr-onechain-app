@@ -2,7 +2,7 @@
 // and the NestJS server. No I/O, no globals: every input is a parameter, `now` included.
 import type {
   Acknowledgement, AppConfig, CheckpointPass, Currency, EtaInfo, FeatureKey, Flag, FxRate, ID, JourneyStep, Leg, LegStatus, Loading, LoadingAlternative, LoadingLine, PeriodKind, PeriodPlan, Plan, PlanLine, PlanLineContext, PoLineChange, PoLineSnap, PoRevisionChange, PoStage, Product, PurchaseOrder,
-  PvThresholds, Role, RouteStop, Sale, Shipment, StockRow, VelocityClass, VelocityRow, WarehouseInput,
+  MoneySettings, NotifyPrefs, PvThresholds, Role, RouteStop, Sale, Shipment, StockRow, VelocityClass, VelocityRow, WarehouseInput,
 } from './types';
 
 export const H = 36e5;
@@ -643,6 +643,31 @@ export function revisePlan(prev: Plan, truckNo: number, loading: Pick<LoadingLin
   return { plan, altLines };
 }
 export const defaultPvThresholds: PvThresholds = { behind: 0.85, over: 1.05 };
+
+// ---- V3-12 step 1: clients ----------------------------------------------------------------------------------------------
+/** Same client whatever the spacing or capitals: "kimironko  wholesale" = "Kimironko Wholesale". */
+export const clientKey = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+export const cleanClientName = (name: string) => name.trim().replace(/\s+/g, ' ');
+/** Credit days: a whole number from 0 (pay at once) to 180. */
+export const validTermsDays = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 0 && (n as number) <= 180;
+/** Who changes a client's credit days: money decisions (directors, accounts). Anyone who sells may add a client. */
+export const canSetCreditDays = (roles: Role[]) => roles.includes('director') || roles.includes('accounts') || roles.includes('admin');
+
+// ---- V3-12 step 0: Management settings and money notifications -------------------------------------------------------
+export const defaultMoneySettings: MoneySettings = { advanceApproval: false };
+export const defaultNotifyPrefs: NotifyPrefs = { email: false, sms: false };
+/** Directors and the system administrator change the Management settings. */
+export const canChangeSettings = (roles: Role[]) => roles.includes('director') || roles.includes('admin');
+/** Who hears about a money record (an advance, a credit note, cash sent to the company): every active director of the
+ *  company in-app; by email / SMS only the directors who turned that on and have an address / phone. */
+export function moneyRecipients<U extends { id: string; roles: Role[]; active?: boolean; email?: string | null; phone?: string | null; notifyEmail?: boolean; notifySms?: boolean }>(users: U[]) {
+  const dirs = users.filter((u) => u.roles.includes('director') && u.active !== false);
+  return {
+    inApp: dirs.map((u) => u.id),
+    email: dirs.filter((u) => u.notifyEmail && u.email).map((u) => u.email!),
+    sms: dirs.filter((u) => u.notifySms && u.phone).map((u) => u.phone!),
+  };
+}
 /** Reports a role may open: the general Reports feature, or the feature the report belongs to (e.g. a sales clerk's sales overview). */
 export const REPORT_FEATURES: Record<string, FeatureKey[]> = {
   // inventory shows stock values (purchase prices): not for receivers (A-04) — their own reports come with the dashboards

@@ -376,7 +376,7 @@
 
   {#if !busy && total > 0}
     <div class="dt-foot">
-      <span class="caption" aria-live="polite">Showing {fmtN(start + 1)}–{fmtN(end)} of {fmtN(total)} {noun}{#if total !== (rows?.length ?? 0)} (from {fmtN(rows?.length ?? 0)}){/if}</span>
+      <span class="caption" aria-live="polite">Showing {fmtN(start + 1)}–{fmtN(end)} of {fmtN(total)} {noun}{#if total !== (rows?.length ?? 0)}{' '}(from {fmtN(rows?.length ?? 0)}){/if}</span>
       <span class="dt-pager">
         {#if more > 0}<button type="button" class="btn btn-secondary btn-sm" onclick={() => (count += pageSize)}>Show {more} more</button>{/if}
         {#if pages > 1}

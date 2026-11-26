@@ -39,7 +39,8 @@
     ...DASH_GROUPS.filter((g) => mine.some((d) => placed(d.key) === g.key)).map((g) => ({ key: g.key as string, label: SHORT[g.key] ?? g.label, blurb: ROOM_BLURB[g.key] ?? `${g.label}: ${g.blurb}` })),
     ...(director && groupView ? [{ key: 'companies', label: 'Companies', blurb: 'BTW, Nihna and Kivu compared on the same measures.' }] : []),
   ]);
-  const wanted = $derived(params?.group ?? (location.hash.startsWith('#/overview') ? 'companies' : 'mine'));
+  // Operations → Live dashboards (#/dashboards) opens the first dashboard tab the person may see; Home (#/) stays on Overview
+  const wanted = $derived(params?.group ?? (location.hash.startsWith('#/overview') ? 'companies' : /^#\/dashboards\/?$/.test(location.hash) ? (tabs[1]?.key ?? 'mine') : 'mine'));
   const active = $derived((tabs.find((t) => t.key === wanted) ?? tabs[0]).key);
   const tabAll = $derived(active === 'mine' ? home : reportKeys(active, mine.filter((d) => placed(d.key) === active).map((d) => d.key), user.roles));
   const analysisKeys = $derived(tabAll.filter((k) => dashDef(k)?.analysis));

@@ -8,7 +8,7 @@ import * as RP from './reports';
 import * as PO from './mock/po';
 import type {
   AckLine, AppConfig, AuditFilter, AuditPage, Checkpoint, EntityInput, PriceListItem, Product, ProductInput, ReceivingCompany, ReceivingCompanyInput, Supplier, SupplierInput, UserPair, LoadingAlternative, PeriodPlanLine, PurchaseOrder, CheckpointPass, Device, DriverWork, Entity, FeatureKey, FxRate, GiverWork, ID, Leg, LegView, PeriodKind, PeriodPlan, Plan, PlanLine,
-  PlanLineContext, PoDetail, PoInput, PoUpdateInput, PvThresholds, ReceiverWork, Role, RouteStop, Sale, Shipment, StoredFile, SyncResult, TripCost, TruckIssue, User, UserAdmin, Warehouse, WarehouseInput,
+  Client, ClientInput, ClientRow, MoneySettings, NotifyPrefs, PlanLineContext, PoDetail, PoInput, PoUpdateInput, PvThresholds, ReceiverWork, Role, RouteStop, Sale, Shipment, StoredFile, SyncResult, TripCost, TruckIssue, User, UserAdmin, Warehouse, WarehouseInput,
   Driver, DriverInput, Provider, ProviderInput, SavedDriver, Truck, TruckInput,
 } from './types';
 
@@ -418,6 +418,78 @@ export const inventory = {
   async stock() { ensure(); return wait(m.stock().filter((r) => inScope(r.entityId) && seesWh(r.warehouseId)).map(stockOut)); },
   async ledger(warehouseId: ID, productId: ID) { ensure(); if (!seesWh(warehouseId)) throw httpErr('Not available for your role', 403); return wait(m.db.stockMoves.filter((x) => inScope(x.entityId) && x.warehouseId === warehouseId && x.productId === productId).slice(-50).reverse()); },
 };
+// ---- Clients (V3-12 step 1) ------------------------------------------------------------------------------------
+const DEFAULT_TERMS = 14; // = metrics.TERMS_DAYS (kept out of the entry chunk)
+/** The company's clients. The first time, one client per customer name already on a sale (same as migration 0014). */
+function clientList(): Client[] {
+  if (!m.db.clients) {
+    const by = new Map<string, Client>();
+    for (const s of [...m.db.sales].sort((a, b) => (a.at < b.at ? -1 : 1))) {
+      if (!s.customer?.trim()) continue; // a sale recorded without a client stays flagged as missing data
+      const k = `${s.entityId}|${R.clientKey(s.customer)}`;
+      if (!by.has(k)) by.set(k, { id: `cl-${by.size + 1}`, entityId: s.entityId, name: R.cleanClientName(s.customer), warehouseId: s.warehouseId, termsDays: DEFAULT_TERMS, active: true, createdAt: s.at });
+      s.clientId = by.get(k)!.id; s.termsDays ??= DEFAULT_TERMS;
+    }
+    m.db.clients = [...by.values()];
+  }
+  return m.db.clients;
+}
+const seesClients = () => !!current && (R.hasFeature(current.roles, 'sales') || R.hasFeature(current.roles, 'reports'));
+function checkClient(input: Partial<ClientInput>, entityId: ID, selfId?: ID) {
+  if (input.name !== undefined) {
+    const name = R.cleanClientName(String(input.name ?? ''));
+    if (name.length < 1) throw Object.assign(new Error('Enter the client name'), { status: 422 });
+    if (clientList().some((c) => c.entityId === entityId && c.id !== selfId && R.clientKey(c.name) === R.clientKey(name))) throw Object.assign(new Error(`${name} is already a client`), { status: 409 });
+  }
+  if (input.termsDays !== undefined && !R.validTermsDays(input.termsDays)) throw Object.assign(new Error('Credit days must be a whole number from 0 to 180'), { status: 422 });
+  if (input.warehouseId && !ref().warehouses.some((w) => w.id === input.warehouseId)) throw Object.assign(new Error('Unknown warehouse'), { status: 422 });
+}
+export const clients = {
+  async list(): Promise<ClientRow[]> {
+    ensure(); if (!seesClients()) return wait([]);
+    const mine = clientList().filter((c) => inScope(c.entityId));
+    const MX = await import('./metrics');
+    const fig = MX.clientFigures(m.db.sales.filter((s) => inScope(s.entityId)), Date.now());
+    return wait(mine.map((c) => ({ ...c, sales: 0, lastSaleAt: null, owed: 0, overdue: 0, ...fig.get(c.id) })).sort((a, b) => a.name.localeCompare(b.name)));
+  },
+  async create(input: ClientInput): Promise<Client> {
+    ensure(); if (!current || !R.hasFeature(current.roles, 'sales')) throw forbid('Clients are added by the people who sell');
+    const entityId = writeEntity(input.entityId);
+    if (input.termsDays !== undefined && input.termsDays !== DEFAULT_TERMS && !R.canSetCreditDays(current.roles)) throw forbid('Credit days are set by the directors or accounts');
+    checkClient(input, entityId);
+    const c: Client = { id: m.uid('cl'), entityId, name: R.cleanClientName(input.name), phone: input.phone?.trim() || undefined, warehouseId: input.warehouseId || undefined, termsDays: input.termsDays ?? DEFAULT_TERMS, active: true, createdAt: new Date().toISOString() };
+    clientList().push(c);
+    log('POST', '/clients', { recordType: 'client', recordId: c.id, entityId, summary: `${c.name} · ${c.termsDays} credit days`, after: c });
+    return commit(c);
+  },
+  async update(id: ID, input: Partial<ClientInput>): Promise<Client> {
+    ensure(); if (!current || !R.hasFeature(current.roles, 'sales')) throw forbid('Clients are changed by the people who sell');
+    const c = clientList().find((x) => x.id === id && inScope(x.entityId)); if (!c) throw httpErr('Client not found', 404);
+    if (input.termsDays !== undefined && input.termsDays !== c.termsDays && !R.canSetCreditDays(current.roles)) throw forbid('Credit days are set by the directors or accounts');
+    checkClient(input, c.entityId, c.id);
+    const before = { ...c };
+    if (input.name !== undefined) c.name = R.cleanClientName(input.name);
+    if (input.phone !== undefined) c.phone = input.phone?.trim() || undefined;
+    if (input.warehouseId !== undefined) c.warehouseId = input.warehouseId || undefined;
+    if (input.termsDays !== undefined) c.termsDays = input.termsDays;
+    if (input.active !== undefined) c.active = !!input.active;
+    log('PATCH', `/clients/${id}`, { recordType: 'client', recordId: id, entityId: c.entityId, summary: c.name, before, after: { ...c } });
+    return commit(c);
+  },
+};
+/** A sale's client: the one picked, else the same name in the company, else a new client with the default days. */
+function clientForSale(entityId: ID, input: { clientId?: ID; customer: string; warehouseId: ID }): Client {
+  if (input.clientId) { const c = clientList().find((x) => x.id === input.clientId && x.entityId === entityId); if (!c) throw new Error('Pick a client of this company'); if (!c.active) throw new Error(`${c.name} is deactivated`); return c; }
+  const name = R.cleanClientName(input.customer ?? '');
+  if (name.length < 1) throw new Error('Enter the client');
+  const same = clientList().find((x) => x.entityId === entityId && R.clientKey(x.name) === R.clientKey(name));
+  if (same) { if (!same.active) throw new Error(`${same.name} is deactivated`); return same; }
+  const c: Client = { id: m.uid('cl'), entityId, name, warehouseId: input.warehouseId, termsDays: DEFAULT_TERMS, active: true, createdAt: new Date().toISOString() };
+  clientList().push(c);
+  log('POST', '/clients', { recordType: 'client', recordId: c.id, entityId, summary: `${c.name} · added with a sale`, after: c });
+  return c;
+}
+
 export const sales = {
   async list(warehouseId?: ID) { ensure(); if (!current || !R.hasFeature(current.roles, 'sales')) return wait([] as Sale[]); return wait(m.db.sales.filter((s) => inScope(s.entityId) && seesWh(s.warehouseId) && (!warehouseId || s.warehouseId === warehouseId)).slice(-200).reverse()); },
   async create(input: Omit<Sale, 'id' | 'ref' | 'status' | 'entityId'> & { entityId?: ID }, override = false) {
@@ -431,7 +503,8 @@ export const sales = {
       if (l.qty > avail && !override) throw new Error(`Only ${avail} cases of ${lookup.product(l.productId)?.brand} in stock`);
     }
     const total = input.lines.reduce((a, l) => a + m.amount(l.qty, l.price), 0);
-    const sale: Sale = { ...input, entityId, id: m.uid('sale'), ref: `SAL-${String(m.db.sales.length + 1).padStart(5, '0')}`, status: input.paid >= total ? 'Paid' : input.paid > 0 ? 'Part-paid' : 'Unpaid' };
+    const cl = clientForSale(entityId, input);
+    const sale: Sale = { ...input, customer: cl.name, clientId: cl.id, termsDays: cl.termsDays, entityId, id: m.uid('sale'), ref: `SAL-${String(m.db.sales.length + 1).padStart(5, '0')}`, status: input.paid >= total ? 'Paid' : input.paid > 0 ? 'Part-paid' : 'Unpaid' };
     m.db.sales.push(sale);
     for (const l of sale.lines) m.db.stockMoves.push({ entityId, warehouseId: sale.warehouseId, productId: l.productId, kind: 'sold', qty: l.qty, at: sale.at, ref: sale.ref });
     if (sale.counterpartyEntityId) for (const l of sale.lines) m.db.stockMoves.push({ entityId: sale.counterpartyEntityId, warehouseId: sale.warehouseId, productId: l.productId, kind: 'transferIn', qty: l.qty, at: sale.at, ref: sale.ref });
@@ -937,5 +1010,28 @@ export const settings = {
     const next = { ...(m.db.pvThresholds ?? R.defaultPvThresholds), ...t };
     if (!(next.behind > 0 && next.behind <= 1) || !(next.over >= 1 && next.over <= 2)) throw Object.assign(new Error('Behind must be between 0 and 1, over between 1 and 2 (e.g. 0.85 and 1.05)'), { status: 422 });
     m.db.pvThresholds = next; return commit(next);
+  },
+  /** V3-12: Management → Settings. */
+  async money(): Promise<MoneySettings> { ensure(); return wait({ ...R.defaultMoneySettings, ...m.db.moneySettings }); },
+  async setMoney(s: Partial<MoneySettings>): Promise<MoneySettings> {
+    ensure();
+    if (!R.canChangeSettings(current?.roles ?? [])) throw Object.assign(new Error('Only directors and the system administrator change these settings'), { status: 403 });
+    if (s.advanceApproval !== undefined && typeof s.advanceApproval !== 'boolean') throw Object.assign(new Error('Choose on or off'), { status: 422 });
+    const before = { ...R.defaultMoneySettings, ...m.db.moneySettings };
+    const next = { ...before, ...s };
+    m.db.moneySettings = next;
+    log('PUT', '/settings/money', { recordType: 'settings', recordId: 'money', summary: `Advance payments need director approval: ${next.advanceApproval ? 'on' : 'off'}`, before, after: next });
+    return commit(next);
+  },
+  /** V3-12: my email / SMS choices for money notifications (in-app is always on). */
+  async myNotify(): Promise<NotifyPrefs> { ensure(); return wait({ ...R.defaultNotifyPrefs, ...(current ? m.db.notifyPrefs?.[current.id] : undefined) }); },
+  async setMyNotify(n: Partial<NotifyPrefs>): Promise<NotifyPrefs> {
+    ensure();
+    if (!current) throw Object.assign(new Error('Sign in first'), { status: 401 });
+    const id = current.id;
+    if ((n.email !== undefined && typeof n.email !== 'boolean') || (n.sms !== undefined && typeof n.sms !== 'boolean')) throw Object.assign(new Error('Choose on or off'), { status: 422 });
+    const next = { ...R.defaultNotifyPrefs, ...m.db.notifyPrefs?.[id], ...n };
+    (m.db.notifyPrefs ??= {})[id] = next;
+    return commit(next);
   },
 };

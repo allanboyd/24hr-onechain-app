@@ -42,7 +42,9 @@ await p.screenshot({ path: `${out}/mgmt-plans-live.png`, fullPage: true });
 await p.goto(`${base}#/management/clients`); await p.locator('.mrep .kpi .val').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(1000);
 ok(await p.locator('iframe[title^="Management report"]').count() === 0, 'Clients: our page, no report frame');
 ok(/^\$[\d,]+$/.test((await p.locator('.mrep .kpi .val').first().textContent())?.trim() ?? '') && await p.locator('.mrep .rank li').count() > 0, 'Clients: sales from our data, clients ranked');
-ok(await p.locator('.mrep .ct', { hasText: 'Client credit terms' }).locator('.chip', { hasText: 'Not recorded yet' }).count() === 1, 'Clients: credit terms say "Not recorded yet"');
+// V3-12 step 1: credit days are recorded per client now: the card shows the days in use and links to Sales → Clients
+{ const card = p.locator('.mrep .card', { has: p.locator('.ct', { hasText: 'Client credit terms' }) });
+  ok(await card.getByText('Not recorded yet').count() === 0 && await card.locator('tbody tr').count() > 0 && await card.locator('a[href="#/sales?view=clients"]').count() === 1, 'Clients: credit days in use, with a link to Sales → Clients'); }
 const recs = p.locator('.mrep .dt-table tbody tr[data-dt-row]'); const r0 = await recs.count();
 await p.locator('.mrep .dt-search input').fill('Walk-in'); await p.waitForTimeout(500);
 ok(r0 > 0 && (await p.locator('.mrep .dt-table tbody tr[data-dt-row] td:nth-child(3)').allTextContents()).every((t) => /Walk-in/i.test(t)), 'Clients: the sales records search by client');
@@ -54,13 +56,40 @@ const profits = await p.locator('.mrep .wh').evaluateAll((ws) => ws.map((w) => N
 ok(profits.every((x, i, a) => i === 0 || a[i - 1] >= x), `Performance: most profitable first (${profits.join(', ')})`);
 ok(await p.locator('.mrep .dt-table tbody tr[data-dt-row]').count() > 0 && !(await p.locator('.mrep').innerText()).match(/\bp-[a-z]\d{3}\b|\bw-[a-z]+\b/), 'Performance: price floor rows, names not codes');
 await p.screenshot({ path: `${out}/mgmt-perf-live.png`, fullPage: true });
+// V3-10 step 3c: Supplier balances on live data
+await p.goto(`${base}#/management/suppliers?p=ytd`); await p.locator('.mrep .kpi .val').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(1000);
+ok(await p.locator('iframe[title^="Management report"]').count() === 0, 'Suppliers: our page, no report frame');
+ok(n(await p.locator('.mrep .kpi .val').first().textContent()) > 0 && await p.locator('.mrep .rank li').count() > 0, 'Suppliers: money held from our short loads, per supplier');
+ok(await p.locator('.mrep .kpi', { hasText: 'Credit notes' }).getByText('Not recorded yet').count() === 1 && await p.locator('.mrep .ct', { hasText: 'Advance payments' }).locator('.chip', { hasText: 'Not recorded yet' }).count() === 1, 'Suppliers: credit notes / advances say "Not recorded yet"');
+ok(await p.locator('.mrep .dt-table').count() === 2 && await p.locator('.mrep .dt-table').first().locator('tbody tr[data-dt-row]').count() > 0, 'Suppliers: short loads and the statement as tables');
+await p.screenshot({ path: `${out}/mgmt-suppliers-live.png`, fullPage: true });
+// V3-10 step 3d: Cash and closing on live data
+await p.goto(`${base}#/management/cash`); await p.locator('.mrep .kpi .val').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(1000);
+ok(await p.locator('iframe[title^="Management report"]').count() === 0, 'Cash: our page, no report frame');
+ok(n(await p.locator('.mrep .kpi .val').first().textContent()) > 0 && await p.locator('.mrep .stmt tr.total').count() === 1, 'Cash: received from our sales; statement with a net total');
+ok(await p.locator('.mrep .stmt tr.missing .chip', { hasText: 'Not recorded yet' }).count() === 2, 'Cash: opening cash and transfers say "Not recorded yet"');
+ok(/→/.test((await p.locator('.mrep .oc').innerText())), 'Cash: stock opening → closing');
+await p.screenshot({ path: `${out}/mgmt-cash-live.png`, fullPage: true });
+// V3-10 step 3e: Executive report on live data
+await p.goto(`${base}#/management/exec`); await p.locator('.mrep .items li').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(800);
+ok(await p.locator('iframe[title^="Management report"]').count() === 0 && await p.locator('.mrep .ct', { hasText: 'Good news' }).count() === 1 && await p.locator('.mrep .ct', { hasText: 'Decisions for the Directors' }).count() === 1, 'Exec: our page with good news and decisions');
+const txt = await p.locator('.mrep').innerText();
+ok(!/undefined|NaN|\bnull\b/.test(txt) && await p.locator('.mrep tr.combined').count() === 1, 'Exec: clean sentences; warehouses and a combined row');
+await p.screenshot({ path: `${out}/mgmt-exec-live.png`, fullPage: true });
+// rule (26 Nov): on every Management page the title and its description come first, then the filter bar
+for (const pg of ['overview', 'exec', 'plans', 'clients', 'perf', 'suppliers', 'cash']) {
+  await p.goto(`${base}#/management/${pg}`); await p.locator('main h1').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(600);
+  await p.evaluate(() => scrollTo(0, 0)); await p.waitForTimeout(200);
+  const h = await p.locator('main h1').first().boundingBox(), c = await p.locator('main .ctl').first().boundingBox();
+  ok(!!h && !!c && h.y < c.y, `${pg}: title above the filter bar`);
+}
 for (const [k, title] of Object.entries(PAGES)) {
-  if (['overview', 'plans', 'clients', 'perf'].includes(k)) continue; // rebuilt in our code (V3-10), checked above
+  if (['overview', 'exec', 'plans', 'clients', 'perf', 'suppliers', 'cash'].includes(k)) continue; // rebuilt in our code (V3-10), checked above
   await p.goto(`${base}#/management/${k}`); await p.waitForTimeout(2200);
   const f = p.frameLocator('iframe[title^="Management report"]');
   const h1 = (await f.locator('main h1').first().textContent().catch(() => ''))?.trim();
   ok(h1 === title, `#/management/${k} opens "${title}" (got "${h1}")`);
-  if (k === 'suppliers') {
+  if (k === 'fleet') { // the report's hidden pages still open in the frame
     const sideHidden = await f.locator('aside.side').evaluate((e) => getComputedStyle(e).display === 'none').catch(() => false);
     ok(sideHidden, `${k}: the report's own menu is hidden`);
     const w = await f.locator('main').evaluate((e) => e.getBoundingClientRect().width).catch(() => 0);
@@ -78,8 +107,22 @@ ok(!(await p.getByText('Not available for your role').count()), 'director: #/das
 // gating: a loader has no `reports`
 const q = await signIn('Yonas');
 ok(await q.getByRole('group', { name: 'Operations or management' }).count() === 0, 'warehouse user does not see the Management switch');
-await q.goto(`${base}#/management/cash`); await q.waitForTimeout(1500);
-ok(await q.getByText('Not available for your role').count() > 0, 'warehouse user gets "Not available" at #/management/cash');
+await q.goto(`${base}#/management/exec`); await q.waitForTimeout(1500);
+ok(await q.getByText('Not available for your role').count() > 0, 'warehouse user gets "Not available" at #/management/exec');
+// V3-12 step 0: Management → Settings (approval switch, my email / SMS)
+await p.goto(`${base}#/management/settings`); await p.locator('[role=switch]').first().waitFor({ timeout: 20_000 });
+ok((await p.locator('main h1').first().textContent())?.trim() === 'Settings' && await p.locator('aside nav a.active', { hasText: 'Settings' }).count() === 1, 'Settings: in the Management menu, title first');
+const sw = p.getByRole('switch', { name: 'Advance payments need director approval' });
+ok(await sw.getAttribute('aria-checked') === 'false', 'Settings: advance approval off by default');
+await sw.click(); await p.waitForTimeout(600);
+await p.reload(); await p.getByRole('switch', { name: 'Advance payments need director approval' }).waitFor();
+ok(await p.getByRole('switch', { name: 'Advance payments need director approval' }).getAttribute('aria-checked') === 'true', 'Settings: turning it on is saved');
+await p.getByRole('switch', { name: 'Advance payments need director approval' }).click(); await p.waitForTimeout(600);
+const sms = p.getByRole('switch', { name: 'Text me money notifications' });
+await sms.click(); await p.waitForTimeout(600);
+ok(await sms.getAttribute('aria-checked') === 'true' && await p.getByRole('switch', { name: 'Email me money notifications' }).getAttribute('aria-checked') === 'false', 'Settings: SMS on, email stays off');
+await sms.click(); await p.waitForTimeout(400);
+await p.screenshot({ path: `${out}/mgmt-settings.png`, fullPage: true });
 await b.close();
 console.log(fails ? `${fails} check(s) failed` : 'all V3-2 checks passed');
 process.exit(fails ? 1 : 0);

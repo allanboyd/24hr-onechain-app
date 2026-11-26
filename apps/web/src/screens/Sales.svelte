@@ -10,10 +10,11 @@
   import { companyLabel } from '../lib/companies';
   import { watch } from '../lib/load.svelte';
   import ErrorState from '../components/ErrorState.svelte';
-  import { amount, inventory, lookup, pricing, ref, reports, sales, type Sale, type SalesReport, type SellingPrice, type StockRow, type User } from '@btw/api';
+  import { amount, clients, inventory, lookup, pricing, ref, reports, sales, type Client, type Sale, type SalesReport, type SellingPrice, type StockRow, type User } from '@btw/api';
   import { salesTiles, infoOf } from '../lib/tiles';
-  import { PageHeader, SummaryStrip, ActionInCompany, DataTable, queryFilters, takeIntent, ts, tableQuery, processRows, type Column, type SummaryTile } from '../components/page';
-  import { TERMS_DAYS } from '@btw/api/metrics';
+  import { PageHeader, SummaryStrip, ActionInCompany, DataTable, Tabs, queryFilters, takeIntent, ts, tableQuery, processRows, type Column, type SummaryTile } from '../components/page';
+  import { TERMS_DAYS, termsOf } from '@btw/api/metrics';
+  import ClientsTab from '../components/ClientsTab.svelte';
   import { sellingPriceAny } from '@btw/api/money';
   import { Badge, fmtDateTime, fmtMoney, fmtNum, say } from '@btw/ui';
   import Plus from '@lucide/svelte/icons/plus';
@@ -27,6 +28,9 @@
   let list = $state<Sale[] | null>(null);
   let stock = $state<StockRow[]>([]);
   const f = queryFilters({ show: '', wh: '', status: '', kind: '', cust: '', amount: '', entity: '' });
+  // V3-12: Sales | Clients (its own query key, so clearing the sales filters keeps the tab)
+  const view = queryFilters({ view: '' });
+  const VIEWS = [{ key: 'sales', label: 'Sales' }, { key: 'clients', label: 'Clients' }] as const;
   // V3-8: search (?cust=, kept for old links) + Warehouse / Type / Payment / Amount / Company filters in the table
   const tq = tableQuery(f, { search: 'cust', filters: { wh: 'wh', kind: 'kind', status: 'status', amount: ['amount', 'range'], company: 'entity' } });
   let shown = $state(0);
@@ -38,12 +42,12 @@
   const monthStart = (() => { const d = new Date(); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1); })();
   async function load() {
     // this month to now: the same period as the Today view's Sales card
-    [list, stock, prices, rep] = await Promise.all([sales.list(), inventory.stock(), pricing.list().catch(() => [] as SellingPrice[]), reports.sales({ from: new Date(monthStart).toISOString(), to: new Date(Date.now() + DAY).toISOString() }).catch(() => null)]);
-    if (takeIntent('new-sale')) openNew();
+    [list, stock, prices, clientList, rep] = await Promise.all([sales.list(), inventory.stock(), pricing.list().catch(() => [] as SellingPrice[]), clients.list().catch(() => [] as Client[]), reports.sales({ from: new Date(monthStart).toISOString(), to: new Date(Date.now() + DAY).toISOString() }).catch(() => null)]);
+    if (takeIntent('new-sale')) { view.set('view', ''); openNew(); }
   }
   const w = watch(load);
   const open = (s: Sale) => s.status !== 'Paid' && total(s) - s.paid > 0.005;
-  const SHOW: Record<string, (s: Sale) => boolean> = { month: (s) => Date.parse(s.at) >= monthStart, owed: open, overdue: (s) => open(s) && Date.now() - Date.parse(s.at) > TERMS_DAYS * DAY };
+  const SHOW: Record<string, (s: Sale) => boolean> = { month: (s) => Date.parse(s.at) >= monthStart, owed: open, overdue: (s) => open(s) && Date.now() - Date.parse(s.at) > termsOf(s) * DAY };
   // the strip (Show) stays here; the table applies search + filters on top. `tableRows` = what the table shows (balances, export)
   const rows = $derived((list ?? []).filter((s) => (!scoped || scoped.includes(s.warehouseId)) && (!f.values.show || SHOW[f.values.show]?.(s) !== false)));
   const inScope = $derived((list ?? []).filter((s) => !scoped || scoped.includes(s.warehouseId)).length);
@@ -60,7 +64,7 @@
   const tiles = $derived<SummaryTile[]>([
     { key: 'month', label: 'Sales this month', value: fig?.sales ?? null, format: usd0, sub: rep ? `${fmtNum(rep.totals.orders)} sales · ${fmtNum(rep.totals.cases)} cases` : undefined, info: infoOf('sales') },
     { key: 'owed', label: 'Owed by customers', value: fig?.owed ?? null, format: usd0, sub: balances.length ? `${balances.length} customers in this list` : undefined, info: infoOf('owed') },
-    { key: 'overdue', label: 'Overdue', value: fig?.overdue ?? null, format: usd0, status: fig?.overdue ? 'warn' : undefined, statusLabel: fig?.overdue ? 'Chase' : undefined, sub: `over ${TERMS_DAYS} days`, info: infoOf('overdue') },
+    { key: 'overdue', label: 'Overdue', value: fig?.overdue ?? null, format: usd0, status: fig?.overdue ? 'warn' : undefined, statusLabel: fig?.overdue ? 'Chase' : undefined, sub: 'past each client\'s credit days', info: infoOf('overdue') },
   ]);
   function clearAll() { f.clear(); }
   const exportRows = () => [['Sale No.', 'Date', 'Warehouse', 'Customer', 'Type', 'SKU', 'Qty (cases)', 'Price (USD)', 'Amount (USD)', 'Paid (USD)', 'Status'],
@@ -73,7 +77,7 @@
     { key: 'ref', label: 'Sale No.', sticky: true, value: (s) => s.ref, class: 'mono small nowrap' },
     { key: 'at', label: 'Date', sortValue: (s) => ts(s.at), csv: (s) => s.at.slice(0, 16).replace('T', ' '), cell: dateCell, class: 'small nowrap' },
     { key: 'wh', label: 'Warehouse', value: (s) => destinationLabel(s.warehouseId), class: 'small', hideBelow: 1000, filter: 'select', filterValue: (s) => s.warehouseId, filterLabel: (id) => destinationLabel(id) },
-    { key: 'customer', label: 'Customer', value: (s) => s.customer },
+    { key: 'customer', label: 'Client', value: (s) => s.customer },
     { key: 'kind', label: 'Type', value: (s) => s.kind, cell: kindCell, filter: 'select' },
     { key: 'lines', label: 'Brand · Package', sortable: false, csv: (s) => s.lines.map((l) => `${lookup.product(l.productId)?.brand} ${lookup.product(l.productId)?.pack}`).join('; '), cell: linesCell, class: 'small', hideBelow: 1100 },
     { key: 'qty', label: 'Qty', align: 'right', sortValue: qtyOf, value: (s) => fmtNum(qtyOf(s)), csv: qtyOf, total: (l) => fmtNum(l.reduce((a, s) => a + qtyOf(s), 0)) },
@@ -87,6 +91,13 @@
   let dialog = $state<HTMLDialogElement>();
   let wh = $state('');
   let customer = $state('Walk-in');
+  let clientList = $state<Client[]>([]);
+  // V3-12: the client is picked from the company's clients; a new name is added as a client when the sale is saved
+  const saleEntity = $derived(scopeEntity());
+  const pickable = $derived(clientList.filter((c) => c.active && (!saleEntity || c.entityId === saleEntity)));
+  const key = (n: string) => n.trim().replace(/\s+/g, ' ').toLowerCase();
+  const picked = $derived(pickable.find((c) => key(c.name) === key(customer)) ?? null);
+  const offDuty = $derived(clientList.find((c) => !c.active && (!saleEntity || c.entityId === saleEntity) && key(c.name) === key(customer)) ?? null);
   let kind = $state<Sale['kind']>('Cash');
   let lines = $state<{ productId: string; qty: number; price: number }[]>([]);
   let paid = $state(0);
@@ -108,7 +119,8 @@
     if (!ls.length) { error = 'Enter a quantity on at least one line'; return; }
     busy = true;
     try {
-      const s = await sales.create({ entityId: scopeEntity() ?? '', at: new Date().toISOString(), warehouseId: wh, customer, salespersonId: user.id, kind, lines: $state.snapshot(ls), currency: 'USD', paid }, override);
+      if (customer.trim().length < 1) { error = 'Enter the client'; busy = false; return; }
+      const s = await sales.create({ entityId: scopeEntity() ?? '', at: new Date().toISOString(), warehouseId: wh, customer: picked?.name ?? customer.trim(), clientId: picked?.id, salespersonId: user.id, kind, lines: $state.snapshot(ls), currency: 'USD', paid }, override);
       dialog?.close(); say(`Sale ${s.ref} recorded for ${companyLabel(s.entityId)} — stock reduced`);
     } catch (err) { error = (err as Error).message; }
     busy = false;
@@ -120,6 +132,10 @@
   {#snippet secondary()}<ExportMenu name="sales" rows={exportRows} />{/snippet}
   {#snippet primary()}<ActionInCompany label="New sale" what="sale" feature="sales" intent="new-sale" onclick={openNew} />{/snippet}
 </PageHeader>
+<Tabs label="Sales" tabs={VIEWS} value={view.values.view === 'clients' ? 'clients' : 'sales'} onselect={(k) => view.set('view', k === 'sales' ? '' : k)} />
+{#if view.values.view === 'clients'}
+  <ClientsTab {user} />
+{:else}
 <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
 <SummaryStrip {tiles} bind:value={f.values.show} param="show" label="Sales summary" noun="sales" total={list ? inScope : null} shown={list ? shown : null} />
 
@@ -137,6 +153,7 @@
     </ul>
   </aside>
 </div>
+{/if}
 
 {#snippet companyCell(s: Sale)}<span class="cc"><CompanyMark entityId={s.entityId ?? null} size={18} />{companyLabel(s.entityId)}</span>{/snippet}
 {#snippet dateCell(s: Sale)}{fmtDateTime(s.at)}{/snippet}
@@ -149,10 +166,11 @@
     <h3>New sale</h3>
     <div class="form-grid">
       <label class="field"><span>Warehouse</span><select class="select" bind:value={wh} onchange={changeWh}>{#each warehouses as w}<option value={w.id}>{destinationLabel(w.id)}</option>{/each}</select></label>
-      <label class="field"><span>Customer</span><input class="input" bind:value={customer} list="customers" /></label>
+      <label class="field"><span>Client</span><input class="input" bind:value={customer} list="clients" autocomplete="off" aria-describedby="client-hint" />
+        <small id="client-hint" class="caption" class:warn={!!offDuty}>{#if offDuty}{offDuty.name} is deactivated{:else if picked}{picked.termsDays === 0 ? 'Pays at once' : `${picked.termsDays} credit days`}{:else if customer.trim().length >= 1}New client: added with {TERMS_DAYS} credit days{:else}Pick or type a client{/if}</small></label>
       <label class="field"><span>Type</span><select class="select" bind:value={kind}><option>Cash</option><option>Credit</option><option>Batch</option></select></label>
     </div>
-    <datalist id="customers"><option>Walk-in</option><option>Kimironko Wholesale</option><option>Goma Depot</option><option>Konyo Konyo Traders</option></datalist>
+    <datalist id="clients">{#each pickable as c (c.id)}<option value={c.name}></option>{/each}</datalist>
     <div class="table-wrap"><table class="table">
       <thead><tr><th>Brand · Package</th><th class="num">Available</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Amount</th><th></th></tr></thead>
       <tbody>
@@ -187,4 +205,5 @@
   .list { list-style: none; margin: 0; padding: 0; }
   .list li { display: flex; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-bottom: 1px solid var(--border); }
   .list li:last-child { border-bottom: 0; }
+  .warn { color: var(--warning); }
 </style>

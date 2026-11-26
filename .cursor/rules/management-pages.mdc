@@ -1,0 +1,14 @@
+---
+description: Management pages (design v3, V3-10) - layout rules
+globs: apps/web/src/screens/management/**
+alwaysApply: false
+---
+
+# Management pages
+
+Owner: the claude agent (see docs/work/BOARD.md "Who does what"). Ask under Requests before editing.
+
+1. Order at the top of every page: **page title (h1) and its short description first, then the filter bar** (`ReportFilters`: warehouse chips + Day / Week / 30 days / Year to date). Never the filter bar above the title. (Your rule, 26 Nov 2026.)
+2. Numbers come from a `mgmt-*` builder in `packages/api/src/dashboards.ts`, the same sources as Live dashboards, with a parity check in `packages/api/test/dashboards.test.ts`.
+3. Data we don't record yet shows "Not recorded yet", never a made-up or sample number.
+4. Product names and "Country – Town" warehouse names, never ids. No em dashes in product text.

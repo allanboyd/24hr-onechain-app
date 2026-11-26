@@ -190,6 +190,13 @@ export interface PlanLineContext {
   planned: number; orderedBefore: number; thisPo: number; remaining: number;
   exception?: 'over' | 'unplanned'; reason?: string;
 }
+/** V3-12: Management → Settings (directors and the system administrator). */
+export interface MoneySettings {
+  /** Advance payments to suppliers wait for a director's approval. Off by default (26 Nov): the advance counts at once. */
+  advanceApproval: boolean;
+}
+/** V3-12: how a director hears about money records. In-app always; email and SMS when they turn them on. */
+export interface NotifyPrefs { email: boolean; sms: boolean }
 export interface PvThresholds { /** behind when ordered-to-date < behind × expected */ behind: number; /** over when ordered > over × planned */ over: number }
 
 /** Lifecycle of a PO (stored): created as Issued (approved automatically) or Awaiting approval (approvals on); soft-deleted
@@ -347,7 +354,17 @@ export interface Sale {
   kind: 'Cash' | 'Credit' | 'Batch'; lines: SaleLine[]; currency: Currency; paid: number; status: PaymentStatus;
   /** Set when the buyer is a sibling company (intercompany): eliminated from group totals. */
   counterpartyEntityId?: ID;
+  /** V3-12: the client record (picked or created with the sale) and its credit days when the sale was made. */
+  clientId?: ID; termsDays?: number;
 }
+/** V3-12: a client of one company. Picked on the sale (web and phone); a new name on a sale creates it with the default
+ *  credit days. Changing the days applies to the client's next sales; each sale keeps the days it was made with. */
+export interface Client {
+  id: ID; entityId: ID; name: string; phone?: string; warehouseId?: ID; termsDays: number; active: boolean; createdAt: ISODate;
+}
+/** A client with its figures over all its sales (USD): how many, the last one, what it owes and how much is overdue. */
+export type ClientRow = Client & { sales: number; lastSaleAt: ISODate | null; owed: number; overdue: number };
+export type ClientInput = { entityId?: ID; name: string; phone?: string; warehouseId?: ID | null; termsDays?: number; active?: boolean };
 
 // ---- Trip financials & landing cost (FN-*, §17.6) -------------------------
 export type CostKind = 'Transport' | 'Taxes & duties' | 'Clearing & forwarding' | 'Loading & offloading' | 'Storage' | 'Other';

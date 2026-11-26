@@ -38,6 +38,7 @@ cd ../btw-gd-<ID> && pnpm install
 - Product text: plain, short, sentence case. **No em dashes (—)**. Empty cells show `-`. No spec codes in UI text (`pnpm check:text`).
 - Status cards: do not put a coloured bar on the left. The card corner makes that bar look curved. Show the state with the icon in that colour, or with a light wash of the colour on the card (about 10% of danger, warning, success, or info on the surface). A danger note is a pale red with a red icon.
 - Dashboards: follow `.cursor/rules/dashboards-home.mdc`.
+- Management pages: follow `.cursor/rules/management-pages.mdc` (title and description first, then the filter bar).
 - Business rules live in `packages/api/src/rules.ts`, with a test.
 - Size budgets: web entry 130 KB, phone entry 90 KB (`pnpm size`).
 

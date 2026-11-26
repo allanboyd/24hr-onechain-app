@@ -36,8 +36,8 @@
 </script>
 
 <section class="mrep" aria-labelledby="cl-h">
-  <ReportFilters {f} />
   <header><h1 id="cl-h">Sales and clients</h1><p class="muted">{whName} · {res?.period?.label ?? ''}</p></header>
+  <ReportFilters {f} />
   <ErrorState error={w.error} onretry={w.retry} compact={w.loaded} />
   {#if d}
     {@const k = d.kpis}
@@ -75,9 +75,13 @@
         {:else}<p class="muted">Nobody owes us.</p>{/if}
       </div>
       <div class="card">
-        <h3 class="ct">Client credit terms<span class="chip">Not recorded yet</span></h3>
-        <p class="muted">Credit terms per client and warehouse are not recorded yet. Until they are, every client has the same rule: a sale is overdue after {d.terms} days.</p>
-        <p class="small">Recording credit terms is planned as a follow-up (V3-10 step 4).</p>
+        <h3 class="ct">Client credit terms<a class="small" href="#/sales?view=clients">Set on Sales → Clients</a></h3>
+        <p class="muted small">Each client has its own credit days ({d.terms} unless set). A sale is overdue after the days it was made with.</p>
+        {#if d.termsMix.length}
+          <table class="table"><thead><tr><th>Credit days</th><th class="num">Clients owing</th><th class="num">Owed</th><th class="num">Overdue</th></tr></thead>
+            <tbody>{#each d.termsMix as x (x.days)}<tr><td>{x.days === 0 ? 'Pay at once' : `${x.days} days`}</td><td class="num">{x.clients}</td><td class="num">{usd(x.owed)}</td><td class="num" class:bad={x.overdue > 0}>{usd(x.overdue)}</td></tr>{/each}</tbody>
+          </table>
+        {:else}<p class="muted">No client owes anything.</p>{/if}
       </div>
     </div>
 

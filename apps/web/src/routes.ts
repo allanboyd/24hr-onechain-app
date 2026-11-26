@@ -2,6 +2,8 @@ import type { Role, User } from '@btw/api';
 import { canAny, type Feature } from './lib/features';
 import type { RouteDef } from '@btw/ui';
 import LayoutDashboard from '@lucide/svelte/icons/layout-dashboard';
+import Activity from '@lucide/svelte/icons/activity';
+import SettingsIcon from '@lucide/svelte/icons/settings';
 import Gauge from '@lucide/svelte/icons/gauge';
 import Presentation from '@lucide/svelte/icons/presentation';
 import ClipboardList from '@lucide/svelte/icons/clipboard-list';
@@ -82,7 +84,12 @@ type NavGroup = { label: string; items: NavItem[] };
 /** Operations (design v3, docs/23 §2): day-to-day work, groups in process order: plan and order → load and move →
  *  receive, store and sell → admin. Labels follow the design; routes are unchanged. */
 export const nav: NavGroup[] = [
-  { label: 'Overview', items: [{ href: '#/', label: 'Home', icon: LayoutDashboard }] }, // Home stays here for now (26 Nov); also Management → Live dashboards
+  // Live dashboards moved here from Management (26 Nov): everyone uses them; each tab shows only the dashboards the person's
+  // role may see (dashboardsFor), so the entry needs no feature of its own.
+  { label: 'Overview', items: [
+    { href: '#/', label: 'Home', icon: LayoutDashboard },
+    { href: '#/dashboards', label: 'Live dashboards', icon: Activity, navOnly: true },
+  ] },
   { label: 'Procurement', items: [
     { href: '#/period-plans', label: 'Period plans', icon: CalendarRange, feature: 'period-plans' },
     { href: '#/pos', label: 'Purchase orders', icon: FileText, feature: 'purchase-orders' },
@@ -111,7 +118,7 @@ export const nav: NavGroup[] = [
     { href: '#/notifications', label: 'Alerts', icon: Bell },
   ] },
 ];
-/** Management (docs/23 §3): the directors' report pages (as is) and the live dashboards. Only for `reports`. */
+/** Management (docs/23 §3): the directors' report pages. Only for `reports`. */
 export const managementNav: NavGroup[] = [
   // grouped like Operations so the menu has the same rhythm (V3-1c): summary · trading · money and warehouses
   { label: 'Summary', items: [
@@ -127,9 +134,8 @@ export const managementNav: NavGroup[] = [
     { href: '#/management/cash', label: 'Cash and closing', icon: Banknote, feature: 'reports' },
     { href: '#/management/perf', label: 'Warehouse performance', icon: Warehouse, feature: 'reports' },
   ] },
-  { label: 'Live data', items: [
-    { href: '#/dashboards', label: 'Live dashboards', icon: LayoutDashboard, feature: 'reports', navOnly: true },
-  ] },
+  // V3-12: approvals and money notifications (directors and the system administrator change them)
+  { label: 'Settings', items: [{ href: '#/management/settings', label: 'Settings', icon: SettingsIcon, feature: 'reports' }] },
 ];
 /** Pages not in the sidebar, with the feature that opens them (Integrations lives under Admin settings → Master data, docs/17 §4;
  *  Performance, Selling prices and Transport costs left the menu in design v3 but keep their rule). */
@@ -142,8 +148,8 @@ const HIDDEN: Record<string, Feature | Feature[]> = {
 };
 
 export type Side = 'operations' | 'management';
-/** Which side of the switch a path belongs to: the report pages and the live dashboards are Management. */
-export const sideOf = (path: string): Side => (/^\/(management|dashboards)(\/|$)/.test(path.split('?')[0]) ? 'management' : 'operations');
+/** Which side of the switch a path belongs to: the report pages are Management; the live dashboards are Operations (26 Nov). */
+export const sideOf = (path: string): Side => (/^\/management(\/|$)/.test(path.split('?')[0]) ? 'management' : 'operations');
 /** The switch shows only for people who may open Management. */
 export const canSeeManagement = (u: User | null) => canAny(u, 'reports');
 const visible = (groups: NavGroup[], u: User | null) => groups.map((g) => ({ ...g, items: g.items.filter((i) => !i.feature || canAny(u, i.feature)) })).filter((g) => g.items.length);
