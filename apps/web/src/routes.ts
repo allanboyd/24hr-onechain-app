@@ -13,22 +13,24 @@ import FileText from '@lucide/svelte/icons/file-text';
 import Truck from '@lucide/svelte/icons/truck';
 import Boxes from '@lucide/svelte/icons/boxes';
 import ShoppingCart from '@lucide/svelte/icons/shopping-cart';
-import Wallet from '@lucide/svelte/icons/wallet';
+// import Wallet from '@lucide/svelte/icons/wallet';
 import Database from '@lucide/svelte/icons/database';
 import Bell from '@lucide/svelte/icons/bell';
 import UsersIcon from '@lucide/svelte/icons/users';
-import ChartArea from '@lucide/svelte/icons/chart-area';
+// import ChartArea from '@lucide/svelte/icons/chart-area';
 import CalendarRange from '@lucide/svelte/icons/calendar-range';
 import Container from '@lucide/svelte/icons/container';
 import ScrollText from '@lucide/svelte/icons/scroll-text';
 import Receipt from '@lucide/svelte/icons/receipt';
-import Tag from '@lucide/svelte/icons/tag';
+// import Tag from '@lucide/svelte/icons/tag';
 import ArrowRightLeft from '@lucide/svelte/icons/arrow-right-left';
 
 
 /** docs/14 screens share one lazy chunk (one import → a smaller entry). */
 const mo = (k: keyof typeof import('./screens/money')) => () => import('./screens/money').then((m) => ({ default: m[k] }));
 // Every screen loads when first opened (keeps the entry small); the home dashboards (docs/15) share one lazy chunk.
+/** One load function for every Management page, so the shell keeps the same screen (and its report frame) between them. */
+const management = () => import('./screens/management/Management.svelte');
 export type WebRoute = Omit<RouteDef, 'component'> & { component?: RouteDef['component']; load?: () => Promise<{ default: any }> };
 export const routes: WebRoute[] = [
   { path: '/', load: () => import('./screens/dash/Home.svelte'), title: 'Home' },
@@ -68,16 +70,19 @@ export const routes: WebRoute[] = [
   { path: '/selling-prices', load: mo('SellingPrices'), title: 'Selling prices' },
   { path: '/performance', load: mo('Performance'), title: 'Performance' },
   // Management room (docs/23 §3): the directors' report as is; the page key picks the report page
-  { path: '/management', load: () => import('./screens/management/Management.svelte'), title: 'Management' },
-  { path: '/management/:page', load: () => import('./screens/management/Management.svelte'), title: 'Management' },
+  { path: '/management', load: management, title: 'Management' },
+  { path: '/management/:page', load: management, title: 'Management' },
   { path: '/dev/charts', load: () => import('./screens/ChartGallery.svelte'), title: 'Chart gallery' }, // dev/demo only: the screen checks showDemoHelpers
   { path: '/dev/page-kit', load: () => import('./screens/PageKitGallery.svelte'), title: 'Page kit' }, // dev/demo only: the screen checks showDemoHelpers
 ];
 
 /** navOnly: the feature decides who sees this menu entry, not who may open the page (the page keeps its own rule). */
 type NavItem = { href: string; label: string; icon: any; feature?: Feature | Feature[]; navOnly?: boolean };
-export const nav: { label: string; items: NavItem[] }[] = [
-  { label: 'Overview', items: [{ href: '#/', label: 'Home', icon: LayoutDashboard }] },
+type NavGroup = { label: string; items: NavItem[] };
+/** Operations (design v3, docs/23 §2): day-to-day work, groups in process order: plan and order → load and move →
+ *  receive, store and sell → admin. Labels follow the design; routes are unchanged. */
+export const nav: NavGroup[] = [
+  { label: 'Overview', items: [{ href: '#/', label: 'Home', icon: LayoutDashboard }] }, // Home stays here for now (26 Nov); also Management → Live dashboards
   { label: 'Procurement', items: [
     { href: '#/period-plans', label: 'Period plans', icon: CalendarRange, feature: 'period-plans' },
     { href: '#/pos', label: 'Purchase orders', icon: FileText, feature: 'purchase-orders' },
@@ -85,19 +90,29 @@ export const nav: { label: string; items: NavItem[] }[] = [
   { label: 'Logistics', items: [
     { href: '#/trucks', label: 'Truck desk', icon: Container, feature: ['trucks', 'loading'] },
     { href: '#/shipments', label: 'Shipments', icon: Truck, feature: 'logistics' },
-    { href: '#/re-exports', label: 'Re-export orders', icon: ArrowRightLeft, feature: 're-export' },
+    { href: '#/re-exports', label: 'Goods transfers', icon: ArrowRightLeft, feature: 're-export' },
   ] },
   { label: 'Stock & sales', items: [
     { href: '#/stock', label: 'Stock', icon: Boxes, feature: ['inventory', 'warehouse-stock'] },
     { href: '#/warehouse-expenses', label: 'Warehouse expenses', icon: Receipt, feature: 'warehouse-expenses' },
     { href: '#/sales', label: 'Sales', icon: ShoppingCart, feature: 'sales' },
   ] },
-  { label: 'Finance', items: [
-    { href: '#/performance', label: 'Performance', icon: ChartArea, feature: 'performance' },
-    { href: '#/selling-prices', label: 'Selling prices', icon: Tag, feature: 'selling-prices' },
-    { href: '#/transport-costs', label: 'Transport costs', icon: Wallet, feature: ['finance', 'transport-fees'] },
+  // Taken out of the menu in design v3 (docs/23 §2, decisions 26 Nov). Pages and routes are kept; their access rule is in
+  // HIDDEN so a link or typed address still checks it.
+  // { label: 'Finance', items: [
+  //   { href: '#/performance', label: 'Performance', icon: ChartArea, feature: 'performance' },
+  //   { href: '#/selling-prices', label: 'Selling prices', icon: Tag, feature: 'selling-prices' },
+  //   { href: '#/transport-costs', label: 'Transport costs', icon: Wallet, feature: ['finance', 'transport-fees'] }, // via Truck desk → Costs
+  // ] },
+  { label: 'Admin', items: [
+    { href: '#/master', label: 'Master data', icon: Database, feature: ['master-data', 'master-data.static', 'master-data.transport'] },
+    { href: '#/users', label: 'Users & access', icon: UsersIcon, feature: 'users' },
+    { href: '#/audit', label: 'Audit log', icon: ScrollText, feature: 'audit' },
+    { href: '#/notifications', label: 'Alerts', icon: Bell },
   ] },
-  // V3-2 (temporary until V3-1's Operations | Management switch): the report pages + live dashboards, for `reports`
+];
+/** Management (docs/23 §3): the directors' report pages (as is) and the live dashboards. Only for `reports`. */
+export const managementNav: NavGroup[] = [
   { label: 'Management', items: [
     { href: '#/management/overview', label: 'Overview', icon: Gauge, feature: 'reports' },
     { href: '#/management/exec', label: 'Executive report', icon: Presentation, feature: 'reports' },
@@ -106,20 +121,29 @@ export const nav: { label: string; items: NavItem[] }[] = [
     { href: '#/management/suppliers', label: 'Supplier balances', icon: Landmark, feature: 'reports' },
     { href: '#/management/cash', label: 'Cash and closing', icon: Banknote, feature: 'reports' },
     { href: '#/management/perf', label: 'Warehouse performance', icon: Warehouse, feature: 'reports' },
+  ] },
+  { label: 'Live data', items: [
     { href: '#/dashboards', label: 'Live dashboards', icon: LayoutDashboard, feature: 'reports', navOnly: true },
   ] },
-  { label: 'Admin', items: [
-    { href: '#/master', label: 'Master data', icon: Database, feature: ['master-data', 'master-data.static', 'master-data.transport'] },
-    { href: '#/users', label: 'Users & devices', icon: UsersIcon, feature: 'users' },
-    { href: '#/audit', label: 'Audit log', icon: ScrollText, feature: 'audit' },
-    { href: '#/notifications', label: 'Notifications', icon: Bell },
-  ] },
 ];
-/** Pages not in the sidebar, with the feature that opens them (Integrations lives under Admin settings → Master data, docs/17 §4). */
-const HIDDEN: Record<string, Feature | Feature[]> = { integrations: 'integrations', management: 'reports' };
+/** Pages not in the sidebar, with the feature that opens them (Integrations lives under Admin settings → Master data, docs/17 §4;
+ *  Performance, Selling prices and Transport costs left the menu in design v3 but keep their rule). */
+const HIDDEN: Record<string, Feature | Feature[]> = {
+  integrations: 'integrations',
+  management: 'reports',
+  performance: 'performance',
+  'selling-prices': 'selling-prices',
+  'transport-costs': ['finance', 'transport-fees'],
+};
 
-/** Nav groups this user may see (role × feature matrix, docs/07 §E). */
-export const navFor = (u: User | null) => nav.map((g) => ({ ...g, items: g.items.filter((i) => !i.feature || canAny(u, i.feature)) })).filter((g) => g.items.length);
+export type Side = 'operations' | 'management';
+/** Which side of the switch a path belongs to: the report pages and the live dashboards are Management. */
+export const sideOf = (path: string): Side => (/^\/(management|dashboards)(\/|$)/.test(path.split('?')[0]) ? 'management' : 'operations');
+/** The switch shows only for people who may open Management. */
+export const canSeeManagement = (u: User | null) => canAny(u, 'reports');
+const visible = (groups: NavGroup[], u: User | null) => groups.map((g) => ({ ...g, items: g.items.filter((i) => !i.feature || canAny(u, i.feature)) })).filter((g) => g.items.length);
+/** Nav groups this user may see on one side of the switch (role × feature matrix, docs/07 §E). */
+export const navFor = (u: User | null, side: Side = 'operations') => visible(side === 'management' && canSeeManagement(u) ? managementNav : nav, u);
 /** Home page: every web user starts on their own dashboards (docs/15, C-05). */
 export function homeOf(_u: User | null): string { return '/'; }
 
@@ -132,7 +156,7 @@ export const isFieldOnly = (roles: Role[]) => roles.length > 0 && roles.every((r
 export function canOpen(path: string, u: User | null): boolean {
   const seg = path.split('?')[0].split('/')[1] ?? '';
   if (seg === '') return true;
-  const item = nav.flatMap((g) => g.items).find((i) => i.href === `#/${seg}` && !i.navOnly);
+  const item = [...nav, ...managementNav].flatMap((g) => g.items).find((i) => i.href === `#/${seg}` && !i.navOnly);
   const f = item?.feature ?? HIDDEN[seg];
   return !f || canAny(u, f);
 }

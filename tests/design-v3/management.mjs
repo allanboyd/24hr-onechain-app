@@ -9,13 +9,13 @@ async function signIn(name) {
   const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
   p.on('pageerror', (e) => console.log('pageerror', e.message));
   await p.goto(base); await p.waitForTimeout(1200);
-  await p.getByRole('button', { name: `Sign in to the web as ${name}` }).first().click(); await p.waitForTimeout(2500);
+  await p.getByRole('button', { name: `Sign in to the web as ${name}` }).first().click();
+  await p.locator('aside nav a').first().waitFor({ timeout: 20_000 }); await p.waitForTimeout(500);
   return p;
 }
 const p = await signIn('Daniel');
-const navTexts = await p.locator('aside nav').innerText();
-ok(/Management/i.test(navTexts) && navTexts.includes('Supplier balances') && navTexts.includes('Live dashboards'), 'director sees the Management menu');
-ok(!navTexts.includes('Performance') || true, '(Performance removal is V3-1)');
+// since V3-1 the Management menu sits behind the Operations | Management switch
+ok(await p.getByRole('group', { name: 'Operations or management' }).getByRole('link', { name: 'Management' }).count() === 1, 'director sees the Management switch');
 for (const [k, title] of Object.entries(PAGES)) {
   await p.goto(`${base}#/management/${k}`); await p.waitForTimeout(2200);
   const f = p.frameLocator('iframe[title^="Management report"]');
@@ -38,8 +38,7 @@ await p.goto(`${base}#/dashboards`); await p.waitForTimeout(2000);
 ok(!(await p.getByText('Not available for your role').count()), 'director: #/dashboards still opens');
 // gating: a loader has no `reports`
 const q = await signIn('Yonas');
-const qnav = await q.locator('aside nav').innerText().catch(() => '');
-ok(!qnav.includes('Supplier balances'), 'warehouse user does not see the Management menu');
+ok(await q.getByRole('group', { name: 'Operations or management' }).count() === 0, 'warehouse user does not see the Management switch');
 await q.goto(`${base}#/management/cash`); await q.waitForTimeout(1500);
 ok(await q.getByText('Not available for your role').count() > 0, 'warehouse user gets "Not available" at #/management/cash');
 await b.close();
